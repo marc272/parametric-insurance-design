@@ -374,16 +374,28 @@ The setup runs on the owner's machine, never in this repository. The key stays i
 # pip install "velo-sdk==0.0.20" polars   (outside this repo)
 import json, pathlib, polars as pl
 from velo_sdk.api import APIClient
+
 c = APIClient()  # reads RISKTHINKING_API_KEY
-OUT = pathlib.Path.home() / "velo-exports" / "mar41"; OUT.mkdir(parents=True, exist_ok=True)
-def save(name, obj): (OUT / f"{name}.json").write_text(json.dumps(obj, indent=2))
+OUT = pathlib.Path.home() / "velo-exports" / "mar41"
+OUT.mkdir(parents=True, exist_ok=True)
+
+
+def save(name, obj):
+    (OUT / f"{name}.json").write_text(json.dumps(obj, indent=2))
+
+
 def all_rows(path, **params):  # raw cursor paging; keeps every response field
     rows, cur = [], None
     while True:
-        page = c.get(path, params={**params, "limit": 100, **({"cursor": cur} if cur else {})})
-        rows += page["results"]; cur = page["pagination"].get("cursor")
+        page = c.get(
+            path, params={**params, "limit": 100, **({"cursor": cur} if cur else {})}
+        )
+        rows += page["results"]
+        cur = page["pagination"].get("cursor")
         if page["pagination"].get("last_page", True) or not cur:
             return rows
+
+
 GULF_ATL = "Texas,Louisiana,Mississippi,Alabama,Florida,Georgia,South Carolina,North Carolina,Virginia,Puerto Rico"
 CARIB_CA = "MEX,CUB,DOM,HTI,JAM,PRI,BHS,BLZ,GTM,HND,SLV,NIC,CRI,PAN,BRB,TTO,BMU,CYM,TCA"
 BBOX = "-100,5,-55,45"  # min_lon,min_lat,max_lon,max_lat: the IRIS NA probe box in 1.5
