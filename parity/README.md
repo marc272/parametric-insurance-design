@@ -28,6 +28,7 @@ Thesis golden data and the parity tests that check the new core reproduces the t
 | `explanations.yaml` | The explanation of each finding, keyed by finding id or by a glob over its path |
 | `scripts/run_default_parity.py` | Runs the thesis default runs (3 scopes × 3 objectives) with the parity solver policy, checks the noise draws and the thesis payouts, and writes `REPORT.md` (MAR-68) |
 | `analysis/thesis_payouts.md` | Written by that script: every thesis payout evaluated under our design problem; appended to `REPORT.md` |
+| `analysis/adapter.md` | The adapter section of `REPORT.md`: the CLIMADA adapter's rebuild of the thesis event set against the fixture (MAR-20). Written by `packages/climada/scripts/thesis_adapter_parity.py`; see [The adapter check](#the-adapter-check) |
 | `REPORT.md` | The parity report (generated; do not edit by hand) |
 | `configs/thesis.yaml` | The thesis experiment config, migrated by `scripts/migrate_thesis_config.py` (MAR-63) |
 | `tests/` | Checks the committed files against the manifest and fixed checksums; with a thesis checkout, also recomputes the source checksums and regenerates the fixture |
@@ -68,6 +69,16 @@ The script also passes the setup notes: solver policy, noise check, versions.
 The report holds no timestamp, so the same store gives the same text.
 
 **Explanations.** `explanations.yaml` maps a finding id (`P-…`) or a glob over the finding path `kind/approach/method/source/parameters/subject/item` to text. An id wins; otherwise the first matching glob in file order applies. Keep globs narrow. For example, the current one names asset subjects only (`…/A?/*`), so a new portfolio-level finding of the same run stays unexplained.
+
+### The adapter check
+
+The last section of `REPORT.md` checks that the CLIMADA adapter (`packages/climada`, MAR-73) regenerates the thesis input, the fixture under `tests/data/thesis_eventset/` (MAR-20). The adapter runs in its own pixi env, so `run_default_parity.py` doesn't rebuild the event set: it appends the committed `analysis/adapter.md` (option `--adapter`). To rewrite that file, with the merged IRIS catalogue in `data/iris/` (`pixi run iris`), from `packages/climada`:
+
+```bash
+pixi run python scripts/thesis_adapter_parity.py   # about 30 s; --catalogue <file> to point elsewhere
+```
+
+then regenerate `REPORT.md` as above. The script exits with status 1 if a field differs by more than 1e-6 relative. `packages/climada/tests/test_thesis_parity.py` runs in the `test (climada, pixi)` CI job: it checks the fixture against the pinned digests in `packages/climada/tests/data/thesis_eventset_digest.json`, and it rebuilds the event set and compares it bit for bit wherever the catalogue is present (or `IRIS_CATALOGUE` names it); otherwise that test skips with the reason.
 
 ### Golden objective values
 
