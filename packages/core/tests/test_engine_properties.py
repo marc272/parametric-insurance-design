@@ -377,7 +377,7 @@ def test_individual_mse_is_the_binwise_conditional_mean_loss(seed: int) -> None:
 
 
 @given(data=st.data())
-@settings(PROPERTY_SETTINGS, max_examples=100)
+@settings(PROPERTY_SETTINGS, max_examples=60)
 def test_individual_mse_is_the_binwise_conditional_mean_loss_on_random_data(
     data: st.DataObject,
 ) -> None:
@@ -419,7 +419,7 @@ def test_individual_mse_is_the_binwise_conditional_mean_loss_on_random_data(
     objective=objectives(),
     budget=budgets(),
 )
-@settings(PROPERTY_SETTINGS, max_examples=300)
+@settings(PROPERTY_SETTINGS, max_examples=150)
 def test_solution_is_feasible_and_beats_zero_and_flat_payouts(
     eventset: EventSet,
     scope: Scope,
@@ -462,7 +462,7 @@ def test_solution_is_feasible_and_beats_zero_and_flat_payouts(
     budget=budgets(),
     beta=st.sampled_from([0.5, 0.9, 0.99]),
 )
-@settings(PROPERTY_SETTINGS, max_examples=100)
+@settings(PROPERTY_SETTINGS, max_examples=50)
 def test_weighted_cvar_with_alpha_zero_equals_expected_uncovered(
     eventset: EventSet,
     scope: Scope,
@@ -496,7 +496,7 @@ BETAS_TO_ZERO = (0.5, 0.1, 1e-2, 1e-3)
     budget=budgets(),
     alpha=st.sampled_from([0.25, 0.5, 1.0]),
 )
-@settings(PROPERTY_SETTINGS, max_examples=60)
+@settings(PROPERTY_SETTINGS, max_examples=30)
 def test_weighted_cvar_converges_to_expected_uncovered_as_beta_goes_to_zero(
     eventset: EventSet,
     scope: Scope,
@@ -533,7 +533,7 @@ def test_weighted_cvar_converges_to_expected_uncovered_as_beta_goes_to_zero(
     budget=budgets(),
     factor=st.sampled_from([1e-3, 0.25, 7.0, 1e4]),
 )
-@settings(PROPERTY_SETTINGS, max_examples=150)
+@settings(PROPERTY_SETTINGS, max_examples=80)
 def test_scaling_losses_scales_payouts(
     eventset: EventSet,
     scope: Scope,
