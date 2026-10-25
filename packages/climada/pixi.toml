@@ -40,6 +40,7 @@ scipy = ">=1.15"
 # Test tools.
 pytest = ">=9"
 pytest-cov = ">=7"
+hypothesis = ">=6.100"
 # Type checker (MAR-73): the root pyright excludes this package, because it
 # needs CLIMADA, which only this env has. Same floor as the uv lint group.
 pyright = ">=1.1.400"
