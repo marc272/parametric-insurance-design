@@ -316,3 +316,41 @@ Works classified from the title only (see the table) are not in `references.bib`
 - Sadefo Kamdem (2026) was read from its abstract only.
 
 As in MAR-28, the absence of other hits is absence of evidence from a bounded search.
+
+## Addendum (MAR-85): arXiv 2512.01623 checked against claim A
+
+**Status: draft for owner review.** Prepared for [MAR-85](https://linear.app/marc-prinzing/issue/MAR-85/p-09-check-arxiv-251201623-weather-index-insurance-with-farmer-cvar) on 2026-10-25. The MAR-75 web search W7 turned up arXiv 2512.01623 and flagged it as bearing on claim A. This addendum classifies it. Nothing above this heading was changed. Every summary is a paraphrase. These are observations, not conclusions; the owner decides.
+
+**Source and access (2026-10-25).** arXiv API record (`id_list=2512.01623`), the arXiv abstract page and the PDF of v1 (30 pages) were all reachable without sign-in. v1 of 2025-12-01 is the only version, with no journal reference. A Crossref title search (top 5 rows) found no published version. Read: abstract, sections 1–4 in full (introduction, formulation, algorithm, data), section 5.1.1 and the conclusion. The rest of section 5 was skimmed.
+
+**Classification: related to claim A, not prior art for it.**
+
+**`boonen2025monopoly`: Boonen, Li & Quan (2025), arXiv 2512.01623.**
+- *What it does:* models the pricing of weather index insurance as a Bowley (leader–follower) game. The insurer picks a premium principle to maximise profit net of administrative costs: an expected-value loading θ, a two-parameter power distortion, or a general distortion pricing kernel. The farmer then picks a non-negative payoff I(X) of a weather-index matrix X to minimise a distortion risk measure of the hedged loss Y − I(X) + Π(I(X)) (their eq. 4). The farmer's measures are CVaR_α and the mix λ·E + (1−λ)·CVaR_α, with α = 0.8 and λ ∈ {0, 0.5} in the main runs.
+- *Solver:* I(X) is a fully connected or convolutional neural network. The bilevel problem is solved by a penalised, first-order bilevel gradient method (value-gap penalty, subgradients via Danskin's theorem), with convergence results for a lower level that is convex but not strongly convex. The authors note that the CVaR lower-level objective is polyhedral and convex in the payoff values, but do not solve it as an LP.
+- *Data:* Iowa county-level soybean yields (NASS, 1940–2023), detrended, with loss defined as the shortfall from the maximum observed yield. Monthly PRISM weather variables form the index matrix (the text says 7 indices × 12 months; Table 1 lists six variables). To enlarge the sample, the authors assume losses are homogeneous across time and space and pool 45 counties × 84 years into 3,780 county-years. Network size is chosen on a train/validation split (the split itself was not checked).
+- *Findings reported:* stop-loss-shaped optimal payoffs under CVaR, smoother payoffs from CNNs than from fully connected networks, and higher equilibrium loadings and profits as the farmer's CVaR weight or the insurer's pricing flexibility grows.
+- *What it does not do:* there is one payoff function for one representative farmer. The 45 counties are pooled as exchangeable observations, not insured as separate assets, so there are no per-asset payouts, no aggregate shortfall and no joint calibration. The premium is set by the insurer's pricing game, not by a budget constraint. The tail term is on the signed hedged loss, not on the one-sided shortfall (L − π)⁺. There is no LP.
+
+**O12. Comparison with Fan, Tan & Zhang (2023).**
+- *What they share:* a tail-risk design objective for one weather index contract on Midwest crop yields (Illinois corn there, Iowa soybeans here), taken on the hedged loss (for Fan et al. per the thesis; for this paper verified in eq. 4), solved by a non-LP search (annealing random search there, neural networks with bilevel gradient descent here). Boonen et al. cite Fan et al. as a tail-objective design method and present their algorithm as an alternative.
+- *What is different:* Boonen et al. add an insurer who sets the price, so the premium is an equilibrium outcome rather than a given budget. Their objective includes the mixture λ·E + (1−λ)·CVaR, which has the same form as the paper's α·CVaR_β + (1−α)·E (with the weights swapped in name), but it is applied to the signed hedged loss. The MAR-28 entry for Fan et al. (from their abstract) records VaR, CVaR and EVaR as objectives, with no mean term. Boonen et al.'s payoff is a neural network of a weather matrix, not a capped step function.
+- *Consequence for the reference list:* `fan2023tail` stays the closest reference for a tail objective in index design without a pricing game. `boonen2025monopoly` is a second instance of the same single-contract pattern, and the first source in this review, read in full text, whose design objective is a mean–CVaR mix.
+
+**O13. A mean–CVaR mix has been used as an index-design objective; its one-sided, budgeted form differs.**
+- *Tail part:* by O1, CVaR of the signed hedged loss and CVaR of U = (L − π)⁺ have the same minimisers at event level when the premium is fixed and the relevant quantile of L − π is non-negative.
+- *Mean part:* on the signed hedged loss, E[Y − I + Π] = E[Y] + θ·E[I] under an expected-value premium. In Boonen et al.'s game, where the farmer picks I for a given θ, this term prices the loading. Under a fixed, binding budget, as in SPEC §6, a mean of the signed residual would be constant and have no effect. E[(L − π)⁺] does not reduce to a constant.
+- *Implication:* a reader could still see "weighted CVaR plus mean" as already used for index payouts. This supports the MAR-28 proposal to rest claim A on the joint multi-asset scope and the exact LP, not on the form of the objective.
+
+**Proposed claim A wording (owner decides).**
+- *Proposal: unchanged.* Claim A's "Why it would be new" (no source calibrates distinct per-asset payouts jointly against an owner's aggregate tail shortfall) still holds for this paper.
+- *Proposed addition to the closest-prior-work list in `positioning.md` (not made here):* "Boonen, Li & Quan (2025) design one index payoff against a farmer's λ·E + (1−λ)·CVaR of the hedged loss, inside a monopoly-pricing game, with neural-network payoffs and a bilevel gradient solver. Counties are pooled, not designed jointly."
+- *Optional wording guard:* if the manuscript describes the objective, it could say that mean–CVaR mixes have been used as index-design objectives (Fan et al. 2023; Boonen et al. 2025), and that the contribution is the joint, budgeted, one-sided, annual-basis formulation as an exact LP.
+
+**Verification log (MAR-85).**
+
+| Key | Metadata checked against | Content read |
+|---|---|---|
+| `boonen2025monopoly` | arXiv API record and abstract page (v1 2025-12-01, q-fin.RM, no journal reference); Crossref title search found no published version | Full text v1: sections 1–4, 5.1.1 and 6 read; the rest of section 5 skimmed |
+
+**Limits.** The arXiv version is a preprint and may change. Only the top five Crossref rows were screened for a published version. Fan et al. (2023) is still compared through the thesis's account of its objective, since its full text is paywalled.

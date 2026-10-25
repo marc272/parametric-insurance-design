@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "hazard": {
+    "name": "IRIS",
+    "release": "Sparks & Toumi (2024) 10,000-year event set, figshare collection 10.6084/m9.figshare.c.6724251.v1 (Main dataset 10.6084/m9.figshare.24894186.v1), North Atlantic basin"
+  },
+  "index": {
+    "definition": "Maximum 1-minute sustained wind speed at 10 m above ground at the asset over the storm's lifetime: CLIMADA 6.0.1 TropCyclone.from_tracks intensity with CLIMADA's default wind model; winds below CLIMADA's 17.5 m/s intensity threshold are stored as 0",
+    "unit": "m/s"
+  },
+  "loss": {
+    "unit": "USD",
+    "currency": "USD"
+  },
+  "n_years": 10000,
+  "scenario": "Thesis parity event set: IRIS North Atlantic 10,000-year synthetic catalogue (present climate, from 1980-2021 tracks) for the 9 Miami assets of the thesis. One row per storm whose track passes within 500 km of any asset (6,057 rows, 4,762 of them with zero wind and loss at every asset); years without such a storm are implicit zero-loss years. Losses from CLIMADA's Emanuel (2011) USA tropical-cyclone impact function. No noise or vulnerability draws (draw_id 0): the thesis noise layer is applied downstream.",
+  "provenance": {
+    "producer": "parametric-insurance-design parity/scripts/convert_thesis_eventset.py",
+    "producer_version": "0.1.0.dev0",
+    "created_at": "2026-10-25T00:00:00+00:00",
+    "source_checksums": {
+      "parametric-insurance-framework/data/output/climada_transformed_loss_data.csv": "sha256:8513f5fefdcf6686207df575e6a89d576e5ed935f71b652b4045229caf23ff68",
+      "parametric-insurance-framework/configs/experiment_config.yaml": "sha256:b4eafabbc1926c208a36aa00a4d7e069681eebce05f5ed7178776259df829f2d",
+      "parametric-insurance-framework/configs/global_settings.yaml": "sha256:152372f75df80ebbbb7265e161b9ee256a46362b19d34cd95eb5c37dd2721e4f"
+    }
+  },
+  "licence": "CC0-1.0",
+  "filters": []
+}

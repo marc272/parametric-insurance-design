@@ -1,0 +1,71 @@
+{
+  "description": "Thesis parity fixture (MAR-9). Written by parity/scripts/convert_thesis_eventset.py; checked by parity/tests.",
+  "thesis_repo": "https://github.com/marc272/parametric-insurance-framework",
+  "thesis_commit": "ec9c782d8687af519acef7e81c07b727844ea9a2",
+  "sources": {
+    "data/output/climada_transformed_loss_data.csv": {
+      "sha256": "8513f5fefdcf6686207df575e6a89d576e5ed935f71b652b4045229caf23ff68",
+      "rows": 6057,
+      "columns": 22
+    },
+    "configs/experiment_config.yaml": {
+      "sha256": "b4eafabbc1926c208a36aa00a4d7e069681eebce05f5ed7178776259df829f2d"
+    },
+    "configs/global_settings.yaml": {
+      "sha256": "152372f75df80ebbbb7265e161b9ee256a46362b19d34cd95eb5c37dd2721e4f"
+    }
+  },
+  "eventset": {
+    "path": "tests/data/thesis_eventset",
+    "n_rows": 6057,
+    "n_locations": 9,
+    "n_years": 10000,
+    "n_values_rows": 54513,
+    "location_ids": [
+      "A1",
+      "A2",
+      "A3",
+      "A4",
+      "A5",
+      "A6",
+      "A7",
+      "A8",
+      "A9"
+    ],
+    "files_sha256": {
+      "events.parquet": "bb90cbae344cd0f12cb50635911fef74ea530d341c866cd7e54a2dd7529fca57",
+      "locations.parquet": "6d40b87796f2ede91864712a281957ac83e037495941c26efe87c66899638e2a",
+      "metadata.json": "8c2d8f866402139633f0dbad637ef81b631a4b2895dc341097cd283e732911ac",
+      "values.parquet": "bca2cb4a4f0e0d8d40357766a39ce6430a0ac2b629e8151708bc75b439889177"
+    },
+    "dropped_source_columns": {
+      "Portfolio_Max_Wind": {
+        "rule": "equals the row max of the A<k>_Wind columns (exact)",
+        "rows_differing": 0
+      },
+      "Portfolio_Total_Loss": {
+        "rule": "equals the row sum of the A<k>_Loss columns (rtol 1e-9)",
+        "rows_differing": 0,
+        "ratios_sum_to_column_in_differing_rows": []
+      }
+    }
+  },
+  "golden": {
+    "full_optimization_results.csv": {
+      "thesis_path": "src/outputs/optimization_results/full_optimization_results.csv",
+      "stored_as": "golden/full_optimization_results.csv.gz",
+      "sha256": "98fe6556ae7b0cc9e5c48e1633ad24860cc8518047617ff2e0bbb18ae114fd31",
+      "bytes": 803016,
+      "rows": 1551,
+      "columns": 12
+    },
+    "benchmarking_kpis.csv": {
+      "thesis_path": "src/outputs/benchmarking_results/benchmarking_kpis.csv",
+      "stored_as": "golden/benchmarking_kpis.csv.gz",
+      "sha256": "6e2b9d515a3812e35391233926afb4aa118ac797a19ad99d823bd40a3ac669d6",
+      "bytes": 390613,
+      "rows": 1776,
+      "columns": 17
+    }
+  }
+}
