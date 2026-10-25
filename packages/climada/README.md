@@ -109,7 +109,7 @@ The index doesn't use CLIMADA's wind field, so it is decoupled from the loss dri
 
 **Provenance.** `metadata.index.definition` starts with `cat_in_circle(r=<radius> km, metric=<metric>)` and then states the breakpoints, the wind, the distance and the interpolation. The build record's `parameters.index` holds the same settings as data: radius, metric, breakpoints and their source, track step, distance and wind.
 
-**Reference configuration.** Steinmann et al. (2023) build cat-in-a-circle products in CLIMADA, with radii of 10–50 km and step payouts on Saffir–Simpson categories. The index is industry practice, not a novelty claim (`research/lit/notes.md`, O3). The core needs no change for it: a step payout runs on the precomputed index through `PointIndex` (ADR 0002).
+**Reference configuration.** Steinmann et al. (2023) build cat-in-a-circle products in CLIMADA, with radii of 10–50 km and step payouts on Saffir–Simpson categories. The index is industry practice, not a novelty claim (`research/lit/notes.md`, O3). The core needs no change for it: a step payout runs on the precomputed index through `PointIndex` (ADR 0002). With `metric: category`, `StepPayout(attachment=0, limit=6, n_bins=6, breakpoints=(0, 1, 2, 3, 4, 5, 6))` puts each category in its own bin. Category 0 then gets its own bin, so the optimiser can leave it unpaid. The core's step payout clips index values below the attachment into the first bin.
 
 Index (c) of SPEC §6.3 (wind at the nearest grid node or at a reference point at distance d) is not implemented.
 
