@@ -274,9 +274,7 @@ class EberenzEdrPriorConfig(_Model):
     """
 
     kind: Literal["eberenz2021_edr"] = "eberenz2021_edr"
-    region: Literal["NA1", "NA2", "NI", "OC", "SI", "WP1", "WP2", "WP3", "WP4"] = (
-        "NA2"
-    )
+    region: Literal["NA1", "NA2", "NI", "OC", "SI", "WP1", "WP2", "WP3", "WP4"] = "NA2"
 
 
 class UniformPriorConfig(_Model):
