@@ -131,8 +131,16 @@ The adapter and viz distributions import as `parametric_insurance_design_viz`, `
 | `evaluate.py` | KPIs: VaR/CVaR(U), E[U], RMSE, E[π]/E[L], correlation, exceedance curves on an event or annual basis |
 | `splits.py` | Year-block train/test and k-fold. Copies of an event (noise/vulnerability draws) never cross folds |
 | `robust.py` | Scenario-robust (R1) and distributionally robust (R2) wrappers (§6.5) |
-| `experiment.py` | Config schema, runner, sweeps (one factor at a time), content-hashed caching, result store |
+| `experiment/` | Subpackage (ADR 0002 §8): `config.py` config schema, `runner.py` run executor and content-hashed caching, `store.py` result store, `sweeps.py` one-factor-at-a-time sweeps |
+| `cli.py` | The `parametric-insurance-design` command (run, sweep, and later figures and export-site) |
 | `noise.py` | Thesis noise layer (homo/heteroscedastic lognormal), bit-identical port for parity |
+| `interfaces.py` | Shared contract types and ABCs: `Sample`, `Entity`, `ProblemSpec`, `DesignProblem`, `ProblemContext`, `PayoutStructure`, `Scope`, `Objective`, `Pricing`, `Constraint`, `SolveResult` (ADR 0002) |
+| `basis.py` | `Basis` (`event_conditional`, `event`, `annual`) and `OutcomeMeasure`, the probability measure over outcomes shared by objectives, pricing and evaluation |
+| `errors.py` | Error hierarchy under `ParametricInsuranceDesignError` |
+| `records.py` | Typed result-store tables: `runs`, `entities`, `payouts`, `kpis`, `exceedance` |
+| `constraints.py` | Extra constraints, e.g. the premium budget |
+
+The contracts between these modules, and which Linear issue owns which file, are fixed in ADR 0002 (`docs/adr/0002-core-interfaces.md`).
 
 ### 4.3 Engineering standards
 
@@ -164,6 +172,8 @@ Stored as one directory with Parquet tables and `metadata.json`.
 | `metadata.json` | schema version, hazard source and release, index definition and unit, loss unit/currency, `n_years`, scenario description, provenance (source checksums, producer package and version, created_at), licence |
 
 In memory, an EventSet is a dense `(n_rows, n_locations)` index matrix and loss matrix, plus aligned event metadata. A threshold filter may drop rows only for speed. Rates are **never** rescaled, so dropped rows count as zero-loss mass.
+
+**Draw rows.** When an event is expanded into `n` noise or vulnerability draws (`draw_id` 0 … n−1), each draw row carries `rate / n`, so the draws of one event together keep the event's rate. This is the thesis convention (1/(Y·n) per row when the event rate is 1/Y; confirmed bit-identical in MAR-10), and it makes `rates @ loss` the expected annual loss with no extra normalisation. On the annual basis, outcomes are per (year, `draw_id`): each draw is one simulated version of that year.
 
 Migration: `parity/` holds the thesis `climada_transformed_loss_data.csv`, converted to an EventSet with a recorded checksum.
 
