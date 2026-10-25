@@ -145,7 +145,7 @@ SPEC §4.2's `experiment.py` would be edited by four issues, so it becomes `expe
 | 7 | Re-export `EventSet` from `__init__.py` | **Yes.** `EventSet` and `EventSetMetadata` are re-exported (§1) |
 | 8 | EventSet errors live in `eventset.py` | **Accepted**, with an **amendment proposal**: `class EventSetError(ParametricInsuranceDesignError, ValueError)`. This is non-breaking, and lets callers catch the whole library with one class. **Amendment implemented by MAR-82, PR #18** |
 
-With the row 5 amendment, MAR-82 adjusted `tests/test_interfaces.py::test_full_sample_enforces_year_convention`: the EventSet constructor now rejects one-based years, and the test reaches `Sample.full`'s own guard by bypassing validation.
+With the row 5 amendment, MAR-82 adjusted two tests: in `tests/test_interfaces.py::test_full_sample_enforces_year_convention` the EventSet constructor now rejects one-based years, and the test reaches `Sample.full`'s own guard by bypassing validation; in `tests/test_clustering.py` the `make_eventset` helper wraps its years into `[0, n_years)` (clustering reads neither).
 
 Open points left room for:
 
