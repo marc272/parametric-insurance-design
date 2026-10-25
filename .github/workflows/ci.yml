@@ -1,0 +1,148 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Python versions: the uv workspace lock covers Python >= 3.12, because the
+# CRC adapter needs 3.12 (SPEC §4). Core supports 3.11 to 3.13, so:
+#   - "test-workspace" runs every package from uv.lock on 3.12 and 3.13;
+#   - "test-core-py311" installs packages/core alone on 3.11, outside the
+#     workspace lock, once with the newest dependencies and once with the
+#     lowest direct ones (numpy 1.26, pandas 2.1: the CLIMADA env's floor).
+# Core's coverage gate (85 %) counts only what core's own tests cover.
+
+jobs:
+  lint:
+    name: lint (ruff, pyright, pre-commit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          python-version: "3.12"
+      - name: Sync the workspace
+        run: uv sync --locked
+      - name: ruff check
+        run: uv run --locked ruff check --output-format=github
+      - name: ruff format
+        run: uv run --locked ruff format --check
+      - name: pyright
+        run: uv run --locked pyright
+      - name: pre-commit (all files)
+        run: uv run --locked pre-commit run --all-files --show-diff-on-failure
+
+  test-workspace:
+    name: test (workspace, py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Sync the workspace
+        run: uv sync --locked
+      - name: Test core (coverage gate 85 %)
+        run: >-
+          uv run --locked pytest packages/core/tests
+          --cov=parametric_insurance_design
+          --cov-report=term-missing
+          --cov-report=xml:coverage-core.xml
+          --cov-fail-under=85
+      - name: Test viz and crc
+        run: >-
+          uv run --locked pytest packages/viz/tests packages/crc/tests
+          --cov=parametric_insurance_design_viz
+          --cov=parametric_insurance_design_crc
+          --cov-report=term-missing
+          --cov-report=xml:coverage-viz-crc.xml
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-workspace-py${{ matrix.python-version }}
+          path: coverage-*.xml
+          if-no-files-found: error
+
+  test-core-py311:
+    name: test (core only, py3.11, ${{ matrix.resolution }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        resolution: [highest, lowest-direct]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - name: Create a Python 3.11 env outside the workspace
+        run: uv venv --python 3.11 .venv-core
+      - name: Install core (${{ matrix.resolution }} resolution)
+        run: uv pip install --python .venv-core --resolution ${{ matrix.resolution }} ./packages/core
+      - name: Install the locked test tools
+        run: |
+          uv export --locked --only-group test --no-hashes --no-annotate --no-header -o test-requirements.txt
+          uv pip install --python .venv-core -r test-requirements.txt
+      - name: Show resolved versions
+        run: uv pip list --python .venv-core
+      - name: Test core (coverage gate 85 %)
+        run: >-
+          .venv-core/bin/python -m pytest packages/core/tests
+          --cov=parametric_insurance_design
+          --cov-report=term-missing
+          --cov-report=xml:coverage-core.xml
+          --cov-fail-under=85
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-core-py3.11-${{ matrix.resolution }}
+          path: coverage-core.xml
+          if-no-files-found: error
+
+  build:
+    name: build (all four packages, licence metadata)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - name: Build the workspace members
+        run: uv build --all-packages --out-dir dist
+      - name: Build packages/climada (not a workspace member)
+        run: uv build packages/climada --out-dir dist
+      - name: Check licence metadata (ADR 0001)
+        run: |
+          check() {
+            meta=$(unzip -p dist/"$1"-*.whl '*.dist-info/METADATA')
+            echo "$meta" | grep -E '^(Name|Version|Requires-Python|License-Expression|License-File):'
+            echo "$meta" | grep -qx "License-Expression: $2"
+            echo "$meta" | grep -qx "License-File: LICENSE"
+            echo
+          }
+          check parametric_insurance_design BSD-3-Clause
+          check parametric_insurance_design_viz BSD-3-Clause
+          check parametric_insurance_design_crc AGPL-3.0-or-later
+          check parametric_insurance_design_climada GPL-3.0-or-later
