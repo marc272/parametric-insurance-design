@@ -163,3 +163,7 @@ These are observations, not conclusions. The interpretation is the owner's.
 - joint multi-asset parametric payout optimisation for one owner (extended search).
 
 None of these searches found a robust or DRO design of parametric (index) payouts, or a single-owner joint multi-asset tail design. That is absence of evidence from a bounded search, not proof of novelty.
+
+## Addendum (MAR-75): targeted search for robust design of index-based payouts
+
+**Status: in progress.** Search log, hit classification and the proposal for claim B follow.
