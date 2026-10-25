@@ -42,7 +42,7 @@ uv run python parity/scripts/run_default_parity.py --check
 
 The script:
 
-1. runs the 9 runs into `results/thesis` (not committed; cached by content hash) with `PARITY_POLICY`, the thesis-compatible solver policy, defined at the top of the script;
+1. runs the 9 runs into `results/thesis` (not committed; cached by content hash) with `PARITY_POLICY`, defined at the top of the script. By owner decision (MAR-98) it is `solve.THESIS_POLICY`, which reproduces the thesis solves: OSQP at cvxpy's default accuracy for MSE. The thesis MSE solutions carry that solver error, which `BENCHMARK.md` documents;
 2. checks that the runner's noise draws equal the thesis noise layer (`golden/noise_digests.json`);
 3. evaluates each golden thesis payout under our objective and constraints, and writes `analysis/thesis_payouts.md`;
 4. calls `report.py`, which is equivalent to:
