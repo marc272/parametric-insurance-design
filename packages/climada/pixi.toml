@@ -1,0 +1,53 @@
+# pixi environment for parametric-insurance-design-climada (SPEC §4.1).
+#
+# CLIMADA comes from conda-forge, so this package is not a uv workspace member
+# and is not in uv.lock. The core is installed from ../core as an editable path
+# dependency, and this package itself is installed editable from ".".
+# This env never contains parametric-insurance-design-crc (AGENTS.md): the
+# CLIMADA stream is CRC-free.
+#
+#   pixi run test        # tests (CI job "test (climada, pixi)" runs the same)
+#   pixi lock            # after editing this file; commit pixi.lock
+#
+# Versions:
+#   - climada 6.1.0 is the newest on conda-forge. It needs python >=3.10,<3.13
+#     and pins scipy 1.15.*, so python is 3.12 here (the newest CLIMADA
+#     allows) and scipy satisfies the core's floor (>=1.15).
+#   - The core's own dependencies come from conda-forge too (listed below), so
+#     that only the two local packages are installed as PyPI packages and the
+#     conda numpy/scipy stack is never shadowed by wheels.
+
+[workspace]
+name = "parametric-insurance-design-climada"
+channels = ["conda-forge"]
+# linux-64 for CI, osx-arm64 for the owner's machine. Add a platform with
+# `pixi workspace platform add <platform>`, which re-locks.
+platforms = ["linux-64", "osx-arm64"]
+requires-pixi = ">=0.83"
+
+[dependencies]
+python = "3.12.*"
+climada = "==6.1.0"
+# The core's dependencies (packages/core/pyproject.toml), from conda-forge.
+# scipy: the core needs >=1.15 (fcluster(maxclust) is broken on 1.11-1.14).
+cvxpy = ">=1.6"
+numpy = ">=1.26"
+pandas = ">=2.1"
+pyarrow = ">=15"
+pydantic = ">=2.7"
+pyyaml = ">=6.0.1"
+scipy = ">=1.15"
+# Test tools.
+pytest = ">=9"
+pytest-cov = ">=7"
+
+[pypi-dependencies]
+parametric-insurance-design = { path = "../core", editable = true }
+parametric-insurance-design-climada = { path = ".", editable = true }
+
+[tasks]
+test = { cmd = "pytest", description = "Run the CLIMADA adapter tests" }
+# The core's tests in this env (they use the root pyproject.toml's pytest
+# config). The uv workspace remains the place where the core's coverage gate
+# is enforced; this only proves the core works next to CLIMADA's pins.
+test-core = { cmd = "pytest ../core/tests -p no:cacheprovider", description = "Run the core's tests in the CLIMADA env" }

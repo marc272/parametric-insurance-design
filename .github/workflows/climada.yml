@@ -1,0 +1,51 @@
+name: CI (climada)
+
+# The CLIMADA adapter (packages/climada) has its own pixi env with CLIMADA from
+# conda-forge (SPEC §4.1). It is not a uv workspace member, so this workflow
+# is separate from ci.yml and never touches uv.lock. The env comes from the
+# committed packages/climada/pixi.lock: `pixi install --locked` fails if the
+# lock is out of date with pixi.toml, packages/climada/pyproject.toml or the
+# core's dependencies (packages/core/pyproject.toml). Re-lock with `pixi lock`
+# in packages/climada.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-climada:
+    name: test (climada, pixi)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: packages/climada
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
+        with:
+          pixi-version: v0.83.0
+          manifest-path: packages/climada/pixi.toml
+          locked: true
+          cache: true
+          # The env is large (CLIMADA's geo stack); only main writes the cache.
+          cache-write: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - name: Show resolved versions
+        run: pixi list --explicit
+      - name: Test the CLIMADA adapter (pixi run test)
+        run: pixi run --locked test
+      # The core's own tests, in the CLIMADA env (python 3.12, CLIMADA's
+      # numpy/scipy/pandas pins), so that a core change that breaks there
+      # shows up here and not in the adapter work.
+      - name: Test core in the CLIMADA env (pixi run test-core)
+        run: pixi run --locked test-core

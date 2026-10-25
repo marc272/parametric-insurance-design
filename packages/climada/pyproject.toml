@@ -1,6 +1,6 @@
-# Not a uv workspace member: this package gets its own pixi env with CLIMADA
-# from conda-forge (SPEC §4.1). Dependencies and the env are added by the
-# CLIMADA adapter work (MAR-19). It must never depend on or import
+# Not a uv workspace member: this package has its own pixi env with CLIMADA
+# from conda-forge (SPEC §4.1), defined in pixi.toml next to this file, with
+# the core installed from ../core. It must never depend on or import
 # parametric-insurance-design-crc.
 
 [project]
@@ -12,7 +12,8 @@ license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
 authors = [{ name = "Marc Prinzing" }]
 requires-python = ">=3.11"
-dependencies = []
+# climada: the pixi env pins the exact version (pixi.toml).
+dependencies = ["climada>=6.1,<7", "parametric-insurance-design"]
 classifiers = [
     "Development Status :: 1 - Planning",
     "Intended Audience :: Science/Research",
@@ -23,6 +24,14 @@ classifiers = [
 
 [project.urls]
 Repository = "https://github.com/marc272/parametric-insurance-design"
+
+# Run with `pixi run test` from this folder. This table makes the package's
+# test config independent of the uv workspace's root config.
+[tool.pytest]
+minversion = "9.0"
+testpaths = ["tests"]
+addopts = ["-ra", "--import-mode=importlib"]
+strict = true
 
 [build-system]
 requires = ["uv_build>=0.13.5,<0.14"]
