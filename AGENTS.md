@@ -48,7 +48,9 @@ If these conflict, stop and escalate. Never resolve a conflict by editing the sp
   - the acceptance criteria as a checklist, each ticked with evidence (test name, command output or file);
   - deviations from the issue, and why;
   - follow-ups you noticed, proposed rather than done.
-- Never push to `main`, never merge your own PR, and never force-push a branch someone else uses.
+- **Push early.** Push the branch after your first commit, open a **draft** PR, and push after every meaningful commit. Sessions can be interrupted at any time, for example by usage limits, and only pushed work can be resumed. Mark the PR ready when you report back.
+- If your brief says you are resuming, continue on the existing branch. Don't restart from `main`, and don't rewrite pushed history.
+- Never push to `main`, never merge any PR (merging is the orchestrator's job), and never force-push a branch someone else uses.
 
 ## Engineering standards (SPEC §4.3)
 
