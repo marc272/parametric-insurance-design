@@ -21,6 +21,7 @@ from typing import Any, ClassVar
 
 import cvxpy as cp
 import numpy as np
+import pandas as pd
 import pytest
 import scipy
 from cvxpy.error import SolverError
@@ -56,6 +57,7 @@ from parametric_insurance_design.solve import (
     FAILURE_PRECEDENCE,
     NOT_INSTALLED,
     OSQP_OPTIONS,
+    THESIS_POLICY,
     SolverPolicy,
     SolveStatus,
     is_qp,
@@ -141,6 +143,17 @@ def test_default_osqp_options_are_tight() -> None:
     assert options == {"eps_abs": 1e-8, "eps_rel": 1e-8, "max_iter": 100_000}
     with pytest.raises(TypeError):
         OSQP_OPTIONS["eps_abs"] = 1e-5  # type: ignore[index]
+
+
+def test_thesis_policy_is_the_pre_mar98_default() -> None:
+    # Main's DEFAULT_POLICY before MAR-98, field for field: OSQP at cvxpy's
+    # defaults, everything else as the default.
+    assert THESIS_POLICY.lp_solvers == DEFAULT_POLICY.lp_solvers
+    assert THESIS_POLICY.qp_solvers == DEFAULT_POLICY.qp_solvers
+    assert THESIS_POLICY.accept_inaccurate is DEFAULT_POLICY.accept_inaccurate
+    assert {k: dict(v) for k, v in THESIS_POLICY.solver_options.items()} == {
+        "SCS": {"max_iters": 20000}
+    }
 
 
 def test_explicit_options_replace_the_defaults() -> None:
@@ -544,3 +557,63 @@ def test_injected_infeasible_problem_raises_on_the_fixture(
     assert error.status is SolveStatus.INFEASIBLE
     tried = DEFAULT_POLICY.solvers_for(built.problem)
     assert tuple(a.solver for a in error.attempts) == tried
+
+
+# -- THESIS_POLICY (MAR-98) --------------------------------------------------
+
+GOLDEN_RESULTS = REPO_ROOT / "parity" / "golden" / "full_optimization_results.csv.gz"
+THESIS_APPROACH = {
+    "portfolio": "integrated_portfolio_optimization",
+    "cluster": "cluster_optimization",
+}
+# MSE objective values (loss units) of main's DEFAULT_POLICY before MAR-98 on
+# this fixture (macOS arm64, workspace lock). Compared to 1e-9 relative, not
+# bit for bit: OSQP's iterates depend on the BLAS and on the solver versions
+# of each CI job. The MAR-98 default lands 9.1e-5 (portfolio) and 4.7e-6
+# (cluster) lower, far outside that tolerance.
+PRE_MAR98_MSE = {"portfolio": 606424236718.7905, "cluster": 676157755876.9508}
+
+
+def golden_payouts(approach: str, entity_ids: tuple[str, ...]) -> NDArray[np.float64]:
+    """The thesis single-run MSE step levels of the given entities."""
+    table = pd.read_csv(GOLDEN_RESULTS)
+    selected = (
+        (table["Source"] == "single_run")
+        & (table["Approach"] == approach)
+        & (table["Method"] == "pure_basis_risk_minimization")
+    )
+    payouts = dict(
+        zip(
+            table.loc[selected, "Asset_ID"], table.loc[selected, "Payouts"], strict=True
+        )
+    )
+    return np.vstack(
+        [np.array(str(payouts[e]).strip("[]").split(), float) for e in entity_ids]
+    )
+
+
+@needs_fixture
+@pytest.mark.parametrize("scope", ["portfolio", "cluster"])
+def test_thesis_policy_reproduces_the_thesis_mse_solves(
+    thesis_data: EventSet, scope: str
+) -> None:
+    payout = StepPayout(attachment=ATTACHMENT, limit=LIMIT, n_bins=N_BINS)
+    (built,) = build_problems(
+        thesis_data,
+        SCOPES[scope],
+        payout,
+        MSE(),
+        PurePremium(),
+        (Budget(KAPPA),),
+        basis=BASIS,
+    )
+    result = solve(built, THESIS_POLICY)
+    assert result.solver == "OSQP"
+    assert result.objective_value == pytest.approx(PRE_MAR98_MSE[scope], rel=1e-9)
+    # ... which is the objective of the thesis payouts themselves.
+    problem = built.context.problem
+    theta = golden_payouts(THESIS_APPROACH[scope], result.entity_ids)
+    paid = payout.evaluate(problem.index, theta).sum(axis=1)
+    p = thesis_data.rates / thesis_data.rates.sum()
+    thesis_value = numpy_objective("mse", problem.loss, paid, p)
+    assert result.objective_value == pytest.approx(thesis_value, rel=1e-9)

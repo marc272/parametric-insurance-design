@@ -32,8 +32,8 @@ OSQP accuracy (MAR-98)
     there drop by up to ``9.1e-5`` relative, to the true optimum: the thesis
     MSE values carry OSQP's default inaccuracy. KPIs of the MSE payouts move
     more, by up to about 2 % at portfolio level, because the objective is
-    flat at its optimum. To reproduce the thesis values, pass a policy whose
-    ``solver_options`` omit ``"OSQP"``.
+    flat at its optimum. To reproduce the thesis values, use
+    :data:`THESIS_POLICY` (parity gate only).
 
 A problem is a QP when its objective is quadratic but not piecewise linear
 and cvxpy recognises the whole problem as a QP; every other problem goes to
@@ -95,6 +95,7 @@ __all__ = [
     "FAILURE_PRECEDENCE",
     "NOT_INSTALLED",
     "OSQP_OPTIONS",
+    "THESIS_POLICY",
     "InfeasibleError",
     "SolveError",
     "SolveResult",
@@ -233,6 +234,15 @@ class SolverPolicy:
 
 DEFAULT_POLICY: SolverPolicy = SolverPolicy()
 """The default solver policy (module docstring)."""
+
+THESIS_POLICY: SolverPolicy = SolverPolicy(solver_options={"SCS": {"max_iters": 20000}})
+"""Solver policy that reproduces the thesis solves; for the parity gate only.
+
+The default policy before MAR-98, field for field: the same solver lists and
+acceptance rule, with OSQP at cvxpy's defaults (``eps_abs = eps_rel =
+1e-5``, ``max_iter = 10000``) as in the thesis. Its MSE solutions carry
+that inaccuracy (module docstring, "OSQP accuracy"); use
+:data:`DEFAULT_POLICY` for everything but comparing with the thesis."""
 
 
 def is_qp(problem: cp.Problem) -> bool:
