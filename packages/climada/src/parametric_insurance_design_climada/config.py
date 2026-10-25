@@ -271,10 +271,14 @@ class EberenzEdrPriorConfig(_Model):
         The prior kind.
     region : str
         Calibration region; default ``NA2`` (USA and Canada).
+    wind_only : bool
+        Leave out events whose EM-DAT record lists an associated disaster
+        (surge, rain, flood, slide, other). Default False (all events).
     """
 
     kind: Literal["eberenz2021_edr"] = "eberenz2021_edr"
     region: Literal["NA1", "NA2", "NI", "OC", "SI", "WP1", "WP2", "WP3", "WP4"] = "NA2"
+    wind_only: bool = Field(default=False, strict=True)
 
 
 class UniformPriorConfig(_Model):
@@ -360,7 +364,9 @@ class EmanuelVHalfDrawsConfig(_Model):
         """
         prior_config = self.prior
         prior = (
-            EberenzEdrPrior.from_climada(prior_config.region)
+            EberenzEdrPrior.from_climada(
+                prior_config.region, wind_only=prior_config.wind_only
+            )
             if isinstance(prior_config, EberenzEdrPriorConfig)
             else UniformPrior(
                 low=prior_config.low,
