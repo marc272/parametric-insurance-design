@@ -72,19 +72,19 @@ from parametric_insurance_design.experiment.store import ResultStore  # noqa: E4
 from parametric_insurance_design.interfaces import Sample  # noqa: E402
 from parametric_insurance_design.problem import BuiltProblem, build_problems  # noqa: E402
 from parametric_insurance_design.solve import (  # noqa: E402
-    DEFAULT_POLICY,
+    THESIS_POLICY,
     SolverPolicy,
     solve,
 )
 
-PARITY_POLICY: SolverPolicy = DEFAULT_POLICY
-"""Solver policy of the parity runs: the thesis-compatible solver settings.
+PARITY_POLICY: SolverPolicy = THESIS_POLICY
+"""Solver policy of the parity runs: ``solve.THESIS_POLICY``.
 
-main's default policy reproduces the thesis solves (Clarabel for the LPs,
-OSQP at cvxpy's default accuracy for the MSE QPs, as the thesis ran them).
-MAR-98 (PR #38) tightens OSQP in the default policy and adds a
-``THESIS_POLICY`` constant; when it lands, set this to that constant (one
-line) so the parity runs keep the thesis settings."""
+By owner decision (MAR-98, 2026-10-25) the parity gate compares with the
+thesis under the policy that reproduces the thesis solves: Clarabel first for
+the LPs, OSQP at cvxpy's default accuracy for the MSE QPs, as the thesis ran
+them. The default policy runs OSQP at 1e-8 instead; its MSE results differ
+from the thesis by the thesis's own solver error (``parity/BENCHMARK.md``)."""
 
 CONFIG: Final[Path] = PARITY_DIR / "configs" / "thesis.yaml"
 OBJECTIVES: Final[Path] = harness.GOLDEN_DIR / harness.OBJECTIVES_FILE
@@ -98,12 +98,21 @@ DETAIL_RUNS: Final[frozenset[tuple[str, str]]] = frozenset(
 """Runs whose analysis lists every entity (the ones with KPI findings)."""
 
 SETUP_NOTE_POLICY: Final[str] = (
-    "Solver policy: the parity runs use the thesis-compatible solver settings "
-    "(`PARITY_POLICY` in `parity/scripts/run_default_parity.py`: main's "
-    "default policy, OSQP at cvxpy's default accuracy for the MSE problems, as "
-    "in the thesis). MAR-98 found the thesis MSE solutions in the cluster and "
-    "portfolio scopes inaccurate by up to about 1.8 % in portfolio E[U] "
-    "(source: MAR-98 / PR #38, parity/BENCHMARK.md on that branch)."
+    "Solver policy: by owner decision (MAR-98), the parity gate runs with "
+    "`solve.THESIS_POLICY` (`PARITY_POLICY` in "
+    "`parity/scripts/run_default_parity.py`), which reproduces the thesis "
+    "solves: OSQP at cvxpy's default accuracy for the MSE problems, as in the "
+    "thesis. The default policy runs OSQP at 1e-8 instead."
+)
+SETUP_NOTE_MSE: Final[str] = (
+    "Thesis MSE solver error: the thesis MSE solutions carry OSQP's default "
+    "inaccuracy. Against accurate solves, their objective values are slightly "
+    "too high and their payouts and KPIs off, most in the cluster and portfolio "
+    "scopes (up to about 1.8 % in portfolio E[U]), and the individual-scope "
+    "payouts of A2 to A4 exceed the budget by about 1e-4 relative (the appendix "
+    "shows the same for ours under this policy). The MSE rows below therefore "
+    "compare like with like, solver error included; `parity/BENCHMARK.md` "
+    "(MAR-98) gives the measurements."
 )
 
 
@@ -516,8 +525,8 @@ def render_analysis(checks: Sequence[PayoutCheck]) -> str:
         "are optimal: they are alternative optima, and so is every convex "
         "combination (the problem is convex), checked at the midpoint. The "
         "bound and budget violations of the MSE solutions, ours and the "
-        "thesis's alike, come from OSQP at cvxpy's default accuracy, which the "
-        "parity policy keeps (MAR-98).",
+        "thesis's alike, come from OSQP at cvxpy's default accuracy, which "
+        "`THESIS_POLICY` keeps (MAR-98).",
         "",
         _row(
             "Scope",
@@ -604,6 +613,7 @@ def setup_notes(
     policy_text = json.dumps(policy_fingerprint(policy), sort_keys=True)
     return [
         SETUP_NOTE_POLICY + f" Fingerprint: `{policy_text}`.",
+        SETUP_NOTE_MSE,
         noise.text(),
         f"Runs: the {len(config.single_runs())} single runs of "
         "`parity/configs/thesis.yaml` (3 scopes x 3 objectives; noise seed "

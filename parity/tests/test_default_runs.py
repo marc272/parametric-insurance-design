@@ -7,7 +7,7 @@ Three groups:
   covers every ``single_run`` design problem and loads in the harness; the
   golden content matches ``parity/manifest.json``; the runner's noise draws
   equal the thesis noise layer's; the committed ``REPORT.md`` has no
-  unexplained finding; the parity runs use the thesis-compatible policy.
+  unexplained finding; the parity runs use ``solve.THESIS_POLICY``.
 - Against the thesis code (``PARITY_THESIS_REPO``): the whole golden
   objective table, including the rows recomputed with the thesis code, is
   rewritten byte-identically.
@@ -177,10 +177,14 @@ def test_runner_noise_draws_equal_the_thesis_noise_layer(
     assert "Noise draws" in check.text()
 
 
-def test_parity_policy_is_the_thesis_compatible_policy() -> None:
-    # main's default policy reproduces the thesis solves: OSQP is run with
-    # cvxpy's default accuracy (no OSQP options), Clarabel first for LPs.
+def test_parity_policy_is_the_thesis_policy() -> None:
+    # Owner decision (MAR-98): the gate runs with the policy that reproduces
+    # the thesis solves, OSQP at cvxpy's default accuracy, Clarabel first for
+    # the LPs.
+    from parametric_insurance_design.solve import THESIS_POLICY
+
     policy = rdp.PARITY_POLICY
+    assert policy is THESIS_POLICY
     assert policy.lp_solvers[0] == "CLARABEL"
     assert policy.qp_solvers[0] == "OSQP"
     assert "OSQP" not in policy.solver_options
@@ -194,7 +198,9 @@ def test_committed_report_explains_every_finding() -> None:
     assert "- Golden records compared: single_run." in text
     assert "| Objective values | 33 | 33 | 33 | 0 | 0 |" in text
     assert "## Appendix: the thesis payouts under our design problems" in text
-    assert "Solver policy: the parity runs use the thesis-compatible" in text
+    assert "Solver policy: by owner decision (MAR-98)" in text
+    assert "`solve.THESIS_POLICY`" in text
+    assert "Thesis MSE solver error:" in text
     assert "Noise draws:" in text
     assert report.PENDING not in text
     assert report.load_explanations(EXPLANATIONS)
