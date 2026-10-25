@@ -107,9 +107,9 @@ P-94e0b4437b: >-
   the uncovered part, so E_Residual is free among the optima. For this record
   the appendix shows every asset's thesis payout feasible with our objective
   within solver tolerance (verdict "alternative optimum"). The KPIs here are
-  not an asset's objective: E_Residual; VaR of an asset's uncovered loss
-  where it is (near) zero (golden 0, ours at most 1e-4 USD, an infinite
-  relative error); and the portfolio-level KPIs, which in the individual
+  not an asset's objective: E_Residual; VaR where the uncovered loss is
+  (near) zero (golden 0, ours at most 1.2e-4 USD, an infinite relative
+  error); and the portfolio-level KPIs, which in the individual
   scope evaluate the nine asset payouts summed per event, which no design
   problem optimises (at loading 1.5 the portfolio E[U] is 0.003 USD). They
   differ between the optima.

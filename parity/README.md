@@ -26,35 +26,44 @@ Thesis golden data and the parity tests that check the new core reproduces the t
 | `harness.py` | Loads the golden tables, matches each golden record to a store run and compares KPIs, objective values, payout vectors and cluster assignments; every gap is a *finding* (MAR-67) |
 | `report.py` | Renders a comparison as `REPORT.md` and merges in the explanations (MAR-67) |
 | `explanations.yaml` | The explanation of each finding, keyed by finding id or by a glob over its path |
-| `scripts/run_default_parity.py` | Runs the thesis default runs (3 scopes × 3 objectives) with the parity solver policy, checks the noise draws and the thesis payouts, and writes `REPORT.md` (MAR-68) |
-| `analysis/thesis_payouts.md` | Written by that script: every thesis payout evaluated under our design problem; appended to `REPORT.md` |
+| `scripts/run_default_parity.py` | Runs the thesis default runs (3 scopes × 3 objectives, MAR-68) and the optimisation-parameter sweeps (MAR-69) with the parity solver policy, checks the noise draws and the thesis payouts, and writes `REPORT.md` |
+| `analysis/thesis_payouts.md` | Written by that script: every thesis payout evaluated under our design problem, the MSE payouts against accurate optima, and the extra runs that have no golden record; appended to `REPORT.md` |
 | `REPORT.md` | The parity report (generated; do not edit by hand) |
 | `configs/thesis.yaml` | The thesis experiment config, migrated by `scripts/migrate_thesis_config.py` (MAR-63) |
 | `tests/` | Checks the committed files against the manifest and fixed checksums; with a thesis checkout, also recomputes the source checksums and regenerates the fixture |
 
 ## The parity report
 
-`REPORT.md` compares a result store with the golden tables. Today it covers the thesis baseline, the golden `single_run` records: the 9 default runs of `configs/thesis.yaml` (noise seed 42, η = 0.3, 13 copies, α 0.9, β 0.95, budget loading 1, 15 bins, 3 clusters). To regenerate it, from the repository root:
+`REPORT.md` compares a result store with the golden tables. Today it covers:
+
+- the thesis baseline, the golden `single_run` records: the 9 default runs of `configs/thesis.yaml` (noise seed 42, η = 0.3, 13 copies, α 0.9, β 0.95, budget loading 1, 15 bins, 3 clusters), MAR-68;
+- the optimisation-parameter sweeps, the golden `alpha_sweep`, `beta_sweep`, `budget_loading_sweep`, `n_bins_sweep` and `n_clusters_sweep` records: one parameter varied at a time over the values of `configs/thesis.yaml`, 231 sweep points (27 of them equal to a baseline run), MAR-69. The simulation sweeps (`noise_level`, `n_assets`) are MAR-70.
+
+To regenerate it, from the repository root:
 
 ```bash
 uv run python parity/scripts/run_default_parity.py --check
 ```
 
+The first run takes about 10 minutes (the sweeps about 5, the accurate MSE reference runs about 5); later runs reuse the cached runs and take about 10 seconds. `--sweep PARAM` (repeatable) chooses the sweeps, by default the five optimisation sweeps, and `--no-sweeps` runs and reports the baseline only. MAR-70 adds `--sweep noise_level --sweep n_assets`.
+
 The script:
 
-1. runs the 9 runs into `results/thesis` (not committed; cached by content hash) with `PARITY_POLICY`, defined at the top of the script. By owner decision (MAR-98) it is `solve.THESIS_POLICY`, which reproduces the thesis solves: OSQP at cvxpy's default accuracy for MSE. The thesis MSE solutions carry that solver error, which `BENCHMARK.md` documents;
+1. runs the 9 runs, then every point of the sweeps (`sweeps.run_sweeps`), into `results/thesis` (not committed; cached by content hash) with `PARITY_POLICY`, defined at the top of the script. By owner decision (MAR-98) it is `solve.THESIS_POLICY`, which reproduces the thesis solves: OSQP at cvxpy's default accuracy for MSE. The thesis MSE solutions carry that solver error, which `BENCHMARK.md` documents. A sweep point equal to the baseline is a cache hit, so its run keeps the `single_run` tag;
 2. checks that the runner's noise draws equal the thesis noise layer (`golden/noise_digests.json`);
-3. evaluates each golden thesis payout under our objective and constraints, and writes `analysis/thesis_payouts.md`;
+3. evaluates each golden thesis payout under our objective and constraints, next to our stored solution of the matched run, and gives each design problem a verdict: *alternative optimum* (feasible, same objective within solver tolerance, and so is the midpoint of the two payouts), *OSQP accuracy*, *infeasible* or *potential porting bug*. An MSE problem that fails the strict test is compared with the accurate optimum of our problem (`DEFAULT_POLICY`, OSQP at 1e-8) at the loading the payout actually spends; those reference runs go to a separate store, `results/thesis-reference` (`--reference-store`), because in the parity store a run at a golden loading would be a second match. It also lists the extra runs: design problems we solved that have no golden record, because the thesis solves failed there. All this goes to `analysis/thesis_payouts.md`;
 4. calls `report.py`, which is equivalent to:
 
 ```bash
 uv run python parity/report.py --store results/thesis --source single_run \
+    --source alpha_sweep --source beta_sweep --source budget_loading_sweep \
+    --source n_bins_sweep --source n_clusters_sweep \
     --objectives parity/golden/golden_objectives.csv \
     --explanations parity/explanations.yaml \
-    --appendix parity/analysis/thesis_payouts.md --check
+    --appendix parity/analysis/thesis_payouts.md --compact --check
 ```
 
-The script also passes the setup notes: solver policy, noise check, versions.
+The script also passes the setup notes: solver policy, noise check, versions, and per sweep its values, points, failures and sweep manifest id (MAR-65). With `--check` it also exits with status 1 if an explanation claims evidence the thesis-payout check does not give (below).
 
 `report.py` options:
 
@@ -63,11 +72,14 @@ The script also passes the setup notes: solver policy, noise check, versions.
 - `--fixed NAME=VALUE` adds a parameter every matching run must have.
 - `--strict-source` requires `runs.source` to agree. By default it doesn't, because the runner's cache keeps the tag a run was first written with.
 - `--notes`, `--notes-file`, `--setup-note` and `--appendix` add text.
+- `--compact` writes the compact form (MAR-69), which keeps the sweep report under the repository's 500 kB file limit: findings grouped by record, each explanation cell a label (`E1`, `E2`, …) whose text is listed once under *Explanations*, and only the objective values that do not match. Finding ids and counts are those of the full form.
 - `--manifest` is the manifest the decompressed golden checksums are checked against (default `manifest.json`).
 
 The report holds no timestamp, so the same store gives the same text.
 
-**Explanations.** `explanations.yaml` maps a finding id (`P-…`) or a glob over the finding path `kind/approach/method/source/parameters/subject/item` to text. An id wins; otherwise the first matching glob in file order applies. Keep globs narrow. For example, the current one names asset subjects only (`…/A?/*`), so a new portfolio-level finding of the same run stays unexplained.
+**Explanations.** `explanations.yaml` maps a finding id (`P-…`) or a glob over the finding path `kind/approach/method/source/parameters/subject/item` to text. An id wins; otherwise the first matching glob in file order applies. A key without a glob character is read as an id, so name a single finding by its id. Keep globs narrow: the baseline's names asset subjects only (`…/A?/*`), so a new portfolio-level finding of the same run stays unexplained.
+
+**Evidence rule (MAR-69).** The sweeps have hundreds of findings, explained by a few globs. A text that starts with `Alternative optimum` claims that every checked design problem of the finding's record has that verdict in the appendix; one that starts with `OSQP accuracy` allows `alternative optimum` or `OSQP accuracy`. `run_default_parity.py --check` fails while a finding's record lacks that evidence (`unsupported_explanations`), so a broad glob cannot explain a gap the thesis-payout check does not support. A potential porting bug is never explained by a glob: it is listed on its own in the appendix.
 
 ### Golden objective values
 
@@ -92,14 +104,14 @@ uv run python parity/scripts/derive_golden_objectives.py \
 
 ### Markers
 
-- `parity` is the fast subset, run on every pull request. It includes the golden objective table re-derived from the golden KPIs, the golden checksums against the manifest, the runner's noise draws, and the committed report having no unexplained finding.
-- `parity_full` covers the slow tests, which solve the runs (about 30 s). They are skipped unless selected with `-m parity_full` or `PARITY_FULL=1`:
+- `parity` is the fast subset, run on every pull request. It includes the golden objective table re-derived from the golden KPIs, the golden checksums against the manifest, the runner's noise draws, the committed report having no unexplained finding, no potential porting bug and staying under the file-size limit, the sweep points covering every golden sweep record, and the verdict and evidence rules on hand-made cases.
+- `parity_full` covers the slow tests, which solve the runs: about 30 s for the baseline and 10 minutes for the sweeps. They are skipped unless selected with `-m parity_full` or `PARITY_FULL=1`:
 
 ```bash
 uv run --locked pytest parity/tests -m parity_full
 ```
 
-`test_default_runs.py` regenerates the report from fresh runs and requires the same findings and overview counts as the committed one. It also requires every thesis payout to be an alternative optimum of our problem.
+`test_default_runs.py` regenerates the baseline report (`--no-sweeps`) from fresh runs and requires its findings to be the committed report's `single_run` findings. It also requires every baseline thesis payout to be an alternative optimum of our problem. `test_sweeps.py` regenerates the whole report from fresh runs and requires the same findings and overview counts as the committed one, every explanation backed by its evidence, and no potential porting bug.
 
 ## The event set
 
