@@ -1,0 +1,41 @@
+# Claims vs. prior work
+
+**Status: draft for owner review.** This file backs up [`positioning.md`](positioning.md). Citation keys refer to [`references.bib`](references.bib). Per-source summaries, the sources used to verify each entry, and observations O1–O4 are in [`notes.md`](notes.md).
+
+The tables describe what each work *does*. They make no performance comparison (publication rule, AGENTS.md).
+
+## Table 1. Each candidate claim against its closest prior work
+
+| Claim | Closest prior work | What it does | What it does not do | Why the claim would be new | Judgement call for the owner |
+|---|---|---|---|---|---|
+| **A.** Joint tail-risk calibration of per-asset payouts for one owner, as one LP with three scopes | `maier2026expectiles`, `maier2026weighting` | Optimal payments for a single policyholder under an asymmetric squared loss (conditional expectiles). The optimal asymmetry weight under expected utility. A cat-in-a-circle hurricane simulation | No tail functional (the criterion is a mean). Designs one policyholder at a time and names a joint view as open | Joint calibration of distinct payouts against the owner's aggregate shortfall | Positioning relative to the thesis chair's own line of work |
+| | `fan2023tail` | VaR, CVaR and EVaR as the design objective of a weather index contract for one region (Illinois corn). Gradient-free random search | Covers one region and one contract, with no multi-asset joint design. The thesis reports that the objective is the hedged loss L − π + P (not checked in the paywalled full text) | Multi-asset joint design. An exact LP for the CVaR case | O1: at event level, CVaR of the uncovered loss equals CVaR of the signed residual when VaR ≥ 0. The "asymmetric × tail" cell is therefore not by itself the novelty. One-sidedness matters in the E[U] term and on the annual basis |
+| | `steinmann2023framework` | Picks one product (cat-in-a-circle radius × step payout family) by RMSE grid search on basis risk summed over all hospitals | Uses one shared product with no per-asset parameters, a symmetric criterion and no tail functional | Distinct payouts per asset or cluster, optimised jointly under a tail objective | None |
+| | `gao2026basisrisk` | Monte Carlo study of basis risk for many independent fixed-trigger contracts. Pooling lowers portfolio basis risk and its spread. The geometry of site, station and footprint matters | Does not optimise payouts. Contracts are independent, the view is the pool's, and there is no single owner | Diversification enters the *design* rather than being measured after the fact | None |
+| **B.** Scenario-robust (R1) and distributionally robust (R2) payout design, with price of robustness | `steinmann2023framework` | Checks a nominally chosen product under Knutson-scaled TC projections at two warming levels | An ex-post stress test, not a design against scenarios | Payouts optimised for the worst case over scenario event sets | None |
+| | `birghila2019xl` | DRO design of indemnity XL contracts. Minimises the AVaR of the retained loss over a Wasserstein-type neighbourhood, with the premium on the baseline distribution | Indemnity only. No index, no basis risk, no step payouts per asset | The same idea applied to index-based payouts with basis risk and scenario event sets | Close in spirit. The manuscript should cite it as the indemnity analogue |
+| | `zhu2009worst`, `bental2013robust`, `jiang2018riskaverse` | Worst-case CVaR over a mixture of distributions as an LP. φ-divergence (χ² etc.) ambiguity sets that remain tractable. An L1/TV ball turns the worst-case mean into a mix of CVaR and the maximum | Not about insurance design | Applying these techniques to parametric design | O2: R2-TV on E[U] stays in the nominal objective family, which is relevant to D6 |
+| **C.** Annual-basis CVaR, leakage-free out-of-sample evaluation with CIs, realistic basis risk, loaded pricing, and open tooling | `steinmann2023framework` | Open CLIMADA framework. Cat-in-a-circle index. Chooses on the probabilistic set and checks on historic events | No annual-basis tail metric, no CIs, no premium load | The combination for tail-objective design | Rigour more than novelty. Possibly "how we evaluate" rather than a headline claim |
+| | `maier2026weighting` | Cat-in-a-circle on STORM tracks. Synthetic loss model. Premium loading inside a utility model | Single policyholder. No annual CVaR, no out-of-sample protocol | As above | None |
+| | `franco2024typology` | Typology of cat-in-a-box, cat-in-a-circle and cat-in-a-grid triggers, calibrated with a cat model (Miami case) | Optimises the trigger geometry, not tail payouts | Uses cat-in-a-circle as a realistic index, not as a contribution | O3: index (b) in SPEC §6.3 is standard practice. Present it as realism, not novelty |
+
+## Table 2. Feature matrix
+
+Legend: **yes**, **partly** (explained in the notes), **no**, or **n/a** (the feature does not apply). "One owner, joint multi-asset" means that distinct payouts for several assets are calibrated together for a single owner.
+
+| Work | Payout optimised | Tail functional in the design | One-sided shortfall measure | One owner, joint multi-asset | Exact convex program | Index separate from loss model | Loaded pricing | Out-of-sample evaluation | Design under scenario or distribution uncertainty |
+|---|---|---|---|---|---|---|---|---|---|
+| `steinmann2023framework` | partly (grid search over a product family) | no (RMSE) | no | partly (one shared product, error summed over sites) | no | yes (cat-in-a-circle vs CLIMADA impact) | no | partly (historic-event check) | no (ex-post climate test) |
+| `maier2026expectiles` | yes (characterised as conditional expectiles, estimated by regression) | no | partly (asymmetric weights) | no | n/a | n/a | not checked | n/a | no |
+| `maier2026weighting` | yes | no | partly | no (joint view named as future work) | n/a | yes (STORM cat-in-a-circle, synthetic loss) | yes (in a utility model) | n/a | no |
+| `gao2026basisrisk` | no | no | no | no (independent contracts, pool view) | n/a | yes (stylised) | no | n/a | no |
+| `louaas2024design` | yes (theory) | no (expected utility) | n/a | no | n/a | n/a (theory: loss index plus basis risk) | yes (loading factor, read in the 2022 version) | n/a | no |
+| `fan2023tail` | yes | yes (VaR, CVaR, EVaR) | partly (O1) | no | no (random search) | yes (weather index vs yield) | not checked | yes (per the thesis) | no |
+| `lopez2025hybrid` | yes (parametric layer) | partly (heavy-tail criterion, layer above a limit) | not checked | no | not checked | yes (post-event covariates) | not checked | not checked | no |
+| `franco2024typology` | partly (trigger geometry) | no | no | no | not checked | yes | not checked | not checked | no |
+| `ciullo2023pooling` | no (forms pools) | not checked | n/a | no (several sovereign owners) | n/a | n/a | n/a | n/a | no |
+| `birghila2019xl` (indemnity) | yes | yes (AVaR) | yes (retained loss) | no | not checked | n/a (indemnity) | partly (premium limit, priced on the baseline) | not checked | yes (Wasserstein-type DRO) |
+| `prinzing2026thesis` | yes | yes (α·CVaR + (1−α)·E[U]) | yes | yes (individual, cluster, portfolio) | yes (LP) | no (noise layer on a wind-based loss) | no (λ = 0) | no (in-sample) | no |
+| **This paper (planned, SPEC §6)** | yes | yes, over years | yes | yes | yes (LP; SOCP for R2-χ²) | yes (cat-in-a-circle vs CLIMADA with vulnerability draws) | yes (cost of capital) | yes (year blocks, bootstrap CIs) | yes (R1; R2 if chosen at C1) |
+
+"Not checked" means the full text was paywalled or not read. The cell is unknown, not "no". See `notes.md`.

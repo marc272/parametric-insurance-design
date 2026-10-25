@@ -1,0 +1,270 @@
+% references.bib for MAR-28 (literature review and positioning).
+% Every entry was built on 2026-10-25 from a primary metadata source:
+% the Crossref API record of the DOI, the arXiv API or abstract page,
+% the HAL API, or the publisher's own website. The source is named in the
+% "% Verified:" line above each entry. Content caveats are in notes.md.
+% No entry is marked UNVERIFIED: every bibliographic field below was checked
+% against its source.
+
+% ---------------------------------------------------------------------------
+% Core references named in the issue
+% ---------------------------------------------------------------------------
+
+% Verified: Crossref record for doi:10.1007/s10669-023-09934-x.
+% Content read from the Research Square preprint v2 (doi:10.21203/rs.3.rs-2764091/v2),
+% which OpenAlex lists as the accepted version.
+@article{steinmann2023framework,
+  author    = {Steinmann, Carmen B. and Guillod, Beno{\^\i}t P. and Fairless, Christopher and Bresch, David N.},
+  title     = {A generalized framework for designing open-source natural hazard parametric insurance},
+  journal   = {Environment Systems and Decisions},
+  year      = {2023},
+  volume    = {43},
+  number    = {4},
+  pages     = {555--568},
+  doi       = {10.1007/s10669-023-09934-x}
+}
+
+% Verified: Crossref record for doi:10.1007/s13385-026-00447-w, and the arXiv API record for
+% 2505.02607 (v1 2025-05-05, v2 2025-11-11), which links that DOI.
+% The issue calls this "Maier & Scherer (2025, arXiv 2505.02607)". The journal version is dated 2026.
+@article{maier2026expectiles,
+  author        = {Maier, Markus Johannes and Scherer, Matthias},
+  title         = {Expectiles as basis risk-optimal payment schemes in parametric insurance},
+  journal       = {European Actuarial Journal},
+  year          = {2026},
+  volume        = {16},
+  number        = {1},
+  pages         = {3--36},
+  doi           = {10.1007/s13385-026-00447-w},
+  eprint        = {2505.02607},
+  archivePrefix = {arXiv},
+  primaryClass  = {stat.AP}
+}
+
+% Verified: arXiv abstract page and arXiv API record for 2604.21372 (v1 2026-04-23,
+% no journal reference). Full text v1 read.
+@misc{maier2026weighting,
+  author        = {Maier, Markus Johannes and Scherer, Matthias},
+  title         = {Optimal basis risk weighting in expectile-based parametric insurance},
+  year          = {2026},
+  eprint        = {2604.21372},
+  archivePrefix = {arXiv},
+  primaryClass  = {stat.AP},
+  doi           = {10.48550/arXiv.2604.21372},
+  note          = {arXiv preprint, version 1 of 23 April 2026}
+}
+
+% Verified: arXiv API record for 2409.16599 (v1 2024-09-25, full text read), and the Crossref
+% record for doi:10.1057/s41288-025-00360-5 (online 2025-08-19, issue 2026-01).
+% NOTE: the journal article has the same title and authors as the arXiv preprint.
+% The two versions' contents were not compared.
+@article{gao2026basisrisk,
+  author        = {Gao, Hang and Yang, Shuohua and Liu, Xinli},
+  title         = {Managing basis risks in weather parametric insurance: a quantitative study of diversification and key influencing factors},
+  journal       = {The Geneva Papers on Risk and Insurance -- Issues and Practice},
+  year          = {2026},
+  volume        = {51},
+  number        = {1},
+  pages         = {84--111},
+  doi           = {10.1057/s41288-025-00360-5},
+  eprint        = {2409.16599},
+  archivePrefix = {arXiv},
+  primaryClass  = {q-fin.RM}
+}
+
+% Verified: HAL API record for hal-04511811 (version 1, produced 2024-03-15, deposited
+% 2024-03-19; authors Alexis Louaas and Pierre Picard; CREST, Ecole polytechnique / ENSAE).
+% This is the "HAL 2024" reference in the issue. Content read from the 2022 EGRIE conference
+% version (dated 19 August 2022), because hal.science blocked automated access.
+@misc{louaas2024design,
+  author       = {Louaas, Alexis and Picard, Pierre},
+  title        = {On the design of optimal parametric insurance},
+  year         = {2024},
+  howpublished = {HAL working paper hal-04511811, version 1},
+  url          = {https://hal.science/hal-04511811v1}
+}
+
+% Verified: Crossref record for doi:10.1057/s10713-026-00113-x (online 2026-03-24).
+% Published version of louaas2024design (same title and authors; contents not compared).
+@article{louaas2026design,
+  author  = {Louaas, Alexis and Picard, Pierre},
+  title   = {On the design of optimal parametric insurance},
+  journal = {The Geneva Risk and Insurance Review},
+  year    = {2026},
+  volume  = {51},
+  number  = {2},
+  pages   = {173--200},
+  doi     = {10.1057/s10713-026-00113-x}
+}
+
+% ---------------------------------------------------------------------------
+% CVaR and robust optimisation (topics named in the issue)
+% ---------------------------------------------------------------------------
+
+% Verified: Crossref record for doi:10.21314/JOR.2000.038.
+@article{rockafellar2000cvar,
+  author  = {Rockafellar, R. Tyrrell and Uryasev, Stanislav},
+  title   = {Optimization of conditional value-at-risk},
+  journal = {Journal of Risk},
+  year    = {2000},
+  volume  = {2},
+  number  = {3},
+  pages   = {21--41},
+  doi     = {10.21314/JOR.2000.038}
+}
+
+% Verified: Crossref record for doi:10.1016/S0378-4266(02)00271-6.
+@article{rockafellar2002cvar,
+  author  = {Rockafellar, R. Tyrrell and Uryasev, Stanislav},
+  title   = {Conditional value-at-risk for general loss distributions},
+  journal = {Journal of Banking \& Finance},
+  year    = {2002},
+  volume  = {26},
+  number  = {7},
+  pages   = {1443--1471},
+  doi     = {10.1016/S0378-4266(02)00271-6}
+}
+
+% Verified: Crossref record and abstract for doi:10.1287/opre.1080.0684.
+@article{zhu2009worst,
+  author  = {Zhu, Shushang and Fukushima, Masao},
+  title   = {Worst-case conditional value-at-risk with application to robust portfolio management},
+  journal = {Operations Research},
+  year    = {2009},
+  volume  = {57},
+  number  = {5},
+  pages   = {1155--1168},
+  doi     = {10.1287/opre.1080.0684}
+}
+
+% Verified: Crossref record and abstract for doi:10.1287/mnsc.1120.1641.
+@article{bental2013robust,
+  author  = {Ben-Tal, Aharon and den Hertog, Dick and De Waegenaere, Anja and Melenberg, Bertrand and Rennen, Gijs},
+  title   = {Robust solutions of optimization problems affected by uncertain probabilities},
+  journal = {Management Science},
+  year    = {2013},
+  volume  = {59},
+  number  = {2},
+  pages   = {341--357},
+  doi     = {10.1287/mnsc.1120.1641}
+}
+
+% Verified: Crossref record and abstract for doi:10.1287/opre.2018.1729.
+@article{jiang2018riskaverse,
+  author  = {Jiang, Ruiwei and Guan, Yongpei},
+  title   = {Risk-averse two-stage stochastic program with distributional ambiguity},
+  journal = {Operations Research},
+  year    = {2018},
+  volume  = {66},
+  number  = {5},
+  pages   = {1390--1405},
+  doi     = {10.1287/opre.2018.1729}
+}
+
+% Verified: Crossref record for doi:10.1287/opre.1030.0065.
+% Cited for the term "price of robustness", which SPEC section 6.5 uses with its own meaning.
+@article{bertsimas2004price,
+  author  = {Bertsimas, Dimitris and Sim, Melvyn},
+  title   = {The price of robustness},
+  journal = {Operations Research},
+  year    = {2004},
+  volume  = {52},
+  number  = {1},
+  pages   = {35--53},
+  doi     = {10.1287/opre.1030.0065}
+}
+
+% ---------------------------------------------------------------------------
+% Sovereign pools and cat-in-a-circle practice (topics named in the issue)
+% ---------------------------------------------------------------------------
+
+% Verified: publisher website, page fetched 2026-10-25. No DOI.
+@misc{ccrif2026about,
+  author       = {{CCRIF SPC}},
+  title        = {About us},
+  year         = {2026},
+  howpublished = {CCRIF SPC website},
+  url          = {https://www.ccrif.org/about-us},
+  note         = {Accessed 2026-10-25}
+}
+
+% Verified: Crossref record and abstract for doi:10.1038/s41467-023-36539-4.
+@article{ciullo2023pooling,
+  author  = {Ciullo, Alessio and Strobl, Eric and Meiler, Simona and Martius, Olivia and Bresch, David N.},
+  title   = {Increasing countries' financial resilience through global catastrophe risk pooling},
+  journal = {Nature Communications},
+  year    = {2023},
+  volume  = {14},
+  pages   = {922},
+  doi     = {10.1038/s41467-023-36539-4}
+}
+
+% Verified: Crossref record and abstract for doi:10.3390/math12111768.
+% NOTE: the thesis bibliography cites this as "F. Guillermo et al.". Crossref gives the
+% first author as given name Guillermo, family name Franco.
+@article{franco2024typology,
+  author  = {Franco, Guillermo and Lemke-Verderame, Laura and Guidotti, Roberto and Yuan, Ye and Bussi, Gianbattista and Lohmann, Dag and Bazzurro, Paolo},
+  title   = {Typology and design of parametric cat-in-a-box and cat-in-a-grid triggers for tropical cyclone risk transfer},
+  journal = {Mathematics},
+  year    = {2024},
+  volume  = {12},
+  number  = {11},
+  pages   = {1768},
+  doi     = {10.3390/math12111768}
+}
+
+% ---------------------------------------------------------------------------
+% Directly adjacent works found while checking the above (all cited in the thesis)
+% ---------------------------------------------------------------------------
+
+% Verified: Crossref record for doi:10.1016/j.insmatheco.2023.02.005, plus the RePEc/IDEAS
+% abstract. Full text is paywalled. Details of the objective are taken from the thesis
+% (section 2.2.1) and were not re-checked.
+@article{fan2023tail,
+  author  = {Fan, Qi and Tan, Ken Seng and Zhang, Jinggong},
+  title   = {Empirical tail risk management with model-based annealing random search},
+  journal = {Insurance: Mathematics and Economics},
+  year    = {2023},
+  volume  = {110},
+  pages   = {106--124},
+  doi     = {10.1016/j.insmatheco.2023.02.005}
+}
+
+% Verified: arXiv abstract page and arXiv API record for 2507.18207 (v1 2025-07-24,
+% v2 2026-02-17, no journal reference).
+@misc{lopez2025hybrid,
+  author        = {Lopez, Olivier and Nkameni, Daniel},
+  title         = {Combination of traditional and parametric insurance: calibration method based on the optimization of a criterion adapted to heavy tail losses},
+  year          = {2025},
+  eprint        = {2507.18207},
+  archivePrefix = {arXiv},
+  primaryClass  = {q-fin.RM},
+  doi           = {10.48550/arXiv.2507.18207}
+}
+
+% Verified: Crossref record for doi:10.1016/j.insmatheco.2019.05.005, plus the abstract on
+% the IIASA repository (pure.iiasa.ac.at/15937).
+@article{birghila2019xl,
+  author  = {Birghila, Corina and Pflug, Georg Ch.},
+  title   = {Optimal {XL}-insurance under {W}asserstein-type ambiguity},
+  journal = {Insurance: Mathematics and Economics},
+  year    = {2019},
+  volume  = {88},
+  pages   = {30--43},
+  doi     = {10.1016/j.insmatheco.2019.05.005}
+}
+
+% ---------------------------------------------------------------------------
+% Base work
+% ---------------------------------------------------------------------------
+
+% Verified: title page of the thesis PDF (workspace copy, read-only).
+@mastersthesis{prinzing2026thesis,
+  author = {Prinzing, Marc},
+  title  = {Tail-Risk-Optimized Payout Design in Parametric Insurance},
+  school = {Technical University of Munich},
+  year   = {2026},
+  month  = jul,
+  type   = {Master's thesis},
+  note   = {Chair of Mathematical Finance; examiner Matthias Scherer; submitted 20 July 2026}
+}
