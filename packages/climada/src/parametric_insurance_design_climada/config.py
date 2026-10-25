@@ -14,6 +14,7 @@ on the working directory. Example: ``packages/climada/configs/thesis.yaml``.
     proximity_km: 500
     batch_size: 500
     impact_function: {kind: emanuel_usa, impf_id: 1}
+    index: {kind: centroid_wind}   # or: {kind: cat_in_circle, radius_km: 50}
     output: ../../../data/eventsets/thesis-iris
 
 The defaults reproduce the thesis ``engine.py``, except where
@@ -24,7 +25,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import yaml
 from pydantic import (
@@ -35,14 +36,23 @@ from pydantic import (
     model_validator,
 )
 
-from parametric_insurance_design.errors import ConfigError
+from parametric_insurance_design.errors import ComponentConfigError, ConfigError
+from parametric_insurance_design_climada.cat_in_circle import (
+    DEFAULT_TRACK_STEP_HOURS,
+    SAFFIR_SIMPSON_KN,
+    CatInCircleIndex,
+)
 
 __all__ = [
+    "CatInCircleIndexConfig",
+    "CentroidWindIndexConfig",
     "ImpactFunctionConfig",
+    "IndexConfig",
     "LocationsConfig",
     "PipelineConfig",
     "PipelineConfigError",
     "WindConfig",
+    "check_circle_radius",
     "load_config",
     "parse_config",
 ]
@@ -151,6 +161,74 @@ class ImpactFunctionConfig(_Model):
         return self
 
 
+class CentroidWindIndexConfig(_Model):
+    """The thesis index: wind at the asset (the default).
+
+    Selects :class:`~parametric_insurance_design_climada.hooks.CentroidWindIndex`.
+
+    Attributes
+    ----------
+    kind : {"centroid_wind"}
+        The index kind.
+    """
+
+    kind: Literal["centroid_wind"] = "centroid_wind"
+
+
+class CatInCircleIndexConfig(_Model):
+    """Cat-in-a-circle index from the tracks (MAR-26, SPEC §6.3 index (b)).
+
+    Selects :class:`~parametric_insurance_design_climada.cat_in_circle.CatInCircleIndex`;
+    the attributes are its parameters.
+
+    Attributes
+    ----------
+    kind : {"cat_in_circle"}
+        The index kind.
+    radius_km : float
+        Circle radius around each asset, in km. Must not exceed half of
+        ``proximity_km`` (checked by :class:`PipelineConfig`).
+    metric : {"category", "max_wind"}
+        The category (default) or the maximum wind in m/s.
+    breakpoints_kn : tuple of float
+        Category lower bounds in knots; default Saffir–Simpson.
+    track_step_hours : float or None
+        Track interpolation step in hours (default 0.5); None uses the raw
+        track points.
+    """
+
+    kind: Literal["cat_in_circle"]
+    radius_km: float = Field(gt=0, allow_inf_nan=False)
+    metric: Literal["category", "max_wind"] = "category"
+    breakpoints_kn: tuple[float, ...] = SAFFIR_SIMPSON_KN
+    track_step_hours: float | None = Field(
+        default=DEFAULT_TRACK_STEP_HOURS, gt=0, allow_inf_nan=False
+    )
+
+    @model_validator(mode="after")
+    def _valid_builder(self) -> CatInCircleIndexConfig:
+        try:
+            self.builder()
+        except ComponentConfigError as exc:
+            raise ValueError(str(exc)) from exc
+        return self
+
+    def builder(self) -> CatInCircleIndex:
+        """Return the configured index builder."""
+        return CatInCircleIndex(
+            radius_km=self.radius_km,
+            metric=self.metric,
+            breakpoints_kn=self.breakpoints_kn,
+            track_step_hours=self.track_step_hours,
+        )
+
+
+#: The ``index`` section of a pipeline config, selected by ``kind``.
+IndexConfig = Annotated[
+    CentroidWindIndexConfig | CatInCircleIndexConfig, Field(discriminator="kind")
+]
+
+
 class PipelineConfig(_Model):
     """One EventSet build.
 
@@ -172,6 +250,9 @@ class PipelineConfig(_Model):
         Wind field parameters.
     impact_function : ImpactFunctionConfig
         Impact function.
+    index : CentroidWindIndexConfig or CatInCircleIndexConfig
+        The index, selected by ``kind``. Default: the thesis index, wind at
+        the asset (``centroid_wind``).
     hazard_release : str or None
         Release text for the EventSet's ``hazard.release``. If None, the
         catalogue must be the pinned IRIS merged file (checked by SHA256),
@@ -194,11 +275,50 @@ class PipelineConfig(_Model):
     batch_size: int = Field(default=500, gt=0, strict=True)
     wind: WindConfig = WindConfig()
     impact_function: ImpactFunctionConfig = ImpactFunctionConfig()
+    index: IndexConfig = CentroidWindIndexConfig()
     hazard_release: str | None = Field(default=None, min_length=1)
     scenario_id: str = Field(default="iris-present-climate", min_length=1)
     scenario: str | None = Field(default=None, min_length=1)
     licence: str = Field(default="CC0-1.0", min_length=1)
     output: Path
+
+    @model_validator(mode="after")
+    def _circle_within_proximity(self) -> PipelineConfig:
+        index = self.index
+        if isinstance(index, CatInCircleIndexConfig):
+            check_circle_radius(index.radius_km, self.proximity_km)
+        return self
+
+
+def check_circle_radius(radius_km: float, proximity_km: float) -> None:
+    """Check that a cat-in-a-circle radius fits the proximity filter.
+
+    The proximity filter tests the raw track points only. A storm it removes
+    has every point farther than ``proximity_km`` from every asset, so no
+    point of a segment shorter than ``sqrt(3) * proximity_km`` (866 km for the
+    default 500 km, against at most a few hundred km between 3-hourly track
+    points) comes within ``proximity_km / 2``. Requiring ``radius_km <=
+    proximity_km / 2`` therefore guarantees that no removed storm, interpolated
+    or not, would have a non-zero cat-in-a-circle index.
+
+    Parameters
+    ----------
+    radius_km : float
+        Circle radius.
+    proximity_km : float
+        Proximity filter radius.
+
+    Raises
+    ------
+    ValueError
+        If ``radius_km > proximity_km / 2``.
+    """
+    if radius_km > proximity_km / 2:
+        raise ValueError(
+            f"index.radius_km ({radius_km:g}) must not exceed half of "
+            f"proximity_km ({proximity_km:g}): storms removed by the proximity "
+            "filter could otherwise have a non-zero index"
+        )
 
 
 def _format_errors(exc: ValidationError, source: str | None) -> str:
