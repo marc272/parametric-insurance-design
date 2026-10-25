@@ -23,6 +23,16 @@ The report renders a :class:`harness.ParityResult`:
 9. Appendices (optional): Markdown files appended verbatim (``--appendix``),
    e.g. an analysis that explains findings (MAR-68).
 
+Compact form (``--compact``, MAR-69)
+    For comparisons with many findings (the sweeps), so that the report
+    stays under the repository's 500 kB file limit: the findings are grouped
+    by record (one heading per record instead of the record columns), their
+    explanation cell names an explanation (``E1``, ``E2``, ...) whose text is
+    listed once in an *Explanations* section, and the objective table lists
+    only the values that do not match (the summary by group gives the largest
+    error of every group). The counts, the overview and every finding id are
+    the same as in the full form.
+
 Explanations
     The report is generated, so explanations live in a separate YAML file
     (a mapping) and are merged in on every run. A key is either a finding id
@@ -76,6 +86,7 @@ __all__ = [
     "PENDING",
     "ExplanationsError",
     "explanation_for",
+    "explanation_key_for",
     "load_explanations",
     "main",
     "overview",
@@ -140,6 +151,32 @@ def load_explanations(path: str | Path) -> dict[str, str]:
     return {str(k): str(v).strip() for k, v in data.items()}
 
 
+def explanation_key_for(
+    finding: Finding, explanations: Mapping[str, str]
+) -> str | None:
+    """Return the key (id or glob) of a finding's explanation, if any.
+
+    Parameters
+    ----------
+    finding : harness.Finding
+        The finding.
+    explanations : mapping of str to str
+        Finding id or path glob to text (module docstring).
+
+    Returns
+    -------
+    str or None
+        The finding's id if it is a key, else the first glob that matches its
+        path, else None.
+    """
+    if finding.id in explanations:
+        return finding.id
+    for pattern in explanations:
+        if _GLOB_CHARS & set(pattern) and fnmatch.fnmatchcase(finding.path, pattern):
+            return pattern
+    return None
+
+
 def explanation_for(finding: Finding, explanations: Mapping[str, str]) -> str | None:
     """Return the explanation of a finding, if any.
 
@@ -156,12 +193,8 @@ def explanation_for(finding: Finding, explanations: Mapping[str, str]) -> str | 
         The text for the finding's id, else for the first glob that matches
         its path, else None.
     """
-    if finding.id in explanations:
-        return explanations[finding.id]
-    for pattern, text in explanations.items():
-        if _GLOB_CHARS & set(pattern) and fnmatch.fnmatchcase(finding.path, pattern):
-            return text
-    return None
+    key = explanation_key_for(finding, explanations)
+    return None if key is None else explanations[key]
 
 
 # --------------------------------------------------------------------------
@@ -595,7 +628,7 @@ def _matched_runs_md(result: ParityResult) -> str:
     return "\n".join(lines)
 
 
-def _objectives_md(result: ParityResult) -> str:
+def _objectives_md(result: ParityResult, compact: bool = False) -> str:
     lines = ["## Objective values", ""]
     if not result.objectives_available:
         lines.append("No golden objective table was given; nothing compared.")
@@ -612,6 +645,17 @@ def _objectives_md(result: ParityResult) -> str:
     if not rows:
         lines.append("No golden objective values for the records compared.")
         return "\n".join(lines)
+    if compact:
+        listed = [r for r in rows if r["status"] != "match"]
+        lines.append(
+            f"Compact form: the {len(rows) - len(listed)} of {len(rows)} golden "
+            "objective values that match are not listed (the summary by "
+            "comparison group gives the largest relative error of each group)."
+        )
+        if not listed:
+            return "\n".join(lines)
+        lines.append("")
+        rows = listed
     table = [
         (
             f"{r['approach']} / {r['method']} / {r['source']}",
@@ -646,6 +690,106 @@ def _num(value: object) -> str:
     if not isinstance(value, int | float) or math.isnan(value):
         return ""
     return f"{value:.10g}"
+
+
+def explanation_labels(
+    result: ParityResult, explanations: Mapping[str, str]
+) -> dict[str, str]:
+    """Label the explanations the findings use: ``E1``, ``E2``, ... in file order.
+
+    Parameters
+    ----------
+    result : harness.ParityResult
+        The comparison.
+    explanations : mapping of str to str
+        Finding id or path glob to text.
+
+    Returns
+    -------
+    dict of str to str
+        Explanation key to label, for the keys at least one finding uses.
+    """
+    used = {explanation_key_for(f, explanations) for f in result.findings}
+    keys = [k for k in explanations if k in used]
+    return {key: f"E{i}" for i, key in enumerate(keys, start=1)}
+
+
+def _findings_compact_md(result: ParityResult, explanations: Mapping[str, str]) -> str:
+    labels = explanation_labels(result, explanations)
+    lines = [
+        "## Findings",
+        "",
+        "Every gap between the golden data and the store, grouped by golden "
+        "record. Explain each one in the explanations file, by id or by a glob "
+        "over its path (`kind/approach/method/source/parameters/subject/item`), "
+        "and regenerate the report. *Explanation* names the text in the "
+        "*Explanations* section below.",
+    ]
+    if not result.findings:
+        lines += ["", "None."]
+        return "\n".join(lines)
+    header = (
+        "ID",
+        "Kind",
+        "Subject / item",
+        "Golden",
+        "Ours",
+        "Rel. error",
+        "Detail",
+        "Explanation",
+    )
+    by_record: dict[tuple[str, str], list[Finding]] = defaultdict(list)
+    for f in result.findings:
+        by_record[(f.key.label(), f.key.parameter_text())].append(f)
+    for findings in by_record.values():
+        key = findings[0].key
+        lines += [
+            "",
+            f"### {key.approach} / {key.method} / {key.source}: "
+            f"{key.parameter_text() or 'no parameters'}",
+            "",
+        ]
+        rows = []
+        for f in findings:
+            label = labels.get(explanation_key_for(f, explanations) or "")
+            rows.append(
+                (
+                    f"`{f.id}`",
+                    f.kind.value,
+                    " / ".join(x for x in (f.subject, f.item) if x),
+                    f.golden,
+                    f.ours,
+                    _sci(f.rel_error),
+                    f.detail,
+                    label or PENDING,
+                )
+            )
+        lines.append(_table(header, rows))
+    return "\n".join(lines)
+
+
+def _explanations_md(result: ParityResult, explanations: Mapping[str, str]) -> str:
+    labels = explanation_labels(result, explanations)
+    counts: dict[str, int] = defaultdict(int)
+    for f in result.findings:
+        key = explanation_key_for(f, explanations)
+        if key is not None:
+            counts[key] += 1
+    lines = [
+        "## Explanations",
+        "",
+        "The explanations the findings above use, from the explanations file "
+        "(key: a finding id or a glob over the finding path).",
+    ]
+    if not labels:
+        lines += ["", "None."]
+        return "\n".join(lines)
+    for key, label in labels.items():
+        lines += [
+            "",
+            f"**{label}** (`{key}`, {counts[key]} findings): {explanations[key]}",
+        ]
+    return "\n".join(lines)
 
 
 def _findings_md(result: ParityResult, explanations: Mapping[str, str]) -> str:
@@ -756,6 +900,7 @@ def render(
     appendices: Sequence[str] = (),
     manifest: str | Path | None = MANIFEST,
     setup_notes: Sequence[str] = (),
+    compact: bool = False,
 ) -> str:
     """Render the parity report as Markdown.
 
@@ -776,6 +921,10 @@ def render(
         Manifest to check the golden content SHA256 against; None to skip.
     setup_notes : sequence of str, optional
         Extra bullet points for the setup section (e.g. the solver policy).
+    compact : bool, default False
+        The compact form (module docstring): findings grouped by record with
+        explanation labels, an *Explanations* section, and only the
+        objective values that do not match.
 
     Returns
     -------
@@ -801,8 +950,15 @@ def render(
         _overview_md(result, explanations),
         _summary_md(result, explanations),
         _matched_runs_md(result),
-        _objectives_md(result),
-        _findings_md(result, explanations),
+        _objectives_md(result, compact),
+        *(
+            (
+                _findings_compact_md(result, explanations),
+                _explanations_md(result, explanations),
+            )
+            if compact
+            else (_findings_md(result, explanations),)
+        ),
         _payouts_md(result),
         _unmatched_md(result),
         *(a.strip() for a in appendices if a.strip()),
@@ -821,6 +977,7 @@ def write_report(
     appendices: Sequence[str] = (),
     manifest: str | Path | None = MANIFEST,
     setup_notes: Sequence[str] = (),
+    compact: bool = False,
 ) -> Path:
     """Render the report and write it to ``path``.
 
@@ -842,6 +999,8 @@ def write_report(
         As for :func:`render`.
     setup_notes : sequence of str, optional
         As for :func:`render`.
+    compact : bool, default False
+        As for :func:`render`.
 
     Returns
     -------
@@ -858,6 +1017,7 @@ def write_report(
             appendices=appendices,
             manifest=manifest,
             setup_notes=setup_notes,
+            compact=compact,
         ),
         encoding="utf-8",
     )
@@ -963,6 +1123,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="manifest to check the golden content SHA256 against",
     )
     parser.add_argument(
+        "--compact",
+        action="store_true",
+        help="compact form: findings grouped by record, explanations listed "
+        "once, only the objective values that do not match",
+    )
+    parser.add_argument(
         "--check",
         action="store_true",
         help="exit with status 1 if a finding has no explanation",
@@ -999,6 +1165,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         appendices=appendices,
         manifest=args.manifest,
         setup_notes=args.setup_note,
+        compact=args.compact,
     )
     unexplained = [
         f for f in result.findings if explanation_for(f, explanations) is None

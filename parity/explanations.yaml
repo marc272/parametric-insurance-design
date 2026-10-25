@@ -1,8 +1,17 @@
-# Explanations of the parity findings (MAR-68), merged into parity/REPORT.md by
-# parity/report.py. Keys are finding ids (P-...) or globs over the finding path
-# kind/approach/method/source/parameters/subject/item; an id wins, otherwise the
-# first matching glob in file order. Observations, not conclusions: every number
-# cited here is in the report (its appendix for the thesis-payout check).
+# Explanations of the parity findings (MAR-68, MAR-69), merged into
+# parity/REPORT.md by parity/report.py. Keys are finding ids (P-...) or globs
+# over the finding path kind/approach/method/source/parameters/subject/item;
+# an id wins, otherwise the first matching glob in file order. Observations,
+# not conclusions: every number cited here is in the report (its appendix
+# for the thesis-payout check).
+#
+# Evidence rule (parity/scripts/run_default_parity.py, unsupported_explanations):
+# a text that starts with "Alternative optimum" claims that every checked
+# design problem of the finding's record has the verdict "alternative
+# optimum" in the appendix; one that starts with "OSQP accuracy" allows
+# "alternative optimum" or "OSQP accuracy". With --check the script fails if
+# a record lacks that evidence, so a glob cannot explain a finding whose
+# record the thesis-payout check does not support.
 
 # Thesis baseline, integrated portfolio, weighted CVaR (config_hash
 # sha256:9e8964c642474b61fcf37da58fba55a65630a9c02aa8cef85686ae58e2bec571):
@@ -21,3 +30,108 @@
   differently between assets (E[payout]/E[loss] of A1 +2.25e-4, A6 +4.92e-4
   relative), which moves these asset-level KPIs by 1.4e-4 to 7.3e-4. This is
   what degeneracy predicts, not a porting bug.
+
+# Sweeps (MAR-69), LP objectives (E[U], weighted CVaR), joint scopes: KPIs of
+# an asset (portfolio scope, subjects A<k>) or a cluster (cluster scope, C<k>).
+# Portfolio-level findings of these records are matched further down or stay
+# unexplained.
+? "kpi/integrated_portfolio_optimization/weighted_cvar_minimization/*_sweep/*/A?/*"
+: &joint_entity >-
+  Alternative optimum (LP degeneracy), as for the baseline. In the cluster and
+  portfolio scopes the objective depends on the payouts only through the
+  total payout per event, and two optima can split that total differently
+  between the entities, which moves entity-level KPIs. For this record the
+  appendix shows the thesis payout feasible and its objective, and the
+  midpoint's, equal to ours within solver tolerance (verdict "alternative
+  optimum"); its table "Joint scopes with asset-level KPI findings" gives
+  the entity whose E[payout]/E[loss] differs most. Not a porting bug.
+? "kpi/integrated_portfolio_optimization/pure_uncovered_loss_minimization/*_sweep/*/A?/*"
+: *joint_entity
+? "kpi/cluster_optimization/weighted_cvar_minimization/*_sweep/*/C?/*"
+: *joint_entity
+? "kpi/cluster_optimization/pure_uncovered_loss_minimization/*_sweep/*/C?/*"
+: *joint_entity
+
+# beta sweep, cluster scope, beta 0.92: portfolio-level E[U] and VaR at the
+# evaluation beta 0.95.
+? "kpi/cluster_optimization/weighted_cvar_minimization/beta_sweep/alpha=0.9, beta=0.92, budget_loading=1, n_bins=15, n_clusters=3/Portfolio/*"
+: >-
+  Alternative optimum (LP degeneracy). At beta 0.92 the objective is 0.9
+  CVaR_0.92 + 0.1 E[U]; it is within tolerance, and the appendix shows the
+  thesis payout feasible with our objective within solver tolerance. The
+  KPIs here, E[U] and VaR at the evaluation beta 0.95, are not the objective
+  and differ between the two optima (2.2e-4 and 1.4e-3 relative).
+
+# Budget-loading sweep, LP objectives, joint scopes, the loadings at which
+# the optimal uncovered loss is zero (appendix: portfolio scope from 1.3,
+# cluster scope from 1.4) and the budget is not binding.
+? "objective/integrated_portfolio_optimization/weighted_cvar_minimization/budget_loading_sweep/*budget_loading=1.[3-5],*/portfolio/*"
+: &slack_budget >-
+  Alternative optimum with a slack budget. At this loading the optimal
+  uncovered loss is zero: in the appendix the thesis payout and our stored
+  payout both evaluate (numpy) to an objective of 0, and both spend less than
+  the budget (negative *budget* columns). So the optimisation does not
+  determine the expected payout, E_Residual or the split between entities;
+  these KPIs differ between the optima. The objective findings compare the
+  golden 0 (from the thesis KPIs) with the objective value our solver
+  reports, at most 0.007 USD (an infinite relative error), while our stored
+  payout evaluates to 0.
+? "objective/cluster_optimization/weighted_cvar_minimization/budget_loading_sweep/*budget_loading=1.[4-5],*/portfolio/*"
+: *slack_budget
+? "kpi/integrated_portfolio_optimization/weighted_cvar_minimization/budget_loading_sweep/*budget_loading=1.[3-5],*/Portfolio/*"
+: *slack_budget
+? "kpi/integrated_portfolio_optimization/pure_uncovered_loss_minimization/budget_loading_sweep/*budget_loading=1.[3-5],*/Portfolio/*"
+: *slack_budget
+? "kpi/cluster_optimization/weighted_cvar_minimization/budget_loading_sweep/*budget_loading=1.[4-5],*/Portfolio/*"
+: *slack_budget
+
+# Budget-loading sweep, portfolio scope, weighted CVaR, loading 1.2, the
+# portfolio VaR (path kpi/integrated_portfolio_optimization/
+# weighted_cvar_minimization/budget_loading_sweep/alpha=0.9, beta=0.95,
+# budget_loading=1.2, n_bins=15/Portfolio/VaR_Uncovered).
+P-94e0b4437b: >-
+  Alternative optimum (LP degeneracy). The objective is within tolerance and
+  the appendix shows the thesis payout feasible with our objective within
+  solver tolerance. The portfolio's VaR_0.95 of the uncovered loss is 0 for
+  the thesis payout and 1.3e-4 USD for ours: an absolute difference far
+  below the solver's tolerance, which the relative rule turns into an
+  infinite error.
+
+# Budget-loading sweep, individual scope, LP objectives: asset-level and
+# portfolio-level KPIs.
+? "kpi/individual_optimization/weighted_cvar_minimization/budget_loading_sweep/*"
+: &individual >-
+  Alternative optimum (LP degeneracy) in the individual scope. Each asset's
+  LP can have several optima: the weighted CVaR depends on the payout only
+  through the tail of the uncovered loss and its mean, and E[U] only through
+  the uncovered part, so E_Residual is free among the optima. For this record
+  the appendix shows every asset's thesis payout feasible with our objective
+  within solver tolerance (verdict "alternative optimum"). The KPIs here are
+  not an asset's objective: E_Residual; VaR of an asset's uncovered loss
+  where it is (near) zero (golden 0, ours at most 1e-4 USD, an infinite
+  relative error); and the portfolio-level KPIs, which in the individual
+  scope evaluate the nine asset payouts summed per event, which no design
+  problem optimises (at loading 1.5 the portfolio E[U] is 0.003 USD). They
+  differ between the optima.
+? "kpi/individual_optimization/pure_uncovered_loss_minimization/budget_loading_sweep/*"
+: *individual
+
+# MSE (pure basis risk) in the sweeps: OSQP at cvxpy's default accuracy.
+? "kpi/*/pure_basis_risk_minimization/*_sweep/*"
+: &osqp >-
+  OSQP accuracy (MSE). By owner decision (MAR-98) the gate solves the MSE
+  problems as the thesis did, with OSQP at cvxpy's default accuracy. At this
+  point the thesis's solution and ours are both inaccurate, in different
+  ways: they overspend the budget or break the payout bounds by different
+  amounts (appendix, "MSE against accurate optima"), which moves the
+  objective (up to 5.8e-3 relative, portfolio scope at loading 0.7) and the
+  KPIs much more (E[U] up to 9.6e-2 relative): an MSE optimum is flat in
+  the payouts. Against the accurate optimum of our problem (DEFAULT_POLICY,
+  OSQP at 1e-8) at the loading each payout actually spends, the thesis
+  payout is within 1.4e-4 at every such point, and within 2.2e-5 at the
+  budget-loading points, so it is optimal for our problem up to the solver's
+  accuracy (verdict "OSQP accuracy"). Our own solution is the less accurate
+  one at the portfolio loadings 0.7 and 0.8 (OSQP status
+  optimal_inaccurate, bounds broken by up to 1.2e4 USD).
+? "objective/*/pure_basis_risk_minimization/*_sweep/*"
+: *osqp

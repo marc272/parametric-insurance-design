@@ -657,6 +657,56 @@ _APPROACH = {v: k for k, v in harness.APPROACHES.items()}
 _METHOD = {v: k for k, v in harness.METHODS.items()}
 
 
+def _loading(single: ExperimentConfig) -> float:
+    """Budget loading of a single-run config (pure pricing only).
+
+    Raises
+    ------
+    ValueError
+        If the config uses loaded pricing (the checks assume a pure premium).
+    """
+    if single.pricing.kind != "pure":
+        raise ValueError("the payout check assumes pure pricing")
+    return next(float(c.loading) for c in single.constraints if c.kind == "budget")
+
+
+class _Builder:
+    """Build a run's design problems as the runner does, cached by config."""
+
+    def __init__(self, data: RunInput) -> None:
+        self.data = data
+        self.prepared: dict[str, EventSet] = {}
+        self.built: dict[str, tuple[BuiltProblem, ...]] = {}
+
+    def __call__(
+        self, chash: str, single: ExperimentConfig
+    ) -> tuple[BuiltProblem, ...]:
+        """Return the design problems of ``single`` (its hash ``chash``)."""
+        if chash in self.built:
+            return self.built[chash]
+        components = single.to_components()
+        data_key = json.dumps(
+            single.model_dump(include={"noise", "threshold", "portfolio"}),
+            sort_keys=True,
+        )
+        if data_key not in self.prepared:
+            self.prepared[data_key] = prepare_eventset(single, self.data.eventset)
+        prepared = self.prepared[data_key]
+        self.built[chash] = tuple(
+            build_problems(
+                prepared,
+                components.scopes[0],
+                components.payout,
+                components.objectives[0],
+                components.pricing,
+                components.constraints,
+                basis=components.basis,
+                sample=Sample.full(prepared),
+            )
+        )
+        return self.built[chash]
+
+
 def _store_theta(
     store: ResultStore, run_id: str
 ) -> tuple[dict[str, NDArray[np.float64]], dict[str, tuple[str, str, float]]]:
@@ -856,8 +906,7 @@ def thesis_payout_checks(
     )
     for p in golden.payouts:
         payouts[p.key][p.entity_id] = p
-    prepared_cache: dict[str, EventSet] = {}
-    built_cache: dict[str, tuple[BuiltProblem, ...]] = {}
+    builder = _Builder(data)
     store_cache: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
     matched = {
         keys[(r["source"], r["approach"], r["method"], r["parameters"])]: r
@@ -871,38 +920,14 @@ def thesis_payout_checks(
         single = configs.get(chash)
         if single is None:
             raise KeyError(f"run {run_id}: config {chash} is not a parity run")
-        if single.pricing.kind != "pure":
-            raise ValueError("the payout check assumes pure pricing")
         components = single.to_components()
         scope, objective = components.scopes[0], components.objectives[0]
-        if chash not in built_cache:
-            data_key = json.dumps(
-                single.model_dump(include={"noise", "threshold", "portfolio"}),
-                sort_keys=True,
-            )
-            if data_key not in prepared_cache:
-                prepared_cache[data_key] = prepare_eventset(single, data.eventset)
-            prepared = prepared_cache[data_key]
-            built_cache[chash] = tuple(
-                build_problems(
-                    prepared,
-                    scope,
-                    components.payout,
-                    objective,
-                    components.pricing,
-                    components.constraints,
-                    basis=components.basis,
-                    sample=Sample.full(prepared),
-                )
-            )
         if run_id not in store_cache:
             store_cache[run_id] = _store_theta(store, run_id)
         ours_levels, solved = store_cache[run_id]
-        loading = next(
-            float(c.loading) for c in single.constraints if c.kind == "budget"
-        )
+        loading = _loading(single)
         levels = payouts[key]
-        for problem in built_cache[chash]:
+        for problem in builder(chash, single):
             spec = problem.spec
             if not all(e.entity_id in levels for e in spec.entities):
                 continue  # the thesis has no payout for an entity
@@ -963,6 +988,16 @@ class ExtraRun:
     problems: tuple[str, ...]
     statuses: tuple[str, ...]
     whole_run: bool
+    run_id: str = ""
+    bound_violation: float | None = None
+    budget: float | None = None
+
+    def sort_key(self) -> tuple[object, ...]:
+        """Source, scope, objective, then the parameter values as numbers."""
+        values = tuple(
+            float(item.split("=", 1)[1]) for item in self.parameters.split(", ")
+        )
+        return (self.source, self.scope, self.objective, values)
 
 
 def _number_text(value: float) -> str:
@@ -1006,7 +1041,7 @@ def extra_runs(
     def problems(run_id: str, wanted: set[str] | None) -> tuple[tuple[str, ...], ...]:
         frame = by_run[run_id]
         rows = [
-            (str(r["problem_id"]), str(r["status"]))
+            (str(r["problem_id"]), f"{r['solver']} {r['status']}")
             for r in frame.to_dict("records")
             if wanted is None or str(r["problem_id"]) in wanted
         ]
@@ -1027,6 +1062,7 @@ def extra_runs(
                 problems=ids,
                 statuses=statuses,
                 whole_run=True,
+                run_id=run_id,
             )
         )
     covered: dict[tuple[str, ...], set[str]] = defaultdict(set)
@@ -1053,9 +1089,78 @@ def extra_runs(
                 problems=ids,
                 statuses=statuses,
                 whole_run=False,
+                run_id=str(row["run_id"]),
             )
         )
-    return extras
+    return sorted(extras, key=ExtraRun.sort_key)
+
+
+def evaluate_extras(
+    extras: Sequence[ExtraRun],
+    config: ExperimentConfig,
+    data: RunInput,
+    store: ResultStore,
+    *,
+    sweeps: Sequence[str] = (),
+) -> list[ExtraRun]:
+    """Add our solutions' bound and budget violations to the extra runs.
+
+    There is nothing to compare these solutions with, so this records how
+    well they meet our own constraints, evaluated with numpy as in
+    :class:`ProblemEvaluator`: the largest bound violation (USD) and the
+    largest relative budget excess over the extra design problems.
+
+    Parameters
+    ----------
+    extras : sequence of ExtraRun
+        From :func:`extra_runs`.
+    config : ExperimentConfig
+        The thesis config.
+    data : RunInput
+        The EventSet as loaded.
+    store : ResultStore
+        The parity runs.
+    sweeps : sequence of str, default ()
+        As for :func:`thesis_payout_checks`.
+
+    Returns
+    -------
+    list of ExtraRun
+        ``extras`` with ``bound_violation`` and ``budget`` set where every
+        extra problem has a solution.
+    """
+    configs = point_configs(config, sweeps)
+    builder = _Builder(data)
+    out = []
+    for extra in extras:
+        single = configs[extra.config_hash]
+        objective = single.to_components().objectives[0]
+        theta, solved = _store_theta(store, extra.run_id)
+        evaluations = []
+        for problem in builder(extra.config_hash, single):
+            if problem.spec.problem_id not in extra.problems:
+                continue
+            if problem.spec.problem_id not in solved:
+                evaluations = []
+                break
+            evaluate = ProblemEvaluator(
+                problem,
+                objective.name,
+                float(getattr(objective, "alpha", 0.0)),
+                float(getattr(objective, "beta", 0.95)),
+                _loading(single),
+            )
+            evaluations.append(
+                evaluate(np.vstack([theta[e] for e in evaluate.entity_ids]))
+            )
+        if evaluations:
+            extra = replace(
+                extra,
+                bound_violation=max(e.max_bound_violation for e in evaluations),
+                budget=max(e.budget for e in evaluations),
+            )
+        out.append(extra)
+    return out
 
 
 def _key_tuple(key: harness.RecordKey) -> tuple[str, ...]:
@@ -1407,7 +1512,16 @@ def render_analysis(
             "compared, so they are not findings. *Whole run*: no golden record "
             "at these parameters (the run is also listed under *Store runs "
             "without a golden record*); otherwise the golden record lacks these "
-            "problems.",
+            "problems. *Our status*: solver and status, with the number of "
+            "problems. With nothing to compare, the last two columns say how "
+            "well our solutions meet our own constraints (numpy, as above; the "
+            "largest over the problems listed). Observation: these are exactly "
+            "the MSE problems where OSQP at cvxpy's default accuracy returns no "
+            "accepted solution and `THESIS_POLICY` falls back to Clarabel. The "
+            "thesis's fallback, `solve(solver=CLARABEL, max_iters=20000)`, "
+            "raises with the workspace's cvxpy 1.9.3 (`TypeError: Clarabel: "
+            "unrecognized "
+            "solver setting 'max_iters'`), and its `_solve` swallows that.",
             "",
             _row(
                 "Source",
@@ -1418,8 +1532,10 @@ def render_analysis(
                 "Whole run",
                 "Problems",
                 "Our status",
+                "Our bound viol. (USD)",
+                "Our budget",
             ),
-            "|" + "---|" * 8,
+            "|" + "---|" * 10,
         ]
         for e in extras:
             statuses = sorted(set(e.statuses))
@@ -1433,6 +1549,8 @@ def render_analysis(
                     "yes" if e.whole_run else "no",
                     ", ".join(e.problems),
                     ", ".join(f"{s} ({e.statuses.count(s)})" for s in statuses),
+                    "" if e.bound_violation is None else f"{e.bound_violation:.2g}",
+                    "" if e.budget is None else f"{e.budget:.2e}",
                 )
             )
     return "\n".join(lines) + "\n"
@@ -1592,7 +1710,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         render_analysis(
             checks,
             findings=result.findings,
-            extras=extra_runs(golden, store, result),
+            extras=evaluate_extras(
+                extra_runs(golden, store, result),
+                config,
+                data,
+                store,
+                sweeps=parameters,
+            ),
         ),
         encoding="utf-8",
     )
@@ -1610,6 +1734,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         NOTES_SWEEPS if parameters else NOTES,
         "--appendix",
         str(analysis),
+        "--compact",
     ]
     for note in setup_notes(config, data, noise, sweeps=sweeps):
         report_args += ["--setup-note", note]
