@@ -178,7 +178,7 @@ class CentroidWindIndexConfig(_Model):
 class CatInCircleIndexConfig(_Model):
     """Cat-in-a-circle index from the tracks (MAR-26, SPEC §6.3 index (b)).
 
-    Selects :class:`~parametric_insurance_design_climada.cat_in_circle.CatInCircleIndex`;
+    Selects :class:`.cat_in_circle.CatInCircleIndex`;
     the attributes are its parameters.
 
     Attributes
@@ -191,7 +191,7 @@ class CatInCircleIndexConfig(_Model):
     metric : {"category", "max_wind"}
         The category (default) or the maximum wind in m/s.
     breakpoints_kn : tuple of float
-        Category lower bounds in knots; default Saffir–Simpson.
+        Category lower bounds in knots; default Saffir-Simpson.
     track_step_hours : float or None
         Track interpolation step in hours (default 0.5); None uses the raw
         track points.

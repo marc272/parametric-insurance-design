@@ -1,9 +1,9 @@
 """Cat-in-a-circle index from storm tracks (MAR-26, SPEC §6.3 index (b)).
 
 The industry-standard tropical-cyclone trigger: for each asset and storm, the
-highest Saffir–Simpson category that the storm's **track** reaches within a
+highest Saffir-Simpson category that the storm's **track** reaches within a
 circle of radius ``r`` around the asset. Unlike the thesis index (the modelled
-wind at the asset, :class:`~parametric_insurance_design_climada.hooks.CentroidWindIndex`),
+wind at the asset, :class:`.hooks.CentroidWindIndex`),
 it does not use the wind field that drives the loss, so index and loss are
 decoupled as in a real contract (thesis issue M2).
 
@@ -15,7 +15,7 @@ How :class:`CatInCircleIndex` computes it, per storm and asset:
    so that a storm passing between two 3-hourly IRIS points is not missed by
    a small circle. The original points are kept exactly.
 2. Keep the points within ``radius_km`` of the asset (inclusive), by the
-   haversine distance of :func:`~parametric_insurance_design_climada.tracks.haversine_km`
+   haversine distance of :func:`.tracks.haversine_km`
    (sphere of 6,371 km, as the proximity filter).
 3. Take the maximum wind of those points (0 if there are none).
 4. ``metric="category"``: the number of breakpoints that this wind reaches,
@@ -28,26 +28,27 @@ points equals the category of their maximum wind.
 **Wind and breakpoints.** IRIS ``vmax`` is the storm's maximum 1-minute
 sustained surface wind in m/s: IRIS is calibrated on IBTrACS data of the US
 agencies, which report 1-minute averages (Sparks and Toumi 2024, *Scientific
-Data* 11:424, doi:10.1038/s41597-024-03250-y). The Saffir–Simpson Hurricane
+Data* 11:424, doi:10.1038/s41597-024-03250-y). The Saffir-Simpson Hurricane
 Wind Scale is defined on the same 1-minute sustained wind, in knots, so no
 averaging-period conversion is needed. The default breakpoints
 :data:`SAFFIR_SIMPSON_KN` are the NHC scale's lower bounds of categories 1 to
 5 (64, 83, 96, 113 and 137 kn; https://www.nhc.noaa.gov/aboutsshws.php),
 the same values as CLIMADA's ``climada.hazard.tc_tracks.SAFFIR_SIM_CAT``.
 Tropical storms and depressions are category 0 here. The tracks hold the wind
-in knots (``vmax`` × :data:`~parametric_insurance_design_climada.tracks.MS_TO_KT`),
+in knots (``vmax`` x :data:`~parametric_insurance_design_climada.tracks.MS_TO_KT`),
 which are compared with the breakpoints directly; ``max_wind`` converts back
 to m/s.
 
 **Reference configuration.** Steinmann et al. (2023, *Environment Systems and
-Decisions* 43:555–568) build cat-in-a-circle products in CLIMADA with radii
-of 10 to 50 km and step payouts on Saffir–Simpson categories. This module
+Decisions* 43:555-568) build cat-in-a-circle products in CLIMADA with radii
+of 10 to 50 km and step payouts on Saffir-Simpson categories. This module
 reproduces the index, not their product selection; it is realism, not a
 novelty (``research/lit/notes.md`` O3).
 """
 
 from __future__ import annotations
 
+import itertools
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -79,7 +80,7 @@ __all__ = [
     "max_wind_within_radius",
 ]
 
-#: Lower bounds of Saffir–Simpson categories 1-5, 1-minute sustained wind in
+#: Lower bounds of Saffir-Simpson categories 1-5, 1-minute sustained wind in
 #: knots (NHC). Equal to ``climada.hazard.tc_tracks.SAFFIR_SIM_CAT[1:6]``.
 SAFFIR_SIMPSON_KN: Final[tuple[float, ...]] = (64.0, 83.0, 96.0, 113.0, 137.0)
 #: Where :data:`SAFFIR_SIMPSON_KN` comes from, for the provenance record.
@@ -287,7 +288,7 @@ class CatInCircleIndex:
         if (
             not bounds
             or not all(math.isfinite(b) and b > 0 for b in bounds)
-            or any(b >= c for b, c in zip(bounds, bounds[1:], strict=False))
+            or any(b >= c for b, c in itertools.pairwise(bounds))
         ):
             raise ComponentConfigError(
                 "breakpoints_kn must be non-empty, finite, positive and strictly "
@@ -302,7 +303,7 @@ class CatInCircleIndex:
 
     @property
     def is_saffir_simpson(self) -> bool:
-        """Whether the breakpoints are the Saffir–Simpson scale's."""
+        """Whether the breakpoints are the Saffir-Simpson scale's."""
         return self.breakpoints_kn == SAFFIR_SIMPSON_KN
 
     def _breakpoint_text(self) -> str:
@@ -401,9 +402,7 @@ class CatInCircleIndex:
                     f"{batch.event_ids[row]!r}"
                 )
             lat, lon, wind, hours = _track_arrays(track)
-            lat, lon, wind = densify_track(
-                lat, lon, wind, hours, self.track_step_hours
-            )
+            lat, lon, wind = densify_track(lat, lon, wind, hours, self.track_step_hours)
             wind_kn[row] = max_wind_within_radius(
                 lat, lon, wind, location_lat, location_lon, self.radius_km
             )
