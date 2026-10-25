@@ -1,30 +1,102 @@
 """Evaluation: KPIs and exceedance curves (SPEC §4.2, §6.1, §6.2).
 
-Owner: MAR-16. Port of the thesis ``benchmarking.py``. Outputs are tidy
-tables validated against :data:`~parametric_insurance_design.records.KPIS`
-and :data:`~parametric_insurance_design.records.EXCEEDANCE`.
+Owner: MAR-16. Port of the thesis ``benchmarking.py``
+(``calculate_benchmarking_kpis``) and of the quantile behind its exceedance
+plots (``plotting._weighted_quantile``). Outputs are tidy tables validated
+against :data:`~parametric_insurance_design.records.KPIS` and
+:data:`~parametric_insurance_design.records.EXCEEDANCE`.
 
-Every KPI uses an :class:`~parametric_insurance_design.basis.OutcomeMeasure`
-from ``basis.outcome_measure``. KPIs on the annual basis therefore need no
-code here beyond aggregating with the measure; they become available when
-MAR-24 implements the annual measure. Out-of-sample evaluation materialises
-each result's spec on the test sample with ``Scope.materialise``. Missing or
-mismatched entities raise
-:class:`~parametric_insurance_design.errors.EntityMismatchError`; nothing is
-dropped (thesis issue C3).
+How a run is evaluated
+    1. ``data = sample.select(eventset)``; the sample defaults to
+       ``Sample.full(eventset)``.
+    2. ``measure = basis.outcome_measure(data, basis, years=sample.years)``.
+    3. Every result's spec is materialised on ``data`` with
+       ``scope.materialise`` and its payouts are evaluated with
+       ``SolveResult.payouts``. Out-of-sample evaluation passes the test
+       sample here and reuses the specs calibrated on the training sample.
+    4. Per-row loss ``L`` and payout ``pi`` are formed for every **subject**:
+       each entity (``level = "entity"``), each design problem (the sum over
+       its entities, ``level = "problem"``) and the whole run (the sum over
+       every location and every entity payout, ``level = "portfolio"``,
+       ``problem_id = "*"`` when the run has several design problems).
+    5. Per-row quantities are summed into outcomes with the measure, and
+       weighted with its probabilities.
+
+KPIs of one subject (``p`` the outcome probabilities, ``o`` an outcome, sums
+over the rows ``e`` of an outcome)
+    * ``U_o = sum_e (L_e - pi_e)^+`` (SPEC §6.2), ``R_o = sum_e (L_e - pi_e)``,
+      ``L_o = sum_e L_e`` and ``pi_o = sum_e pi_e``.
+    * ``expected_uncovered = E[U]`` [thesis ``E_Uncovered``].
+    * ``var_uncovered``, ``cvar_uncovered``: :func:`var_cvar` of ``U`` at
+      ``beta`` [``VaR_Uncovered``, ``CVaR_Uncovered``].
+    * ``rmse_residual = sqrt(E[R^2])`` [``E_Residual``; despite the thesis
+      name, a root mean square].
+    * ``payout_to_loss_ratio = E[pi] / E[L]``, null if ``E[L] = 0``
+      [``E_Payout_to_E_Loss_Ratio``].
+    * ``correlation``: correlation of ``L_o`` and ``pi_o`` weighted with
+      ``p``, null if either has zero variance [``Correlation``].
+    * ``expected_loss = E[L]`` and ``expected_payout = E[pi]``.
+    * ``premium`` (only if a pricing is given): ``pricing.premium_value`` of
+      each design problem's payout at ``level = "problem"``, and the sum over
+      design problems at ``level = "portfolio"``, which is the total premium
+      the run pays. Pricing is a design-problem component (ADR 0002), so no
+      entity-level premium is reported.
+
+    On the ``event_conditional`` basis every row is an outcome with
+    probability ``rate / sum(rate)``, so these are exactly the thesis
+    formulas. On the ``annual`` basis an outcome is a simulated year (and
+    draw), years without rows included, so the same code gives the KPIs over
+    years. Nothing here depends on the basis beyond the measure (ADR 0002
+    §4); the annual measure itself is built in ``basis.py`` (MAR-24).
+
+Exceedance curves
+    For each subject and quantity (loss, payout, uncovered loss), the value
+    exceeded with probability ``1 / T`` at return period ``T``: the lower
+    ``(1 - 1/T)``-quantile of the outcome values, the same quantile as the VaR
+    of :func:`var_cvar` (thesis ``_weighted_quantile``). On the ``annual``
+    basis there are two curves: ``aep`` over the yearly sums and ``oep`` over
+    the yearly maximum event (the largest per-row value in each outcome; an
+    outcome without rows counts as 0). On the event bases there is one curve,
+    ``event``, over the per-event values; its return period counts outcomes
+    of the measure, which on ``event_conditional`` are events, not years
+    (thesis convention).
+
+No silent failures (thesis issue C3)
+    Results whose design problems repeat, overlap in locations, or do not
+    cover exactly the EventSet's locations raise
+    :class:`~parametric_insurance_design.errors.EntityMismatchError`, as does
+    a spec that the scope cannot materialise on the evaluation data. The
+    thesis skipped such groups. Undefined KPI values are null rows, never
+    missing rows.
 
 Block-bootstrap confidence bounds (MAR-23) fill the ``ci_*`` columns of the
-KPI table; ADR 0002 places them in a new module ``bootstrap.py``.
+KPI table; ADR 0002 places them in a new module ``bootstrap.py``. Here they
+are null.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
+from dataclasses import dataclass
+from numbers import Real
+from typing import Any, Final
 
+import numpy as np
 import pandas as pd
-from numpy.typing import ArrayLike
+from numpy.typing import ArrayLike, NDArray
 
-from parametric_insurance_design.basis import Basis
+from parametric_insurance_design.basis import (
+    PROBABILITY_ATOL,
+    Basis,
+    OutcomeMeasure,
+    outcome_measure,
+)
+from parametric_insurance_design.errors import (
+    ComponentConfigError,
+    EntityMismatchError,
+    InputMismatchError,
+)
 from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.interfaces import (
     Pricing,
@@ -32,8 +104,117 @@ from parametric_insurance_design.interfaces import (
     Scope,
     SolveResult,
 )
+from parametric_insurance_design.records import (
+    ALL_PROBLEMS,
+    EXCEEDANCE,
+    KPIS,
+    CurveKind,
+    CurveQuantity,
+    KpiLevel,
+    KpiName,
+)
 
-__all__ = ["exceedance_curves", "kpis", "var_cvar"]
+__all__ = [
+    "DEFAULT_RETURN_PERIODS",
+    "PORTFOLIO_SUBJECT",
+    "exceedance_curves",
+    "kpis",
+    "var_cvar",
+]
+
+PORTFOLIO_SUBJECT: Final[str] = "portfolio"
+"""``subject_id`` of the rows at ``level = "portfolio"``."""
+
+DEFAULT_RETURN_PERIODS: Final[tuple[float, ...]] = (
+    2.0,
+    5.0,
+    10.0,
+    25.0,
+    50.0,
+    100.0,
+    250.0,
+)
+"""Default return periods of :func:`exceedance_curves`, in years."""
+
+
+# --------------------------------------------------------------------------
+# Distribution helpers
+# --------------------------------------------------------------------------
+
+
+def _check_beta(beta: object) -> float:
+    """Return ``beta`` as a float if it is a real number in ``(0, 1)``.
+
+    Raises
+    ------
+    ComponentConfigError
+        If ``beta`` is not a real number strictly between 0 and 1.
+    """
+    if isinstance(beta, bool) or not isinstance(beta, Real):
+        raise ComponentConfigError(f"beta must be a real number, got {beta!r}")
+    level = float(beta)
+    if not (math.isfinite(level) and 0.0 < level < 1.0):
+        raise ComponentConfigError(f"beta must lie in (0, 1), got {beta!r}")
+    return level
+
+
+def _distribution(
+    values: ArrayLike, probability: ArrayLike
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Validate a discrete distribution; return it with normalised weights.
+
+    The weights are divided by their sum, as the thesis does, so that
+    rounding in the measure does not move the quantiles.
+
+    Raises
+    ------
+    InputMismatchError
+        If the arrays are not 1-D of one non-zero length, values are not
+        finite, or the probabilities are negative, not finite or do not sum
+        to one within :data:`~parametric_insurance_design.basis.PROBABILITY_ATOL`.
+    """
+    x = np.asarray(values, dtype=np.float64)
+    p = np.asarray(probability, dtype=np.float64)
+    if x.ndim != 1 or x.size == 0:
+        raise InputMismatchError(f"values must be a non-empty 1-D array, got {x.shape}")
+    if p.shape != x.shape:
+        raise InputMismatchError(
+            f"probability must have shape {x.shape}, got {p.shape}"
+        )
+    if not np.all(np.isfinite(x)):
+        raise InputMismatchError("values must be finite")
+    if not np.all(np.isfinite(p)) or np.any(p < 0):
+        raise InputMismatchError("probability must be finite and >= 0")
+    total = float(p.sum())
+    if abs(total - 1.0) > PROBABILITY_ATOL:
+        raise InputMismatchError(f"probability must sum to 1, got {total!r}")
+    return x, p / total
+
+
+def _sorted_cdf(
+    x: NDArray[np.float64], p: NDArray[np.float64]
+) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+    """Values in ascending order, their probabilities and the cumulative sum.
+
+    ``np.argsort`` with its default kind, as the thesis, so that ties are
+    summed in the same order.
+    """
+    order = np.argsort(x)
+    sorted_x = x[order]
+    sorted_p = p[order]
+    return sorted_x, sorted_p, np.cumsum(sorted_p)
+
+
+def _lower_quantile(
+    sorted_x: NDArray[np.float64], cdf: NDArray[np.float64], level: float
+) -> float:
+    """Smallest value whose cumulative probability reaches ``level``.
+
+    If rounding keeps the last cumulative probability below ``level``, the
+    largest value is returned (thesis behaviour).
+    """
+    pos = int(np.searchsorted(cdf, level, side="left"))
+    return float(sorted_x[min(pos, sorted_x.shape[0] - 1)])
 
 
 def var_cvar(
@@ -41,12 +222,23 @@ def var_cvar(
 ) -> tuple[float, float]:
     """VaR and CVaR of a discrete distribution (thesis ``calculate_var_cvar``).
 
+    ``VaR_beta`` is the lower ``beta``-quantile: the smallest value ``v``
+    with ``P(X <= v) >= beta``. ``CVaR_beta`` is the Rockafellar-Uryasev
+    value ``VaR + E[(X - VaR)^+] / (1 - beta)``, i.e. the mean of the worst
+    ``1 - beta`` probability mass, with the atom at the VaR split as needed:
+
+    ``CVaR = (sum_{x > VaR} p x + (1 - beta - P(X > VaR)) VaR) / (1 - beta)``,
+
+    and ``CVaR = VaR`` if no mass lies above the VaR.
+
     Parameters
     ----------
     values : array_like of float
-        Outcome values, shape ``(n_outcomes,)``.
+        Outcome values, shape ``(n_outcomes,)``. Finite.
     probability : array_like of float
-        Outcome probabilities, same shape, summing to one.
+        Outcome probabilities, same shape, >= 0, summing to one within
+        :data:`~parametric_insurance_design.basis.PROBABILITY_ATOL`. They are
+        divided by their sum before use, as in the thesis.
     beta : float
         Confidence level in ``(0, 1)``.
 
@@ -54,8 +246,221 @@ def var_cvar(
     -------
     var, cvar : float
         Value-at-risk and conditional value-at-risk at ``beta``.
+
+    Raises
+    ------
+    ComponentConfigError
+        If ``beta`` is not in ``(0, 1)``.
+    InputMismatchError
+        If the arrays do not form a discrete distribution.
+
+    Examples
+    --------
+    >>> var_cvar([0.0, 1.0, 2.0, 10.0], [0.25, 0.25, 0.25, 0.25], 0.5)
+    (1.0, 6.0)
     """
-    raise NotImplementedError("MAR-16")  # pragma: no cover
+    level = _check_beta(beta)
+    x, p = _distribution(values, probability)
+    sorted_x, sorted_p, cdf = _sorted_cdf(x, p)
+    var = _lower_quantile(sorted_x, cdf, level)
+    tail = sorted_x > var
+    tail_prob = float(np.sum(sorted_p[tail]))
+    if tail_prob > 0:
+        cvar = (
+            np.sum(sorted_p[tail] * sorted_x[tail]) + (1 - level - tail_prob) * var
+        ) / (1 - level)
+    else:
+        cvar = var
+    return var, float(cvar)
+
+
+def _mean(x: NDArray[np.float64], p: NDArray[np.float64]) -> float:
+    """Weighted mean with normalised weights (thesis ``weighted_mean``)."""
+    return float(np.sum(p * x))
+
+
+def _correlation(
+    x: NDArray[np.float64], y: NDArray[np.float64], p: NDArray[np.float64]
+) -> float:
+    """Weighted Pearson correlation (thesis ``weighted_correlation``).
+
+    NaN if either variable has zero weighted variance.
+    """
+    dev_x = x - np.sum(p * x)
+    dev_y = y - np.sum(p * y)
+    cov = np.sum(p * dev_x * dev_y)
+    std_x = np.sqrt(np.sum(p * dev_x**2))
+    std_y = np.sqrt(np.sum(p * dev_y**2))
+    if std_x <= 0 or std_y <= 0:
+        return math.nan
+    return float(cov / (std_x * std_y))
+
+
+# --------------------------------------------------------------------------
+# Evaluating the results on the data
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, eq=False)
+class _Subject:
+    """Per-row loss and payout of one KPI subject."""
+
+    level: KpiLevel
+    problem_id: str
+    subject_id: str
+    loss: NDArray[np.float64]
+    payout: NDArray[np.float64]
+
+
+@dataclass(frozen=True, eq=False)
+class _Evaluation:
+    """A run's results evaluated on the rows of one sample."""
+
+    sample: Sample
+    measure: OutcomeMeasure
+    subjects: tuple[_Subject, ...]
+    problem_payouts: tuple[tuple[str, NDArray[np.float64]], ...]
+
+
+def _check_results(data: EventSet, results: Sequence[SolveResult]) -> None:
+    """Check that the results form one run over the EventSet's locations.
+
+    Raises
+    ------
+    EntityMismatchError
+        If there are no results, a problem id repeats, two problems share a
+        location, or the problems do not cover exactly the EventSet's
+        locations (a missing result would bias the portfolio KPIs).
+    """
+    if len(results) == 0:
+        raise EntityMismatchError("no results to evaluate")
+    for r in results:
+        if not isinstance(r, SolveResult):
+            raise EntityMismatchError(f"results must be SolveResults, got {r!r}")
+    ids = [r.problem_id for r in results]
+    repeated = sorted({i for i in ids if ids.count(i) > 1})
+    if repeated:
+        raise EntityMismatchError(f"design problems repeat: {repeated}")
+    owner: dict[str, str] = {}
+    for r in results:
+        for loc in r.spec.location_ids:
+            if loc in owner:
+                raise EntityMismatchError(
+                    f"location {loc!r} is in design problems {owner[loc]!r} "
+                    f"and {r.problem_id!r}"
+                )
+            owner[loc] = r.problem_id
+    present = data.location_ids
+    missing = [loc for loc in present if loc not in owner]
+    unknown = sorted(set(owner) - set(present))
+    if missing or unknown:
+        raise EntityMismatchError(
+            "results and EventSet locations differ: no result covers "
+            f"{missing}, not in the EventSet {unknown}"
+        )
+
+
+def _evaluate(
+    eventset: EventSet,
+    scope: Scope,
+    results: Sequence[SolveResult],
+    basis: Basis,
+    sample: Sample | None,
+) -> _Evaluation:
+    """Materialise every result on the sample and form the KPI subjects."""
+    basis = Basis(basis)
+    if not isinstance(scope, Scope):
+        raise ComponentConfigError(f"scope must be a Scope, got {scope!r}")
+    sample = Sample.full(eventset) if sample is None else sample
+    data = sample.select(eventset)
+    _check_results(data, results)
+    measure = outcome_measure(data, basis, years=sample.years)
+    if measure.n_rows != data.n_rows:
+        raise InputMismatchError(
+            f"the measure covers {measure.n_rows} rows, the sample {data.n_rows}"
+        )
+
+    subjects: list[_Subject] = []
+    problem_payouts: list[tuple[str, NDArray[np.float64]]] = []
+    entity_payouts: list[NDArray[np.float64]] = []
+    for result in results:
+        problem = scope.materialise(data, result.spec)
+        payout = result.payouts(problem)
+        pid = result.problem_id
+        for j, entity_id in enumerate(problem.spec.entity_ids):
+            subjects.append(
+                _Subject(
+                    KpiLevel.ENTITY,
+                    pid,
+                    entity_id,
+                    problem.entity_loss[:, j],
+                    payout[:, j],
+                )
+            )
+            entity_payouts.append(payout[:, j])
+        problem_payout = np.vstack(list(payout.T)).sum(axis=0)
+        subjects.append(
+            _Subject(KpiLevel.PROBLEM, pid, pid, problem.loss, problem_payout)
+        )
+        problem_payouts.append((pid, problem_payout))
+
+    # Portfolio: every location's loss and every entity's payout, summed one
+    # vector after the other, as the thesis does.
+    portfolio_loss = np.vstack(list(data.loss.T)).sum(axis=0)
+    portfolio_payout = np.vstack(entity_payouts).sum(axis=0)
+    portfolio_pid = ALL_PROBLEMS if len(results) > 1 else results[0].problem_id
+    subjects.append(
+        _Subject(
+            KpiLevel.PORTFOLIO,
+            portfolio_pid,
+            PORTFOLIO_SUBJECT,
+            portfolio_loss,
+            portfolio_payout,
+        )
+    )
+    return _Evaluation(
+        sample=sample,
+        measure=measure,
+        subjects=tuple(subjects),
+        problem_payouts=tuple(problem_payouts),
+    )
+
+
+def _check_run_id(run_id: object) -> str:
+    if not isinstance(run_id, str) or not run_id:
+        raise InputMismatchError(f"run_id must be a non-empty string, got {run_id!r}")
+    return run_id
+
+
+def _subject_kpis(
+    subject: _Subject, measure: OutcomeMeasure, p: NDArray[np.float64], beta: float
+) -> dict[KpiName, float]:
+    """KPI values of one subject (thesis ``_calculate_entity_kpis``)."""
+    residual = subject.loss - subject.payout
+    loss_o = measure.aggregate(subject.loss)
+    payout_o = measure.aggregate(subject.payout)
+    uncovered_o = measure.aggregate(np.maximum(0.0, residual))
+    residual_o = measure.aggregate(residual)
+
+    var, cvar = var_cvar(uncovered_o, measure.probability, beta)
+    expected_loss = _mean(loss_o, p)
+    expected_payout = _mean(payout_o, p)
+    ratio = math.nan if expected_loss == 0 else expected_payout / expected_loss
+    return {
+        KpiName.EXPECTED_LOSS: expected_loss,
+        KpiName.EXPECTED_PAYOUT: expected_payout,
+        KpiName.EXPECTED_UNCOVERED: _mean(uncovered_o, p),
+        KpiName.VAR_UNCOVERED: var,
+        KpiName.CVAR_UNCOVERED: cvar,
+        KpiName.RMSE_RESIDUAL: math.sqrt(_mean(residual_o**2, p)),
+        KpiName.PAYOUT_TO_LOSS_RATIO: ratio,
+        KpiName.CORRELATION: _correlation(loss_o, payout_o, p),
+    }
+
+
+_BETA_KPIS: Final[frozenset[KpiName]] = frozenset(
+    {KpiName.VAR_UNCOVERED, KpiName.CVAR_UNCOVERED}
+)
 
 
 def kpis(
@@ -69,33 +474,131 @@ def kpis(
     sample: Sample | None = None,
     pricing: Pricing | None = None,
 ) -> pd.DataFrame:
-    """KPIs per location, entity, design problem and portfolio.
+    """KPIs per entity, design problem and portfolio.
+
+    See the module docstring for the subjects, the formulas and their thesis
+    names.
 
     Parameters
     ----------
     eventset : EventSet
         Full EventSet.
     scope : Scope
-        Scope the results were calibrated with.
+        Scope the results were calibrated with; materialises their specs on
+        the evaluation rows.
     results : sequence of SolveResult
-        One per design problem of the run.
+        One per design problem of the run. Together they cover exactly the
+        EventSet's locations.
     basis : Basis
         Evaluation basis.
     beta : float
-        Confidence level of the VaR/CVaR KPIs.
+        Confidence level of the VaR/CVaR KPIs, in ``(0, 1)``.
     run_id : str
         Written to every row.
     sample : Sample, optional
-        Rows to evaluate on (e.g. the test sample). Default: all rows.
+        Rows to evaluate on (e.g. the test sample). Default: all rows. Its
+        ``name`` and ``fold`` go into ``eval_split`` and ``fold``.
     pricing : Pricing, optional
-        If given, adds the ``premium`` KPI.
+        If given, adds the ``premium`` KPI at the problem and portfolio
+        levels.
 
     Returns
     -------
     pandas.DataFrame
-        Table with the ``records.KPIS`` schema.
+        Table with the ``records.KPIS`` schema: for every subject, the eight
+        KPIs (plus ``premium``), ``beta`` set on the VaR/CVaR rows only, and
+        null ``ci_*`` columns. Undefined values (a ratio with zero expected
+        loss, a correlation with zero variance) are null.
+
+    Raises
+    ------
+    ComponentConfigError
+        If ``beta`` is not in ``(0, 1)``, or ``scope`` or ``pricing`` is not
+        a component of the right kind.
+    EntityMismatchError
+        If the results do not form one run over the EventSet's locations, or
+        a spec cannot be materialised on the evaluation rows.
+    InputMismatchError
+        If the sample does not fit the EventSet or ``run_id`` is empty.
+    RecordSchemaError
+        If the sample name is not a ``records.Split`` value.
     """
-    raise NotImplementedError("MAR-16")  # pragma: no cover
+    level_beta = _check_beta(beta)
+    run_id = _check_run_id(run_id)
+    if pricing is not None and not isinstance(pricing, Pricing):
+        raise ComponentConfigError(f"pricing must be a Pricing, got {pricing!r}")
+    ev = _evaluate(eventset, scope, results, basis, sample)
+    measure = ev.measure
+    p = measure.probability / measure.probability.sum()
+
+    rows: list[dict[str, Any]] = []
+
+    def add(subject: _Subject, kpi: KpiName, value: float) -> None:
+        rows.append(
+            {
+                "run_id": run_id,
+                "problem_id": subject.problem_id,
+                "eval_split": ev.sample.name,
+                "fold": ev.sample.fold,
+                "basis": measure.basis.value,
+                "level": subject.level.value,
+                "subject_id": subject.subject_id,
+                "kpi": kpi.value,
+                "beta": level_beta if kpi in _BETA_KPIS else None,
+                "value": None if math.isnan(value) else value,
+                "ci_low": None,
+                "ci_high": None,
+                "ci_level": None,
+                "n_bootstrap": None,
+            }
+        )
+
+    premiums: dict[str, float] = {}
+    if pricing is not None:
+        premiums = {
+            pid: float(pricing.premium_value(payout, measure))
+            for pid, payout in ev.problem_payouts
+        }
+    for subject in ev.subjects:
+        for kpi, value in _subject_kpis(subject, measure, p, level_beta).items():
+            add(subject, kpi, value)
+        if pricing is None:
+            continue
+        if subject.level is KpiLevel.PROBLEM:
+            add(subject, KpiName.PREMIUM, premiums[subject.problem_id])
+        elif subject.level is KpiLevel.PORTFOLIO:
+            add(subject, KpiName.PREMIUM, math.fsum(premiums.values()))
+    return KPIS.from_rows(rows)
+
+
+def _check_return_periods(return_periods: ArrayLike) -> NDArray[np.float64]:
+    """Validate return periods: finite, unique and greater than 1 year.
+
+    Raises
+    ------
+    InputMismatchError
+        If the return periods are empty, not 1-D, not finite, repeat, or any
+        is <= 1.
+    """
+    t = np.atleast_1d(np.asarray(return_periods, dtype=np.float64))
+    if t.ndim != 1 or t.size == 0:
+        raise InputMismatchError("return_periods must be a non-empty 1-D array")
+    if not np.all(np.isfinite(t)) or np.any(t <= 1.0):
+        raise InputMismatchError(
+            f"return periods must be finite and > 1, got {t.tolist()}"
+        )
+    if np.unique(t).size != t.size:
+        raise InputMismatchError(f"return periods repeat: {t.tolist()}")
+    return t
+
+
+def _outcome_max(
+    measure: OutcomeMeasure, values: NDArray[np.float64]
+) -> NDArray[np.float64]:
+    """Largest per-row value of each outcome; 0 for outcomes without rows."""
+    out = np.zeros(measure.n_outcomes, dtype=np.float64)
+    np.maximum.at(out, measure.outcome_of_row, values)
+    return out
 
 
 def exceedance_curves(
@@ -105,10 +608,16 @@ def exceedance_curves(
     *,
     basis: Basis,
     run_id: str,
-    return_periods: ArrayLike = (2.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0),
+    return_periods: ArrayLike = DEFAULT_RETURN_PERIODS,
     sample: Sample | None = None,
 ) -> pd.DataFrame:
     """Exceedance curves of loss, payout and uncovered loss.
+
+    For every subject (entity, design problem, portfolio; see the module
+    docstring) and quantity, the value exceeded with probability ``1 / T``:
+    the lower ``(1 - 1/T)``-quantile of the outcome values under the
+    measure, as the VaR of :func:`var_cvar`. The per-row uncovered loss is
+    ``(L_e - pi_e)^+``.
 
     Parameters
     ----------
@@ -117,14 +626,18 @@ def exceedance_curves(
     scope : Scope
         Scope the results were calibrated with.
     results : sequence of SolveResult
-        One per design problem of the run.
+        One per design problem of the run. Together they cover exactly the
+        EventSet's locations.
     basis : Basis
-        ``annual`` gives OEP and AEP curves; the event bases give per-event
-        curves.
+        ``annual`` gives OEP curves (the largest event of each year, a year
+        without rows counting as 0) and AEP curves (the sum over each year).
+        The event bases give per-event curves (``curve = "event"``), whose
+        return period counts outcomes of the measure (events on
+        ``event_conditional``, as in the thesis plots).
     run_id : str
         Written to every row.
     return_periods : array_like of float, optional
-        Return periods in years.
+        Return periods, each finite and > 1, unique.
     sample : Sample, optional
         Rows to evaluate on. Default: all rows.
 
@@ -132,5 +645,58 @@ def exceedance_curves(
     -------
     pandas.DataFrame
         Table with the ``records.EXCEEDANCE`` schema.
+
+    Raises
+    ------
+    EntityMismatchError
+        If the results do not form one run over the EventSet's locations, or
+        a spec cannot be materialised on the evaluation rows.
+    InputMismatchError
+        If the return periods are invalid, the sample does not fit the
+        EventSet, or ``run_id`` is empty.
+    RecordSchemaError
+        If the sample name is not a ``records.Split`` value.
     """
-    raise NotImplementedError("MAR-16")  # pragma: no cover
+    run_id = _check_run_id(run_id)
+    periods = _check_return_periods(return_periods)
+    ev = _evaluate(eventset, scope, results, basis, sample)
+    measure = ev.measure
+    annual = measure.basis is Basis.ANNUAL
+    levels = 1.0 - 1.0 / periods
+
+    rows: list[dict[str, Any]] = []
+    for subject in ev.subjects:
+        per_row = {
+            CurveQuantity.LOSS: subject.loss,
+            CurveQuantity.PAYOUT: subject.payout,
+            CurveQuantity.UNCOVERED: np.maximum(0.0, subject.loss - subject.payout),
+        }
+        for quantity, values in per_row.items():
+            curves: dict[CurveKind, NDArray[np.float64]]
+            if annual:
+                curves = {
+                    CurveKind.OEP: _outcome_max(measure, values),
+                    CurveKind.AEP: measure.aggregate(values),
+                }
+            else:
+                curves = {CurveKind.EVENT: measure.aggregate(values)}
+            for curve, outcome_values in curves.items():
+                x, p = _distribution(outcome_values, measure.probability)
+                sorted_x, _, cdf = _sorted_cdf(x, p)
+                for period, level in zip(periods, levels, strict=True):
+                    rows.append(
+                        {
+                            "run_id": run_id,
+                            "problem_id": subject.problem_id,
+                            "eval_split": ev.sample.name,
+                            "fold": ev.sample.fold,
+                            "basis": measure.basis.value,
+                            "level": subject.level.value,
+                            "subject_id": subject.subject_id,
+                            "quantity": quantity.value,
+                            "curve": curve.value,
+                            "return_period": float(period),
+                            "value": _lower_quantile(sorted_x, cdf, float(level)),
+                        }
+                    )
+    return EXCEEDANCE.from_rows(rows)
