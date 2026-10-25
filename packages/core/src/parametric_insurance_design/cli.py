@@ -1,7 +1,522 @@
 """Command-line interface ``parametric-insurance-design`` (SPEC §4.2).
 
-Owner: MAR-66. A thin front end over ``experiment.runner`` and
-``experiment.sweeps``: ``run``, ``sweep``, ``--dry-run`` and ``--force``. No
-business logic here. The entry point is declared in the core
-``pyproject.toml`` by MAR-66.
+Owner: MAR-66. A thin front end over
+:mod:`~parametric_insurance_design.experiment.runner` and
+:mod:`~parametric_insurance_design.experiment.sweeps`. It parses arguments,
+sets up logging, calls the library and turns the outcome into a summary and
+an exit code. Every decision about what runs, what is cached and what is
+written stays in the library. Later commands (``figures``, ``export-site``)
+register here as further subcommands.
+
+Commands
+--------
+``parametric-insurance-design run CONFIG``
+    Run every scope x objective of the config
+    (:func:`~parametric_insurance_design.experiment.runner.run_config`). The
+    config's ``sweeps`` are ignored.
+``parametric-insurance-design sweep CONFIG``
+    Run the config's baseline runs, then its sweeps
+    (:func:`~parametric_insurance_design.experiment.sweeps.run_sweeps`).
+    ``--parameter P`` (repeatable) runs only the sweeps of those parameters,
+    ``--no-baseline`` skips the baseline runs.
+
+Common options:
+
+``--dry-run``
+    Read the config and the EventSet (to compute the input checksum and so
+    the ``run_id`` of every run), then print the plan: every run or sweep
+    point and whether it would run or is a cache hit. Writes nothing.
+``--force``
+    Re-execute and overwrite every run, cached or not.
+``--retry-failed``
+    Re-execute cached runs that have a failed design problem.
+``--policy {default,thesis}``
+    Solver policy: ``default`` is
+    :data:`~parametric_insurance_design.solve.DEFAULT_POLICY`; ``thesis`` is
+    :data:`~parametric_insurance_design.solve.THESIS_POLICY` and is for the
+    parity gate only (MAR-98). The policy is part of every ``run_id``.
+``-v`` / ``-q``
+    Logging level on stderr: ``INFO`` by default (one line per run and per
+    sweep), ``DEBUG`` with ``-v`` (one line per sweep point), ``WARNING``
+    with ``-q``.
+
+The summary goes to stdout, the log to stderr.
+
+Exit codes
+----------
+====  =====================================================================
+Code  Meaning
+====  =====================================================================
+0     Every run succeeded (or the dry-run plan was printed).
+1     The command completed, but at least one run has a failed design
+      problem or was not evaluated. The failures are recorded in the store
+      and listed in the summary.
+2     Usage error (bad arguments).
+3     The library refused the input: an invalid config, an EventSet that
+      cannot be read or does not match its checksum, or a result-store
+      problem. Nothing is written for the run that raised.
+4     Internal error (an unexpected exception, i.e. a bug). The traceback is
+      logged.
+130   Interrupted (Ctrl-C).
+====  =====================================================================
 """
+
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass
+from enum import IntEnum
+from importlib.metadata import version
+from pathlib import Path
+from typing import Final
+
+from parametric_insurance_design.errors import (
+    ConfigError,
+    ParametricInsuranceDesignError,
+)
+from parametric_insurance_design.experiment.config import (
+    ExperimentConfig,
+    SweepConfig,
+    config_hash,
+    load_config,
+)
+from parametric_insurance_design.experiment.runner import (
+    PACKAGE,
+    RunInput,
+    RunOutcome,
+    load_input,
+    run_config,
+    run_key,
+)
+from parametric_insurance_design.experiment.store import ResultStore
+from parametric_insurance_design.experiment.sweeps import (
+    SWEEP_SOURCES,
+    SweepPoint,
+    SweepsOutcome,
+    run_sweeps,
+    sweep_points,
+)
+from parametric_insurance_design.solve import (
+    DEFAULT_POLICY,
+    THESIS_POLICY,
+    SolverPolicy,
+)
+
+__all__ = ["POLICIES", "ExitCode", "build_parser", "main"]
+
+_log = logging.getLogger(__name__)
+
+PROG: Final[str] = "parametric-insurance-design"
+"""Name of the command (the console-script entry point)."""
+
+POLICIES: Final[dict[str, SolverPolicy]] = {
+    "default": DEFAULT_POLICY,
+    "thesis": THESIS_POLICY,
+}
+"""Solver policies selectable with ``--policy``."""
+
+_LOGGER = "parametric_insurance_design"
+_LOG_FORMAT = "%(levelname)s %(name)s: %(message)s"
+
+
+class ExitCode(IntEnum):
+    """Exit codes of the command (module docstring)."""
+
+    OK = 0
+    RUNS_FAILED = 1
+    USAGE = 2
+    INPUT_ERROR = 3
+    INTERNAL_ERROR = 4
+    INTERRUPTED = 130
+
+
+# --------------------------------------------------------------------------
+# Arguments
+# --------------------------------------------------------------------------
+
+
+def _add_common(parser: argparse.ArgumentParser) -> None:
+    """Add the arguments that ``run`` and ``sweep`` share."""
+    parser.add_argument("config", type=Path, help="experiment config (YAML)")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print the plan and the cache hits; run and write nothing",
+    )
+    redo = parser.add_mutually_exclusive_group()
+    redo.add_argument(
+        "--force",
+        action="store_true",
+        help="re-execute and overwrite every run, even if cached",
+    )
+    redo.add_argument(
+        "--retry-failed",
+        action="store_true",
+        help="re-execute cached runs that have a failure",
+    )
+    parser.add_argument(
+        "--policy",
+        choices=tuple(POLICIES),
+        default="default",
+        help=(
+            "solver policy (default: %(default)s); 'thesis' reproduces the "
+            "thesis solves and is for the parity gate only"
+        ),
+    )
+    verbosity = parser.add_mutually_exclusive_group()
+    verbosity.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="log every sweep point (DEBUG)",
+    )
+    verbosity.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="log warnings and errors only",
+    )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Return the argument parser of the command.
+
+    Returns
+    -------
+    argparse.ArgumentParser
+        With the subcommands ``run`` and ``sweep``.
+    """
+    parser = argparse.ArgumentParser(
+        prog=PROG,
+        description=(
+            "Design parametric insurance payouts: run experiments and sweeps "
+            "from a config file into a result store."
+        ),
+    )
+    parser.add_argument("--version", action="version", version=_version())
+    commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
+
+    run = commands.add_parser(
+        "run",
+        help="run every scope x objective of a config",
+        description=(
+            "Run every scope x objective of a config into its result store "
+            "(output.directory). The config's sweeps are ignored."
+        ),
+    )
+    _add_common(run)
+    run.set_defaults(handler=_run)
+
+    sweep = commands.add_parser(
+        "sweep",
+        help="run a config's baseline runs and its one-factor-at-a-time sweeps",
+        description=(
+            "Run a config's baseline runs (scope x objective), then its "
+            "one-factor-at-a-time sweeps, into its result store."
+        ),
+    )
+    _add_common(sweep)
+    sweep.add_argument(
+        "-p",
+        "--parameter",
+        action="append",
+        choices=tuple(SWEEP_SOURCES),
+        metavar="PARAMETER",
+        help=(
+            "run only the sweep of this parameter (repeatable; default: every "
+            f"sweep of the config). One of: {', '.join(SWEEP_SOURCES)}"
+        ),
+    )
+    sweep.add_argument(
+        "--no-baseline",
+        dest="baseline",
+        action="store_false",
+        help="skip the baseline runs",
+    )
+    sweep.set_defaults(handler=_sweep)
+    return parser
+
+
+def _version() -> str:
+    """Return ``"<prog> <version>"`` for ``--version``."""
+    return f"{PROG} {version(PACKAGE)}"
+
+
+# --------------------------------------------------------------------------
+# Output helpers
+# --------------------------------------------------------------------------
+
+
+def _out(line: str = "") -> None:
+    """Print one line of the summary to stdout."""
+    print(line)
+
+
+def _short(run_id: str) -> str:
+    """``"sha256:"`` and the first 12 hex digits of a run id."""
+    return run_id[: len("sha256:") + 12]
+
+
+def _label(config: ExperimentConfig) -> str:
+    """``"<scope> x <objective>"`` of a single-run config."""
+    return f"{config.scopes[0].kind} x {config.objectives[0].kind}"
+
+
+def _point_label(point: SweepPoint) -> str:
+    """Describe a sweep point: its value (and subset), scope and objective."""
+    value = f"{point.parameter}={point.value!r}"
+    if point.location_ids is not None:
+        value += f" [{','.join(point.location_ids)}]"
+    return f"{value} {point.scope} x {point.objective}"
+
+
+def _outcome_status(outcome: RunOutcome) -> str:
+    """``ok`` or ``FAILED`` with the failed design problems."""
+    if outcome.ok:
+        return "ok"
+    if outcome.failed:
+        return f"FAILED ({', '.join(outcome.failed)})"
+    return "FAILED (not evaluated)"
+
+
+def _outcome_line(label: str, outcome: RunOutcome) -> str:
+    """One summary line for an executed or cached run."""
+    how = "cached" if outcome.cached else "ran"
+    return f"  {how:<7}{_short(outcome.run_id)}  {label}  {_outcome_status(outcome)}"
+
+
+# --------------------------------------------------------------------------
+# Dry run
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class _Planner:
+    """Tells, for a dry run, whether each run would execute or hit the cache.
+
+    Mirrors the cache decision of
+    :func:`~parametric_insurance_design.experiment.runner.run_single`, and
+    tracks the runs planned earlier in the same command (a sweep point equal
+    to a baseline run is a cache hit once the baseline has run).
+    """
+
+    data: RunInput
+    store: ResultStore
+    policy: SolverPolicy
+    force: bool
+    retry_failed: bool
+
+    def __post_init__(self) -> None:
+        self.planned: set[str] = set()
+        self.n_run = 0
+        self.n_cached = 0
+
+    def line(self, config: ExperimentConfig, label: str) -> str:
+        """Plan one single-run config and return its plan line."""
+        run_id = run_key(config_hash(config), self.data.checksum, policy=self.policy)
+        status = self._status(run_id)
+        self.planned.add(run_id)
+        if status.startswith("cached"):
+            self.n_cached += 1
+        else:
+            self.n_run += 1
+        return f"  {status:<24}{_short(run_id)}  {label}"
+
+    def _status(self, run_id: str) -> str:
+        if self.force:
+            return "run (--force)"
+        if run_id in self.planned:
+            return "cached (planned above)"
+        if not self.store.has_run(run_id):
+            return "run"
+        cached = RunOutcome.from_manifest(self.store.manifest(run_id), cached=True)
+        if cached.ok:
+            return "cached"
+        if self.retry_failed:
+            return "run (--retry-failed)"
+        return "cached (failed)"
+
+    def total(self) -> str:
+        """Return the closing line of the plan."""
+        n = self.n_run + self.n_cached
+        return f"plan: {n} runs, {self.n_run} to run, {self.n_cached} cached"
+
+
+def _planner(config: ExperimentConfig, args: argparse.Namespace) -> _Planner:
+    """Read the input and open the store for a dry run."""
+    data = load_input(config)
+    store = ResultStore(config.output.directory)
+    _out(f"dry run: {config.name!r}, store {store.root}")
+    _out(f"input checksum {data.checksum}, policy {args.policy!r}")
+    return _Planner(data, store, POLICIES[args.policy], args.force, args.retry_failed)
+
+
+def _plan_run(config: ExperimentConfig, args: argparse.Namespace) -> ExitCode:
+    """Print the plan of ``run``."""
+    planner = _planner(config, args)
+    _out("runs:")
+    for single in config.single_runs():
+        _out(planner.line(single, _label(single)))
+    _out(planner.total())
+    return ExitCode.OK
+
+
+def _plan_sweep(config: ExperimentConfig, args: argparse.Namespace) -> ExitCode:
+    """Print the plan of ``sweep``."""
+    planner = _planner(config, args)
+    if args.baseline:
+        _out("baseline:")
+        for single in config.single_runs():
+            _out(planner.line(single, _label(single)))
+    for spec in _selected_sweeps(config, args.parameter):
+        points = sweep_points(
+            config, spec, location_ids=planner.data.eventset.location_ids
+        )
+        _out(f"sweep {spec.parameter} ({len(points)} points):")
+        for point in points:
+            _out(planner.line(point.config, _point_label(point)))
+    _out(planner.total())
+    return ExitCode.OK
+
+
+# --------------------------------------------------------------------------
+# Commands
+# --------------------------------------------------------------------------
+
+
+def _selected_sweeps(
+    config: ExperimentConfig, parameters: Sequence[str] | None
+) -> list[SweepConfig]:
+    """Return the config's sweeps to run, in config order.
+
+    Raises
+    ------
+    ConfigError
+        If the config has no sweeps, or none of a requested parameter.
+    """
+    if not config.sweeps:
+        raise ConfigError(
+            f"config {config.name!r} has no sweeps; use 'run' for its single runs"
+        )
+    listed = [s.parameter for s in config.sweeps]
+    unknown = [p for p in parameters or () if p not in listed]
+    if unknown:
+        raise ConfigError(f"the config has no sweep of {unknown} (it has {listed})")
+    return [s for s in config.sweeps if parameters is None or s.parameter in parameters]
+
+
+def _exit_for(outcomes: Iterable[RunOutcome]) -> ExitCode:
+    """``OK`` if every run succeeded, else ``RUNS_FAILED``."""
+    return ExitCode.OK if all(o.ok for o in outcomes) else ExitCode.RUNS_FAILED
+
+
+def _run(config: ExperimentConfig, args: argparse.Namespace) -> ExitCode:
+    """``run``: every scope x objective of the config."""
+    if args.dry_run:
+        return _plan_run(config, args)
+    singles = config.single_runs()
+    outcomes = run_config(
+        config,
+        policy=POLICIES[args.policy],
+        force=args.force,
+        retry_failed=args.retry_failed,
+    )
+    _out(f"run {config.name!r} into {config.output.directory}:")
+    for single, outcome in zip(singles, outcomes, strict=True):
+        _out(_outcome_line(_label(single), outcome))
+    n_failed = sum(not o.ok for o in outcomes)
+    n_cached = sum(o.cached for o in outcomes)
+    _out(f"{len(outcomes)} runs: {n_cached} cached, {n_failed} failed")
+    return _exit_for(outcomes)
+
+
+def _sweep(config: ExperimentConfig, args: argparse.Namespace) -> ExitCode:
+    """``sweep``: the baseline runs, then the sweeps."""
+    if args.dry_run:
+        return _plan_sweep(config, args)
+    _selected_sweeps(config, args.parameter)
+    outcome: SweepsOutcome = run_sweeps(
+        config,
+        parameters=args.parameter,
+        baseline=args.baseline,
+        policy=POLICIES[args.policy],
+        force=args.force,
+        retry_failed=args.retry_failed,
+    )
+    _out(f"sweep {config.name!r} into {config.output.directory}:")
+    if outcome.baseline:
+        _out("baseline:")
+        for single, run in zip(config.single_runs(), outcome.baseline, strict=True):
+            _out(_outcome_line(_label(single), run))
+    for result in outcome.sweeps:
+        _out(
+            f"sweep {result.parameter}: {len(result.points)} points, "
+            f"{result.n_cached} cached, {len(result.failed)} failed, "
+            f"{result.seconds:.1f} s; manifest {result.manifest_path}"
+        )
+        for failed in result.failed:
+            _out(_outcome_line(_point_label(failed.point), failed.outcome))
+    runs = [*outcome.baseline, *(p.outcome for s in outcome.sweeps for p in s.points)]
+    _out(f"{len(runs)} runs: {sum(not r.ok for r in runs)} failed")
+    return _exit_for(runs)
+
+
+# --------------------------------------------------------------------------
+# Entry point
+# --------------------------------------------------------------------------
+
+
+def _configure_logging(args: argparse.Namespace) -> logging.Handler:
+    """Send the package's log to stderr at the requested level."""
+    level = logging.DEBUG if args.verbose else logging.WARNING if args.quiet else None
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter(_LOG_FORMAT))
+    logger = logging.getLogger(_LOGGER)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO if level is None else level)
+    return handler
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run the command.
+
+    Parameters
+    ----------
+    argv : sequence of str, optional
+        Arguments without the program name. Default: ``sys.argv[1:]``.
+
+    Returns
+    -------
+    int
+        The exit code (:class:`ExitCode`).
+    """
+    parser = build_parser()
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as exc:  # --help, --version (0) and usage errors (2)
+        return int(exc.code) if isinstance(exc.code, int) else ExitCode.USAGE
+    logger = logging.getLogger(_LOGGER)
+    level = logger.level
+    handler = _configure_logging(args)
+    command: Callable[[ExperimentConfig, argparse.Namespace], ExitCode] = args.handler
+    try:
+        return int(command(load_config(args.config), args))
+    except (ParametricInsuranceDesignError, OSError) as exc:
+        _log.error("%s: %s", type(exc).__name__, exc)
+        return ExitCode.INPUT_ERROR
+    except KeyboardInterrupt:
+        _log.error("interrupted; finished runs are in the store")
+        return ExitCode.INTERRUPTED
+    except Exception:
+        _log.exception("internal error")
+        return ExitCode.INTERNAL_ERROR
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(level)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(main())

@@ -26,7 +26,8 @@ default parameters for 3 scopes x 3 objectives: noise seed 42, eta = 0.3,
 4. writes ``REPORT.md`` with ``report.py``: golden objectives from
    ``golden/golden_objectives.csv``, explanations from
    ``explanations.yaml``, the analysis as an appendix, and the run setup in
-   the setup section.
+   the setup section. The adapter section ``analysis/adapter.md`` (MAR-20),
+   written in the CLIMADA pixi env, follows as a second appendix.
 
 Run from the repository root::
 
@@ -110,6 +111,9 @@ CONFIG: Final[Path] = PARITY_DIR / "configs" / "thesis.yaml"
 OBJECTIVES: Final[Path] = harness.GOLDEN_DIR / harness.OBJECTIVES_FILE
 EXPLANATIONS: Final[Path] = PARITY_DIR / "explanations.yaml"
 ANALYSIS: Final[Path] = PARITY_DIR / "analysis" / "thesis_payouts.md"
+ADAPTER: Final[Path] = PARITY_DIR / "analysis" / "adapter.md"
+"""The adapter section (MAR-20), written in the CLIMADA pixi env by
+``packages/climada/scripts/thesis_adapter_parity.py`` and appended as is."""
 REPORT: Final[Path] = PARITY_DIR / "REPORT.md"
 SOURCE: Final[str] = "single_run"
 OPTIMISATION_SWEEPS: Final[tuple[str, ...]] = (
@@ -1604,7 +1608,9 @@ NOTES: Final[str] = (
     "parity/scripts/run_default_parity.py`, which runs the 9 default runs, "
     "checks the noise draws and the thesis payouts (appendix), and calls "
     "`report.py` with the golden objective table "
-    "(`golden/golden_objectives.csv`) and `explanations.yaml`."
+    "(`golden/golden_objectives.csv`) and `explanations.yaml`. The last "
+    "section checks that the CLIMADA adapter regenerates the thesis event-loss "
+    "table (MAR-20)."
 )
 
 NOTES_SWEEPS: Final[str] = (
@@ -1616,7 +1622,8 @@ NOTES_SWEEPS: Final[str] = (
     "payouts (appendix), and calls `report.py` with the golden objective "
     "table (`golden/golden_objectives.csv`) and `explanations.yaml`. A sweep "
     "point equal to the baseline is the baseline run (a cache hit), so its "
-    "*Run source* is `single_run`."
+    "*Run source* is `single_run`. The last section checks that the CLIMADA "
+    "adapter regenerates the thesis event-loss table (MAR-20)."
 )
 
 
@@ -1645,6 +1652,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--out", default=str(REPORT))
     parser.add_argument("--analysis", default=str(ANALYSIS))
+    parser.add_argument(
+        "--adapter",
+        default=str(ADAPTER),
+        help="adapter section appended after the analysis (MAR-20); '' to omit",
+    )
     parser.add_argument("--explanations", default=str(EXPLANATIONS))
     parser.add_argument("--objectives", default=str(OBJECTIVES))
     parser.add_argument(
@@ -1736,6 +1748,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         str(analysis),
         "--compact",
     ]
+    if args.adapter:
+        report_args += ["--appendix", args.adapter]
     for note in setup_notes(config, data, noise, sweeps=sweeps):
         report_args += ["--setup-note", note]
     if args.check:

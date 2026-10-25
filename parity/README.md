@@ -28,6 +28,7 @@ Thesis golden data and the parity tests that check the new core reproduces the t
 | `explanations.yaml` | The explanation of each finding, keyed by finding id or by a glob over its path |
 | `scripts/run_default_parity.py` | Runs the thesis default runs (3 scopes × 3 objectives, MAR-68) and the optimisation-parameter sweeps (MAR-69) with the parity solver policy, checks the noise draws and the thesis payouts, and writes `REPORT.md` |
 | `analysis/thesis_payouts.md` | Written by that script: every thesis payout evaluated under our design problem, the MSE payouts against accurate optima, and the extra runs that have no golden record; appended to `REPORT.md` |
+| `analysis/adapter.md` | The adapter section of `REPORT.md`: the CLIMADA adapter's rebuild of the thesis event set against the fixture (MAR-20). Written by `packages/climada/scripts/thesis_adapter_parity.py`; see [The adapter check](#the-adapter-check) |
 | `REPORT.md` | The parity report (generated; do not edit by hand) |
 | `configs/thesis.yaml` | The thesis experiment config, migrated by `scripts/migrate_thesis_config.py` (MAR-63) |
 | `tests/` | Checks the committed files against the manifest and fixed checksums; with a thesis checkout, also recomputes the source checksums and regenerates the fixture |
@@ -60,7 +61,8 @@ uv run python parity/report.py --store results/thesis --source single_run \
     --source n_bins_sweep --source n_clusters_sweep \
     --objectives parity/golden/golden_objectives.csv \
     --explanations parity/explanations.yaml \
-    --appendix parity/analysis/thesis_payouts.md --compact --check
+    --appendix parity/analysis/thesis_payouts.md \
+    --appendix parity/analysis/adapter.md --compact --check
 ```
 
 The script also passes the setup notes: solver policy, noise check, versions, and per sweep its values, points, failures and sweep manifest id (MAR-65). With `--check` it also exits with status 1 if an explanation claims evidence the thesis-payout check does not give (below).
@@ -80,6 +82,16 @@ The report holds no timestamp, so the same store gives the same text.
 **Explanations.** `explanations.yaml` maps a finding id (`P-…`) or a glob over the finding path `kind/approach/method/source/parameters/subject/item` to text. An id wins; otherwise the first matching glob in file order applies. A key without a glob character is read as an id, so name a single finding by its id. Keep globs narrow: the baseline's names asset subjects only (`…/A?/*`), so a new portfolio-level finding of the same run stays unexplained.
 
 **Evidence rule (MAR-69).** The sweeps have hundreds of findings, explained by a few globs. A text that starts with `Alternative optimum` claims that every checked design problem of the finding's record has that verdict in the appendix; one that starts with `OSQP accuracy` allows `alternative optimum` or `OSQP accuracy`. `run_default_parity.py --check` fails while a finding's record lacks that evidence (`unsupported_explanations`), so a broad glob cannot explain a gap the thesis-payout check does not support. A potential porting bug is never explained by a glob: it is listed on its own in the appendix.
+
+### The adapter check
+
+The last section of `REPORT.md` checks that the CLIMADA adapter (`packages/climada`, MAR-73) regenerates the thesis input, the fixture under `tests/data/thesis_eventset/` (MAR-20). The adapter runs in its own pixi env, so `run_default_parity.py` doesn't rebuild the event set: it appends the committed `analysis/adapter.md` (option `--adapter`). To rewrite that file, with the merged IRIS catalogue in `data/iris/` (`pixi run iris`), from `packages/climada`:
+
+```bash
+pixi run python scripts/thesis_adapter_parity.py   # about 30 s; --catalogue <file> to point elsewhere
+```
+
+then regenerate `REPORT.md` as above. The script exits with status 1 if a field differs by more than 1e-6 relative. `packages/climada/tests/test_thesis_parity.py` runs in the `test (climada, pixi)` CI job: it checks the fixture against the pinned digests in `packages/climada/tests/data/thesis_eventset_digest.json`, and it rebuilds the event set and compares it bit for bit wherever the catalogue is present (or `IRIS_CATALOGUE` names it); otherwise that test skips with the reason.
 
 ### Golden objective values
 

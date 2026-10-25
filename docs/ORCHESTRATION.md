@@ -113,7 +113,7 @@ The Program hub sets these rules:
 2. **Pick.** Leaf issues in Todo without the Human label, ordered by the scheduling rules above, then priority, then milestone. Constraints:
    - at most **3 workers** at once (4 when the lanes are clearly independent);
    - no two concurrent issues may own the same module (ADR 0002 ownership map);
-   - serialise anything that touches `pyproject.toml`, lockfiles or CI config.
+   - serialise anything that touches `pyproject.toml`, lockfiles (`uv.lock`, `packages/climada/pixi.lock`) or CI config. A change to the core's dependencies must also run `pixi lock` in `packages/climada` and commit `pixi.lock`, because the climada CI job installs with `--locked` (ADR 0002 §10, MAR-71).
 3. **Check size.** If an issue is clearly more than one PR (several modules, or more than about a day of work), first split it into sub-issues with goal, scope, acceptance and blockers. The original becomes a container. Don't pre-split far-future work; split when it becomes ready.
 4. **Delegate** (see below). Set the issue to In Progress and post a **dispatch record** on it.
 5. **Review.** When a worker reports back, check:
