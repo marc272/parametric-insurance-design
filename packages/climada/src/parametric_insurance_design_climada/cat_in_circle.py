@@ -337,20 +337,19 @@ class CatInCircleIndex:
             f"{EARTH_RADIUS_KM:g} km; {step}), "
         )
         wind = (
-            "the track's maximum 1-minute sustained surface wind (IRIS vmax, "
-            f"converted at {MS_TO_KT} kn per m/s)"
+            "the highest maximum 1-minute sustained surface wind of the track "
+            f"(IRIS vmax; {MS_TO_KT} kn per m/s)"
         )
         if self.metric == "category":
             definition = (
-                f"{head}the highest category reached: the number of "
-                f"{self._breakpoint_text()} that {wind} reaches; 0 below the "
-                "first breakpoint or when no track point lies within the circle"
+                f"{head}the number of {self._breakpoint_text()} that {wind} "
+                "reaches; 0 below the first breakpoint or when no track point "
+                "lies within the circle"
             )
             unit = "Saffir-Simpson category" if self.is_saffir_simpson else "category"
         else:
             definition = (
-                f"{head}the highest {wind}, in m/s; 0 when no track point lies "
-                "within the circle"
+                f"{head}{wind}, in m/s; 0 when no track point lies within the circle"
             )
             unit = "m/s"
         return IndexDefinition(definition=definition, unit=unit)
