@@ -10,7 +10,7 @@ result = build_eventset(load_config("configs/thesis.yaml"))
 result.eventset.to_parquet("data/eventsets/thesis-iris")
 ```
 
-Status: the IRIS download (MAR-72) and the track → wind → impact pipeline (MAR-73) are in. Parity with the thesis event-loss table is verified under MAR-20. The cat-in-a-circle index (MAR-26) is in; vulnerability draws (MAR-25) plug into the pipeline's extension point.
+Status: the IRIS download (MAR-72) and the track → wind → impact pipeline (MAR-73) are in. Parity with the thesis event-loss table is verified under MAR-20. The cat-in-a-circle index (MAR-26) and the vulnerability draws (MAR-25) are in.
 
 ## Environment
 
@@ -69,7 +69,7 @@ Deliberate differences from the thesis script: storms that cannot be modelled ar
 **Extension points** (`hooks.py`): `build_eventset(config, index_builder=..., vulnerability=..., rng=...)`.
 
 - `IndexBuilder`: turns a `HazardBatch` (tracks, hazard, locations, exposures, wind) into the index matrix. Default `CentroidWindIndex` (the thesis index). `CatInCircleIndex` is the cat-in-a-circle builder (see "Index builders" below). The config's `index` section selects the builder; a builder passed to `build_eventset` replaces it.
-- `VulnerabilityDraws`: turns a batch and its base losses into `n_draws` loss matrices. Default `NoDraws`. With draws (MAR-25), the pipeline repeats each event's row per draw (event-major), gives each draw `rate / n_draws` (SPEC §5) and appends the hook's `TransformRecord`.
+- `VulnerabilityDraws`: turns a batch and its base losses into `n_draws` loss matrices. Default `NoDraws`. `vulnerability.EmanuelVHalfDraws` (MAR-25) is the impact-function draws hook (see "Vulnerability draws" below). The config's `vulnerability` section selects it; a hook passed to `build_eventset` replaces the config's. With draws, the pipeline repeats each event's row per draw (event-major), gives each draw `rate / n_draws` (SPEC §5) and appends the hook's `TransformRecord`.
 
 ## Index builders
 
@@ -112,6 +112,40 @@ The index doesn't use CLIMADA's wind field, so it is decoupled from the loss dri
 **Reference configuration.** Steinmann et al. (2023) build cat-in-a-circle products in CLIMADA, with radii of 10–50 km and step payouts on Saffir–Simpson categories. The index is industry practice, not a novelty claim (`research/lit/notes.md`, O3). The core needs no change for it: a step payout runs on the precomputed index through `PointIndex` (ADR 0002). With `metric: category`, `StepPayout(attachment=0, limit=6, n_bins=6, breakpoints=(0, 1, 2, 3, 4, 5, 6))` puts each category in its own bin. Category 0 then gets its own bin, so the optimiser can leave it unpaid. The core's step payout clips index values below the attachment into the first bin.
 
 Index (c) of SPEC §6.3 (wind at the nearest grid node or at a reference point at distance d) is not implemented.
+
+## Vulnerability draws
+
+The config's `vulnerability` section makes the loss uncertain (SPEC §6.3, MAR-25). Each storm gets `n_draws` rows (`draw_id` 0 … n − 1), each with its loss recomputed using an Emanuel `v_half` drawn from a prior. The index is the same on every draw. The method, the prior's sources, the runtime and observations on the thesis portfolio are in [`docs/methodology/vulnerability.md`](../../docs/methodology/vulnerability.md).
+
+Without a `vulnerability` section, or with `kind: none`, the build is unchanged: one row per storm, `draw_id` 0, the same content hash as before.
+
+```yaml
+vulnerability:
+  kind: emanuel_v_half
+  n_draws: 10              # default 10
+  seed: 20261025           # required: numpy.random.default_rng(seed)
+  prior:
+    kind: eberenz2021_edr  # default: event-wise calibrated v_half, Eberenz et al. (2021)
+    region: NA2            # default: USA and Canada (43 events)
+    wind_only: false       # true drops events with surge/rain/flood/slide/other damage
+  # or: prior: {kind: uniform, low: 60, high: 110, source: "..."}
+```
+
+The hook works as follows:
+
+- **One `v_half` per storm and draw**, shared by all locations of the storm. Storms and draws are independent.
+- **`v_thresh` and `scale` stay fixed**, at the values in `impact_function`. The Eberenz prior requires 25.7 m/s and 1, the values its calibration held fixed.
+- **The default prior is CLIMADA's own data:** a draw at `u ~ U(0, 1)` equals `ImpfSetTropCyclone.calibrated_regional_vhalf("EDR", q=u)["NA2"]`, read from `climada/data/system/tc_impf_cal_v01_EDR.csv`. That file's SHA256 is pinned.
+- **The loss is computed as `ImpactCalc` does:** on the base function's intensity grid with linear interpolation, `value · paa · mdd`. With the base `v_half` it reproduces the pipeline's loss.
+- **The draws don't depend on `batch_size`.** The generator is consumed event-major.
+- **A second transform record, `vulnerability_draws`, describes the draws:** the prior (source, DOI, data file and checksum, every value), `n_draws`, the sampling rule and the seed. The seed is `null` when the caller passes its own `rng` to `build_eventset`.
+
+Example configs:
+
+- `configs/thesis_vulnerability.yaml`: the thesis index (wind at the asset) with 10 draws;
+- `configs/thesis_cat_in_circle_vulnerability.yaml`: cat-in-a-circle at 50 km with 10 draws, i.e. SPEC §6.3's index (b) plus vulnerability uncertainty.
+
+`scripts/plot_vulnerability_spread.py` draws the loss spread per asset from the centroid-wind build: `docs/methodology/figures/vulnerability_loss_spread.png`.
 
 ## Rules
 
