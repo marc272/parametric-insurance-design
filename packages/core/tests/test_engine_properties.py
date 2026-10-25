@@ -84,14 +84,14 @@ ATTACHMENT = 20.0
 LIMIT = 70.0
 TOL_INTERIOR_POINT = 1e-6
 """Tolerance in scaled units (losses divided by the problem's scale, so <= 1)
-for interior-point solvers (Clarabel, HiGHS): measured violations are about
-3e-9 on these EventSets."""
+for interior-point solvers (Clarabel, HiGHS) and for OSQP with the default
+policy's ``eps_abs = eps_rel = 1e-8`` (MAR-98): measured violations are about
+3e-9 (Clarabel) and 1.2e-8 (OSQP) on these EventSets."""
 TOL_FIRST_ORDER = 1e-4
-"""Tolerance in scaled units for first-order solvers (OSQP for MSE, SCS).
-cvxpy runs OSQP with ``eps_abs = eps_rel = 1e-5``; measured constraint
-violations reach 1.5e-5 when polishing does not succeed. Real violations
-would be of the order of the losses themselves, i.e. near 1."""
-FIRST_ORDER_SOLVERS = frozenset({"OSQP", "SCS"})
+"""Tolerance in scaled units for SCS (first-order, run at its default
+accuracy). Real violations would be of the order of the losses themselves,
+i.e. near 1."""
+FIRST_ORDER_SOLVERS = frozenset({"SCS"})
 
 
 def solver_tol(solver: str) -> float:
