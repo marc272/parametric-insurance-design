@@ -32,11 +32,13 @@ All nine take about 14 s together. Building is negligible; the portfolio MSE QP 
 
 **Before MAR-98** (OSQP at cvxpy's defaults, `eps_abs = eps_rel = 1e-5`, `max_iter = 10000`, as in the thesis) the MSE solves took 0.25 s (individual, Σ 9), 0.37 s (portfolio) and 0.15 s (cluster), and all nine about 7 s. The tighter tolerance costs about 15,000 OSQP iterations instead of 900 on the portfolio MSE and 1,300 instead of 75 on each individual one: 8 to 13 times the MSE solve time. In exchange the MSE solutions meet `θ ≥ 0`, monotonicity, the cap and the budget to ≤ 4.4e-10 in scaled units (before: up to 3.8e-6 on this fixture and 8.2e-6 on the engine's property tests).
 
-## CLIMADA-env stack (no HiGHS)
+## CLIMADA-env stack as first recorded (no HiGHS)
 
-cvxpy 1.6.0, numpy 1.26.4, scipy 1.15.3, clarabel 0.11.1, osqp 1.1.3, scs 3.3.1; HiGHS not installed (ADR 0002: cvxpy < 1.8 ships no `highspy`). Same solvers chosen, same objective values to ≤ 1e-9 relative.
+Recorded by MAR-14 (PR #20), before the pixi env existed (MAR-71, PR #28), on this stack: cvxpy 1.6.0, numpy 1.26.4, scipy 1.15.3, clarabel 0.11.1, osqp 1.1.3, scs 3.3.1; HiGHS not installed (cvxpy < 1.8 ships no `highspy`). Same solvers chosen, same objective values to ≤ 1e-9 relative.
 
-With scipy 1.15.0 or 1.15.1 (core's declared floor is `scipy>=1.15`), the three weighted-CVaR combinations fail before any solver runs: cvxpy reshapes their sparse problem data (more than 2^31 entries), and those scipy versions overflow int32 indices (`ValueError: negative axis 0 index`). scipy 1.15.2 fixes it. The fixture test marks these cases as a strict expected failure on scipy < 1.15.2; raising the floor is a proposed follow-up.
+**Drift (noted by MAR-97, not re-measured).** The CLIMADA env as locked today (`packages/climada/pixi.lock`: CLIMADA 6.1.0, Python 3.12) resolves cvxpy 1.9.3, numpy 2.3.5, scipy 1.15.2, clarabel 0.11.1, osqp 1.1.3, scs 3.3.1 and highspy 1.15.1, so HiGHS is installed there (ADR 0002, Consequences). Only the MSE rows have been re-measured on that stack (MAR-98, below the table). The E[U] and weighted-CVaR rows are still those of the stack above.
+
+With scipy 1.15.0 or 1.15.1 (core's declared floor was then `scipy>=1.15`), the three weighted-CVaR combinations fail before any solver runs: cvxpy reshapes their sparse problem data (more than 2^31 entries), and those scipy versions overflow int32 indices (`ValueError: negative axis 0 index`). scipy 1.15.2 fixes it. Done: MAR-93 (PR #43) raised the core's floor to `scipy>=1.15.2` and removed the strict expected failure from the fixture test.
 
 | Scope | Objective | Solver | Build (s) | Solve (s) | Total (s) |
 |---|---|---|---:|---:|---:|

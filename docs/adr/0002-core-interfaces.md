@@ -120,7 +120,7 @@ These are typed tables (`TableSchema`: columns, kinds, nullability, allowed valu
 
 | Table | Key | Content |
 |---|---|---|
-| `runs` | run_id, problem_id | Config hash, source tag, component names, basis, calibration split/fold, parameters (canonical JSON of scalars), status, solver, objective value, premium, timings, error type/message, EventSet checksum (nullable until the hash follow-up), package version, created_at (UTC). Failed solves are rows too |
+| `runs` | run_id, problem_id | Config hash, source tag, component names, basis, calibration split/fold, parameters (canonical JSON of scalars), status, solver, objective value, premium, timings, error type/message, EventSet checksum (nullable in the schema; the runner fills it on every row since MAR-64, see §9 open points), package version, created_at (UTC). Failed solves are rows too |
 | `entities` | run_id, problem_id, entity_id, location_id | Entity membership (cluster assignments) |
 | `payouts` | run_id, problem_id, entity_id, param_index | Bin edges `lower`/`upper` and fitted level `value`. No arrays stored as strings |
 | `kpis` | run_id, problem_id, eval_split, fold, basis, level, subject_id, kpi, beta | `value`, plus `ci_low`, `ci_high`, `ci_level`, `n_bootstrap` for MAR-23. `level` ∈ location/entity/problem/portfolio. `problem_id = "*"` marks rows across all problems of a run |
@@ -147,13 +147,13 @@ SPEC §4.2's `experiment.py` would be edited by four issues, so it becomes `expe
 
 With the row 5 amendment, MAR-82 adjusted two tests: in `tests/test_interfaces.py::test_full_sample_enforces_year_convention` the EventSet constructor now rejects one-based years, and the test reaches `Sample.full`'s own guard by bypassing validation; in `tests/test_clustering.py` the `make_eventset` helper wraps its years into `[0, n_years)` (clustering reads neither).
 
-**Amendment: transforms record, implemented by MAR-88.** `EventSetMetadata` gains an append-only `transforms: tuple[TransformRecord, ...]`, like `filters`. A `TransformRecord` holds `name`, `function` (fully qualified producer), `version` (the producer's distribution version), `n_filters_before` (its position among `filters`) and `parameters` (a JSON object, nested values allowed, e.g. an impact-function prior for MAR-25). `noise.add_noise` writes one record and leaves `scenario` unchanged. Seeds stay in the run config. In `metadata.json` the key is optional (missing reads as empty), and unknown keys stay errors. `content_hash()` includes the records and leaves out an empty `transforms`, so EventSets without transforms keep their MAR-82 hashes.
+**Amendment: transforms record, implemented by MAR-88 (PR #23).** `EventSetMetadata` gains an append-only `transforms: tuple[TransformRecord, ...]`, like `filters`. A `TransformRecord` holds `name`, `function` (fully qualified producer), `version` (the producer's distribution version), `n_filters_before` (its position among `filters`) and `parameters` (a JSON object, nested values allowed, e.g. an impact-function prior for MAR-25). `noise.add_noise` writes one record and leaves `scenario` unchanged. Seeds stay in the run config. In `metadata.json` the key is optional (missing reads as empty), and unknown keys stay errors. `content_hash()` includes the records and leaves out an empty `transforms`, so EventSets without transforms keep their MAR-82 hashes. A producer may record its generating step as the first `TransformRecord` (`n_filters_before=0`), as the CLIMADA adapter does with `climada_tc_impact` (MAR-73, PR #34); this is a wording clarification within the existing contract (orchestrator, 2026-10-25), not a new field.
 
-**Amendment: location subset, implemented by MAR-92.** `EventSet.select_locations(location_ids) -> EventSet` keeps the given locations in the given order: matrix columns and `locations` rows (with their free columns). It keeps every event row, the metadata, the filters and the earlier transforms. It is the runner's step for `portfolio.location_ids` and each `n_assets` sweep point (MAR-63, MAR-64), before the noise layer, as in the thesis. Ids must be non-empty, unique, strings and known; otherwise it raises `SchemaError` (empty, a bare string, a non-string id), `DuplicateKeyError` or `InconsistentKeysError`, all with `table="locations"`. An empty selection is an error, not an empty EventSet, because the constructor refuses an EventSet without locations. Every call appends one `TransformRecord` with the existing MAR-88 structure, so no new field: `name="select_locations"` (exported as `SELECT_LOCATIONS_TRANSFORM`), `function` the method's qualified name, and `parameters={"location_ids": [...], "n_locations_before": n}`. It records even an identity selection, as `filter_threshold` records a filter that drops nothing, so `content_hash()` always tells a subset from its parent.
+**Amendment: location subset, implemented by MAR-92 (PR #27).** `EventSet.select_locations(location_ids) -> EventSet` keeps the given locations in the given order: matrix columns and `locations` rows (with their free columns). It keeps every event row, the metadata, the filters and the earlier transforms. It is the runner's step for `portfolio.location_ids` and each `n_assets` sweep point (MAR-63, MAR-64), before the noise layer, as in the thesis. Ids must be non-empty, unique, strings and known; otherwise it raises `SchemaError` (empty, a bare string, a non-string id), `DuplicateKeyError` or `InconsistentKeysError`, all with `table="locations"`. An empty selection is an error, not an empty EventSet, because the constructor refuses an EventSet without locations. Every call appends one `TransformRecord` with the existing MAR-88 structure, so no new field: `name="select_locations"` (exported as `SELECT_LOCATIONS_TRANSFORM`), `function` the method's qualified name, and `parameters={"location_ids": [...], "n_locations_before": n}`. It records even an identity selection, as `filter_threshold` records a filter that drops nothing, so `content_hash()` always tells a subset from its parent.
 
 Open points left room for:
 
-- **EventSet content hash:** implemented by MAR-82 (`EventSet.content_hash()`, PR #18); `runs.eventset_checksum` stays nullable in the schema.
+- **EventSet content hash:** implemented by MAR-82 (`EventSet.content_hash()`, PR #18). Since MAR-64 (PR #31) the runner fills `runs.eventset_checksum` on every row it writes, failed solves included, with the `content_hash()` of the EventSet as loaded (`experiment/runner.py`). The schema (`records.py`) still declares the column nullable; making it non-nullable would be a contract amendment, which has not been made.
 - **Rate convention for draw rows (adopted in SPEC §5, MAR-83):** each of the `n` draws of an event gets `rate / n`, so the draws keep the event's total rate (thesis: `1/(Y·n_draws)` per row). `noise.add_noise` documents this. The annual basis (MAR-24) decides how draws map to outcomes, e.g. one outcome per (year, draw).
 - **Year convention:** §5.
 
@@ -168,7 +168,7 @@ One owner issue per file. Other issues may import a module but never edit it. A 
 | `src/.../records.py` | MAR-61 | Contract; amendment only |
 | `src/.../basis.py` | MAR-61 → **MAR-24** | MAR-61 built `event_conditional`; MAR-24 adds `event`, `annual` and grouped `aggregate_expression`. The public names are contract |
 | `src/.../__init__.py` | MAR-61 | Re-exports only. Later changes via a "public API" follow-up, not by implementing issues |
-| `src/.../eventset.py` | MAR-8 (Done) | Amendments via follow-ups (year range, error base, content hash) |
+| `src/.../eventset.py` | MAR-8 (Done) | Amendments via follow-ups (§9): year range, `EventSetError` base and content hash (MAR-82, PR #18), transforms record (MAR-88, PR #23), location subset (MAR-92, PR #27) |
 | `src/.../noise.py` | MAR-10 | |
 | `src/.../payout.py` | MAR-11 | |
 | `src/.../index.py` | MAR-12 | Cat-in-a-circle (MAR-26) is precomputed by the CLIMADA adapter and served by `PointIndex`. MAR-26 owns no core file |
@@ -178,7 +178,7 @@ One owner issue per file. Other issues may import a module but never edit it. A 
 | `src/.../pricing.py` | MAR-13 → **MAR-27** | MAR-13 implements `PurePremium`; MAR-27 implements `CostOfCapitalLoad` after MAR-13 is merged. Both stubs exist now, so the signature is fixed |
 | `src/.../constraints.py` | MAR-13 | |
 | `src/.../problem.py` | MAR-14 | `BuiltProblem` fields and both function signatures are contract |
-| `src/.../solve.py` | MAR-14 | `SolverPolicy` fields are contract; default values are MAR-14's choice |
+| `src/.../solve.py` | MAR-14 | `SolverPolicy` fields are contract; default values are MAR-14's choice. MAR-98 (PR #38) tightened the default OSQP tolerance to `1e-8`; `THESIS_POLICY` (the pre-MAR-98 default, OSQP at cvxpy's defaults) exists for the parity gate only, by owner decision (MAR-98 option A) |
 | `src/.../evaluate.py` | MAR-16 | |
 | `src/.../bootstrap.py` (new, not created yet) | MAR-23 | Block-bootstrap CIs, filling the `kpis.ci_*` columns |
 | `src/.../splits.py` | MAR-22 | |
@@ -192,7 +192,7 @@ One owner issue per file. Other issues may import a module but never edit it. A 
 | `tests/conftest.py`, `tests/test_interfaces.py`, `tests/test_basis.py`, `tests/test_records.py`, `tests/test_walking_skeleton.py` | MAR-61 | Others may use the fixtures; changes need an amendment |
 | `tests/test_<module>.py` | The module's owner | E.g. `test_payout.py` belongs to MAR-11 |
 | `tests/test_engine_properties.py` (new) | MAR-15 | Analytical and property tests (SPEC §6.7) through the public API |
-| `pyproject.toml`, `uv.lock` (core and root) | Shared, append-only | An issue may add its own dependency or entry-point lines, with a one-line justification in its PR; never edit another issue's lines. On conflict: rebase on `main` and run `uv lock`. Examples: scipy (MAR-12/MAR-24), pydantic (MAR-63), the CLI entry point (MAR-66), hypothesis (MAR-15, root dev group) |
+| `pyproject.toml`, `uv.lock` (core and root) | Shared, append-only | An issue may add its own dependency or entry-point lines, with a one-line justification in its PR; never edit another issue's lines. On conflict: rebase on `main` and run `uv lock`. A change to the core's dependencies (`packages/core/pyproject.toml`) must also run `pixi lock` in `packages/climada` and commit `packages/climada/pixi.lock`, because the climada CI job installs with `--locked` and fails on a stale lock (MAR-71, PR #28). Examples: scipy (MAR-12/MAR-24), pydantic (MAR-63), the CLI entry point (MAR-66), hypothesis (MAR-15, root dev group) |
 | `parity/BENCHMARK.md` | MAR-14 | Solve-time baseline |
 
 **Parallel dispatch.** MAR-10, MAR-11, MAR-12, MAR-13, MAR-14 and MAR-16 own disjoint files and can be built at the same time. Each one tests against the contracts with small test doubles, as the walking skeleton does. The acceptance tests that need several real components (MAR-14: all nine combinations solve on the fixture; MAR-16: KPIs match the thesis on the fixture) also need MAR-11, MAR-12 and MAR-13 merged, plus the MAR-9 fixture.
@@ -217,9 +217,9 @@ One owner issue per file. Other issues may import a module but never edit it. A 
 
 - Workers can build the core blocks in parallel against stable contracts. The walking skeleton fails if a contract change breaks composition.
 - Contract changes cost an ADR amendment. That's deliberate, and cheap for small additions (a new KPI name, a new error subclass).
-- `cvxpy>=1.6` is a core dependency. cvxpy ≥ 1.8 needs numpy ≥ 2, so the CLIMADA env (numpy 1.26) resolves to cvxpy 1.7.x. Clarabel, OSQP and SCS come with cvxpy; HiGHS comes with cvxpy ≥ 1.8 (highspy), and with older versions through the `SCIPY` interface. MAR-14's solver policy must cope with HiGHS being missing.
+- `cvxpy>=1.6` is a core dependency. Clarabel, OSQP and SCS come with cvxpy; HiGHS comes with cvxpy ≥ 1.8 (highspy), which needs numpy ≥ 2, and with older versions through the `SCIPY` interface. The CLIMADA env (`packages/climada/pixi.lock`, MAR-71) is CLIMADA 6.1.0 on Python 3.12 and resolves numpy 2.3.5, scipy 1.15.2 and cvxpy 1.9.3, so HiGHS is available there (highspy 1.15.1). MAR-14's solver policy still copes with HiGHS missing, as on any install with cvxpy < 1.8 (e.g. the core's lowest-direct CI job, numpy 1.26). *Correction (MAR-97):* this ADR first said the CLIMADA env had numpy 1.26 and cvxpy 1.7.x without HiGHS. That came from the thesis env (`climada_env.yml` of `parametric-insurance-framework`: CLIMADA 6.0.1, Python 3.11, numpy 1.26.4), not from this program's pixi env.
 
 ## Follow-ups proposed
 
-- Done: `eventset.py` year range, `EventSetError` base and content hash (MAR-82, PR #18); SPEC §4.2 module list (MAR-83, PR #17).
+- Done: `eventset.py` year range, `EventSetError` base and content hash (MAR-82, PR #18), transforms record (MAR-88, PR #23) and location subset (MAR-92, PR #27); SPEC §4.2 module list (MAR-83, PR #17).
 - MAR-23: create `bootstrap.py`.
