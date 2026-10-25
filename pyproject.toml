@@ -11,7 +11,7 @@ members = ["packages/core", "packages/viz", "packages/crc"]
 exclude = ["packages/climada"]
 
 [dependency-groups]
-test = ["pytest>=9", "pytest-cov>=7"]
+test = ["pytest>=9", "pytest-cov>=7", "hypothesis>=6.100"]
 lint = ["ruff>=0.17", "pyright[nodejs]>=1.1.400", "pre-commit>=4"]
 dev = [{ include-group = "test" }, { include-group = "lint" }]
 
