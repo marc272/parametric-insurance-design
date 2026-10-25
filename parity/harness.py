@@ -23,7 +23,14 @@ Golden tables
         The thesis tables hold **no objective values**. A table with the key
         columns, ``Problem`` (a ``runs.problem_id``) and ``Objective_Value``
         can be passed to :func:`load_golden`; without one, the objective
-        comparison is reported as unavailable.
+        comparison is reported as unavailable. Optional columns
+        ``Derivation`` and ``KPI_Source`` say how each value was obtained
+        (``golden/golden_objectives.csv``, MAR-68, is such a table).
+
+    Checksums
+        :func:`load_golden` records the SHA256 of every file as read and, for
+        gzipped files, of the decompressed content too: ``parity/manifest.json``
+        records the decompressed thesis CSVs (:func:`check_manifest`).
 
 Matching rules
     A golden record's key is (approach, method, source, parameters). It
@@ -68,6 +75,7 @@ silently. Store runs that match no golden record are listed, not flagged.
 from __future__ import annotations
 
 import ast
+import gzip
 import hashlib
 import json
 import math
@@ -106,7 +114,9 @@ __all__ = [
     "ParityResult",
     "RecordKey",
     "Tolerances",
+    "check_manifest",
     "compare",
+    "content_sha256",
     "file_sha256",
     "load_golden",
     "parse_array",
@@ -119,6 +129,10 @@ GOLDEN_DIR: Final[Path] = PARITY_DIR / "golden"
 
 RESULTS_FILE: Final[str] = "full_optimization_results.csv.gz"
 KPIS_FILE: Final[str] = "benchmarking_kpis.csv.gz"
+OBJECTIVES_FILE: Final[str] = "golden_objectives.csv"
+"""The golden objective table derived for MAR-68 (in :data:`GOLDEN_DIR`)."""
+MANIFEST: Final[Path] = PARITY_DIR / "manifest.json"
+"""The parity manifest: SHA256 of the decompressed golden CSVs (MAR-9)."""
 
 APPROACHES: Final[Mapping[str, str]] = {
     "individual_optimization": "individual",
@@ -223,6 +237,66 @@ def file_sha256(path: str | Path) -> str:
         for chunk in iter(lambda: handle.read(1 << 20), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def content_sha256(path: str | Path) -> tuple[str, str]:
+    """Return the content name and SHA256 of a file, decompressing ``.gz``.
+
+    Parameters
+    ----------
+    path : str or pathlib.Path
+        The file.
+
+    Returns
+    -------
+    name : str
+        The file name without a ``.gz`` suffix.
+    digest : str
+        SHA256 of the decompressed content for ``.gz`` files, else of the
+        file.
+    """
+    file = Path(path)
+    if file.suffix != ".gz":
+        return file.name, file_sha256(file)
+    digest = hashlib.sha256()
+    with gzip.open(file, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return file.stem, digest.hexdigest()
+
+
+def check_manifest(
+    content: Mapping[str, str], manifest: str | Path = MANIFEST
+) -> dict[str, str]:
+    """Compare golden content checksums with ``parity/manifest.json``.
+
+    Parameters
+    ----------
+    content : mapping of str to str
+        Content name to SHA256 (:attr:`Golden.content_sha256`).
+    manifest : str or pathlib.Path, default ``parity/manifest.json``
+        The manifest; its ``golden`` entries hold ``sha256`` per CSV name.
+
+    Returns
+    -------
+    dict of str to str
+        Content name to ``"matches"``, ``"differs"`` (with the manifest
+        digest) or ``"not in the manifest"``; ``{}`` if there is no manifest.
+    """
+    path = Path(manifest)
+    if not path.is_file():
+        return {}
+    golden = json.loads(path.read_text(encoding="utf-8")).get("golden", {})
+    out: dict[str, str] = {}
+    for name, digest in content.items():
+        entry = golden.get(name)
+        if not isinstance(entry, dict) or "sha256" not in entry:
+            out[name] = "not in the manifest"
+        elif entry["sha256"] == digest:
+            out[name] = "matches"
+        else:
+            out[name] = f"differs (manifest: {entry['sha256']})"
+    return out
 
 
 def parse_array(text: object) -> np.ndarray:
@@ -433,11 +507,17 @@ class GoldenKpis:
 
 @dataclass(frozen=True)
 class GoldenObjective:
-    """One golden objective value of a design problem."""
+    """One golden objective value of a design problem.
+
+    ``derivation`` and ``kpi_source`` say how it was obtained (optional
+    columns ``Derivation`` and ``KPI_Source``); empty if not given.
+    """
 
     key: RecordKey
     problem_id: str
     value: float
+    derivation: str = ""
+    kpi_source: str = ""
 
 
 @dataclass(frozen=True)
@@ -454,12 +534,16 @@ class Golden:
         Rows of the objective table; None if there is none.
     files : mapping of str to str
         File name to SHA256 of every table read (for the report).
+    content_sha256 : mapping of str to str
+        Content name (without ``.gz``) to the SHA256 of the decompressed
+        content, for every table read (:func:`content_sha256`).
     """
 
     payouts: tuple[GoldenPayout, ...]
     kpis: tuple[GoldenKpis, ...]
     objectives: tuple[GoldenObjective, ...] | None
     files: Mapping[str, str] = field(default_factory=dict)
+    content_sha256: Mapping[str, str] = field(default_factory=dict)
 
     def keys(self) -> tuple[RecordKey, ...]:
         """Every record key of the golden tables, sorted."""
@@ -525,6 +609,7 @@ def load_golden(
     results_path, kpis_path = Path(results), Path(kpis)
     files = {results_path.name: file_sha256(results_path)}
     files[kpis_path.name] = file_sha256(kpis_path)
+    content = dict(content_sha256(p) for p in (results_path, kpis_path))
 
     payouts: list[GoldenPayout] = []
     for i, row in enumerate(_records(_read_table(results_path, _RESULTS_COLUMNS))):
@@ -566,6 +651,8 @@ def load_golden(
     if objectives is not None:
         objectives_path = Path(objectives)
         files[objectives_path.name] = file_sha256(objectives_path)
+        name, digest = content_sha256(objectives_path)
+        content[name] = digest
         objective_rows = []
         table = _read_table(objectives_path, _OBJECTIVES_COLUMNS)
         for i, row in enumerate(_records(table)):
@@ -576,6 +663,8 @@ def load_golden(
                         key=RecordKey.from_row(row),
                         problem_id=str(row["Problem"]).strip(),
                         value=math.nan if value is None else value,
+                        derivation=_optional_str(row.get("Derivation")) or "",
+                        kpi_source=_optional_str(row.get("KPI_Source")) or "",
                     )
                 )
             except GoldenFormatError as exc:
@@ -591,6 +680,7 @@ def load_golden(
         kpis=tuple(kpi_rows),
         objectives=None if objective_rows is None else tuple(objective_rows),
         files=files,
+        content_sha256=content,
     )
 
 
@@ -636,6 +726,7 @@ class _StoreRun:
     scope: str
     objective: str
     parameters: dict[str, Any]
+    config_hash: str = ""
     problems: dict[str, _Problem] = field(default_factory=dict)
     members: dict[str, tuple[str, ...]] = field(default_factory=dict)
     entity_problem: dict[str, str] = field(default_factory=dict)
@@ -682,6 +773,7 @@ def _load_store(
                 scope=str(row["scope"]),
                 objective=str(row["objective"]),
                 parameters=params,
+                config_hash=str(row["config_hash"]),
             )
         run.problems[str(row["problem_id"])] = _Problem(
             status=str(row["status"]),
@@ -936,6 +1028,13 @@ class ParityResult:
         Whether ``runs.source`` had to agree.
     sources : tuple of str or None
         The golden sources compared; None for all.
+    golden_content : mapping of str to str
+        Content name to SHA256 of the decompressed golden tables
+        (:attr:`Golden.content_sha256`).
+    matched_runs : pandas.DataFrame
+        One row per golden record compared: the key columns, ``run_id``,
+        ``config_hash`` and ``run_source`` of the matched store run (empty
+        if none or several match), ``problems`` and ``failed`` (counts).
     """
 
     kpis: pd.DataFrame
@@ -954,6 +1053,8 @@ class ParityResult:
     fixed_parameters: Mapping[str, object]
     strict_source: bool
     sources: tuple[str, ...] | None
+    golden_content: Mapping[str, str] = field(default_factory=dict)
+    matched_runs: pd.DataFrame = field(default_factory=pd.DataFrame)
 
     @property
     def ok(self) -> bool:
@@ -1005,6 +1106,7 @@ class _Collector:
     payouts: list[dict[str, Any]] = field(default_factory=list)
     clusters: list[dict[str, Any]] = field(default_factory=list)
     findings: list[Finding] = field(default_factory=list)
+    runs: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _failure_detail(run: _StoreRun, problem_id: str | None) -> str | None:
@@ -1158,7 +1260,12 @@ def _compare_kpis(
 def _compare_objective(
     golden: GoldenObjective, run: _StoreRun, tol: Tolerances, out: _Collector
 ) -> None:
-    base = {**_key_fields(golden.key), "problem_id": golden.problem_id}
+    base = {
+        **_key_fields(golden.key),
+        "problem_id": golden.problem_id,
+        "derivation": golden.derivation,
+        "kpi_source": golden.kpi_source,
+    }
     problem = run.problems.get(golden.problem_id)
     if problem is None or problem.objective_value is None:
         failure = _failure_detail(run, golden.problem_id)
@@ -1346,6 +1453,17 @@ def compare(
         )
         matched.update(candidates)
         run = runs[candidates[0]] if len(candidates) == 1 else None
+        out.runs.append(
+            {
+                **_key_fields(key),
+                "run_id": "" if run is None else run.run_id,
+                "config_hash": "" if run is None else run.config_hash,
+                "run_source": "" if run is None else run.source,
+                "problems": 0 if run is None else len(run.problems),
+                "failed": 0 if run is None else len(run.failed),
+                "candidates": len(candidates),
+            }
+        )
         if run is None:
             kind = FindingKind.AMBIGUOUS_RUN if candidates else FindingKind.MISSING_RUN
             detail = (
@@ -1386,6 +1504,8 @@ def compare(
                     {
                         **_key_fields(key),
                         "problem_id": o.problem_id,
+                        "derivation": o.derivation,
+                        "kpi_source": o.kpi_source,
                         "golden": o.value,
                         "ours": math.nan,
                         "abs_error": math.nan,
@@ -1419,7 +1539,10 @@ def compare(
     ]
     return ParityResult(
         kpis=_frame(out.kpis, (*_KEY_OUT, "subject", "kpi", *value_columns)),
-        objectives=_frame(out.objectives, (*_KEY_OUT, "problem_id", *value_columns)),
+        objectives=_frame(
+            out.objectives,
+            (*_KEY_OUT, "problem_id", "derivation", "kpi_source", *value_columns),
+        ),
         payouts=_frame(
             out.payouts,
             (
@@ -1453,4 +1576,17 @@ def compare(
         fixed_parameters=fixed,
         strict_source=strict_source,
         sources=None if wanted is None else tuple(sorted(wanted)),
+        golden_content=dict(golden.content_sha256),
+        matched_runs=_frame(
+            out.runs,
+            (
+                *_KEY_OUT,
+                "run_id",
+                "config_hash",
+                "run_source",
+                "problems",
+                "failed",
+                "candidates",
+            ),
+        ),
     )

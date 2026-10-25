@@ -1,0 +1,23 @@
+# Explanations of the parity findings (MAR-68), merged into parity/REPORT.md by
+# parity/report.py. Keys are finding ids (P-...) or globs over the finding path
+# kind/approach/method/source/parameters/subject/item; an id wins, otherwise the
+# first matching glob in file order. Observations, not conclusions: every number
+# cited here is in the report (its appendix for the thesis-payout check).
+
+# Thesis baseline, integrated portfolio, weighted CVaR (config_hash
+# sha256:9e8964c642474b61fcf37da58fba55a65630a9c02aa8cef85686ae58e2bec571):
+# asset-level KPIs of A1, A2, A4 and A6 only. The glob names asset subjects
+# (A<k>), so a portfolio-level finding of this record stays unexplained.
+? "kpi/integrated_portfolio_optimization/weighted_cvar_minimization/single_run/alpha=0.9, beta=0.95, budget_loading=1, n_bins=15/A?/*"
+: >-
+  Alternative optimum (LP degeneracy). The objective and every portfolio-level
+  KPI of this run are within tolerance (objective 1.2e-9 relative). Evaluated
+  under our objective and constraints on the same prepared EventSet (appendix),
+  the thesis payout is feasible (bound violations at most 9.5e-6 USD, from its
+  8-digit print; budget 3.6e-11 relative) and its objective is 1.18e-9
+  relative above ours, within solver tolerance; the midpoint of the two payouts
+  is optimal too (5.9e-10). The objective depends on the payouts only through
+  the portfolio's total payout per event, and the two optima split that total
+  differently between assets (E[payout]/E[loss] of A1 +2.25e-4, A6 +4.92e-4
+  relative), which moves these asset-level KPIs by 1.4e-4 to 7.3e-4. This is
+  what degeneracy predicts, not a porting bug.
