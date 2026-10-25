@@ -38,7 +38,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -365,7 +365,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     int
         Exit code 0.
     """
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description=cast(str, __doc__).splitlines()[0])
     parser.add_argument(
         "--thesis-repo",
         type=Path,

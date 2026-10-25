@@ -43,7 +43,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -267,7 +267,7 @@ def derive(thesis: ThesisCode) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     """Command-line entry point."""
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description=cast(str, __doc__).splitlines()[0])
     parser.add_argument(
         "--thesis-repo",
         type=Path,
