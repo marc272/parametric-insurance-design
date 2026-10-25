@@ -16,6 +16,8 @@ Thesis golden data and the parity tests that check the new core reproduces the t
 | `golden/benchmarking_kpis.csv.gz` | The thesis KPI table, the parity targets. Gzipped the same way |
 | `manifest.json` | SHA256 and row/column counts of the thesis sources, the fixture files and the golden tables, plus the thesis commit |
 | `scripts/convert_thesis_eventset.py` | Writes all of the above from a thesis checkout |
+| `golden/noise_digests.json` | SHA256 of the noisy loss matrix that the thesis noise layer (`add_noise_to_asset_losses`, seed 42, η = 0.3, 13 copies, heteroscedastic and homoscedastic) returns on the fixture, with the thesis module's checksum (MAR-10) |
+| `scripts/thesis_noise_digests.py` | Writes `golden/noise_digests.json` from a thesis checkout. It loads the thesis `src/utils/data_processing.py` on its own (numpy and pandas only), so no thesis dependency is needed |
 | `tests/` | Checks the committed files against the manifest and fixed checksums; with a thesis checkout, also recomputes the source checksums and regenerates the fixture |
 
 ## The event set
@@ -49,4 +51,11 @@ uv run pytest parity/tests
 PARITY_THESIS_REPO=../parametric-insurance-framework uv run pytest parity/tests
 ```
 
-Without `PARITY_THESIS_REPO`, the four thesis-checkout tests are skipped and say why. If it is set but doesn't point at a thesis checkout, they fail.
+To rewrite the noise digests (MAR-10):
+
+```bash
+uv run python parity/scripts/thesis_noise_digests.py \
+    --thesis-repo ../parametric-insurance-framework --overwrite
+```
+
+Without `PARITY_THESIS_REPO`, the thesis-checkout tests are skipped and say why. If it is set but doesn't point at a thesis checkout, they fail.
