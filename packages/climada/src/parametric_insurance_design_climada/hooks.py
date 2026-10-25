@@ -9,8 +9,11 @@ Paper P-03) can be added without changing the pipeline:
 :class:`IndexBuilder`
     Turns a batch into the ``index`` matrix. The default,
     :class:`CentroidWindIndex`, is the thesis index: the storm's maximum
-    sustained wind at the location's centroid. Cat-in-a-circle (MAR-26) will
-    be another builder, reading the tracks and the locations.
+    sustained wind at the location's centroid.
+    :class:`~parametric_insurance_design_climada.cat_in_circle.CatInCircleIndex`
+    (MAR-26) is the cat-in-a-circle builder: it reads the tracks and the
+    locations, not the wind field. The config's ``index`` section selects the
+    builder (:func:`~parametric_insurance_design_climada.pipeline.make_index_builder`).
 :class:`VulnerabilityDraws`
     Turns a batch and its base loss matrix into one loss matrix per draw
     (``draw_id``). The default, :class:`NoDraws`, keeps the base loss as the

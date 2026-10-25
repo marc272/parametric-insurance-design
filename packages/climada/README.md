@@ -10,7 +10,7 @@ result = build_eventset(load_config("configs/thesis.yaml"))
 result.eventset.to_parquet("data/eventsets/thesis-iris")
 ```
 
-Status: the IRIS download (MAR-72) and the track → wind → impact pipeline (MAR-73) are in. Parity with the thesis event-loss table is verified under MAR-20; vulnerability draws (MAR-25) and cat-in-a-circle (MAR-26) plug into the pipeline's extension points.
+Status: the IRIS download (MAR-72) and the track → wind → impact pipeline (MAR-73) are in. Parity with the thesis event-loss table is verified under MAR-20. The cat-in-a-circle index (MAR-26) is in; vulnerability draws (MAR-25) plug into the pipeline's extension point.
 
 ## Environment
 
@@ -68,8 +68,50 @@ Deliberate differences from the thesis script: storms that cannot be modelled ar
 
 **Extension points** (`hooks.py`): `build_eventset(config, index_builder=..., vulnerability=..., rng=...)`.
 
-- `IndexBuilder`: turns a `HazardBatch` (tracks, hazard, locations, exposures, wind) into the index matrix. Default `CentroidWindIndex` (the thesis index). Cat-in-a-circle (MAR-26) is a second builder.
+- `IndexBuilder`: turns a `HazardBatch` (tracks, hazard, locations, exposures, wind) into the index matrix. Default `CentroidWindIndex` (the thesis index). `CatInCircleIndex` is the cat-in-a-circle builder (see "Index builders" below). The config's `index` section selects the builder; a builder passed to `build_eventset` replaces it.
 - `VulnerabilityDraws`: turns a batch and its base losses into `n_draws` loss matrices. Default `NoDraws`. With draws (MAR-25), the pipeline repeats each event's row per draw (event-major), gives each draw `rate / n_draws` (SPEC §5) and appends the hook's `TransformRecord`.
+
+## Index builders
+
+The config's `index` section chooses what goes into the EventSet's `index` column (SPEC §6.3). The loss column doesn't depend on it.
+
+| `kind` | Builder | Index | Unit |
+|---|---|---|---|
+| `centroid_wind` (default) | `hooks.CentroidWindIndex` | (a) The thesis index: CLIMADA's modelled maximum 1-minute sustained wind at the asset | m/s |
+| `cat_in_circle` | `cat_in_circle.CatInCircleIndex` (MAR-26) | (b) Cat-in-a-circle: the highest Saffir–Simpson category the storm's **track** reaches within `radius_km` of the asset | Saffir-Simpson category (0–5), or m/s with `metric: max_wind` |
+
+Without an `index` section the build is unchanged from MAR-73. On the thesis portfolio its `index` and `loss` are bit-identical to the parity fixture.
+
+```yaml
+index:
+  kind: cat_in_circle
+  radius_km: 50                          # required; at most proximity_km / 2
+  metric: category                       # or max_wind (m/s)
+  breakpoints_kn: [64, 83, 96, 113, 137] # default: NHC Saffir-Simpson, categories 1-5
+  track_step_hours: 0.5                  # default; null uses the raw 3-hourly points
+```
+
+`configs/thesis_cat_in_circle.yaml` is the thesis build with this index at 50 km.
+
+How cat-in-a-circle is computed, for each storm and asset:
+
+1. Take the storm's track points: centre position and maximum sustained wind.
+2. Interpolate the track linearly in time to `track_step_hours`; the original points are kept. IRIS points are 3 hours apart, and a fast storm moves 50 km or more in that time, so without interpolation a small circle can miss a storm that crosses it.
+3. Keep the points within `radius_km` of the asset, by the haversine distance of the proximity filter (sphere of 6,371 km, inclusive).
+4. Take the highest wind among those points, or 0 if there are none.
+5. With `metric: category`, report the number of breakpoints that wind reaches. Category 0 covers tropical storms, depressions and storms that never enter the circle. With `metric: max_wind`, report the wind itself, in m/s.
+
+The index doesn't use CLIMADA's wind field, so it is decoupled from the loss driver (thesis issue M2).
+
+**Wind and breakpoints.** IRIS `vmax` is a 1-minute sustained wind in m/s: IRIS is calibrated on the US agencies' IBTrACS data, which report 1-minute averages (Sparks and Toumi 2024, doi:10.1038/s41597-024-03250-y). The Saffir–Simpson scale is defined on the same 1-minute wind, in knots, so no averaging-period conversion is applied. The defaults are the NHC lower bounds of categories 1–5 (<https://www.nhc.noaa.gov/aboutsshws.php>), equal to CLIMADA's `SAFFIR_SIM_CAT[1:6]`. The tracks carry the wind in knots (m/s × 1.9438…), and the breakpoints are compared in knots.
+
+**Radius limit.** The proximity filter only tests raw track points, so the config requires `radius_km <= proximity_km / 2`. This guarantees that no storm the filter removed could have a non-zero index after interpolation. The argument is in `config.check_circle_radius`.
+
+**Provenance.** `metadata.index.definition` starts with `cat_in_circle(r=<radius> km, metric=<metric>)` and then states the breakpoints, the wind, the distance and the interpolation. The build record's `parameters.index` holds the same settings as data: radius, metric, breakpoints and their source, track step, distance and wind.
+
+**Reference configuration.** Steinmann et al. (2023) build cat-in-a-circle products in CLIMADA, with radii of 10–50 km and step payouts on Saffir–Simpson categories. The index is industry practice, not a novelty claim (`research/lit/notes.md`, O3). The core needs no change for it: a step payout runs on the precomputed index through `PointIndex` (ADR 0002). With `metric: category`, `StepPayout(attachment=0, limit=6, n_bins=6, breakpoints=(0, 1, 2, 3, 4, 5, 6))` puts each category in its own bin. Category 0 then gets its own bin, so the optimiser can leave it unpaid. The core's step payout clips index values below the attachment into the first bin.
+
+Index (c) of SPEC §6.3 (wind at the nearest grid node or at a reference point at distance d) is not implemented.
 
 ## Rules
 
