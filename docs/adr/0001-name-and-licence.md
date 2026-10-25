@@ -29,7 +29,9 @@ Goals for the licence choice:
 |---|---|---|
 | `packages/core` | BSD 3-Clause | `BSD-3-Clause` |
 | `packages/viz` | BSD 3-Clause | `BSD-3-Clause` |
-| `research/`, `site/`, repo tooling | BSD 3-Clause | `BSD-3-Clause` |
+| `research/`, `site/`, `docs/`, repo tooling | BSD 3-Clause | `BSD-3-Clause` |
+| `parity/` code (scripts, tests) | BSD 3-Clause (amendment 1) | `BSD-3-Clause` |
+| `showcase/crc/` code (notebook, pipeline) | BSD 3-Clause (amendment 1) | `BSD-3-Clause` |
 | `packages/climada` | GNU GPL v3 or later | `GPL-3.0-or-later` |
 | `packages/crc` | GNU AGPL v3 or later | `AGPL-3.0-or-later` |
 
@@ -61,3 +63,13 @@ Implementation:
 - Copyleft obligations stay inside the two adapter packages. Users who need only the core get a permissive licence.
 - If the owner's agreement with Riskthinking.AI grants other terms for the CRC SDK, the CRC adapter's licence can be revisited. Record that in a new ADR.
 - Data licences are separate from code licences: CRC Open data is CC BY-NC 4.0 unless covered by the owner's agreement, and IRIS/STORM carry their own terms. They are recorded in `docs/data-sources.md` and in EventSet metadata.
+
+## Amendment 1 (2026-10-25, MAR-79): `parity/` and `showcase/crc/`
+
+Decided by the owner, Marc Prinzing, on 2026-10-25 (recorded on MAR-79).
+
+- **`parity/` code** (scripts and tests) is **BSD-3-Clause**, like the core it tests. `parity/LICENSE` is a copy of the root licence.
+- **The derived parity fixture** (`parity/tests/data/thesis_eventset/`) is **CC0-1.0**, following its source, the IRIS event set, which is CC0 1.0 (`docs/data-sources.md`, IRIS check). Its `metadata.json` records `CC0-1.0`.
+- **CLIMADA's GPL-3.0 and its output.** The fixture's losses were computed with CLIMADA, which is GPL-3.0. CLIMADA's documentation states the GPL for the software and nothing about results; the GNU GPL FAQ says the output of a program is not, in general, covered by the copyright on its code, and that output inherits the copyright status of the input it was generated from (<https://www.gnu.org/licenses/gpl-faq.html#WhatCaseIsOutputGPL>, <https://www.gnu.org/licenses/gpl-faq.html#GPLOutput>, read 2026-10-25). The input here is IRIS (CC0) plus the owner's own asset portfolio, so the GPL does not attach to the fixture. Code that imports CLIMADA stays GPL (`packages/climada`).
+- **`showcase/crc/` code** (notebook and pipeline) is **BSD-3-Clause**. It runs on the AGPL-3.0-or-later CRC adapter and SDK, so the AGPL applies to the combined work when it is distributed or served over a network; the showcase's own source stays permissive. `showcase/crc/LICENSE` is a copy of the root licence.
+- **Unchanged:** CRC Open data remains CC BY-NC 4.0 unless the owner's agreement says otherwise (MAR-41); data licences are recorded in `docs/data-sources.md`.

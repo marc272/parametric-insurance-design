@@ -61,3 +61,16 @@ uv run python parity/scripts/thesis_noise_digests.py \
 ```
 
 Without `PARITY_THESIS_REPO`, the thesis-checkout tests are skipped and say why. If it is set but doesn't point at a thesis checkout, they fail.
+
+### In CI
+
+CI runs `uv run --locked pytest parity/tests -v` in its own step, "Test parity", of the `test (workspace, …)` jobs (Python 3.12 and 3.13). `PARITY_THESIS_REPO` is not set there, so:
+
+- the tests on the committed files run; the thesis-checkout tests skip, each with its `PARITY_THESIS_REPO is not set` reason in the log's short test summary;
+- the noise layer's exact SHA256 check (`test_noisy_losses_match_thesis_digest`) runs only on the platform that wrote `golden/noise_digests.json` (its `generated_with`: system, machine and numpy version). Elsewhere, such as on the Linux runners, it skips with a reason that names that platform, and only the summary check at rtol 1e-12 (`test_noisy_losses_match_thesis_summary`) runs. The log shows which of the two ran.
+
+pyright (`include`) and ruff cover `parity/` like the packages.
+
+### pandas below 4 for the thesis-checkout tests
+
+With `PARITY_THESIS_REPO` set, the tests run the thesis' `src/utils/data_processing.py`, which calls `DataFrame.drop(..., inplace=True)` and `DataFrame.reset_index(..., inplace=True)`. pandas 3.1 warns about these (`Pandas4Warning`, PDEP-8), and pandas 4 removes the `inplace` keyword, so these tests need pandas below 4. The workspace lock pins pandas 3.1.0. Run them from the locked env (`uv run --locked`), and keep pandas below 4 in `uv.lock` for as long as these tests run the thesis code unchanged (it is read-only here).

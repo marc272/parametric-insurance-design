@@ -13,6 +13,7 @@ import hashlib
 import json
 import platform
 from collections.abc import Sequence
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
@@ -20,8 +21,12 @@ import numpy as np
 import pytest
 
 from parametric_insurance_design.errors import ComponentConfigError, InputMismatchError
-from parametric_insurance_design.eventset import EventSet, ThresholdFilterRecord
-from parametric_insurance_design.noise import NoiseKind, add_noise
+from parametric_insurance_design.eventset import (
+    EventSet,
+    ThresholdFilterRecord,
+    TransformRecord,
+)
+from parametric_insurance_design.noise import TRANSFORM_NAME, NoiseKind, add_noise
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PARITY_EVENTSET = REPO_ROOT / "parity" / "tests" / "data" / "thesis_eventset"
@@ -115,21 +120,61 @@ def test_metadata_records_noise_and_keeps_filters(toy_eventset: EventSet) -> Non
     meta = noisy.metadata
     assert meta.filters == filtered.metadata.filters
     assert isinstance(meta.filters[0], ThresholdFilterRecord)
-    assert meta.scenario.startswith("toy | noise: thesis noise layer")
-    assert "kind=heteroscedastic, level=0.3, n_copies=2" in meta.scenario
-    assert "bounds=(25.0, 60.0), locations=all" in meta.scenario
+    # MAR-88: one structured record; the scenario text is unchanged.
+    assert meta.scenario == filtered.metadata.scenario == "toy"
+    assert meta.transforms == (
+        TransformRecord(
+            name=TRANSFORM_NAME,
+            function="parametric_insurance_design.noise.add_noise",
+            version=version("parametric-insurance-design"),
+            n_filters_before=1,
+            parameters={
+                "kind": "heteroscedastic",
+                "level": 0.3,
+                "n_copies": 2,
+                "bounds": [25.0, 60.0],
+                "location_ids": ["A", "B"],
+            },
+        ),
+    )
     assert meta.n_years == filtered.metadata.n_years
     assert meta.provenance == filtered.metadata.provenance
-    homo = _noise(toy_eventset, kind="homoscedastic", location_ids=["B"])
-    assert "bounds" not in homo.metadata.scenario
-    assert homo.metadata.scenario.endswith("locations=B; rates divided by n_copies")
+
+
+def test_metadata_record_homoscedastic_and_explicit_locations(
+    toy_eventset: EventSet,
+) -> None:
+    homo = _noise(toy_eventset, kind="homoscedastic", location_ids=["B", "A"])
+    assert homo.metadata.scenario == toy_eventset.metadata.scenario
+    (record,) = homo.metadata.transforms
+    assert record.n_filters_before == 0
+    assert record.parameters == {
+        "kind": "homoscedastic",
+        "level": 0.3,
+        "n_copies": 4,
+        "bounds": None,  # ignored by homoscedastic noise
+        "location_ids": ["B", "A"],  # call order, not EventSet order
+    }
+
+
+def test_repeated_noise_appends_records(toy_eventset: EventSet) -> None:
+    once = _noise(toy_eventset, n_copies=1)
+    # A second call needs an input without draws; n_copies=1 keeps draw_id 0.
+    twice = _noise(once.filter_threshold(0.0), n_copies=1, level=0.1)
+    first, second = twice.metadata.transforms
+    assert first == once.metadata.transforms[0]
+    assert (second.n_filters_before, second.parameters["level"]) == (1, 0.1)
+    assert twice.content_hash() != once.content_hash()
 
 
 def test_output_round_trips_through_parquet(
     toy_eventset: EventSet, tmp_path: Path
 ) -> None:
     noisy = _noise(toy_eventset)
-    assert EventSet.from_parquet(noisy.to_parquet(tmp_path / "es")).equals(noisy)
+    back = EventSet.from_parquet(noisy.to_parquet(tmp_path / "es"))
+    assert back.equals(noisy)
+    assert back.metadata.transforms == noisy.metadata.transforms
+    assert back.content_hash() == noisy.content_hash()
 
 
 # -- determinism and the random stream ---------------------------------------

@@ -30,7 +30,7 @@ import os
 import sys
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -109,9 +109,9 @@ def thesis_results_assignments() -> dict[int, dict[str, set[int]]]:
     df = df[df["Approach"] == "cluster_optimization"]
     out: dict[int, dict[str, set[int]]] = {}
     for _, row in df.iterrows():
-        k = int(row["N_Clusters"])
+        k = int(cast(Any, row["N_Clusters"]))
         label = int(str(row["Asset_ID"]).removeprefix("C"))
-        for asset in ast.literal_eval(row["Included_Assets"]):
+        for asset in ast.literal_eval(cast(str, row["Included_Assets"])):
             out.setdefault(k, {}).setdefault(asset, set()).add(label)
     return out
 
@@ -194,7 +194,7 @@ def test_cluster_scope_entities_match_thesis_results(
     ]
     for method, rows in df.groupby("Method"):
         expected = {
-            row["Asset_ID"]: tuple(ast.literal_eval(row["Included_Assets"]))
+            row["Asset_ID"]: tuple(ast.literal_eval(cast(str, row["Included_Assets"])))
             for _, row in rows.iterrows()
         }
         got = {e.entity_id: e.location_ids for e in spec.entities}

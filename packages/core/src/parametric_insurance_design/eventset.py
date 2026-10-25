@@ -17,9 +17,10 @@ On disk
 
 Tables
     ``events``
-        ``event_id`` (str), ``year`` (int, simulation year), ``rate`` (float,
-        annual frequency, > 0), ``draw_id`` (int, >= 0; 0 if no draws),
-        ``scenario_id`` (str). The key is ``(event_id, draw_id)``.
+        ``event_id`` (str), ``year`` (int, 0-based simulation year in
+        ``[0, n_years)``), ``rate`` (float, annual frequency, > 0),
+        ``draw_id`` (int, >= 0; 0 if no draws), ``scenario_id`` (str). The key
+        is ``(event_id, draw_id)``.
     ``locations``
         ``location_id`` (str, key), ``lat`` (float, degrees in [-90, 90]),
         ``lon`` (float, degrees in [-180, 180]), ``value`` (float, >= 0),
@@ -32,17 +33,30 @@ Tables
 
 Rates are never rescaled. :meth:`EventSet.filter_threshold` drops rows only to
 make solving faster: the dropped rows count as zero-loss mass, and every
-filter is recorded in :attr:`EventSetMetadata.filters`.
+filter is recorded in :attr:`EventSetMetadata.filters`. Other transformations
+that change rows or values, such as the noise layer or vulnerability draws,
+are recorded in :attr:`EventSetMetadata.transforms` (:class:`TransformRecord`).
+
+Content hash
+    :meth:`EventSet.content_hash` returns a ``"sha256:<hex>"`` checksum of the
+    data, for result provenance (SPEC §4.3, ``runs.eventset_checksum``). It
+    hashes a canonical byte serialisation, not the Parquet files, so it does
+    not depend on the pandas, pyarrow or Parquet version.
 
 Every validation failure raises a subclass of :class:`EventSetError`, which is
-a :class:`ValueError`.
+both a :class:`~parametric_insurance_design.errors.ParametricInsuranceDesignError`
+and a :class:`ValueError`.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import math
+import os
+import shutil
+import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -54,6 +68,8 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 from numpy.typing import NDArray
+
+from parametric_insurance_design.errors import ParametricInsuranceDesignError
 
 __all__ = [
     "EVENTS_FILE",
@@ -77,6 +93,7 @@ __all__ = [
     "Provenance",
     "SchemaError",
     "ThresholdFilterRecord",
+    "TransformRecord",
 ]
 
 SCHEMA_VERSION: Final[int] = 1
@@ -146,8 +163,12 @@ _MAX_EXAMPLES: Final[int] = 5
 # --------------------------------------------------------------------------
 
 
-class EventSetError(ValueError):
+class EventSetError(ParametricInsuranceDesignError, ValueError):
     """Base class for every EventSet validation error.
+
+    It derives from the library base
+    :class:`~parametric_insurance_design.errors.ParametricInsuranceDesignError`
+    (ADR 0002 §6, §9 row 8) and from :class:`ValueError`.
 
     Parameters
     ----------
@@ -415,6 +436,81 @@ class ThresholdFilterRecord:
 
 
 @dataclass(frozen=True)
+class TransformRecord:
+    """Record of one transformation applied to an EventSet.
+
+    A transformation changes the rows or values of an EventSet beyond a
+    threshold filter, e.g. the thesis noise layer
+    (:func:`parametric_insurance_design.noise.add_noise`) or vulnerability
+    draws in an adapter. The producer appends one record to
+    :attr:`EventSetMetadata.transforms` per call, so that the provenance of
+    the data is structured rather than free text in ``scenario``.
+
+    Random seeds are not recorded here: the caller owns the
+    :class:`numpy.random.Generator` and records its seed in the run
+    configuration.
+
+    Parameters
+    ----------
+    name : str
+        Short name of the transformation, e.g. ``"noise"`` or
+        ``"vulnerability_draws"``.
+    function : str
+        Fully qualified name of the producing function, e.g.
+        ``"parametric_insurance_design.noise.add_noise"``.
+    version : str
+        Version of the distribution that provides ``function``, e.g. the
+        ``parametric-insurance-design`` version.
+    n_filters_before : int
+        Number of entries in :attr:`EventSetMetadata.filters` when the
+        transformation was applied. It places the record among the threshold
+        filters, so that their relative order can be recovered (the noise
+        layer's random stream depends on the number of input rows).
+    parameters : mapping of str to JSON value, optional
+        The transformation's parameters, e.g. ``{"kind": "heteroscedastic",
+        "level": 0.3}``, or an impact-function prior with its literature
+        source. Values may be None, bool, int, finite float, str, lists and
+        mappings with str keys, nested to any depth. Tuples become lists and
+        numpy scalars become Python scalars, so that the record equals itself
+        after a ``metadata.json`` round trip.
+
+    Raises
+    ------
+    SchemaError
+        If a text field is empty, ``n_filters_before`` is not a non-negative
+        int, or ``parameters`` holds a value that is not JSON (or a
+        non-finite float).
+    """
+
+    name: str
+    function: str
+    version: str
+    n_filters_before: int
+    parameters: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Validate the fields and normalise ``parameters``."""
+        _require_text(self.name, "transforms[].name")
+        _require_text(self.function, "transforms[].function")
+        _require_text(self.version, "transforms[].version")
+        if not _is_int(self.n_filters_before) or self.n_filters_before < 0:
+            raise SchemaError(
+                "transforms[].n_filters_before must be a non-negative int",
+                table="metadata",
+            )
+        object.__setattr__(self, "n_filters_before", int(self.n_filters_before))
+        if not isinstance(self.parameters, Mapping):
+            raise SchemaError(
+                "transforms[].parameters must be a mapping", table="metadata"
+            )
+        object.__setattr__(
+            self,
+            "parameters",
+            _json_value(self.parameters, "transforms[].parameters"),
+        )
+
+
+@dataclass(frozen=True)
 class EventSetMetadata:
     """Contents of ``metadata.json``.
 
@@ -437,6 +533,12 @@ class EventSetMetadata:
         ``"CC-BY-4.0"``.
     filters : tuple of ThresholdFilterRecord, optional
         Threshold filters applied so far, oldest first.
+    transforms : tuple of TransformRecord, optional
+        Other transformations applied so far (noise, vulnerability draws),
+        oldest first. Append-only, like ``filters``. Each record's
+        ``n_filters_before`` must not exceed ``len(filters)`` and must not
+        decrease along the tuple. A ``metadata.json`` without the
+        ``transforms`` key reads as no transforms.
     schema_version : int, optional
         Schema version. Only :data:`SCHEMA_VERSION` is supported.
     """
@@ -449,6 +551,7 @@ class EventSetMetadata:
     provenance: Provenance
     licence: str
     filters: tuple[ThresholdFilterRecord, ...] = ()
+    transforms: tuple[TransformRecord, ...] = ()
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -483,6 +586,29 @@ class EventSetMetadata:
                 "filters must hold ThresholdFilterRecord objects", table="metadata"
             )
         object.__setattr__(self, "filters", filters)
+        transforms = tuple(self.transforms)
+        if not all(isinstance(t, TransformRecord) for t in transforms):
+            raise SchemaError(
+                "transforms must hold TransformRecord objects", table="metadata"
+            )
+        previous = 0
+        for i, record in enumerate(transforms):
+            if record.n_filters_before > len(filters):
+                raise SchemaError(
+                    f"transforms[{i}].n_filters_before is "
+                    f"{record.n_filters_before}, but only {len(filters)} "
+                    "filters are recorded",
+                    table="metadata",
+                )
+            if record.n_filters_before < previous:
+                raise SchemaError(
+                    f"transforms[{i}].n_filters_before decreases "
+                    f"({previous} -> {record.n_filters_before}); records are "
+                    "append-only, oldest first",
+                    table="metadata",
+                )
+            previous = record.n_filters_before
+        object.__setattr__(self, "transforms", transforms)
 
     def to_dict(self) -> dict[str, Any]:
         """Return the JSON-serialisable form written to ``metadata.json``.
@@ -507,6 +633,7 @@ class EventSetMetadata:
             },
             "licence": self.licence,
             "filters": [dataclasses.asdict(f) for f in self.filters],
+            "transforms": [dataclasses.asdict(t) for t in self.transforms],
         }
 
     @classmethod
@@ -516,7 +643,10 @@ class EventSetMetadata:
         Parameters
         ----------
         data : mapping
-            Parsed ``metadata.json``. Unknown and missing keys are errors.
+            Parsed ``metadata.json``. Unknown and missing keys are errors,
+            except that the optional keys ``filters``, ``transforms``,
+            ``loss.currency`` and ``provenance.source_checksums`` may be
+            missing.
 
         Returns
         -------
@@ -544,7 +674,7 @@ class EventSetMetadata:
                 "provenance",
                 "licence",
             ),
-            optional=("filters",),
+            optional=("filters", "transforms"),
         )
         # Check the version first, so that a future schema fails with a clear
         # message rather than on its first unknown key.
@@ -588,6 +718,16 @@ class EventSetMetadata:
             )
             for raw in raw_filters
         )
+        raw_transforms = top.get("transforms", [])
+        if not isinstance(raw_transforms, list):
+            raise SchemaError("transforms must be a list", table="metadata")
+        transform_fields = tuple(f.name for f in dataclasses.fields(TransformRecord))
+        transforms = tuple(
+            TransformRecord(
+                **_strict_keys(raw, "transforms[]", required=transform_fields)
+            )
+            for raw in raw_transforms
+        )
         return cls(
             hazard=HazardSource(**hazard),
             index=IndexDefinition(**index),
@@ -602,6 +742,7 @@ class EventSetMetadata:
             ),
             licence=top["licence"],
             filters=filters,
+            transforms=transforms,
             schema_version=version,
         )
 
@@ -650,11 +791,18 @@ class EventSet:
     NegativeLossError
         If a loss is < 0.
     OutOfRangeError
-        If ``draw_id``, ``lat``, ``lon`` or ``value`` is out of range.
+        If ``year`` lies outside ``[0, metadata.n_years)``, or ``draw_id``,
+        ``lat``, ``lon`` or ``value`` is out of range.
     DuplicateKeyError
         If ``(event_id, draw_id)`` or ``location_id`` repeats.
     InconsistentKeysError
         If the matrix shapes do not match the tables.
+
+    Notes
+    -----
+    Years are 0-based: ``year`` is in ``[0, n_years)``, as in IRIS, the thesis
+    and the parity fixture (ADR 0002 §5). SPEC §6 writes ``y = 1..Y`` as
+    notation only.
 
     Examples
     --------
@@ -674,6 +822,7 @@ class EventSet:
         if not isinstance(self.metadata, EventSetMetadata):
             raise SchemaError("metadata must be an EventSetMetadata")
         events = _normalise_events(self.events)
+        _check_years(events, self.metadata.n_years)
         locations = _normalise_locations(self.locations)
         shape = (len(events), len(locations))
         index = _normalise_matrix(self.index, "index", shape)
@@ -713,7 +862,8 @@ class EventSet:
             f"n_years={self.metadata.n_years}, "
             f"hazard={self.metadata.hazard.name!r} "
             f"{self.metadata.hazard.release!r}, "
-            f"filters={len(self.metadata.filters)})"
+            f"filters={len(self.metadata.filters)}, "
+            f"transforms={len(self.metadata.transforms)})"
         )
 
     def equals(self, other: object) -> bool:
@@ -739,6 +889,113 @@ class EventSet:
             and np.array_equal(self.index, other.index)
             and np.array_equal(self.loss, other.loss)
         )
+
+    # -- content hash ------------------------------------------------------
+
+    def content_hash(self) -> str:
+        """Return a SHA-256 checksum of the EventSet's content.
+
+        The checksum identifies the data for result provenance (SPEC §4.3):
+        it is the value of ``runs.eventset_checksum`` in the result store
+        (ADR 0002 §7). It is computed from a canonical byte serialisation of
+        the tables, the matrices and the metadata, never from Parquet bytes,
+        so it is the same before and after a Parquet round trip and across
+        pandas, pyarrow and numpy versions.
+
+        Returns
+        -------
+        str
+            ``"sha256:"`` followed by 64 lowercase hex digits, the format of
+            :attr:`Provenance.source_checksums`.
+
+        Raises
+        ------
+        SchemaError
+            If a free metadata column of ``locations`` holds values other
+            than booleans, integers, floats or strings (with or without
+            nulls), e.g. datetimes or categoricals.
+
+        Notes
+        -----
+        **Included**, in this order: the shape; every ``events`` column; every
+        ``locations`` schema column; the free ``locations`` columns, sorted by
+        name; the ``index`` and ``loss`` matrices; and the metadata. Row order
+        and location order are content: they set the matrix layout, and
+        samples refer to rows by position.
+
+        **Excluded**:
+
+        * ``metadata.provenance.created_at``. It records when a producer wrote
+          the data, not what the data is: writing the same EventSet twice
+          would otherwise give two checksums, and caches keyed on the
+          checksum would miss.
+        * The order of the free ``locations`` columns. It carries no
+          information, and a reader may reorder them.
+        * Storage details: pandas dtypes beyond the kinds below, the
+          DataFrame index, matrix memory layout, Parquet encoding and file
+          layout.
+
+        **Canonical serialisation (version 1).** The hash input starts with
+        the domain tag ``parametric-insurance-design/eventset-content-hash/v1``
+        followed by a NUL byte. Every field after it is framed as
+        ``len(tag) || tag || len(payload) || payload``, where lengths are
+        unsigned 64-bit little-endian integers and tags are UTF-8 strings
+        such as ``"events/rate:float"``. Payloads encode values by kind:
+
+        * ``int``: signed 64-bit little-endian; ``uint``: unsigned 64-bit
+          little-endian; ``bool``: one byte, 0 or 1.
+        * ``float``: IEEE 754 binary64 little-endian, with ``-0.0`` written
+          as ``0.0`` (as :meth:`equals` treats them).
+        * ``str``: the count, then each string's UTF-8 byte length, then the
+          concatenated UTF-8 bytes.
+        * Free ``locations`` columns add a ``:null`` field (one byte per row,
+          1 for a null value) and encode only the non-null values. A column
+          whose values are all null has kind ``null``.
+        * The metadata is :meth:`EventSetMetadata.to_dict` without
+          ``provenance.created_at``, and without ``transforms`` when it is
+          empty, as JSON with sorted keys, ``(",", ":")`` separators and
+          ASCII escapes. Omitting an empty ``transforms`` keeps the hash of
+          every EventSet without transforms what it was before
+          :attr:`EventSetMetadata.transforms` existed (MAR-88).
+
+        Any change to this format must change the version in the domain tag.
+
+        Computing the hash reads every value once (``O(n_rows * n_locations)``).
+        It is not cached, because the tables are mutable DataFrames; compute
+        it once per run.
+
+        Examples
+        --------
+        >>> es = EventSet.from_parquet("data/eventsets/iris-florida")  # doctest: +SKIP
+        >>> es.content_hash()  # doctest: +SKIP
+        'sha256:3f5a...'
+        """
+        hasher = _CanonicalHasher()
+        hasher.field("shape:int", _int_bytes(np.array([self.n_rows, self.n_locations])))
+        for column, kind in _EVENT_KINDS.items():
+            hasher.column(f"events/{column}", _column(self.events, column), kind)
+        for column, kind in _LOCATION_KINDS.items():
+            hasher.column(f"locations/{column}", _column(self.locations, column), kind)
+        free = sorted(c for c in self.locations.columns if c not in _LOCATION_KINDS)
+        for column in free:
+            hasher.free_column(f"locations/{column}", _column(self.locations, column))
+        hasher.field("matrices/index:float", _float_bytes(self.index))
+        hasher.field("matrices/loss:float", _float_bytes(self.loss))
+        metadata = self.metadata.to_dict()
+        del metadata["provenance"]["created_at"]
+        if not metadata["transforms"]:
+            del metadata["transforms"]
+        hasher.field(
+            "metadata:json",
+            json.dumps(
+                metadata,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+                allow_nan=False,
+            ).encode("ascii"),
+        )
+        return f"sha256:{hasher.hexdigest()}"
 
     # -- long format -------------------------------------------------------
 
@@ -902,6 +1159,30 @@ class EventSet:
         FileExistsError
             If ``overwrite`` is False and the directory already holds an
             EventSet file, or ``path`` is an existing file.
+
+        Notes
+        -----
+        The write is atomic for readers: if it is interrupted at any point,
+        ``path`` holds the old EventSet, or no EventSet that
+        :meth:`from_parquet` accepts, never a mix or a partial file.
+
+        All four files are first written and flushed to disk (``fsync``) in a
+        staging directory on the same file system:
+
+        * If ``path`` does not exist, the staging directory is a hidden
+          sibling (``.<name>.*.tmp``) and is renamed to ``path`` in one step.
+        * If ``path`` is an existing directory, the staging directory is a
+          hidden subdirectory of it (``.eventset-*.tmp``), so that the other
+          files in ``path`` stay where they are. ``metadata.json`` acts as
+          the commit marker: an old one is removed first, the three Parquet
+          files are moved in, and the new ``metadata.json`` is moved in last.
+          Each move is an atomic rename, and :meth:`from_parquet` refuses a
+          directory without ``metadata.json``.
+
+        On an exception (including ``KeyboardInterrupt``), the staging
+        directory is removed before the exception propagates. A process that
+        is killed outright may leave the hidden staging directory behind; it
+        never affects :meth:`from_parquet` and may be deleted.
         """
         directory = Path(path)
         if directory.exists() and not directory.is_dir():
@@ -913,8 +1194,42 @@ class EventSet:
                 f"{directory} already holds {', '.join(existing)}; "
                 "pass overwrite=True to replace them"
             )
-        directory.mkdir(parents=True, exist_ok=True)
+        # Resolve symlinks so that the staging directory and the target share
+        # a file system, which renames require.
+        target = directory.resolve()
+        fresh = not target.exists()
+        if fresh:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            staging = Path(
+                tempfile.mkdtemp(
+                    prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
+                )
+            )
+        else:
+            staging = Path(
+                tempfile.mkdtemp(prefix=".eventset-", suffix=".tmp", dir=target)
+            )
+        try:
+            self._write_files(staging)
+            if fresh:
+                os.rename(staging, target)
+                _fsync_directory(target.parent)
+            else:
+                _commit_files(staging, target)
+                os.rmdir(staging)
+        except BaseException as exc:
+            if staging.exists():
+                try:
+                    shutil.rmtree(staging)
+                except OSError as cleanup:
+                    exc.add_note(
+                        f"could not remove the staging directory {staging}: {cleanup}"
+                    )
+            raise
+        return directory
 
+    def _write_files(self, directory: Path) -> None:
+        """Write the four EventSet files into ``directory`` and fsync them."""
         pq.write_table(_to_arrow(self.events, _EVENT_KINDS), directory / EVENTS_FILE)
         pq.write_table(
             _to_arrow(self.locations, _LOCATION_KINDS), directory / LOCATIONS_FILE
@@ -924,7 +1239,10 @@ class EventSet:
             json.dumps(self.metadata.to_dict(), indent=2, allow_nan=False) + "\n",
             encoding="utf-8",
         )
-        return directory
+        for name in (EVENTS_FILE, LOCATIONS_FILE, VALUES_FILE, METADATA_FILE):
+            with (directory / name).open("rb+") as handle:
+                os.fsync(handle.fileno())
+        _fsync_directory(directory)
 
     @classmethod
     def from_parquet(cls, path: str | Path) -> EventSet:
@@ -1062,6 +1380,38 @@ def _require_text(value: object, name: str) -> None:
         raise SchemaError(f"{name} must be a non-empty string", table="metadata")
 
 
+def _json_value(value: object, path: str) -> object:
+    """Return a plain-JSON copy of ``value`` or raise :class:`SchemaError`."""
+    if value is None or isinstance(value, bool | str):
+        return value
+    if isinstance(value, np.bool_):
+        return bool(value)
+    if isinstance(value, int | np.integer):
+        return int(value)
+    if isinstance(value, float | np.floating):
+        result = float(value)
+        if not math.isfinite(result):
+            raise SchemaError(f"{path} must be finite, got {result}", table="metadata")
+        return result
+    if isinstance(value, Mapping):
+        mapping = cast(Mapping[object, object], value)
+        copy: dict[str, Any] = {}
+        for key, item in mapping.items():
+            if not isinstance(key, str):
+                raise SchemaError(
+                    f"{path} has a non-string key {key!r}", table="metadata"
+                )
+            copy[key] = _json_value(item, f"{path}.{key}")
+        return copy
+    if isinstance(value, list | tuple):
+        items = cast(Sequence[object], value)
+        return [_json_value(item, f"{path}[{i}]") for i, item in enumerate(items)]
+    raise SchemaError(
+        f"{path} holds a {type(value).__name__}, which is not a JSON value",
+        table="metadata",
+    )
+
+
 def _strict_keys(
     data: object,
     name: str,
@@ -1190,6 +1540,19 @@ def _normalise_events(frame: object) -> pd.DataFrame:
     return events
 
 
+def _check_years(events: pd.DataFrame, n_years: int) -> None:
+    # ADR 0002 §5: years are 0-based, year in [0, n_years).
+    years = events["year"].to_numpy()
+    bad = (years < 0) | (years >= n_years)
+    if bad.any():
+        raise OutOfRangeError(
+            f"year must lie in [0, {n_years}) (0-based, ADR 0002 §5; n_years from "
+            f"metadata); {int(bad.sum())} rows are outside, e.g. "
+            f"{_examples(events.loc[bad, ['event_id', 'draw_id', 'year']])}",
+            table="events",
+        )
+
+
 def _normalise_locations(frame: object) -> pd.DataFrame:
     locations = _normalise_table(frame, "locations", _LOCATION_KINDS, extra="keep")
     if len(locations) == 0:
@@ -1262,3 +1625,166 @@ def _to_arrow(frame: pd.DataFrame, kinds: Mapping[str, _ColumnKind]) -> pa.Table
         else:
             arrays[column] = pa.Array.from_pandas(values)
     return pa.table(arrays)
+
+
+# --------------------------------------------------------------------------
+# Atomic write helpers (see EventSet.to_parquet)
+# --------------------------------------------------------------------------
+
+
+def _fsync_directory(directory: Path) -> None:
+    """Flush a directory's entries (renames, removals) to disk.
+
+    POSIX only: Windows cannot open a directory for ``fsync``, and NTFS
+    journals renames itself.
+    """
+    if os.name != "posix":  # pragma: no cover - CI runs on Linux
+        return
+    fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _commit_files(staging: Path, target: Path) -> None:
+    """Move the staged EventSet files into an existing directory.
+
+    ``metadata.json`` is the commit marker: it is removed first and moved in
+    last, so that every intermediate state lacks it and
+    :meth:`EventSet.from_parquet` refuses it.
+    """
+    old_metadata = target / METADATA_FILE
+    if old_metadata.exists():
+        os.unlink(old_metadata)
+        _fsync_directory(target)
+    for name in (EVENTS_FILE, LOCATIONS_FILE, VALUES_FILE):
+        os.replace(staging / name, target / name)
+    _fsync_directory(target)
+    os.replace(staging / METADATA_FILE, old_metadata)
+    _fsync_directory(target)
+
+
+# --------------------------------------------------------------------------
+# Content hash (canonical serialisation v1, see EventSet.content_hash)
+# --------------------------------------------------------------------------
+
+_HASH_DOMAIN: Final[bytes] = b"parametric-insurance-design/eventset-content-hash/v1\x00"
+
+_FreeKind = Literal["null", "bool", "int", "uint", "float", "str"]
+_OBJECT_KINDS: Final[dict[str, _FreeKind]] = {
+    "empty": "null",
+    "string": "str",
+    "boolean": "bool",
+    "integer": "int",
+    "floating": "float",
+}
+_INT64: Final = np.iinfo(np.int64)
+
+
+def _u64(value: int) -> bytes:
+    return int(value).to_bytes(8, "little", signed=False)
+
+
+def _int_bytes(values: object) -> NDArray[Any]:
+    return np.ascontiguousarray(values, dtype="<i8")
+
+
+def _uint_bytes(values: object) -> NDArray[Any]:
+    return np.ascontiguousarray(values, dtype="<u8")
+
+
+def _float_bytes(values: object) -> NDArray[Any]:
+    # Adding 0.0 turns -0.0 into 0.0 and leaves every other value unchanged.
+    return np.ascontiguousarray(np.asarray(values, dtype="<f8") + 0.0)
+
+
+def _bool_bytes(values: object) -> NDArray[Any]:
+    return np.ascontiguousarray(np.asarray(values, dtype=np.bool_), dtype=np.uint8)
+
+
+def _str_chunks(values: Sequence[str]) -> tuple[bytes, NDArray[Any], bytes]:
+    encoded = [v.encode("utf-8") for v in values]
+    lengths = np.fromiter((len(b) for b in encoded), dtype="<u8", count=len(encoded))
+    return _u64(len(encoded)), lengths, b"".join(encoded)
+
+
+class _CanonicalHasher:
+    """Feed framed fields into SHA-256 (format in EventSet.content_hash)."""
+
+    def __init__(self) -> None:
+        self._sha = hashlib.sha256(_HASH_DOMAIN)
+
+    def hexdigest(self) -> str:
+        return self._sha.hexdigest()
+
+    def field(self, tag: str, *chunks: bytes | NDArray[Any]) -> None:
+        tag_bytes = tag.encode("utf-8")
+        views = [memoryview(c).cast("B") for c in chunks]
+        self._sha.update(_u64(len(tag_bytes)))
+        self._sha.update(tag_bytes)
+        self._sha.update(_u64(sum(v.nbytes for v in views)))
+        for view in views:
+            self._sha.update(view)
+
+    def column(self, tag: str, series: pd.Series, kind: _ColumnKind) -> None:
+        # Schema columns are validated and normalised: no nulls, fixed kind.
+        if kind == "str":
+            self.field(f"{tag}:str", *_str_chunks(series.tolist()))
+        elif kind == "int":
+            self.field(f"{tag}:int", _int_bytes(series.to_numpy(dtype=np.int64)))
+        else:
+            self.field(f"{tag}:float", _float_bytes(series.to_numpy(dtype=np.float64)))
+
+    def free_column(self, tag: str, series: pd.Series) -> None:
+        null = series.isna().to_numpy(dtype=np.bool_)
+        present = cast(pd.Series, series[~null])
+        kind = _free_kind(present, tag)
+        self.field(f"{tag}:null", _bool_bytes(null))
+        if kind == "null":
+            self.field(f"{tag}:null-kind")
+        elif kind == "bool":
+            self.field(f"{tag}:bool", _bool_bytes(present.to_numpy(dtype=np.bool_)))
+        elif kind == "int":
+            self.field(f"{tag}:int", _int_bytes(present.to_numpy(dtype=np.int64)))
+        elif kind == "uint":
+            self.field(f"{tag}:uint", _uint_bytes(present.to_numpy(dtype=np.uint64)))
+        elif kind == "float":
+            self.field(f"{tag}:float", _float_bytes(present.to_numpy(dtype=np.float64)))
+        else:
+            self.field(f"{tag}:str", *_str_chunks(present.tolist()))
+
+
+def _free_kind(present: pd.Series, tag: str) -> _FreeKind:
+    """Classify the non-null values of a free ``locations`` column."""
+    column = tag.split("/", 1)[1]
+    dtype = present.dtype
+    if len(present) == 0:
+        return "null"
+    if pd.api.types.is_bool_dtype(dtype):
+        return "bool"
+    if pd.api.types.is_unsigned_integer_dtype(dtype):
+        return "uint"
+    if pd.api.types.is_integer_dtype(dtype):
+        return "int"
+    if pd.api.types.is_float_dtype(dtype):
+        return "float"
+    found: object = dtype
+    if pd.api.types.is_object_dtype(dtype) or isinstance(dtype, pd.StringDtype):
+        found = pd.api.types.infer_dtype(present, skipna=False)
+        kind = _OBJECT_KINDS.get(str(found))
+        if kind == "int":
+            values = present.tolist()
+            if min(values) < _INT64.min or max(values) > _INT64.max:
+                raise SchemaError(
+                    f"free column {column!r} holds integers outside the int64 "
+                    "range, which content_hash cannot encode",
+                    table="locations",
+                )
+        if kind is not None:
+            return kind
+    raise SchemaError(
+        f"free column {column!r} has values of type {found}; content_hash "
+        "supports booleans, integers, floats and strings (with or without nulls)",
+        table="locations",
+    )

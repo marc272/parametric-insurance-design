@@ -100,7 +100,7 @@ Objectives, pricing and evaluation are basis-agnostic. The annual basis changes 
 
 `Sample(name, rows[bool], years[int], fold=0)` holds a row mask and the simulation years the sample represents, including years without rows. `Sample.select` refuses rows from years outside its year set, which guards against leakage. `Scope.partition` runs on calibration data only, and `Scope.materialise` reuses that spec on any EventSet. Out-of-sample evaluation and the robust wrappers both rely on this.
 
-**Year convention (proposed here):** `year ∈ [0, n_years)`, 0-based as in IRIS, the thesis and the merged MAR-9 parity fixture (years 0 to 9,999, matching the `NA_<year>_<tc>` event ids). SPEC §6 writes `y = 1..Y`; read that as notation, so "years 1–0.7Y" means the first 70 % of years. `Sample.full` enforces the range. Validating it when an EventSet is built is a proposed `eventset.py` amendment (follow-up).
+**Year convention (owner-confirmed 2026-10-25, MAR-89):** `year ∈ [0, n_years)`, 0-based as in IRIS, the thesis and the merged MAR-9 parity fixture (years 0 to 9,999, matching the `NA_<year>_<tc>` event ids). SPEC §6 writes `y = 1..Y`; read that as notation, so "years 1–0.7Y" means the first 70 % of years. `Sample.full` enforces the range, and since MAR-82 (PR #18) the `EventSet` constructor does too.
 
 ### 6. Errors
 
@@ -140,15 +140,19 @@ SPEC §4.2's `experiment.py` would be edited by four issues, so it becomes `expe
 | 2 | `location_id` is `str` | **Accepted.** Entity and problem ids are `str` too |
 | 3 | `events` and `values` reject unknown columns; `locations` allows free metadata | **Accepted** |
 | 4 | `values` is a complete grid; missing pairs are errors | **Accepted.** Dense matrices are the contract |
-| 5 | Ranges: lon ∈ [−180, 180], lat ∈ [−90, 90], value ≥ 0, draw_id ≥ 0; index may be negative; year unchecked | **Accepted**, with an **amendment proposal**: validate year ∈ [0, n_years) (§5) |
+| 5 | Ranges: lon ∈ [−180, 180], lat ∈ [−90, 90], value ≥ 0, draw_id ≥ 0; index may be negative; year unchecked | **Accepted**, with an **amendment proposal**: validate year ∈ [0, n_years) (§5). **Amendment implemented by MAR-82, PR #18:** the EventSet constructor raises `OutOfRangeError` |
 | 6 | The threshold filter keeps rows where any location ≥ threshold; default column `index` | **Accepted.** For the thesis filter on the portfolio max wind, this is the same thing. Dropped rows leave the `event_conditional` measure (thesis rescaling) and enter the annual measure as zero-loss mass, because the annual measure is built from years, not rows |
 | 7 | Re-export `EventSet` from `__init__.py` | **Yes.** `EventSet` and `EventSetMetadata` are re-exported (§1) |
-| 8 | EventSet errors live in `eventset.py` | **Accepted**, with an **amendment proposal**: `class EventSetError(ParametricInsuranceDesignError, ValueError)`. This is non-breaking, and lets callers catch the whole library with one class |
+| 8 | EventSet errors live in `eventset.py` | **Accepted**, with an **amendment proposal**: `class EventSetError(ParametricInsuranceDesignError, ValueError)`. This is non-breaking, and lets callers catch the whole library with one class. **Amendment implemented by MAR-82, PR #18** |
+
+With the row 5 amendment, MAR-82 adjusted two tests: in `tests/test_interfaces.py::test_full_sample_enforces_year_convention` the EventSet constructor now rejects one-based years, and the test reaches `Sample.full`'s own guard by bypassing validation; in `tests/test_clustering.py` the `make_eventset` helper wraps its years into `[0, n_years)` (clustering reads neither).
+
+**Amendment: transforms record, implemented by MAR-88.** `EventSetMetadata` gains an append-only `transforms: tuple[TransformRecord, ...]`, like `filters`. A `TransformRecord` holds `name`, `function` (fully qualified producer), `version` (the producer's distribution version), `n_filters_before` (its position among `filters`) and `parameters` (a JSON object, nested values allowed, e.g. an impact-function prior for MAR-25). `noise.add_noise` writes one record and leaves `scenario` unchanged. Seeds stay in the run config. In `metadata.json` the key is optional (missing reads as empty), and unknown keys stay errors. `content_hash()` includes the records and leaves out an empty `transforms`, so EventSets without transforms keep their MAR-82 hashes.
 
 Open points left room for:
 
-- **EventSet content hash:** `runs.eventset_checksum` is nullable until the `eventset.py` follow-up lands.
-- **Rate convention for draw rows (proposed):** each of the `n` draws of an event gets `rate / n`, so the draws keep the event's total rate (thesis: `1/(Y·n_draws)` per row). `noise.add_noise` documents this. The annual basis (MAR-24) decides how draws map to outcomes, e.g. one outcome per (year, draw).
+- **EventSet content hash:** implemented by MAR-82 (`EventSet.content_hash()`, PR #18); `runs.eventset_checksum` stays nullable in the schema.
+- **Rate convention for draw rows (adopted in SPEC §5, MAR-83):** each of the `n` draws of an event gets `rate / n`, so the draws keep the event's total rate (thesis: `1/(Y·n_draws)` per row). `noise.add_noise` documents this. The annual basis (MAR-24) decides how draws map to outcomes, e.g. one outcome per (year, draw).
 - **Year convention:** §5.
 
 ### 10. Ownership map
@@ -215,6 +219,5 @@ One owner issue per file. Other issues may import a module but never edit it. A 
 
 ## Follow-ups proposed
 
-- `eventset.py`: validate `year ∈ [0, n_years)`; derive `EventSetError` from `ParametricInsuranceDesignError`; add an EventSet content hash for `runs.eventset_checksum`.
-- SPEC §4.2: list the `experiment/` subpackage, `cli.py`, `interfaces.py`, `basis.py`, `errors.py`, `records.py` and `constraints.py`.
+- Done: `eventset.py` year range, `EventSetError` base and content hash (MAR-82, PR #18); SPEC §4.2 module list (MAR-83, PR #17).
 - MAR-23: create `bootstrap.py`.
