@@ -224,6 +224,7 @@ def _ind_params(budget_loading: float) -> dict[str, Any]:
         "n_bins": 2,
         "n_assets": 2,
         "budget_loading": budget_loading,
+        "noise_kind": "heteroscedastic",
         "noise_level": 0.3,
     }
 
