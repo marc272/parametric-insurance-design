@@ -1,9 +1,9 @@
 # ADR 0003: Website stack and hosting
 
-- Status: **Proposed**
+- Status: **Accepted**
 - Date: 2026-10-25
 - Decision issue: MAR-52 (D5)
-- Decision: **pending owner (D5)**. This ADR compares the options and gives the agent's recommendation. The owner, Marc Prinzing, chooses the stack. Once he has, this ADR records the choice, its status becomes Accepted, and SPEC §11 D5 is updated.
+- Decision: **Quarto + OJS, deployed to GitHub Pages by GitHub Actions** (D5). The owner, Marc Prinzing, accepted the recommendation below on 2026-10-25. Site bundles are JSON for small grids and uncompressed Arrow IPC for larger tables. MAR-53 starts with a time-boxed check that one explorer page works at 375 px in light and dark mode, and falls back to Observable Framework if it doesn't. SPEC §11 D5 records the outcome.
 
 ## Context
 
