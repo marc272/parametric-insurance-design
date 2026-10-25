@@ -4,7 +4,7 @@ Owner: MAR-22. Splits are by contiguous blocks of simulation years, so every
 draw (noise or vulnerability ``draw_id``) of an event lands in the same fold.
 Each split returns :class:`~parametric_insurance_design.interfaces.Sample`
 objects whose ``years`` include the years without rows. Years follow the
-ADR 0002 convention ``1 .. n_years``.
+ADR 0002 convention ``0 .. n_years - 1`` (as in IRIS and the thesis).
 """
 
 from __future__ import annotations

@@ -135,7 +135,7 @@ class Sample:
 
     @classmethod
     def full(cls, eventset: EventSet) -> Sample:
-        """Return the sample of all rows and all years ``1 .. n_years``.
+        """Return the sample of all rows and all years ``0 .. n_years - 1``.
 
         Parameters
         ----------
@@ -150,20 +150,20 @@ class Sample:
         Raises
         ------
         InputMismatchError
-            If an event year lies outside ``[1, n_years]`` (the year
+            If an event year lies outside ``[0, n_years)`` (the year
             convention of ADR 0002).
         """
         n_years = eventset.metadata.n_years
         observed = eventset.events["year"].to_numpy(dtype=np.int64)
-        if observed.size and (observed.min() < 1 or observed.max() > n_years):
+        if observed.size and (observed.min() < 0 or observed.max() >= n_years):
             raise InputMismatchError(
-                f"event years must lie in [1, {n_years}] (ADR 0002 year "
+                f"event years must lie in [0, {n_years}) (ADR 0002 year "
                 f"convention), got [{observed.min()}, {observed.max()}]"
             )
         return cls(
             name="full",
             rows=np.ones(eventset.n_rows, dtype=np.bool_),
-            years=np.arange(1, n_years + 1, dtype=np.int64),
+            years=np.arange(n_years, dtype=np.int64),
         )
 
     @property

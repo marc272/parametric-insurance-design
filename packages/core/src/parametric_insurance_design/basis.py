@@ -253,7 +253,7 @@ def outcome_measure(
         The evaluation basis.
     years : array_like of int, optional
         Simulation years the rows represent, including years without rows.
-        Used by the ``annual`` basis; defaults to ``1 .. metadata.n_years``.
+        Used by the ``annual`` basis; defaults to ``0 .. metadata.n_years - 1``.
         Ignored by ``event_conditional``.
 
     Returns

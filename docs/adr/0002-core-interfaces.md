@@ -100,7 +100,7 @@ Objectives, pricing and evaluation are basis-agnostic. The annual basis changes 
 
 `Sample(name, rows[bool], years[int], fold=0)` holds a row mask and the simulation years the sample represents, including years without rows. `Sample.select` refuses rows from years outside its year set, which guards against leakage. `Scope.partition` runs on calibration data only, and `Scope.materialise` reuses that spec on any EventSet. Out-of-sample evaluation and the robust wrappers both rely on this.
 
-**Year convention (proposed here):** `year ∈ [1, n_years]`, as in SPEC §6 (`y = 1..Y`). `Sample.full` enforces it. The thesis CSV uses 0-based years (0 to 9997 observed), so the MAR-9 parity migration should store `year + 1`. Validating the range at load time is a proposed `eventset.py` amendment (follow-up).
+**Year convention (proposed here):** `year ∈ [0, n_years)`, 0-based as in IRIS, the thesis and the merged MAR-9 parity fixture (years 0 to 9,999, matching the `NA_<year>_<tc>` event ids). SPEC §6 writes `y = 1..Y`; read that as notation, so "years 1–0.7Y" means the first 70 % of years. `Sample.full` enforces the range. Validating it when an EventSet is built is a proposed `eventset.py` amendment (follow-up).
 
 ### 6. Errors
 
@@ -140,7 +140,7 @@ SPEC §4.2's `experiment.py` would be edited by four issues, so it becomes `expe
 | 2 | `location_id` is `str` | **Accepted.** Entity and problem ids are `str` too |
 | 3 | `events` and `values` reject unknown columns; `locations` allows free metadata | **Accepted** |
 | 4 | `values` is a complete grid; missing pairs are errors | **Accepted.** Dense matrices are the contract |
-| 5 | Ranges: lon ∈ [−180, 180], lat ∈ [−90, 90], value ≥ 0, draw_id ≥ 0; index may be negative; year unchecked | **Accepted**, with an **amendment proposal**: validate year ∈ [1, n_years] (§5) |
+| 5 | Ranges: lon ∈ [−180, 180], lat ∈ [−90, 90], value ≥ 0, draw_id ≥ 0; index may be negative; year unchecked | **Accepted**, with an **amendment proposal**: validate year ∈ [0, n_years) (§5) |
 | 6 | The threshold filter keeps rows where any location ≥ threshold; default column `index` | **Accepted.** For the thesis filter on the portfolio max wind, this is the same thing. Dropped rows leave the `event_conditional` measure (thesis rescaling) and enter the annual measure as zero-loss mass, because the annual measure is built from years, not rows |
 | 7 | Re-export `EventSet` from `__init__.py` | **Yes.** `EventSet` and `EventSetMetadata` are re-exported (§1) |
 | 8 | EventSet errors live in `eventset.py` | **Accepted**, with an **amendment proposal**: `class EventSetError(ParametricInsuranceDesignError, ValueError)`. This is non-breaking, and lets callers catch the whole library with one class |
@@ -215,7 +215,6 @@ One owner issue per file. Other issues may import a module but never edit it. A 
 
 ## Follow-ups proposed
 
-- `eventset.py`: validate `year ∈ [1, n_years]`; derive `EventSetError` from `ParametricInsuranceDesignError`; add an EventSet content hash for `runs.eventset_checksum`.
-- MAR-9: store thesis years as `year + 1`.
+- `eventset.py`: validate `year ∈ [0, n_years)`; derive `EventSetError` from `ParametricInsuranceDesignError`; add an EventSet content hash for `runs.eventset_checksum`.
 - SPEC §4.2: list the `experiment/` subpackage, `cli.py`, `interfaces.py`, `basis.py`, `errors.py`, `records.py` and `constraints.py`.
 - MAR-23: create `bootstrap.py`.

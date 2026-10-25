@@ -194,22 +194,22 @@ def test_full_sample_covers_all_rows_and_years(toy_eventset: EventSet) -> None:
     assert sample.name == "full"
     assert sample.fold == 0
     assert sample.n_selected == 3
-    np.testing.assert_array_equal(sample.years, [1, 2, 3])
+    np.testing.assert_array_equal(sample.years, [0, 1, 2])
     assert sample.select(toy_eventset).equals(toy_eventset)
     with pytest.raises(ValueError, match="read-only"):
         sample.rows[0] = False
 
 
 def test_sample_select_keeps_row_order_and_metadata(toy_eventset: EventSet) -> None:
-    sample = Sample("test", np.array([True, False, True]), np.array([3, 1]), fold=2)
-    np.testing.assert_array_equal(sample.years, [1, 3])
+    sample = Sample("test", np.array([True, False, True]), np.array([2, 0]), fold=2)
+    np.testing.assert_array_equal(sample.years, [0, 2])
     data = sample.select(toy_eventset)
     assert data.events["event_id"].tolist() == ["ev1", "ev3"]
     assert data.metadata == toy_eventset.metadata
 
 
 def test_sample_select_rejects_leakage(toy_eventset: EventSet) -> None:
-    sample = Sample("train", np.array([True, True, True]), np.array([1, 2]))
+    sample = Sample("train", np.array([True, True, True]), np.array([0, 1]))
     with pytest.raises(errors.InputMismatchError, match="outside its year set"):
         sample.select(toy_eventset)
 
@@ -221,8 +221,8 @@ def test_sample_select_rejects_wrong_length(toy_eventset: EventSet) -> None:
 
 
 def test_full_sample_enforces_year_convention(toy_eventset: EventSet) -> None:
-    events = toy_eventset.events.assign(year=[0, 1, 2])
-    zero_based = EventSet(
+    events = toy_eventset.events.assign(year=[1, 2, 3])
+    one_based = EventSet(
         events=events,
         locations=toy_eventset.locations,
         index=toy_eventset.index,
@@ -230,7 +230,7 @@ def test_full_sample_enforces_year_convention(toy_eventset: EventSet) -> None:
         metadata=toy_eventset.metadata,
     )
     with pytest.raises(errors.InputMismatchError, match="year convention"):
-        Sample.full(zero_based)
+        Sample.full(one_based)
 
 
 @pytest.mark.parametrize(

@@ -27,9 +27,9 @@ def make_toy_eventset() -> EventSet:
     ========  ====  =======  =======  ======  ======
     event     year  index A  index B  loss A  loss B
     ========  ====  =======  =======  ======  ======
-    ev1       1     10       15       0       1
-    ev2       2     30       35       4       2
-    ev3       3     50       55       10      6
+    ev1       0     10       15       0       1
+    ev2       1     30       35       4       2
+    ev3       2     50       55       10      6
     ========  ====  =======  =======  ======  ======
 
     Every rate is 1/3 (one event per year, ``n_years = 3``).
@@ -37,7 +37,7 @@ def make_toy_eventset() -> EventSet:
     events = pd.DataFrame(
         {
             "event_id": ["ev1", "ev2", "ev3"],
-            "year": [1, 2, 3],
+            "year": [0, 1, 2],
             "rate": [1 / 3, 1 / 3, 1 / 3],
             "draw_id": [0, 0, 0],
             "scenario_id": ["toy", "toy", "toy"],

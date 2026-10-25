@@ -336,8 +336,8 @@ def test_cvxpy_and_numpy_paths_agree(toy_eventset: EventSet) -> None:
 
 
 def test_calibrate_on_train_evaluate_on_test(toy_eventset: EventSet) -> None:
-    train = Sample("train", np.array([True, True, False]), np.array([1, 2]))
-    test = Sample("test", np.array([False, False, True]), np.array([3]))
+    train = Sample("train", np.array([True, True, False]), np.array([0, 1]))
+    test = Sample("test", np.array([False, False, True]), np.array([2]))
     scope = ToyPortfolio()
     (result,) = toy_calibrate(
         toy_eventset,
