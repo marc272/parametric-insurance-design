@@ -1,7 +1,7 @@
 {
   "//": "pyright for the CLIMADA adapter, run in the pixi env (pixi run typecheck). The root pyproject.toml's pyright excludes packages/climada because CLIMADA is only in this env. Same mode as the root: basic.",
   "typeCheckingMode": "basic",
-  "include": ["src", "tests"],
+  "include": ["src", "tests", "scripts"],
   "exclude": ["**/__pycache__", "**/.*"],
   "pythonVersion": "3.12",
   "venvPath": ".pixi/envs",
