@@ -21,17 +21,17 @@ Default policy (:data:`DEFAULT_POLICY`)
 OSQP accuracy (MAR-98)
     OSQP is a first-order (ADMM) solver. With cvxpy's default ``eps = 1e-5``
     its solutions violate ``theta >= 0``, monotonicity, the cap and the
-    budget by up to about ``1.5e-5`` in scaled units whenever OSQP's
-    polishing step fails, which it does on about a third of the MSE
-    problems. The default policy therefore tightens OSQP to ``1e-8``, the
-    accuracy of the interior-point solvers (Clarabel, HiGHS), so a solution
-    meets the constraints to about ``1e-8`` in scaled units whichever solver
-    of the policy produced it. The cost is more ADMM iterations: about ten
-    times the MSE solve time on the parity fixture (``parity/BENCHMARK.md``).
-    The MSE optima move by up to ``9.1e-5`` relative on that fixture, towards
-    the true optimum: the thesis MSE values carry OSQP's default inaccuracy.
-    To reproduce them, pass a policy whose ``solver_options`` omit
-    ``"OSQP"``.
+    budget by up to about ``1e-5`` in scaled units, and miss the optimal
+    payouts by about as much, whenever OSQP's polishing step fails (on
+    about a third of the MSE problems). The default policy therefore
+    tightens OSQP to ``1e-8``, the accuracy of the interior-point solvers
+    (Clarabel, HiGHS), so a solution meets the constraints to about
+    ``1e-8`` in scaled units whichever solver of the policy produced it.
+    The cost is more ADMM iterations: 8 to 13 times the MSE solve time on
+    the parity fixture (``parity/BENCHMARK.md``). The MSE objective values
+    there drop by up to ``9.1e-5`` relative, to the true optimum: the thesis
+    MSE values carry OSQP's default inaccuracy. To reproduce them, pass a
+    policy whose ``solver_options`` omit ``"OSQP"``.
 
 A problem is a QP when its objective is quadratic but not piecewise linear
 and cvxpy recognises the whole problem as a QP; every other problem goes to
