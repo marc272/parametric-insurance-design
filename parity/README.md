@@ -14,8 +14,10 @@ Thesis golden data and the parity tests that check the new core reproduces the t
 | `tests/data/thesis_eventset/` | The thesis event-loss table as an EventSet (schema v1, `docs/SPEC.md` §5): 6,057 storm rows × 9 Miami assets, `n_years` 10,000, rate 1/10,000 per row, `draw_id` 0. Index: max sustained wind at the asset (m/s). Loss: USD |
 | `golden/full_optimization_results.csv.gz` | The thesis optimisation results, the parity targets. Gzipped copy, byte-identical to the thesis file after decompression (the raw CSV is 803 kB, over the repository's 500 kB limit) |
 | `golden/benchmarking_kpis.csv.gz` | The thesis KPI table, the parity targets. Gzipped the same way |
+| `golden/thesis_cluster_assignments.json` | Thesis cluster assignments (`n_clusters` 1 to 9) and clustering features of the 9 assets, on the thesis' prepared data (noise layer, 20 m/s filter) and without the noise layer. Derived from the thesis code by `scripts/derive_thesis_clusters.py` (MAR-12) |
 | `manifest.json` | SHA256 and row/column counts of the thesis sources, the fixture files and the golden tables, plus the thesis commit |
 | `scripts/convert_thesis_eventset.py` | Writes all of the above from a thesis checkout |
+| `scripts/derive_thesis_clusters.py` | Runs the thesis clustering from a thesis checkout and writes `golden/thesis_cluster_assignments.json` |
 | `golden/noise_digests.json` | SHA256 of the noisy loss matrix that the thesis noise layer (`add_noise_to_asset_losses`, seed 42, η = 0.3, 13 copies, heteroscedastic and homoscedastic) returns on the fixture, with the thesis module's checksum (MAR-10) |
 | `scripts/thesis_noise_digests.py` | Writes `golden/noise_digests.json` from a thesis checkout. It loads the thesis `src/utils/data_processing.py` on its own (numpy and pandas only), so no thesis dependency is needed |
 | `tests/` | Checks the committed files against the manifest and fixed checksums; with a thesis checkout, also recomputes the source checksums and regenerates the fixture |
