@@ -580,6 +580,10 @@ class RunOutcome:
         True if the run was already in the store and was not executed.
     statuses : mapping of str to SolveStatus
         Status per design problem (``"*"`` for a build failure).
+    failed : tuple of str
+        Design problems without an accepted result, in run order. A status
+        alone does not tell: ``optimal_inaccurate`` is a failure when the
+        solver policy refuses it.
     evaluated : bool
         Whether KPIs and exceedance curves were written.
     """
@@ -590,13 +594,8 @@ class RunOutcome:
     source: str
     cached: bool
     statuses: Mapping[str, SolveStatus] = field(default_factory=dict)
+    failed: tuple[str, ...] = ()
     evaluated: bool = False
-
-    @property
-    def failed(self) -> tuple[str, ...]:
-        """Problem ids whose status is not a success."""
-        ok = {SolveStatus.OPTIMAL, SolveStatus.OPTIMAL_INACCURATE}
-        return tuple(pid for pid, status in self.statuses.items() if status not in ok)
 
     @property
     def ok(self) -> bool:
@@ -629,6 +628,11 @@ class RunOutcome:
             statuses={
                 p["problem_id"]: SolveStatus(p["status"]) for p in manifest["problems"]
             },
+            failed=tuple(
+                p["problem_id"]
+                for p in manifest["problems"]
+                if p["error_type"] is not None
+            ),
             evaluated=bool(manifest["evaluation"]["evaluated"]),
         )
 
