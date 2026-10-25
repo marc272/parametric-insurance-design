@@ -33,7 +33,9 @@ Tables
 
 Rates are never rescaled. :meth:`EventSet.filter_threshold` drops rows only to
 make solving faster: the dropped rows count as zero-loss mass, and every
-filter is recorded in :attr:`EventSetMetadata.filters`.
+filter is recorded in :attr:`EventSetMetadata.filters`. Other transformations
+that change rows or values, such as the noise layer or vulnerability draws,
+are recorded in :attr:`EventSetMetadata.transforms` (:class:`TransformRecord`).
 
 Content hash
     :meth:`EventSet.content_hash` returns a ``"sha256:<hex>"`` checksum of the
@@ -91,6 +93,7 @@ __all__ = [
     "Provenance",
     "SchemaError",
     "ThresholdFilterRecord",
+    "TransformRecord",
 ]
 
 SCHEMA_VERSION: Final[int] = 1
@@ -433,6 +436,81 @@ class ThresholdFilterRecord:
 
 
 @dataclass(frozen=True)
+class TransformRecord:
+    """Record of one transformation applied to an EventSet.
+
+    A transformation changes the rows or values of an EventSet beyond a
+    threshold filter, e.g. the thesis noise layer
+    (:func:`parametric_insurance_design.noise.add_noise`) or vulnerability
+    draws in an adapter. The producer appends one record to
+    :attr:`EventSetMetadata.transforms` per call, so that the provenance of
+    the data is structured rather than free text in ``scenario``.
+
+    Random seeds are not recorded here: the caller owns the
+    :class:`numpy.random.Generator` and records its seed in the run
+    configuration.
+
+    Parameters
+    ----------
+    name : str
+        Short name of the transformation, e.g. ``"noise"`` or
+        ``"vulnerability_draws"``.
+    function : str
+        Fully qualified name of the producing function, e.g.
+        ``"parametric_insurance_design.noise.add_noise"``.
+    version : str
+        Version of the distribution that provides ``function``, e.g. the
+        ``parametric-insurance-design`` version.
+    n_filters_before : int
+        Number of entries in :attr:`EventSetMetadata.filters` when the
+        transformation was applied. It places the record among the threshold
+        filters, so that their relative order can be recovered (the noise
+        layer's random stream depends on the number of input rows).
+    parameters : mapping of str to JSON value, optional
+        The transformation's parameters, e.g. ``{"kind": "heteroscedastic",
+        "level": 0.3}``, or an impact-function prior with its literature
+        source. Values may be None, bool, int, finite float, str, lists and
+        mappings with str keys, nested to any depth. Tuples become lists and
+        numpy scalars become Python scalars, so that the record equals itself
+        after a ``metadata.json`` round trip.
+
+    Raises
+    ------
+    SchemaError
+        If a text field is empty, ``n_filters_before`` is not a non-negative
+        int, or ``parameters`` holds a value that is not JSON (or a
+        non-finite float).
+    """
+
+    name: str
+    function: str
+    version: str
+    n_filters_before: int
+    parameters: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Validate the fields and normalise ``parameters``."""
+        _require_text(self.name, "transforms[].name")
+        _require_text(self.function, "transforms[].function")
+        _require_text(self.version, "transforms[].version")
+        if not _is_int(self.n_filters_before) or self.n_filters_before < 0:
+            raise SchemaError(
+                "transforms[].n_filters_before must be a non-negative int",
+                table="metadata",
+            )
+        object.__setattr__(self, "n_filters_before", int(self.n_filters_before))
+        if not isinstance(self.parameters, Mapping):
+            raise SchemaError(
+                "transforms[].parameters must be a mapping", table="metadata"
+            )
+        object.__setattr__(
+            self,
+            "parameters",
+            _json_value(self.parameters, "transforms[].parameters"),
+        )
+
+
+@dataclass(frozen=True)
 class EventSetMetadata:
     """Contents of ``metadata.json``.
 
@@ -455,6 +533,12 @@ class EventSetMetadata:
         ``"CC-BY-4.0"``.
     filters : tuple of ThresholdFilterRecord, optional
         Threshold filters applied so far, oldest first.
+    transforms : tuple of TransformRecord, optional
+        Other transformations applied so far (noise, vulnerability draws),
+        oldest first. Append-only, like ``filters``. Each record's
+        ``n_filters_before`` must not exceed ``len(filters)`` and must not
+        decrease along the tuple. A ``metadata.json`` without the
+        ``transforms`` key reads as no transforms.
     schema_version : int, optional
         Schema version. Only :data:`SCHEMA_VERSION` is supported.
     """
@@ -467,6 +551,7 @@ class EventSetMetadata:
     provenance: Provenance
     licence: str
     filters: tuple[ThresholdFilterRecord, ...] = ()
+    transforms: tuple[TransformRecord, ...] = ()
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -501,6 +586,29 @@ class EventSetMetadata:
                 "filters must hold ThresholdFilterRecord objects", table="metadata"
             )
         object.__setattr__(self, "filters", filters)
+        transforms = tuple(self.transforms)
+        if not all(isinstance(t, TransformRecord) for t in transforms):
+            raise SchemaError(
+                "transforms must hold TransformRecord objects", table="metadata"
+            )
+        previous = 0
+        for i, record in enumerate(transforms):
+            if record.n_filters_before > len(filters):
+                raise SchemaError(
+                    f"transforms[{i}].n_filters_before is "
+                    f"{record.n_filters_before}, but only {len(filters)} "
+                    "filters are recorded",
+                    table="metadata",
+                )
+            if record.n_filters_before < previous:
+                raise SchemaError(
+                    f"transforms[{i}].n_filters_before decreases "
+                    f"({previous} -> {record.n_filters_before}); records are "
+                    "append-only, oldest first",
+                    table="metadata",
+                )
+            previous = record.n_filters_before
+        object.__setattr__(self, "transforms", transforms)
 
     def to_dict(self) -> dict[str, Any]:
         """Return the JSON-serialisable form written to ``metadata.json``.
@@ -525,6 +633,7 @@ class EventSetMetadata:
             },
             "licence": self.licence,
             "filters": [dataclasses.asdict(f) for f in self.filters],
+            "transforms": [dataclasses.asdict(t) for t in self.transforms],
         }
 
     @classmethod
@@ -534,7 +643,10 @@ class EventSetMetadata:
         Parameters
         ----------
         data : mapping
-            Parsed ``metadata.json``. Unknown and missing keys are errors.
+            Parsed ``metadata.json``. Unknown and missing keys are errors,
+            except that the optional keys ``filters``, ``transforms``,
+            ``loss.currency`` and ``provenance.source_checksums`` may be
+            missing.
 
         Returns
         -------
@@ -562,7 +674,7 @@ class EventSetMetadata:
                 "provenance",
                 "licence",
             ),
-            optional=("filters",),
+            optional=("filters", "transforms"),
         )
         # Check the version first, so that a future schema fails with a clear
         # message rather than on its first unknown key.
@@ -606,6 +718,16 @@ class EventSetMetadata:
             )
             for raw in raw_filters
         )
+        raw_transforms = top.get("transforms", [])
+        if not isinstance(raw_transforms, list):
+            raise SchemaError("transforms must be a list", table="metadata")
+        transform_fields = tuple(f.name for f in dataclasses.fields(TransformRecord))
+        transforms = tuple(
+            TransformRecord(
+                **_strict_keys(raw, "transforms[]", required=transform_fields)
+            )
+            for raw in raw_transforms
+        )
         return cls(
             hazard=HazardSource(**hazard),
             index=IndexDefinition(**index),
@@ -620,6 +742,7 @@ class EventSetMetadata:
             ),
             licence=top["licence"],
             filters=filters,
+            transforms=transforms,
             schema_version=version,
         )
 
@@ -739,7 +862,8 @@ class EventSet:
             f"n_years={self.metadata.n_years}, "
             f"hazard={self.metadata.hazard.name!r} "
             f"{self.metadata.hazard.release!r}, "
-            f"filters={len(self.metadata.filters)})"
+            f"filters={len(self.metadata.filters)}, "
+            f"transforms={len(self.metadata.transforms)})"
         )
 
     def equals(self, other: object) -> bool:
@@ -828,8 +952,11 @@ class EventSet:
           1 for a null value) and encode only the non-null values. A column
           whose values are all null has kind ``null``.
         * The metadata is :meth:`EventSetMetadata.to_dict` without
-          ``provenance.created_at``, as JSON with sorted keys, ``(",", ":")``
-          separators and ASCII escapes.
+          ``provenance.created_at``, and without ``transforms`` when it is
+          empty, as JSON with sorted keys, ``(",", ":")`` separators and
+          ASCII escapes. Omitting an empty ``transforms`` keeps the hash of
+          every EventSet without transforms what it was before
+          :attr:`EventSetMetadata.transforms` existed (MAR-88).
 
         Any change to this format must change the version in the domain tag.
 
@@ -856,6 +983,8 @@ class EventSet:
         hasher.field("matrices/loss:float", _float_bytes(self.loss))
         metadata = self.metadata.to_dict()
         del metadata["provenance"]["created_at"]
+        if not metadata["transforms"]:
+            del metadata["transforms"]
         hasher.field(
             "metadata:json",
             json.dumps(
@@ -1249,6 +1378,38 @@ def _finite_float(value: object, name: str) -> float:
 def _require_text(value: object, name: str) -> None:
     if not isinstance(value, str) or not value.strip():
         raise SchemaError(f"{name} must be a non-empty string", table="metadata")
+
+
+def _json_value(value: object, path: str) -> object:
+    """Return a plain-JSON copy of ``value`` or raise :class:`SchemaError`."""
+    if value is None or isinstance(value, bool | str):
+        return value
+    if isinstance(value, np.bool_):
+        return bool(value)
+    if isinstance(value, int | np.integer):
+        return int(value)
+    if isinstance(value, float | np.floating):
+        result = float(value)
+        if not math.isfinite(result):
+            raise SchemaError(f"{path} must be finite, got {result}", table="metadata")
+        return result
+    if isinstance(value, Mapping):
+        mapping = cast(Mapping[object, object], value)
+        copy: dict[str, Any] = {}
+        for key, item in mapping.items():
+            if not isinstance(key, str):
+                raise SchemaError(
+                    f"{path} has a non-string key {key!r}", table="metadata"
+                )
+            copy[key] = _json_value(item, f"{path}.{key}")
+        return copy
+    if isinstance(value, list | tuple):
+        items = cast(Sequence[object], value)
+        return [_json_value(item, f"{path}[{i}]") for i, item in enumerate(items)]
+    raise SchemaError(
+        f"{path} holds a {type(value).__name__}, which is not a JSON value",
+        table="metadata",
+    )
 
 
 def _strict_keys(

@@ -17,19 +17,24 @@ from __future__ import annotations
 import dataclasses
 import math
 from collections.abc import Sequence
-from typing import Literal, get_args
+from importlib.metadata import version
+from typing import Any, Literal, get_args
 
 import numpy as np
 
 from parametric_insurance_design.errors import ComponentConfigError, InputMismatchError
-from parametric_insurance_design.eventset import EventSet
+from parametric_insurance_design.eventset import EventSet, TransformRecord
 
-__all__ = ["NoiseKind", "add_noise"]
+__all__ = ["TRANSFORM_NAME", "NoiseKind", "add_noise"]
 
 NoiseKind = Literal["homoscedastic", "heteroscedastic"]
 """Constant relative noise, or noise growing with the index between bounds."""
 
+TRANSFORM_NAME = "noise"
+"""``TransformRecord.name`` of the records written by :func:`add_noise`."""
+
 _KINDS: tuple[str, ...] = get_args(NoiseKind)
+_VERSION: str = version("parametric-insurance-design")
 
 
 def add_noise(
@@ -72,13 +77,20 @@ def add_noise(
     two expressions are bit-identical.
 
     **Metadata.** The threshold filters already in ``metadata.filters`` are
-    kept unchanged: they describe the input rows before the expansion. The
-    noise parameters are appended to ``metadata.scenario``, because schema v1
-    has no field for transformations. The seed is not recorded here: the
-    caller owns the generator and records its seed in the run configuration.
-    For thesis parity, apply the noise before any threshold filter, as the
-    thesis does; the filter does not change which rows are noisy, but the
-    random stream depends on the number of rows.
+    kept unchanged: they describe the input rows before the expansion.
+    ``metadata.scenario`` is unchanged too. One
+    :class:`~parametric_insurance_design.eventset.TransformRecord` is
+    appended to ``metadata.transforms``, with ``name="noise"``, ``function``
+    ``"parametric_insurance_design.noise.add_noise"``, the package version,
+    ``n_filters_before = len(metadata.filters)`` and the parameters
+    ``kind``, ``level``, ``n_copies``, ``bounds`` (``[low, high]``, or None
+    for homoscedastic noise, which ignores them) and ``location_ids`` (the
+    perturbed locations in call order, also when the default "all" was
+    used). The seed is not recorded here: the caller owns the generator and
+    records its seed in the run configuration. For thesis parity, apply the
+    noise before any threshold filter, as the thesis does; the filter does
+    not change which rows are noisy, but the random stream depends on the
+    number of rows.
 
     Parameters
     ----------
@@ -162,11 +174,9 @@ def add_noise(
         factor = np.exp(rng.normal(loc=mu_log, scale=sigma_log, size=n))
         loss[:, j] = loss[:, j] * factor
 
+    record = _transform_record(eventset, kind, level, n_copies, (low, high), columns)
     metadata = dataclasses.replace(
-        eventset.metadata,
-        scenario=_describe(
-            eventset, kind, level, n_copies, (low, high), location_ids, columns
-        ),
+        eventset.metadata, transforms=(*eventset.metadata.transforms, record)
     )
     return EventSet(
         events=events,
@@ -246,26 +256,27 @@ def _resolve_locations(
     return [position[loc] for loc in requested]
 
 
-def _describe(
+def _transform_record(
     eventset: EventSet,
     kind: str,
     level: float,
     n_copies: int,
     bounds: tuple[float, float],
-    location_ids: Sequence[str] | None,
     columns: list[int],
-) -> str:
-    """Return the input scenario with the noise parameters appended."""
-    parts = [f"kind={kind}", f"level={level!r}", f"n_copies={n_copies}"]
-    if kind == "heteroscedastic":
-        parts.append(f"bounds=({bounds[0]!r}, {bounds[1]!r})")
-    if location_ids is None:
-        parts.append("locations=all")
-    else:
-        ids = eventset.location_ids
-        parts.append("locations=" + ",".join(ids[j] for j in columns))
-    return (
-        f"{eventset.metadata.scenario} | noise: thesis noise layer "
-        f"(parametric_insurance_design.noise.add_noise), {', '.join(parts)}; "
-        f"rates divided by n_copies"
+) -> TransformRecord:
+    """Return the metadata record of one :func:`add_noise` call."""
+    ids = eventset.location_ids
+    parameters: dict[str, Any] = {
+        "kind": kind,
+        "level": level,
+        "n_copies": int(n_copies),
+        "bounds": list(bounds) if kind == "heteroscedastic" else None,
+        "location_ids": [ids[j] for j in columns],
+    }
+    return TransformRecord(
+        name=TRANSFORM_NAME,
+        function=f"{add_noise.__module__}.{add_noise.__qualname__}",
+        version=_VERSION,
+        n_filters_before=len(eventset.metadata.filters),
+        parameters=parameters,
     )

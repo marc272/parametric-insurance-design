@@ -40,6 +40,7 @@ from parametric_insurance_design.eventset import (
     Provenance,
     SchemaError,
     ThresholdFilterRecord,
+    TransformRecord,
 )
 
 # --------------------------------------------------------------------------
@@ -280,6 +281,7 @@ def test_metadata_json_layout(es: EventSet, tmp_path: Path) -> None:
     assert raw["provenance"]["source_checksums"] == {"tracks.nc": "sha256:abc123"}
     assert raw["licence"] == "CC-BY-4.0"
     assert raw["filters"] == []
+    assert raw["transforms"] == []
 
 
 def test_parquet_schema_types(es: EventSet, tmp_path: Path) -> None:
@@ -1067,6 +1069,24 @@ def test_unsupported_schema_version_in_memory() -> None:
         ),
         (lambda raw: raw.update(filters={}), "filters must be a list"),
         (lambda raw: raw.update(filters=[{"column": "index"}]), "filters"),
+        (lambda raw: raw.update(transforms={}), "transforms must be a list"),
+        (
+            lambda raw: raw["transforms"][0].pop("version"),
+            r"transforms\[\] lacks keys: version",
+        ),
+        (
+            lambda raw: raw["transforms"][0].update(seed=42),
+            r"transforms\[\] has unknown keys: seed",
+        ),
+        (
+            lambda raw: raw["transforms"][0].update(parameters=[1]),
+            "parameters must be a mapping",
+        ),
+        (
+            lambda raw: raw["transforms"][0].update(n_filters_before=1),
+            "only 0 filters",
+        ),
+        (lambda raw: raw["transforms"][0].update(name=""), r"transforms\[\]\.name"),
     ],
 )
 def test_malformed_metadata_on_read(
@@ -1075,6 +1095,10 @@ def test_malformed_metadata_on_read(
     edit: Callable[[dict[str, Any]], object],
     match: str,
 ) -> None:
+    # One transform record, so that the edits above can reach it.
+    es = dataclasses.replace(
+        es, metadata=dataclasses.replace(es.metadata, transforms=(_transform(),))
+    )
     es.to_parquet(tmp_path)
     _edit_metadata(tmp_path, edit)
     with pytest.raises(SchemaError, match=match):
@@ -1087,6 +1111,7 @@ def test_metadata_without_optional_keys_reads(tmp_path: Path) -> None:
 
     def strip(raw: dict[str, Any]) -> None:
         raw.pop("filters")
+        raw.pop("transforms")  # metadata.json written before MAR-88
         raw["loss"].pop("currency")
         raw["provenance"].pop("source_checksums")
 
@@ -1095,6 +1120,7 @@ def test_metadata_without_optional_keys_reads(tmp_path: Path) -> None:
     assert back.metadata.loss.currency is None
     assert back.metadata.provenance.source_checksums == {}
     assert back.metadata.filters == ()
+    assert back.metadata.transforms == ()
 
 
 def test_metadata_field_types_in_memory() -> None:
@@ -1149,3 +1175,149 @@ def test_threshold_filter_record_coerces_ints() -> None:
     assert isinstance(record.threshold, float)
     assert record.max_loss_dropped is None
     assert record.n_rows_dropped == 6
+
+
+# --------------------------------------------------------------------------
+# Transform records (MAR-88)
+# --------------------------------------------------------------------------
+
+
+def _transform(**overrides: object) -> TransformRecord:
+    fields: dict[str, Any] = {
+        "name": "vulnerability_draws",
+        "function": "parametric_insurance_design_climada.draws.draw_impact_functions",
+        "version": "0.1.0",
+        "n_filters_before": 0,
+        "parameters": {
+            "n_draws": 10,
+            "prior": {
+                "v_half": {"distribution": "normal", "mean": 74.7, "sd": 5.0},
+                "source": "a literature reference",
+            },
+            "bounds": (20.0, 70.0),
+            "regions": ["NA1", "NA2"],
+            "fitted": True,
+            "note": None,
+        },
+    }
+    fields.update(overrides)
+    return TransformRecord(**fields)
+
+
+def test_transform_record_normalises_parameters() -> None:
+    record = _transform(
+        parameters={
+            "tuple": (1, 2.5),
+            "np_int": np.int32(3),
+            "np_float": np.float32(0.5),
+            "np_bool": np.bool_(True),
+            "nested": {"a": [np.int64(1), {"b": (None,)}]},
+        }
+    )
+    assert record.parameters == {
+        "tuple": [1, 2.5],
+        "np_int": 3,
+        "np_float": 0.5,
+        "np_bool": True,
+        "nested": {"a": [1, {"b": [None]}]},
+    }
+    assert type(record.parameters["np_int"]) is int
+    assert type(record.parameters["np_float"]) is float
+    assert type(record.parameters["np_bool"]) is bool
+    assert TransformRecord("noise", "f", "1", 0).parameters == {}
+
+
+def test_transform_record_copies_parameters() -> None:
+    params: dict[str, Any] = {"levels": [0.1, 0.2]}
+    record = _transform(parameters=params)
+    params["levels"].append(0.3)
+    assert record.parameters == {"levels": [0.1, 0.2]}
+
+
+@pytest.mark.parametrize(
+    ("overrides", "match"),
+    [
+        ({"name": ""}, r"transforms\[\]\.name"),
+        ({"function": " "}, r"transforms\[\]\.function"),
+        ({"version": 1}, r"transforms\[\]\.version"),
+        ({"n_filters_before": -1}, "n_filters_before"),
+        ({"n_filters_before": 1.0}, "n_filters_before"),
+        ({"n_filters_before": True}, "n_filters_before"),
+        ({"parameters": [("a", 1)]}, "parameters must be a mapping"),
+        ({"parameters": {"level": float("nan")}}, r"parameters\.level must be finite"),
+        ({"parameters": {"x": [1, float("inf")]}}, r"parameters\.x\[1\] must be fin"),
+        ({"parameters": {1: "a"}}, "non-string key 1"),
+        ({"parameters": {"when": datetime(2026, 1, 1)}}, "datetime, which is not"),
+        ({"parameters": {"arr": np.array([1.0])}}, "ndarray, which is not"),
+        ({"parameters": {"s": {"a", "b"}}}, "set, which is not"),
+    ],
+)
+def test_transform_record_validation(overrides: dict[str, Any], match: str) -> None:
+    with pytest.raises(SchemaError, match=match):
+        _transform(**overrides)
+
+
+def test_transforms_round_trip_through_parquet(tmp_path: Path) -> None:
+    base = make_eventset()
+    filtered = base.filter_threshold(float(np.quantile(base.index, 0.2)))
+    metadata = dataclasses.replace(
+        filtered.metadata,
+        transforms=(_transform(), _transform(name="noise", n_filters_before=1)),
+    )
+    es = dataclasses.replace(filtered, metadata=metadata)
+    back = EventSet.from_parquet(es.to_parquet(tmp_path / "es"))
+    assert back.equals(es)
+    assert back.metadata.transforms == es.metadata.transforms
+    assert back.metadata.scenario == es.metadata.scenario
+    raw = json.loads((tmp_path / "es" / METADATA_FILE).read_text(encoding="utf-8"))
+    assert raw["transforms"][0] == {
+        "name": "vulnerability_draws",
+        "function": "parametric_insurance_design_climada.draws.draw_impact_functions",
+        "version": "0.1.0",
+        "n_filters_before": 0,
+        "parameters": {
+            "n_draws": 10,
+            "prior": {
+                "v_half": {"distribution": "normal", "mean": 74.7, "sd": 5.0},
+                "source": "a literature reference",
+            },
+            "bounds": [20.0, 70.0],
+            "regions": ["NA1", "NA2"],
+            "fitted": True,
+            "note": None,
+        },
+    }
+    assert raw["transforms"][1]["n_filters_before"] == 1
+    assert "transforms=2" in repr(back)
+
+
+def test_transforms_survive_filter_threshold() -> None:
+    es = make_eventset()
+    es = dataclasses.replace(
+        es, metadata=dataclasses.replace(es.metadata, transforms=(_transform(),))
+    )
+    filtered = es.filter_threshold(float(np.median(es.index)))
+    assert filtered.metadata.transforms == es.metadata.transforms
+    assert len(filtered.metadata.filters) == 1
+
+
+def test_transforms_in_memory_validation() -> None:
+    with pytest.raises(SchemaError, match="TransformRecord objects"):
+        make_metadata(transforms=({"name": "noise"},))
+    with pytest.raises(SchemaError, match="only 0 filters"):
+        make_metadata(transforms=(_transform(n_filters_before=1),))
+    two_filters = (_record(), _record())
+    with pytest.raises(SchemaError, match=r"transforms\[1\].*decreases \(2 -> 1\)"):
+        make_metadata(
+            filters=two_filters,
+            transforms=(
+                _transform(n_filters_before=2),
+                _transform(n_filters_before=1),
+            ),
+        )
+    ok = make_metadata(
+        filters=two_filters,
+        transforms=[_transform(n_filters_before=1), _transform(n_filters_before=1)],
+    )
+    assert isinstance(ok.transforms, tuple)
+    assert len(ok.transforms) == 2

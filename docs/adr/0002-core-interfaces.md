@@ -147,6 +147,8 @@ SPEC §4.2's `experiment.py` would be edited by four issues, so it becomes `expe
 
 With the row 5 amendment, MAR-82 adjusted two tests: in `tests/test_interfaces.py::test_full_sample_enforces_year_convention` the EventSet constructor now rejects one-based years, and the test reaches `Sample.full`'s own guard by bypassing validation; in `tests/test_clustering.py` the `make_eventset` helper wraps its years into `[0, n_years)` (clustering reads neither).
 
+**Amendment: transforms record, implemented by MAR-88.** `EventSetMetadata` gains an append-only `transforms: tuple[TransformRecord, ...]`, like `filters`. A `TransformRecord` holds `name`, `function` (fully qualified producer), `version` (the producer's distribution version), `n_filters_before` (its position among `filters`) and `parameters` (a JSON object, nested values allowed, e.g. an impact-function prior for MAR-25). `noise.add_noise` writes one record and leaves `scenario` unchanged. Seeds stay in the run config. In `metadata.json` the key is optional (missing reads as empty), and unknown keys stay errors. `content_hash()` includes the records and leaves out an empty `transforms`, so EventSets without transforms keep their MAR-82 hashes.
+
 Open points left room for:
 
 - **EventSet content hash:** `runs.eventset_checksum` is nullable until the `eventset.py` follow-up lands.
