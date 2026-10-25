@@ -6,7 +6,8 @@ Acceptance: on the fixture, cluster assignments match the thesis for
 The thesis clustered on its prepared data: the event-loss table with the
 heteroscedastic noise layer (13 draws, seed 42) and the 20 m/s threshold
 filter. :func:`thesis_pipeline_eventset` builds the same data as an EventSet
-from the MAR-9 fixture, reproducing the thesis noise draw for draw. The
+from the MAR-9 fixture with the core's noise layer (``noise.add_noise``,
+MAR-10), which reproduces the thesis noise draw for draw. The
 ``no_noise`` dataset leaves the noise out and checks the clustering alone.
 
 Two groups:
@@ -37,6 +38,7 @@ import pytest
 
 from parametric_insurance_design.clustering import FEATURE_NAMES, ThesisWardClustering
 from parametric_insurance_design.eventset import EventSet
+from parametric_insurance_design.noise import add_noise
 from parametric_insurance_design.scopes import Cluster
 
 PARITY_DIR = Path(__file__).resolve().parents[1]
@@ -46,9 +48,6 @@ THESIS_RESULTS = PARITY_DIR / "golden" / "full_optimization_results.csv.gz"
 SCRIPT = PARITY_DIR / "scripts" / "derive_thesis_clusters.py"
 N_CLUSTERS = range(1, 10)
 THESIS_ASSETS = [f"A{k}" for k in range(1, 10)]
-# Thesis noise layer: losses scale with a lognormal factor whose log-sd grows
-# linearly with the wind between these bounds (data_processing.py).
-NOISE_WIND_LOW, NOISE_WIND_HIGH = 20.0, 70.0
 FEATURE_RTOL = 1e-12
 
 
@@ -67,46 +66,24 @@ def thesis_pipeline_eventset(
 ) -> EventSet:
     """The thesis data preparation, on an EventSet.
 
-    Repeats every row ``n_draws`` times (``draw_id`` 0 .. n_draws-1, rows
-    event-major as ``DataFrame.index.repeat``), sets every rate to
-    ``1 / (n_years * n_draws)``, multiplies each asset's losses by the thesis
-    heteroscedastic lognormal factor drawn asset by asset from
-    ``default_rng(random_seed)``, then keeps the rows where some asset's wind
-    reaches ``threshold``. With ``noise=False`` only the filter is applied.
-
-    This is test-side code to reproduce the thesis data. The library's noise
-    layer is MAR-10 (``noise.add_noise``).
+    The core's port of the thesis noise layer (``noise.add_noise``, MAR-10:
+    ``n_draws`` event-major copies, rates divided by ``n_draws``, losses
+    times the heteroscedastic lognormal factor drawn asset by asset from
+    ``default_rng(random_seed)``), then the threshold filter keeping the rows
+    where some asset's wind reaches ``threshold``. With ``noise=False`` only
+    the filter is applied.
     """
-    if not noise:
-        return eventset.filter_threshold(settings["threshold"])
-    assert settings["noise_type"] == "heteroscedastic"
-    n_draws = int(settings["n_draws"])
-    rows = np.repeat(np.arange(eventset.n_rows), n_draws)
-    events = eventset.events.iloc[rows].reset_index(drop=True)
-    events["draw_id"] = np.tile(np.arange(n_draws), eventset.n_rows)
-    events["rate"] = 1.0 / (settings["n_years"] * n_draws)
-    index = eventset.index[rows]
-    loss = eventset.loss[rows].copy()
-    rng = np.random.default_rng(seed=settings["random_seed"])
-    columns = {loc: i for i, loc in enumerate(eventset.location_ids)}
-    for asset in THESIS_ASSETS:  # the thesis draws asset by asset, in this order
-        i = columns[asset]
-        r = np.clip(
-            (index[:, i] - NOISE_WIND_LOW) / (NOISE_WIND_HIGH - NOISE_WIND_LOW), 0, 1
+    if noise:
+        assert settings["noise_type"] == "heteroscedastic"
+        eventset = add_noise(
+            eventset,
+            level=settings["noise_value"],
+            kind="heteroscedastic",
+            n_copies=int(settings["n_draws"]),
+            rng=np.random.default_rng(seed=settings["random_seed"]),
+            location_ids=THESIS_ASSETS,  # the thesis draws asset by asset
         )
-        sigma_log = np.sqrt(np.log(1.0 + (settings["noise_value"] * r) ** 2))
-        mu_log = -0.5 * sigma_log**2
-        loss[:, i] = loss[:, i] * np.exp(
-            rng.normal(loc=mu_log, scale=sigma_log, size=len(rows))
-        )
-    noisy = EventSet(
-        events=events,
-        locations=eventset.locations,
-        index=index,
-        loss=loss,
-        metadata=eventset.metadata,
-    )
-    return noisy.filter_threshold(settings["threshold"])
+    return eventset.filter_threshold(settings["threshold"])
 
 
 @pytest.fixture(scope="module")
