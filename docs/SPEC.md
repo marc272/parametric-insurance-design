@@ -166,7 +166,7 @@ Stored as one directory with Parquet tables and `metadata.json`.
 
 | Table | Columns |
 |---|---|
-| `events` | `event_id` (str), `year` (int, simulation year), `rate` (float, annual frequency; default 1/Y), `draw_id` (int, noise/vulnerability draw; 0 if none), `scenario_id` (str) |
+| `events` | `event_id` (str), `year` (int, simulation year, 0-based: `year ∈ [0, n_years)`), `rate` (float, annual frequency; default 1/Y), `draw_id` (int, noise/vulnerability draw; 0 if none), `scenario_id` (str) |
 | `locations` | `location_id`, `lat`, `lon`, `value`, `name`, free metadata columns |
 | `values` | long format: `event_id`, `draw_id`, `location_id`, `index` (float), `loss` (float) |
 | `metadata.json` | schema version, hazard source and release, index definition and unit, loss unit/currency, `n_years`, scenario description, provenance (source checksums, producer package and version, created_at), licence |
@@ -183,7 +183,7 @@ Migration: `parity/` holds the thesis `climada_transformed_loss_data.csv`, conve
 
 §6.1–6.4 are implemented as **core v1 features** in Foundation (F-09 to F-12) and used by every output. Checkpoint C1 and §6.5 onwards are Paper work.
 
-Notation: events e with rate w_e; years y = 1..Y; locations i with index x_{e,i} and loss L_{e,i}; payout entities j with index ξ_{e,j}.
+Notation: events e with rate w_e; years y = 1..Y (notation only: stored years are 0-based, `year ∈ [0, n_years)`, as in IRIS and the thesis; owner-confirmed 2026-10-25, MAR-89); locations i with index x_{e,i} and loss L_{e,i}; payout entities j with index ξ_{e,j}.
 Step payout: π_{e,j} = Σ_k θ_{j,k}·1[ξ_{e,j} ∈ B_k], with θ ≥ 0, θ_{j,k} ≤ θ_{j,k+1} and θ_{j,k} ≤ cap_j. Breakpoints are uniform on [attachment, limit] (thesis default).
 Scopes:
 - individual: one problem per asset;
@@ -191,7 +191,7 @@ Scopes:
 - cluster: entities are clusters with ξ_{e,c} = value-weighted mean index.
 
 ### 6.1 Evaluation protocol (M1)
-- Default split: years 1–0.7Y train, the rest test. Option: 5-fold by year blocks. Every draw of an event goes to the same fold.
+- Default split: the first 70 % of years train (stored years 0 … 0.7Y − 1), the rest test. Option: 5-fold by year blocks. Every draw of an event goes to the same fold.
 - Report in-sample and out-of-sample KPIs, and their gap as a function of `n_bins` (overfitting diagnostic).
 - CIs: block bootstrap over years (B = 1000 by default) for every reported KPI.
 - **Acceptance:** each headline comparison reports out-of-sample KPI values with 90 % CIs.
@@ -313,7 +313,7 @@ Positioning: Steinmann et al. 2023 (CLIMADA parametric framework), Maier & Scher
 **Website & Blog**
 
 v1, an early release that needs F-09 and F-10:
-- W-01 Export bundle format: JSON/Parquet slices of the result store. Site skeleton (stack D5; static hosting)
+- W-01 Export bundle format: JSON slices for small grids and uncompressed Arrow IPC for larger tables (Quarto OJS reads both; Parquet is not a documented OJS format). Site skeleton in Quarto, deployed to GitHub Pages (D5, ADR 0003)
 - W-02 Explorers from precomputed grids:
   - α/β → payout shape and exceedance curves;
   - portfolio cross-coverage map.
@@ -365,9 +365,9 @@ Each decision's status and outcome is recorded on its **Linear issue**, which is
 | D2 | Paper portfolio source | MAR-30 |
 | D3 | Licences: BSD-3-Clause core/viz, GPL-3.0-or-later CLIMADA adapter, AGPL-3.0-or-later CRC adapter (decided; ADR 0001, §4.3) | MAR-5 |
 | D4 | Target venue (e.g. NHESS / Environment Systems and Decisions vs. Insurance: Mathematics and Economics / ASTIN) | MAR-29 (C1) |
-| D5 | Website stack (e.g. Observable Framework vs. Vite + Plotly/D3 vs. Quarto) | MAR-52 |
+| D5 | Website stack: Quarto + OJS on GitHub Pages (decided 2026-10-25; ADR 0003) | MAR-52 |
 | D6 | Include R2 (distributionally robust) in the paper | MAR-29 (C1) |
-| D7 | Second hazard catalogue: STORM vs. CLIMADA synthetic tracks | MAR-62 |
+| D7 | Second hazard catalogue: STORM, present climate v4, North Atlantic, CC0 (decided 2026-10-25; note in `research/notes/d7-second-hazard-catalogue.md`) | MAR-62 |
 
 ---
 
