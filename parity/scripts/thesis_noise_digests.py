@@ -61,6 +61,9 @@ LEVEL = 0.3
 N_COPIES = 13
 BOUNDS = (20.0, 70.0)
 KINDS = ("heteroscedastic", "homoscedastic")
+N_TOP = 32
+N_SPREAD = 128
+SUMMARY_RTOL = 1e-12
 THESIS_KIND = "heteroscedastic"
 
 
@@ -172,6 +175,88 @@ def matrix_digest(matrix: np.ndarray) -> str:
     return hashlib.sha256(data.tobytes()).hexdigest()
 
 
+def matrix_summary(matrix: np.ndarray) -> dict[str, Any]:
+    """Return a platform-robust summary of a noisy loss matrix.
+
+    The bits of the noisy losses depend on the platform's ``exp`` and ``log``
+    (numpy picks SIMD or libm implementations by CPU), so the SHA256 only
+    matches on the platform that wrote it. The summary is compared with a
+    tight relative tolerance instead: any change in the random stream, the
+    call order or the expansion changes it by far more.
+
+    Parameters
+    ----------
+    matrix : numpy.ndarray
+        Two-dimensional float64 array.
+
+    Returns
+    -------
+    dict
+        ``column_sums`` (one per location) and ``samples``: ``[row, column,
+        value]`` for the :data:`N_TOP` largest entries and :data:`N_SPREAD`
+        evenly spaced positive entries (row-major order).
+    """
+    flat = matrix.ravel()
+    positive = np.flatnonzero(flat > 0)
+    spread = positive[np.linspace(0, len(positive) - 1, N_SPREAD).astype(np.int64)]
+    top = np.argsort(-flat, kind="stable")[:N_TOP]
+    picks = np.unique(np.concatenate([top, spread]))
+    n_columns = matrix.shape[1]
+    return {
+        "column_sums": [float(v) for v in matrix.sum(axis=0)],
+        "samples": [
+            [int(k // n_columns), int(k % n_columns), float(flat[k])] for k in picks
+        ],
+    }
+
+
+def summary_deviation(summary: dict[str, Any], matrix: np.ndarray) -> float:
+    """Return the largest relative deviation of a matrix from a summary.
+
+    Parameters
+    ----------
+    summary : dict
+        A :func:`matrix_summary` record.
+    matrix : numpy.ndarray
+        Noisy loss matrix to compare.
+
+    Returns
+    -------
+    float
+        ``max |actual - expected| / |expected|`` over the column sums and the
+        sampled entries.
+    """
+    expected = np.array(
+        [*summary["column_sums"], *(value for _, _, value in summary["samples"])]
+    )
+    rows = [int(r) for r, _, _ in summary["samples"]]
+    columns = [int(c) for _, c, _ in summary["samples"]]
+    actual = np.concatenate([matrix.sum(axis=0), matrix[rows, columns]])
+    return float(np.max(np.abs(actual - expected) / np.abs(expected)))
+
+
+def same_platform(record: dict[str, Any]) -> bool:
+    """Tell whether this interpreter matches the platform that wrote a record.
+
+    Parameters
+    ----------
+    record : dict
+        Content of :data:`DIGESTS`.
+
+    Returns
+    -------
+    bool
+        True if the operating system, machine and numpy version match
+        ``record["generated_with"]``.
+    """
+    made = record["generated_with"]
+    return (made["system"], made["machine"], made["numpy"]) == (
+        platform.system(),
+        platform.machine(),
+        np.__version__,
+    )
+
+
 def sha256_file(path: str | Path) -> str:
     """Return the SHA256 hex digest of a file.
 
@@ -221,14 +306,21 @@ def build_digests(repo: Path) -> dict[str, Any]:
         losses = thesis_losses(
             run_thesis(module, eventset, kind), eventset.location_ids
         )
-        digests[kind] = {"loss_sha256": matrix_digest(losses), "shape": losses.shape}
+        digests[kind] = {
+            "loss_sha256": matrix_digest(losses),
+            "shape": list(losses.shape),
+            "summary": matrix_summary(losses),
+        }
     return {
         "description": (
             "SHA256 of the noisy loss matrix that the thesis function "
             f"{THESIS_FUNCTION} ({THESIS_MODULE}) returns on the parity "
             "EventSet: rows in the thesis expansion order (event-major, "
             "noise_sample_id 0..n_copies-1), columns in location order, "
-            "float64 little-endian bytes in C order. Written by "
+            "float64 little-endian bytes in C order. The bits depend on the "
+            "platform's exp/log (see generated_with), so the summary (column "
+            f"sums and sampled entries) is the cross-platform check, at rtol "
+            f"{SUMMARY_RTOL}. Written by "
             "parity/scripts/thesis_noise_digests.py; checked by "
             "parity/tests/test_noise_parity.py (MAR-10)."
         ),
@@ -256,10 +348,7 @@ def build_digests(repo: Path) -> dict[str, Any]:
             "machine": platform.machine(),
             "system": platform.system(),
         },
-        "digests": {
-            kind: {"loss_sha256": entry["loss_sha256"], "shape": list(entry["shape"])}
-            for kind, entry in digests.items()
-        },
+        "digests": digests,
     }
 
 

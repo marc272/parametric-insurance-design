@@ -4,7 +4,10 @@ Two groups:
 
 - Against the committed digests in ``parity/golden/noise_digests.json``,
   which ``parity/scripts/thesis_noise_digests.py`` wrote from the thesis
-  function. They need nothing outside this repository.
+  function. They need nothing outside this repository. The SHA256 of the
+  noisy losses is checked only on the platform that wrote it (numpy's
+  ``exp``/``log`` bits depend on the CPU and build); a summary (column sums
+  and sampled entries, rtol 1e-12) is checked everywhere.
 - Against the thesis function itself, ``add_noise_to_asset_losses``. It is
   loaded from ``src/utils/data_processing.py`` of the thesis checkout in
   ``PARITY_THESIS_REPO`` on its own (that file imports only numpy and pandas),
@@ -86,13 +89,33 @@ def test_digest_file_describes_this_fixture(digests: dict) -> None:
 
 
 @pytest.mark.parametrize("kind", nd.KINDS)
-def test_noisy_losses_match_thesis_digest(
+def test_noisy_losses_match_thesis_summary(
     kind: str, ported: dict[str, EventSet], digests: dict
 ) -> None:
+    # Cross-platform check: column sums and sampled entries at rtol 1e-12.
     noisy = ported[kind]
     entry = digests["digests"][kind]
     assert list(noisy.loss.shape) == entry["shape"]
-    assert nd.matrix_digest(noisy.loss) == entry["loss_sha256"]
+    deviation = nd.summary_deviation(entry["summary"], noisy.loss)
+    assert deviation <= nd.SUMMARY_RTOL, f"max relative deviation {deviation:.3e}"
+
+
+@pytest.mark.parametrize("kind", nd.KINDS)
+def test_noisy_losses_match_thesis_digest(
+    kind: str, ported: dict[str, EventSet], digests: dict
+) -> None:
+    # Bit-level check: only on the platform that wrote the digests, because
+    # numpy's exp/log bits depend on the CPU and the numpy build.
+    if not nd.same_platform(digests):
+        made = digests["generated_with"]
+        pytest.skip(
+            "bitwise digest was written on "
+            f"{made['system']} {made['machine']} with numpy {made['numpy']}; "
+            "the summary test covers this platform"
+        )
+    assert (
+        nd.matrix_digest(ported[kind].loss) == digests["digests"][kind]["loss_sha256"]
+    )
 
 
 def test_thesis_expansion_and_rates(eventset: EventSet, ported: dict) -> None:
@@ -117,10 +140,8 @@ def test_thesis_expansion_and_rates(eventset: EventSet, ported: dict) -> None:
 
 def test_other_seed_differs(eventset: EventSet, digests: dict) -> None:
     other = _port(eventset, nd.THESIS_KIND, seed=43)
-    assert (
-        nd.matrix_digest(other.loss)
-        != digests["digests"][nd.THESIS_KIND]["loss_sha256"]
-    )
+    summary = digests["digests"][nd.THESIS_KIND]["summary"]
+    assert nd.summary_deviation(summary, other.loss) > 1e-3
 
 
 # -- against the thesis function (local only) ---------------------------------
@@ -200,7 +221,10 @@ def test_thesis_function_reproduces_committed_digests(
 ) -> None:
     for kind in nd.KINDS:
         losses = nd.thesis_losses(thesis_output[kind], eventset.location_ids)
-        assert nd.matrix_digest(losses) == digests["digests"][kind]["loss_sha256"]
+        entry = digests["digests"][kind]
+        assert nd.summary_deviation(entry["summary"], losses) <= nd.SUMMARY_RTOL
+        if nd.same_platform(digests):
+            assert nd.matrix_digest(losses) == entry["loss_sha256"]
 
 
 def test_rates_match_thesis_probabilities(

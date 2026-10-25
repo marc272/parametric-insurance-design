@@ -1,8 +1,8 @@
 """Tests for the thesis noise layer (MAR-10).
 
 Bit-identical parity with the thesis function is tested in
-``parity/tests/test_noise_parity.py``. The last test here repeats the digest
-check on the committed parity fixture, so that CI runs it on every platform
+``parity/tests/test_noise_parity.py``. The last test here repeats the check
+against the committed thesis digests on the parity fixture, so that CI runs it
 while ``parity/tests`` is not yet in CI (MAR-86).
 """
 
@@ -11,6 +11,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import platform
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -299,6 +300,23 @@ def test_parity_fixture_matches_thesis_digest(kind: NoiseKind) -> None:
         bounds=tuple(params["heteroscedastic_bounds"]),
         location_ids=params["asset_order"],
     )
-    data = np.ascontiguousarray(noisy.loss, dtype="<f8").tobytes()
-    assert list(noisy.loss.shape) == golden["digests"][kind]["shape"]
-    assert hashlib.sha256(data).hexdigest() == golden["digests"][kind]["loss_sha256"]
+    entry = golden["digests"][kind]
+    assert list(noisy.loss.shape) == entry["shape"]
+    # The bits depend on numpy's exp/log for the CPU and build, so CI compares
+    # a summary at rtol 1e-12; the SHA256 only where the digests were written.
+    summary = entry["summary"]
+    rows, columns, values = zip(*summary["samples"], strict=True)
+    actual = np.concatenate(
+        [noisy.loss.sum(axis=0), noisy.loss[list(rows), list(columns)]]
+    )
+    expected = np.array([*summary["column_sums"], *values])
+    deviation = np.max(np.abs(actual - expected) / np.abs(expected))
+    assert deviation <= 1e-12, f"max relative deviation {deviation:.3e}"
+    made = golden["generated_with"]
+    if (made["system"], made["machine"], made["numpy"]) == (
+        platform.system(),
+        platform.machine(),
+        np.__version__,
+    ):
+        data = np.ascontiguousarray(noisy.loss, dtype="<f8").tobytes()
+        assert hashlib.sha256(data).hexdigest() == entry["loss_sha256"]
