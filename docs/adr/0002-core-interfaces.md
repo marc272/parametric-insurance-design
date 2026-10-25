@@ -140,10 +140,12 @@ SPEC §4.2's `experiment.py` would be edited by four issues, so it becomes `expe
 | 2 | `location_id` is `str` | **Accepted.** Entity and problem ids are `str` too |
 | 3 | `events` and `values` reject unknown columns; `locations` allows free metadata | **Accepted** |
 | 4 | `values` is a complete grid; missing pairs are errors | **Accepted.** Dense matrices are the contract |
-| 5 | Ranges: lon ∈ [−180, 180], lat ∈ [−90, 90], value ≥ 0, draw_id ≥ 0; index may be negative; year unchecked | **Accepted**, with an **amendment proposal**: validate year ∈ [0, n_years) (§5) |
+| 5 | Ranges: lon ∈ [−180, 180], lat ∈ [−90, 90], value ≥ 0, draw_id ≥ 0; index may be negative; year unchecked | **Accepted**, with an **amendment proposal**: validate year ∈ [0, n_years) (§5). **Amendment implemented by MAR-82, PR #18:** the EventSet constructor raises `OutOfRangeError` |
 | 6 | The threshold filter keeps rows where any location ≥ threshold; default column `index` | **Accepted.** For the thesis filter on the portfolio max wind, this is the same thing. Dropped rows leave the `event_conditional` measure (thesis rescaling) and enter the annual measure as zero-loss mass, because the annual measure is built from years, not rows |
 | 7 | Re-export `EventSet` from `__init__.py` | **Yes.** `EventSet` and `EventSetMetadata` are re-exported (§1) |
-| 8 | EventSet errors live in `eventset.py` | **Accepted**, with an **amendment proposal**: `class EventSetError(ParametricInsuranceDesignError, ValueError)`. This is non-breaking, and lets callers catch the whole library with one class |
+| 8 | EventSet errors live in `eventset.py` | **Accepted**, with an **amendment proposal**: `class EventSetError(ParametricInsuranceDesignError, ValueError)`. This is non-breaking, and lets callers catch the whole library with one class. **Amendment implemented by MAR-82, PR #18** |
+
+With the row 5 amendment, MAR-82 adjusted two tests: in `tests/test_interfaces.py::test_full_sample_enforces_year_convention` the EventSet constructor now rejects one-based years, and the test reaches `Sample.full`'s own guard by bypassing validation; in `tests/test_clustering.py` the `make_eventset` helper wraps its years into `[0, n_years)` (clustering reads neither).
 
 Open points left room for:
 

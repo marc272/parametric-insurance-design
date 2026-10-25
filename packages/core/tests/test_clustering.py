@@ -37,7 +37,7 @@ def make_eventset(
     events = pd.DataFrame(
         {
             "event_id": [f"ev{i}" for i in range(n_rows)],
-            "year": np.arange(n_rows, dtype=np.int64),
+            "year": np.arange(n_rows, dtype=np.int64) % base.metadata.n_years,
             "rate": rates,
             "draw_id": np.zeros(n_rows, dtype=np.int64),
             "scenario_id": ["toy"] * n_rows,
