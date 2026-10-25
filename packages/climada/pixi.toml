@@ -51,3 +51,9 @@ test = { cmd = "pytest", description = "Run the CLIMADA adapter tests" }
 # config). The uv workspace remains the place where the core's coverage gate
 # is enforced; this only proves the core works next to CLIMADA's pins.
 test-core = { cmd = "pytest ../core/tests -p no:cacheprovider", description = "Run the core's tests in the CLIMADA env" }
+# Download IRIS from figshare (about 260 MB), extract the ten North Atlantic
+# files and merge them into the 10,000-year catalogue, all checked against
+# src/parametric_insurance_design_climada/iris_manifest.json. Writes to the
+# git-ignored data/iris/ at the repository root; re-running skips verified
+# files. Pass `--archive <path>` to use a local copy of IRIS_event_set.zip.
+iris = { cmd = "python -m parametric_insurance_design_climada.iris --data-dir ../../data/iris", description = "Download, verify and merge the IRIS North Atlantic event set (MAR-72)" }
