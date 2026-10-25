@@ -136,6 +136,15 @@ def test_explicit_breakpoints_are_validated(
         StepPayout(20.0, 70.0, 3, breakpoints=breakpoints)
 
 
+def test_last_bin_narrower_than_thesis_eps_is_rejected() -> None:
+    # The thesis would clip 1 + 5e-13 to 1 - 5e-13, i.e. into bin 0.
+    with pytest.raises(ComponentConfigError, match="last bin"):
+        StepPayout(0.0, 1.0 + 5e-13, 2, breakpoints=(0.0, 1.0, 1.0 + 5e-13))
+    with pytest.raises(ComponentConfigError, match="last bin"):
+        StepPayout(0.0, 1e-10, 1000)
+    StepPayout(0.0, 1.0 + 1e-11, 2, breakpoints=(0.0, 1.0, 1.0 + 1e-11))
+
+
 def test_bad_range_raises_on_construction() -> None:
     with pytest.raises(ComponentConfigError, match="n_bins must be >= 1"):
         StepPayout(20.0, 70.0, 0)

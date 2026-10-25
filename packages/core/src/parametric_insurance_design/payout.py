@@ -25,6 +25,9 @@ Bin semantics (thesis ``OptimizationConstructor._mapping`` and
   ``_mapping`` raises ``IndexError`` and this module uses the last bin.
 * Non-finite index values raise :class:`InputMismatchError`. The thesis put
   NaN into the last bin (``get_payout_for_asset``) or crashed (``_mapping``).
+* The last bin must be at least ``1e-12`` wide. Narrower, the thesis clip
+  point would lie below it and values at or above the limit would land in
+  bin ``n_bins - 2``; such breakpoints raise :class:`ComponentConfigError`.
 """
 
 from __future__ import annotations
@@ -148,7 +151,8 @@ class StepPayout(PayoutStructure):
         If the parameters are invalid: ``n_bins < 1``, ``attachment >=
         limit``, non-finite values, or explicit breakpoints of the wrong
         length, not strictly increasing, or not starting at ``attachment``
-        and ending at ``limit`` exactly.
+        and ending at ``limit`` exactly; or a last bin narrower than
+        :data:`THESIS_UPPER_EPS`.
 
     Notes
     -----
@@ -180,6 +184,13 @@ class StepPayout(PayoutStructure):
         else:
             edges = self._check_breakpoints(self.breakpoints)
             object.__setattr__(self, "breakpoints", tuple(edges.tolist()))
+        if edges[-1] - THESIS_UPPER_EPS < edges[-2]:
+            # The thesis clip point would fall below the last bin and send
+            # values at or above the limit to bin n - 2.
+            raise ComponentConfigError(
+                f"the last bin [{edges[-2]}, {edges[-1]}) must be at least "
+                f"{THESIS_UPPER_EPS} wide (thesis clipping offset)"
+            )
         edges.setflags(write=False)
         object.__setattr__(self, "_edges", edges)
 
