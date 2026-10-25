@@ -56,11 +56,14 @@ The licence boundary is the package boundary ([ADR 0001](docs/adr/0001-name-and-
 | Part | Licence | Licence file |
 |---|---|---|
 | `packages/core`, `packages/viz` | BSD-3-Clause | [`LICENSE`](LICENSE) (copied into each package) |
-| `research/`, `site/`, repository tooling | BSD-3-Clause | [`LICENSE`](LICENSE) |
+| `research/`, `site/`, `docs/`, repository tooling | BSD-3-Clause | [`LICENSE`](LICENSE) |
+| `parity/` code | BSD-3-Clause | [`parity/LICENSE`](parity/LICENSE) |
+| `parity/tests/data/thesis_eventset/` (derived from IRIS) | CC0-1.0, like its source | recorded in its `metadata.json` |
+| `showcase/crc/` code | BSD-3-Clause; the AGPL applies to the combined work with the CRC adapter | [`showcase/crc/LICENSE`](showcase/crc/LICENSE) |
 | `packages/crc` | AGPL-3.0-or-later, because it imports the AGPL-licensed CRC SDK | [`packages/crc/LICENSE`](packages/crc/LICENSE) |
 | `packages/climada` | GPL-3.0-or-later, because it imports GPLv3 CLIMADA | [`packages/climada/LICENSE`](packages/climada/LICENSE) |
 
-The core and viz packages never import an adapter, so they stay under the permissive licence. Data comes with its own terms, recorded in [`docs/data-sources.md`](docs/data-sources.md); no data is committed to this repository.
+The core and viz packages never import an adapter, so they stay under the permissive licence. Data comes with its own terms, recorded in [`docs/data-sources.md`](docs/data-sources.md). The only data committed are small fixtures (the CC0 parity fixture and the thesis results in `parity/golden/`).
 
 ## Thesis code
 

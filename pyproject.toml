@@ -56,17 +56,21 @@ known-first-party = [
 
 [tool.pyright]
 typeCheckingMode = "basic"
-include = ["packages/core", "packages/viz", "packages/crc"]
+include = ["packages/core", "packages/viz", "packages/crc", "parity"]
 # packages/climada is type-checked in its own pixi env (CLIMADA adapter work).
 exclude = ["**/__pycache__", "**/.*", "packages/climada"]
 executionEnvironments = [
     { root = "packages/core", pythonVersion = "3.11" },
     { root = "packages/viz", pythonVersion = "3.11" },
     { root = "packages/crc", pythonVersion = "3.12" },
+    # parity/ runs on the uv workspace env, which starts at Python 3.12.
+    { root = "parity", pythonVersion = "3.12" },
 ]
 
 # --- pytest and coverage ----------------------------------------------------
 
+# parity/tests is not in testpaths: CI runs it in its own step (see
+# .github/workflows/ci.yml); run it locally with `uv run pytest parity/tests`.
 [tool.pytest]
 minversion = "9.0"
 testpaths = ["packages/core/tests", "packages/viz/tests", "packages/crc/tests"]

@@ -74,6 +74,12 @@ jobs:
           --cov=parametric_insurance_design_crc
           --cov-report=term-missing
           --cov-report=xml:coverage-viz-crc.xml
+      # Parity tests against the committed thesis golden data (parity/, MAR-86).
+      # A step of its own, without coverage, so a failure points at parity.
+      # PARITY_THESIS_REPO is not set here, so the tests that need a thesis
+      # checkout skip with that reason; -v and -ra list every pass and skip.
+      - name: Test parity (committed golden data, no thesis checkout)
+        run: uv run --locked pytest parity/tests -v
       - name: Upload coverage reports
         if: always()
         uses: actions/upload-artifact@v7

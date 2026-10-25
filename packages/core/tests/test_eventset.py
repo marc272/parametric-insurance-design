@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
+import shutil
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
@@ -15,6 +17,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from parametric_insurance_design.errors import ParametricInsuranceDesignError
 from parametric_insurance_design.eventset import (
     EVENTS_FILE,
     LOCATIONS_FILE,
@@ -37,6 +40,7 @@ from parametric_insurance_design.eventset import (
     Provenance,
     SchemaError,
     ThresholdFilterRecord,
+    TransformRecord,
 )
 
 # --------------------------------------------------------------------------
@@ -277,6 +281,7 @@ def test_metadata_json_layout(es: EventSet, tmp_path: Path) -> None:
     assert raw["provenance"]["source_checksums"] == {"tracks.nc": "sha256:abc123"}
     assert raw["licence"] == "CC-BY-4.0"
     assert raw["filters"] == []
+    assert raw["transforms"] == []
 
 
 def test_parquet_schema_types(es: EventSet, tmp_path: Path) -> None:
@@ -303,6 +308,204 @@ def test_to_parquet_rejects_file_path(es: EventSet, tmp_path: Path) -> None:
     target.write_text("x")
     with pytest.raises(FileExistsError, match="not a directory"):
         es.to_parquet(target)
+
+
+# Atomic write (MAR-82) -------------------------------------------------------
+
+
+class _Interrupted(BaseException):
+    """Stands in for a kill or Ctrl-C in the middle of a write."""
+
+
+# Every file-system step of to_parquet that an interruption can fall between.
+_WRITE_STEPS: tuple[tuple[Any, str], ...] = (
+    (pq, "write_table"),
+    (Path, "write_text"),
+    (os, "fsync"),
+    (os, "rename"),
+    (os, "replace"),
+    (os, "unlink"),
+    (os, "rmdir"),
+)
+
+
+def _staging_dirs(*directories: Path) -> list[Path]:
+    return [
+        p
+        for d in directories
+        if d.is_dir()
+        for p in d.iterdir()
+        if p.name.startswith(".") and p.name.endswith(".tmp")
+    ]
+
+
+def _read_or_none(path: Path) -> EventSet | None:
+    try:
+        return EventSet.from_parquet(path)
+    except EventSetError:
+        return None
+
+
+def _write_interrupted(
+    monkeypatch: pytest.MonkeyPatch,
+    es: EventSet,
+    target: Path,
+    *,
+    at: int | None,
+    overwrite: bool,
+    killed: bool,
+) -> int:
+    """Run ``es.to_parquet``, raising before file-system step ``at``.
+
+    Returns the number of steps run. ``killed`` also disables the cleanup,
+    as when the process dies without unwinding.
+    """
+    steps = 0
+    with monkeypatch.context() as m:
+        for owner, name in _WRITE_STEPS:
+            original = getattr(owner, name)
+
+            def step(
+                *args: object,
+                _original: Callable[..., object] = original,
+                **kwargs: object,
+            ) -> object:
+                nonlocal steps
+                steps += 1
+                if steps - 1 == at:  # fire once; the cleanup runs unhindered
+                    raise _Interrupted
+                return _original(*args, **kwargs)
+
+            m.setattr(owner, name, step)
+        if killed:
+            m.setattr(shutil, "rmtree", lambda *a, **k: None)
+        try:
+            es.to_parquet(target, overwrite=overwrite)
+        except _Interrupted:
+            assert at is not None
+    return steps
+
+
+@pytest.mark.parametrize("killed", [False, True], ids=["unwound", "killed"])
+@pytest.mark.parametrize("case", ["new directory", "overwrite", "existing directory"])
+def test_interrupted_write_leaves_old_or_no_eventset(
+    es: EventSet,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+    killed: bool,
+) -> None:
+    # Same keys as ``es`` but different content in every file, so that any mix
+    # of old and new files would load and be neither the old nor the new one.
+    other = make_eventset(seed=7)
+    new = EventSet(
+        events=other.events.assign(rate=other.events["rate"] * 2),
+        locations=other.locations.assign(name="renamed"),
+        index=other.index,
+        loss=other.loss,
+        metadata=dataclasses.replace(other.metadata, scenario="new scenario"),
+    )
+    old = es if case == "overwrite" else None
+
+    def prepare(run: int) -> Path:
+        target = tmp_path / f"run{run}" / "es"
+        if case != "new directory":
+            target.mkdir(parents=True)
+            (target / "notes.txt").write_text("keep me")
+        if old is not None:
+            old.to_parquet(target)
+        return target
+
+    total = _write_interrupted(
+        monkeypatch, new, prepare(0), at=None, overwrite=True, killed=False
+    )
+    assert total >= 8  # 3 Parquet files, metadata, fsyncs and renames
+    committed = False
+    for at in range(total):
+        target = prepare(at + 1)
+        _write_interrupted(
+            monkeypatch, new, target, at=at, overwrite=True, killed=killed
+        )
+        state = _read_or_none(target)
+        # Before the commit rename: the old EventSet or none. After it (only
+        # fsync and cleanup remain): the complete new one, for good.
+        if state is not None and state.equals(new):
+            committed = True
+        elif committed:
+            pytest.fail(f"new EventSet lost again when interrupted at step {at}")
+        elif old is None:
+            assert state is None, f"interrupted at step {at}"
+        else:
+            assert state is None or state.equals(old), f"interrupted at step {at}"
+        if case != "new directory":
+            assert (target / "notes.txt").read_text() == "keep me"
+        if not killed:
+            assert _staging_dirs(target.parent, target) == [], at
+    # Without an interruption the new EventSet is in place.
+    target = prepare(total + 1)
+    _write_interrupted(monkeypatch, new, target, at=None, overwrite=True, killed=False)
+    assert EventSet.from_parquet(target).equals(new)
+
+
+def test_to_parquet_leaves_no_staging_directory(es: EventSet, tmp_path: Path) -> None:
+    es.to_parquet(tmp_path / "es")
+    (tmp_path / "es" / "notes.txt").write_text("keep me")
+    make_eventset(seed=7).to_parquet(tmp_path / "es", overwrite=True)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["es"]
+    assert sorted(p.name for p in (tmp_path / "es").iterdir()) == sorted(
+        [EVENTS_FILE, LOCATIONS_FILE, METADATA_FILE, VALUES_FILE, "notes.txt"]
+    )
+    assert EventSet.from_parquet(tmp_path / "es").equals(make_eventset(seed=7))
+
+
+def test_to_parquet_creates_parents_and_follows_symlinks(
+    es: EventSet, tmp_path: Path
+) -> None:
+    nested = tmp_path / "a" / "b" / "es"
+    assert es.to_parquet(nested) == nested
+    assert EventSet.from_parquet(nested).equals(es)
+    real = tmp_path / "real"
+    real.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+    es.to_parquet(link)
+    assert link.is_symlink()
+    assert EventSet.from_parquet(real).equals(es)
+
+
+def test_failed_write_propagates_and_cleans_up(
+    es: EventSet, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    es.to_parquet(tmp_path / "es")
+
+    def disk_full(*args: object, **kwargs: object) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(pq, "write_table", disk_full)
+    with pytest.raises(OSError, match="No space left"):
+        make_eventset(seed=7).to_parquet(tmp_path / "es", overwrite=True)
+    with pytest.raises(OSError, match="No space left"):
+        es.to_parquet(tmp_path / "new")
+    assert EventSet.from_parquet(tmp_path / "es").equals(es)
+    assert not (tmp_path / "new").exists()
+    assert _staging_dirs(tmp_path, tmp_path / "es") == []
+
+
+def test_failed_cleanup_is_reported(
+    es: EventSet, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def disk_full(*args: object, **kwargs: object) -> None:
+        raise OSError(28, "No space left on device")
+
+    def no_cleanup(path: object) -> None:
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(pq, "write_table", disk_full)
+    monkeypatch.setattr(shutil, "rmtree", no_cleanup)
+    with pytest.raises(OSError, match="No space left") as info:
+        es.to_parquet(tmp_path / "es")
+    notes = getattr(info.value, "__notes__", [])
+    assert any("could not remove the staging directory" in n for n in notes)
 
 
 # --------------------------------------------------------------------------
@@ -401,6 +604,31 @@ def test_error_hierarchy() -> None:
     assert issubclass(EventSetError, ValueError)
     assert issubclass(NegativeLossError, OutOfRangeError)
     assert issubclass(NonPositiveRateError, OutOfRangeError)
+
+
+def test_eventset_errors_derive_from_library_base(es: EventSet) -> None:
+    # ADR 0002 §9 row 8: one ``except`` clause catches the whole library, and
+    # every EventSet error stays a ValueError.
+    assert issubclass(EventSetError, ParametricInsuranceDesignError)
+    for cls in (
+        SchemaError,
+        MissingColumnsError,
+        DuplicateKeyError,
+        NonFiniteValueError,
+        InconsistentKeysError,
+        OutOfRangeError,
+        NegativeLossError,
+        NonPositiveRateError,
+    ):
+        assert issubclass(cls, ParametricInsuranceDesignError)
+        assert issubclass(cls, ValueError)
+    loss = es.loss.copy()
+    loss[0, 0] = -1.0
+    with pytest.raises(ParametricInsuranceDesignError) as info:
+        dataclasses.replace(es, loss=loss)
+    assert isinstance(info.value, NegativeLossError)
+    assert isinstance(info.value, ValueError)
+    assert info.value.table == "matrices"
 
 
 # MissingColumnsError --------------------------------------------------------
@@ -593,6 +821,41 @@ def test_out_of_range(es: EventSet, table: str, column: str, bad: float) -> None
     kwargs[table].loc[0, column] = bad
     with pytest.raises(OutOfRangeError, match=column):
         EventSet.from_long(**kwargs)
+
+
+@pytest.mark.parametrize("year", [-1, 100, 101])
+def test_year_out_of_range(es: EventSet, year: int) -> None:
+    # ADR 0002 §5: 0-based years, year in [0, n_years); n_years is 100 here.
+    kwargs = parts(es)
+    kwargs["events"].loc[0, "year"] = year
+    with pytest.raises(OutOfRangeError, match=r"year must lie in \[0, 100\)") as info:
+        EventSet.from_long(**kwargs)
+    assert info.value.table == "events"
+    assert "'ev0'" in str(info.value)
+    with pytest.raises(OutOfRangeError, match="year"):
+        dataclasses.replace(es, events=kwargs["events"])
+
+
+def test_year_range_bounds_are_accepted(es: EventSet, tmp_path: Path) -> None:
+    events = es.events.copy()
+    events.loc[0, "year"] = 0
+    events.loc[1, "year"] = 99
+    edge = dataclasses.replace(es, events=events)
+    assert EventSet.from_parquet(edge.to_parquet(tmp_path / "es")).equals(edge)
+
+
+def test_year_checked_against_n_years(es: EventSet) -> None:
+    assert es.events["year"].to_numpy().max() == 3
+    dataclasses.replace(es, metadata=dataclasses.replace(es.metadata, n_years=4))
+    with pytest.raises(OutOfRangeError, match=r"\[0, 3\)"):
+        dataclasses.replace(es, metadata=dataclasses.replace(es.metadata, n_years=3))
+
+
+def test_year_out_of_range_on_read(es: EventSet, tmp_path: Path) -> None:
+    es.to_parquet(tmp_path)
+    _edit_metadata(tmp_path, lambda raw: raw.update(n_years=2))
+    with pytest.raises(OutOfRangeError, match="year"):
+        EventSet.from_parquet(tmp_path)
 
 
 @pytest.mark.parametrize("n_years", [0, -5])
@@ -806,6 +1069,24 @@ def test_unsupported_schema_version_in_memory() -> None:
         ),
         (lambda raw: raw.update(filters={}), "filters must be a list"),
         (lambda raw: raw.update(filters=[{"column": "index"}]), "filters"),
+        (lambda raw: raw.update(transforms={}), "transforms must be a list"),
+        (
+            lambda raw: raw["transforms"][0].pop("version"),
+            r"transforms\[\] lacks keys: version",
+        ),
+        (
+            lambda raw: raw["transforms"][0].update(seed=42),
+            r"transforms\[\] has unknown keys: seed",
+        ),
+        (
+            lambda raw: raw["transforms"][0].update(parameters=[1]),
+            "parameters must be a mapping",
+        ),
+        (
+            lambda raw: raw["transforms"][0].update(n_filters_before=1),
+            "only 0 filters",
+        ),
+        (lambda raw: raw["transforms"][0].update(name=""), r"transforms\[\]\.name"),
     ],
 )
 def test_malformed_metadata_on_read(
@@ -814,6 +1095,10 @@ def test_malformed_metadata_on_read(
     edit: Callable[[dict[str, Any]], object],
     match: str,
 ) -> None:
+    # One transform record, so that the edits above can reach it.
+    es = dataclasses.replace(
+        es, metadata=dataclasses.replace(es.metadata, transforms=(_transform(),))
+    )
     es.to_parquet(tmp_path)
     _edit_metadata(tmp_path, edit)
     with pytest.raises(SchemaError, match=match):
@@ -826,6 +1111,7 @@ def test_metadata_without_optional_keys_reads(tmp_path: Path) -> None:
 
     def strip(raw: dict[str, Any]) -> None:
         raw.pop("filters")
+        raw.pop("transforms")  # metadata.json written before MAR-88
         raw["loss"].pop("currency")
         raw["provenance"].pop("source_checksums")
 
@@ -834,6 +1120,7 @@ def test_metadata_without_optional_keys_reads(tmp_path: Path) -> None:
     assert back.metadata.loss.currency is None
     assert back.metadata.provenance.source_checksums == {}
     assert back.metadata.filters == ()
+    assert back.metadata.transforms == ()
 
 
 def test_metadata_field_types_in_memory() -> None:
@@ -888,3 +1175,149 @@ def test_threshold_filter_record_coerces_ints() -> None:
     assert isinstance(record.threshold, float)
     assert record.max_loss_dropped is None
     assert record.n_rows_dropped == 6
+
+
+# --------------------------------------------------------------------------
+# Transform records (MAR-88)
+# --------------------------------------------------------------------------
+
+
+def _transform(**overrides: object) -> TransformRecord:
+    fields: dict[str, Any] = {
+        "name": "vulnerability_draws",
+        "function": "parametric_insurance_design_climada.draws.draw_impact_functions",
+        "version": "0.1.0",
+        "n_filters_before": 0,
+        "parameters": {
+            "n_draws": 10,
+            "prior": {
+                "v_half": {"distribution": "normal", "mean": 74.7, "sd": 5.0},
+                "source": "a literature reference",
+            },
+            "bounds": (20.0, 70.0),
+            "regions": ["NA1", "NA2"],
+            "fitted": True,
+            "note": None,
+        },
+    }
+    fields.update(overrides)
+    return TransformRecord(**fields)
+
+
+def test_transform_record_normalises_parameters() -> None:
+    record = _transform(
+        parameters={
+            "tuple": (1, 2.5),
+            "np_int": np.int32(3),
+            "np_float": np.float32(0.5),
+            "np_bool": np.bool_(True),
+            "nested": {"a": [np.int64(1), {"b": (None,)}]},
+        }
+    )
+    assert record.parameters == {
+        "tuple": [1, 2.5],
+        "np_int": 3,
+        "np_float": 0.5,
+        "np_bool": True,
+        "nested": {"a": [1, {"b": [None]}]},
+    }
+    assert type(record.parameters["np_int"]) is int
+    assert type(record.parameters["np_float"]) is float
+    assert type(record.parameters["np_bool"]) is bool
+    assert TransformRecord("noise", "f", "1", 0).parameters == {}
+
+
+def test_transform_record_copies_parameters() -> None:
+    params: dict[str, Any] = {"levels": [0.1, 0.2]}
+    record = _transform(parameters=params)
+    params["levels"].append(0.3)
+    assert record.parameters == {"levels": [0.1, 0.2]}
+
+
+@pytest.mark.parametrize(
+    ("overrides", "match"),
+    [
+        ({"name": ""}, r"transforms\[\]\.name"),
+        ({"function": " "}, r"transforms\[\]\.function"),
+        ({"version": 1}, r"transforms\[\]\.version"),
+        ({"n_filters_before": -1}, "n_filters_before"),
+        ({"n_filters_before": 1.0}, "n_filters_before"),
+        ({"n_filters_before": True}, "n_filters_before"),
+        ({"parameters": [("a", 1)]}, "parameters must be a mapping"),
+        ({"parameters": {"level": float("nan")}}, r"parameters\.level must be finite"),
+        ({"parameters": {"x": [1, float("inf")]}}, r"parameters\.x\[1\] must be fin"),
+        ({"parameters": {1: "a"}}, "non-string key 1"),
+        ({"parameters": {"when": datetime(2026, 1, 1)}}, "datetime, which is not"),
+        ({"parameters": {"arr": np.array([1.0])}}, "ndarray, which is not"),
+        ({"parameters": {"s": {"a", "b"}}}, "set, which is not"),
+    ],
+)
+def test_transform_record_validation(overrides: dict[str, Any], match: str) -> None:
+    with pytest.raises(SchemaError, match=match):
+        _transform(**overrides)
+
+
+def test_transforms_round_trip_through_parquet(tmp_path: Path) -> None:
+    base = make_eventset()
+    filtered = base.filter_threshold(float(np.quantile(base.index, 0.2)))
+    metadata = dataclasses.replace(
+        filtered.metadata,
+        transforms=(_transform(), _transform(name="noise", n_filters_before=1)),
+    )
+    es = dataclasses.replace(filtered, metadata=metadata)
+    back = EventSet.from_parquet(es.to_parquet(tmp_path / "es"))
+    assert back.equals(es)
+    assert back.metadata.transforms == es.metadata.transforms
+    assert back.metadata.scenario == es.metadata.scenario
+    raw = json.loads((tmp_path / "es" / METADATA_FILE).read_text(encoding="utf-8"))
+    assert raw["transforms"][0] == {
+        "name": "vulnerability_draws",
+        "function": "parametric_insurance_design_climada.draws.draw_impact_functions",
+        "version": "0.1.0",
+        "n_filters_before": 0,
+        "parameters": {
+            "n_draws": 10,
+            "prior": {
+                "v_half": {"distribution": "normal", "mean": 74.7, "sd": 5.0},
+                "source": "a literature reference",
+            },
+            "bounds": [20.0, 70.0],
+            "regions": ["NA1", "NA2"],
+            "fitted": True,
+            "note": None,
+        },
+    }
+    assert raw["transforms"][1]["n_filters_before"] == 1
+    assert "transforms=2" in repr(back)
+
+
+def test_transforms_survive_filter_threshold() -> None:
+    es = make_eventset()
+    es = dataclasses.replace(
+        es, metadata=dataclasses.replace(es.metadata, transforms=(_transform(),))
+    )
+    filtered = es.filter_threshold(float(np.median(es.index)))
+    assert filtered.metadata.transforms == es.metadata.transforms
+    assert len(filtered.metadata.filters) == 1
+
+
+def test_transforms_in_memory_validation() -> None:
+    with pytest.raises(SchemaError, match="TransformRecord objects"):
+        make_metadata(transforms=({"name": "noise"},))
+    with pytest.raises(SchemaError, match="only 0 filters"):
+        make_metadata(transforms=(_transform(n_filters_before=1),))
+    two_filters = (_record(), _record())
+    with pytest.raises(SchemaError, match=r"transforms\[1\].*decreases \(2 -> 1\)"):
+        make_metadata(
+            filters=two_filters,
+            transforms=(
+                _transform(n_filters_before=2),
+                _transform(n_filters_before=1),
+            ),
+        )
+    ok = make_metadata(
+        filters=two_filters,
+        transforms=[_transform(n_filters_before=1), _transform(n_filters_before=1)],
+    )
+    assert isinstance(ok.transforms, tuple)
+    assert len(ok.transforms) == 2
