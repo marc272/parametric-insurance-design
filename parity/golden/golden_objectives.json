@@ -1,0 +1,49 @@
+{
+  "benchmark_beta": 0.95,
+  "derivations": {
+    "a_golden_kpis": "from the committed golden KPI row of the problem's subject (KPI_Source golden:<subject>)",
+    "b_thesis_code": "KPIs recomputed by the thesis benchmarking code at the record's Beta on the golden payouts and the thesis-prepared data (KPI_Source thesis_kpis:<subject>@beta=<b> from calculate_benchmarking_kpis, or thesis_entity_kpis:<subject>@beta=<b> from _build_standard_group_outputs + _calculate_entity_kpis for records the thesis dropped from its KPI table)"
+  },
+  "description": "Golden objective values of the thesis design problems (MAR-68). Written by parity/scripts/derive_golden_objectives.py; the thesis wrote none, so each is derived (module docstring).",
+  "formulas": {
+    "pure_basis_risk_minimization": "E_Residual^2",
+    "pure_uncovered_loss_minimization": "E_Uncovered",
+    "weighted_cvar_minimization": "Alpha * CVaR_Uncovered + (1 - Alpha) * E_Uncovered"
+  },
+  "inputs": {
+    "benchmarking_kpis.csv.gz": "ae279c6639bcb92e72cfcd89e380ebb3e586da2259e3c66bddd3179335b8f3c4",
+    "full_optimization_results.csv.gz": "e252ff2d45134f0f5e6c5c6d31581f95b2bceec64b3512aa6726753eed1d80cf"
+  },
+  "not_compared": [],
+  "output": {
+    "by_derivation": {
+      "a_golden_kpis": 657,
+      "b_thesis_code": 102
+    },
+    "file": "golden_objectives.csv",
+    "rows": 759,
+    "sha256": "a39e8f0391b0548c230052baed1c5a01dfb322230c8551f3fa25ae2cb77b0a96"
+  },
+  "problems": {
+    "cluster_optimization": "one joint problem 'portfolio'; KPI subject = Portfolio",
+    "individual_optimization": "one per asset; KPI subject = the asset",
+    "integrated_portfolio_optimization": "one joint problem 'portfolio'; KPI subject = Portfolio"
+  },
+  "thesis_check": {
+    "atol": 1e-06,
+    "kpi_rows": 1776,
+    "max_rel_deviation": 0.00017099370747365868,
+    "max_rel_deviation_single_run": 4.3359435512658434e-08,
+    "rtol": 1e-05,
+    "values": 10656,
+    "values_above_1e-8": 155
+  },
+  "thesis_files": {
+    "configs/experiment_config.yaml": "b4eafabbc1926c208a36aa00a4d7e069681eebce05f5ed7178776259df829f2d",
+    "configs/global_settings.yaml": "152372f75df80ebbbb7265e161b9ee256a46362b19d34cd95eb5c37dd2721e4f",
+    "data/output/climada_transformed_loss_data.csv": "8513f5fefdcf6686207df575e6a89d576e5ed935f71b652b4045229caf23ff68",
+    "src/utils/benchmarking.py": "55f35d666056302c7d0923ad0c5839ed9f4251a0887cfb45184e836a1777aa5e",
+    "src/utils/data_processing.py": "4f6ad310a1ad3e5a8f59c2e7ab703f859e9b64e598c133442c77bcb5bf42c58d",
+    "src/utils/formatting.py": "7b360e5d58e39a37dc1aea0d7d5ffcb34bb346084b77192976378e6b4f97a00a"
+  }
+}

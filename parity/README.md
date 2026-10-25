@@ -20,7 +20,86 @@ Thesis golden data and the parity tests that check the new core reproduces the t
 | `scripts/derive_thesis_clusters.py` | Runs the thesis clustering from a thesis checkout and writes `golden/thesis_cluster_assignments.json` |
 | `golden/noise_digests.json` | SHA256 of the noisy loss matrix that the thesis noise layer (`add_noise_to_asset_losses`, seed 42, η = 0.3, 13 copies, heteroscedastic and homoscedastic) returns on the fixture, with the thesis module's checksum (MAR-10) |
 | `scripts/thesis_noise_digests.py` | Writes `golden/noise_digests.json` from a thesis checkout. It loads the thesis `src/utils/data_processing.py` on its own (numpy and pandas only), so no thesis dependency is needed |
+| `golden/golden_objectives.csv` | One golden objective value per thesis design problem (759 rows), which the thesis never wrote. Each row records how it was obtained (`Derivation`, `KPI_Source`); see [Golden objective values](#golden-objective-values) (MAR-68) |
+| `golden/golden_objectives.json` | Provenance of that table: inputs and their SHA256, formulas, the check of the thesis KPI pipeline, counts, and the list of problems not compared (none) |
+| `scripts/derive_golden_objectives.py` | Writes the two files above from the golden tables and a thesis checkout |
+| `harness.py` | Loads the golden tables, matches each golden record to a store run and compares KPIs, objective values, payout vectors and cluster assignments; every gap is a *finding* (MAR-67) |
+| `report.py` | Renders a comparison as `REPORT.md` and merges in the explanations (MAR-67) |
+| `explanations.yaml` | The explanation of each finding, keyed by finding id or by a glob over its path |
+| `scripts/run_default_parity.py` | Runs the thesis default runs (3 scopes × 3 objectives) with the parity solver policy, checks the noise draws and the thesis payouts, and writes `REPORT.md` (MAR-68) |
+| `analysis/thesis_payouts.md` | Written by that script: every thesis payout evaluated under our design problem; appended to `REPORT.md` |
+| `REPORT.md` | The parity report (generated; do not edit by hand) |
+| `configs/thesis.yaml` | The thesis experiment config, migrated by `scripts/migrate_thesis_config.py` (MAR-63) |
 | `tests/` | Checks the committed files against the manifest and fixed checksums; with a thesis checkout, also recomputes the source checksums and regenerates the fixture |
+
+## The parity report
+
+`REPORT.md` compares a result store with the golden tables. Today it covers the thesis baseline, the golden `single_run` records: the 9 default runs of `configs/thesis.yaml` (noise seed 42, η = 0.3, 13 copies, α 0.9, β 0.95, budget loading 1, 15 bins, 3 clusters). To regenerate it, from the repository root:
+
+```bash
+uv run python parity/scripts/run_default_parity.py --check
+```
+
+The script:
+
+1. runs the 9 runs into `results/thesis` (not committed; cached by content hash) with `PARITY_POLICY`, defined at the top of the script. By owner decision (MAR-98) it is `solve.THESIS_POLICY`, which reproduces the thesis solves: OSQP at cvxpy's default accuracy for MSE. The thesis MSE solutions carry that solver error, which `BENCHMARK.md` documents;
+2. checks that the runner's noise draws equal the thesis noise layer (`golden/noise_digests.json`);
+3. evaluates each golden thesis payout under our objective and constraints, and writes `analysis/thesis_payouts.md`;
+4. calls `report.py`, which is equivalent to:
+
+```bash
+uv run python parity/report.py --store results/thesis --source single_run \
+    --objectives parity/golden/golden_objectives.csv \
+    --explanations parity/explanations.yaml \
+    --appendix parity/analysis/thesis_payouts.md --check
+```
+
+The script also passes the setup notes: solver policy, noise check, versions.
+
+`report.py` options:
+
+- `--check` exits with status 1 while a finding has no explanation. This is the gate condition.
+- `--source` limits the comparison to golden records with that `Source` (repeatable).
+- `--fixed NAME=VALUE` adds a parameter every matching run must have.
+- `--strict-source` requires `runs.source` to agree. By default it doesn't, because the runner's cache keeps the tag a run was first written with.
+- `--notes`, `--notes-file`, `--setup-note` and `--appendix` add text.
+- `--manifest` is the manifest the decompressed golden checksums are checked against (default `manifest.json`).
+
+The report holds no timestamp, so the same store gives the same text.
+
+**Explanations.** `explanations.yaml` maps a finding id (`P-…`) or a glob over the finding path `kind/approach/method/source/parameters/subject/item` to text. An id wins; otherwise the first matching glob in file order applies. Keep globs narrow. For example, the current one names asset subjects only (`…/A?/*`), so a new portfolio-level finding of the same run stays unexplained.
+
+### Golden objective values
+
+The thesis wrote payouts and KPIs but no objective values. `scripts/derive_golden_objectives.py` derives one per design problem. A design problem is an asset in the individual scope; in the cluster and portfolio scopes it is the joint problem `portfolio`, whose KPI subject is `Portfolio`. The objectives in terms of the thesis KPIs are:
+
+- MSE = `E_Residual²`;
+- E[U] = `E_Uncovered`;
+- weighted CVaR = `α·CVaR_β + (1 − α)·E_Uncovered`.
+
+Each value is obtained in one of three ways:
+
+- **`a_golden_kpis`** (657 rows): from the committed golden KPI row. For the weighted CVaR this is possible only when β equals the KPI table's `BENCHMARK_BETA`, 0.95.
+- **`b_thesis_code`** (102 rows): recomputed with the thesis' own `benchmarking.py` on the golden payouts and the thesis-prepared data, at the record's β. This covers the β-sweep points with β ≠ 0.95, and A1 of the three individual-MSE budget points that the thesis dropped from its KPI table. Before it is used, the same pipeline recomputes all 1,776 golden KPI rows. They must agree within 1e-5 relative plus 1e-6 absolute. The CSV keeps payout levels to 8 significant digits, so they are not bit-identical. `single_run` deviates by at most 4.3e-8.
+- **Not compared**: none.
+
+The owner decides at the MAR-18 sign-off whether this suffices. To regenerate:
+
+```bash
+uv run python parity/scripts/derive_golden_objectives.py \
+    --thesis-repo ../parametric-insurance-framework --overwrite
+```
+
+### Markers
+
+- `parity` is the fast subset, run on every pull request. It includes the golden objective table re-derived from the golden KPIs, the golden checksums against the manifest, the runner's noise draws, and the committed report having no unexplained finding.
+- `parity_full` covers the slow tests, which solve the runs (about 30 s). They are skipped unless selected with `-m parity_full` or `PARITY_FULL=1`:
+
+```bash
+uv run --locked pytest parity/tests -m parity_full
+```
+
+`test_default_runs.py` regenerates the report from fresh runs and requires the same findings and overview counts as the committed one. It also requires every thesis payout to be an alternative optimum of our problem.
 
 ## The event set
 
