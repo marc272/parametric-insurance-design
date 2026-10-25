@@ -12,10 +12,12 @@ Port of the thesis ``src/CLIMADA/engine.py``. :func:`build_eventset` runs:
    function;
 4. build the index with an
    :class:`~parametric_insurance_design_climada.hooks.IndexBuilder`
-   (default: wind at the centroid) and the loss draws with a
+   (default: wind at the centroid; the config's ``index`` section selects
+   another, e.g. cat-in-a-circle, see :func:`make_index_builder`) and the
+   loss draws with a
    :class:`~parametric_insurance_design_climada.hooks.VulnerabilityDraws`
    (default: none, ``draw_id`` 0);
-5. assemble the EventSet (schema v1): ``index`` = wind, ``loss`` = impact,
+5. assemble the EventSet (schema v1): ``index`` from the builder, ``loss`` = impact,
    ``rate`` = ``1 / n_years`` (divided by the number of draws), ``year`` from
    IRIS.
 
@@ -74,10 +76,13 @@ from parametric_insurance_design.eventset import (
     TransformRecord,
 )
 from parametric_insurance_design_climada import iris, tracks
+from parametric_insurance_design_climada.cat_in_circle import CatInCircleIndex
 from parametric_insurance_design_climada.config import (
+    CatInCircleIndexConfig,
     LocationsConfig,
     PipelineConfig,
     PipelineConfigError,
+    check_circle_radius,
 )
 from parametric_insurance_design_climada.hooks import (
     CentroidWindIndex,
@@ -96,6 +101,7 @@ __all__ = [
     "SkippedStorm",
     "build_eventset",
     "make_impact_function",
+    "make_index_builder",
     "read_locations",
 ]
 
@@ -241,6 +247,28 @@ def make_impact_function(config: PipelineConfig) -> ImpfTropCyclone:
         v_half=impf.v_half,
         scale=impf.scale,
     )
+
+
+def make_index_builder(config: PipelineConfig) -> IndexBuilder:
+    """Build the index builder the config's ``index`` section selects.
+
+    Parameters
+    ----------
+    config : PipelineConfig
+        The pipeline config.
+
+    Returns
+    -------
+    IndexBuilder
+        :class:`~parametric_insurance_design_climada.hooks.CentroidWindIndex`
+        for ``kind: centroid_wind`` (the default),
+        :class:`~parametric_insurance_design_climada.cat_in_circle.CatInCircleIndex`
+        for ``kind: cat_in_circle``.
+    """
+    index = config.index
+    if isinstance(index, CatInCircleIndexConfig):
+        return index.builder()
+    return CentroidWindIndex()
 
 
 def _hazard_release(
@@ -462,7 +490,10 @@ def build_eventset(
         The pipeline config (paths absolute or relative to the working
         directory).
     index_builder : IndexBuilder, optional
-        Builds the index matrix. Default :class:`CentroidWindIndex`.
+        Builds the index matrix. Default: the one ``config.index`` selects
+        (:func:`make_index_builder`; :class:`CentroidWindIndex` unless the
+        config says otherwise). A builder passed here replaces the config's;
+        the build record holds the parameters of the one used.
     vulnerability : VulnerabilityDraws, optional
         Builds the loss draws. Default :class:`NoDraws`.
     rng : numpy.random.Generator, optional
@@ -478,8 +509,9 @@ def build_eventset(
     Raises
     ------
     PipelineConfigError
-        If the locations are invalid, or the catalogue is not the pinned IRIS
-        file and ``hazard_release`` is not set.
+        If the locations are invalid, the catalogue is not the pinned IRIS
+        file and ``hazard_release`` is not set, or a cat-in-a-circle radius
+        exceeds half of ``proximity_km``.
     PipelineError
         If a catalogue year lies outside ``[0, n_years)``, no storm can be
         modelled, or a hook returns a malformed matrix.
@@ -487,7 +519,14 @@ def build_eventset(
         If the catalogue is malformed.
     """
     start = time.perf_counter()
-    index_builder = index_builder if index_builder is not None else CentroidWindIndex()
+    index_builder = (
+        index_builder if index_builder is not None else make_index_builder(config)
+    )
+    if isinstance(index_builder, CatInCircleIndex):
+        try:
+            check_circle_radius(index_builder.radius_km, config.proximity_km)
+        except ValueError as exc:
+            raise PipelineConfigError(str(exc)) from exc
     vulnerability = vulnerability if vulnerability is not None else NoDraws()
     n_draws = int(vulnerability.n_draws)
     if n_draws < 1:
