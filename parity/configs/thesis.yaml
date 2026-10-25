@@ -1,0 +1,151 @@
+# Thesis experiment configuration (MAR-63). GENERATED, do not edit:
+#   uv run python parity/scripts/migrate_thesis_config.py \
+#       --thesis-repo ../parametric-insurance-framework --overwrite
+#
+# Source: parametric-insurance-framework, read-only:
+#   configs/experiment_config.yaml  sha256:b4eafabbc1926c208a36aa00a4d7e069681eebce05f5ed7178776259df829f2d
+#   configs/global_settings.yaml  sha256:152372f75df80ebbbb7265e161b9ee256a46362b19d34cd95eb5c37dd2721e4f
+#   configs/optimization_config.yaml  sha256:80e9ae06f7ee277cd0a1fffa07e6b780e27b5600ca5528924b734854808751d0
+#   configs/sweeps.yaml  sha256:91def688cffb8fe4ca7af9113d16f8ef7780a6d3f9bccdbd9bd6fa0a5e0085ee
+#
+# Thesis key -> config field:
+#   experiment_config.NOISE_LAYER.noise_value -> noise.level
+#   experiment_config.NOISE_LAYER.noise_type -> noise.kind
+#   experiment_config.NOISE_LAYER.reshuffel -> noise.n_copies
+#   experiment_config.EXPERIMENT_INPUTS.alpha -> objectives[weighted_cvar].alpha
+#   experiment_config.EXPERIMENT_INPUTS.beta -> objectives[weighted_cvar].beta
+#   experiment_config.EXPERIMENT_INPUTS.budget_loading -> constraints[budget].loading
+#   experiment_config.EXPERIMENT_INPUTS.n_clusters -> scopes[cluster].n_clusters
+#   experiment_config.EXPERIMENT_INPUTS.n_bins -> payout.n_bins
+#   global_settings.RANDOM_SEED -> noise.seed
+#   global_settings.RANDOM_SEED -> sweeps[n_assets].seed
+#   global_settings.ATTACHEMENT -> payout.attachment
+#   global_settings.ATTACHEMENT -> noise.bounds[0]
+#   global_settings.ATTACHEMENT -> threshold.value
+#   global_settings.LIMIT -> payout.limit
+#   global_settings.LIMIT -> noise.bounds[1]
+#   global_settings.TAIL_QUANTILE_LEVEL -> scopes[cluster].strategy.beta_tail
+#   global_settings.BENCHMARK_BETA -> evaluation.beta
+#   sweeps.VANILLA_SWEEPS.alpha -> sweeps[alpha].values
+#   sweeps.VANILLA_SWEEPS.beta -> sweeps[beta].values
+#   sweeps.VANILLA_SWEEPS.budget_loading -> sweeps[budget_loading].values
+#   sweeps.VANILLA_SWEEPS.n_clusters -> sweeps[n_clusters].values
+#   sweeps.VANILLA_SWEEPS.n_bins -> sweeps[n_bins].values
+#   sweeps.VANILLA_SWEEPS.n_assets -> sweeps[n_assets].values
+#   sweeps.VANILLA_SWEEPS.noise_value -> sweeps[noise_level].values
+#   global_settings.ATTACHMENT is read as ATTACHEMENT (typo).
+#   experiment_config.ASSETS -> portfolio.location_ids (the asset keys, in order)
+#   optimization_config.OPTIMIZATION_OBJECTIVES -> objectives (one per key, kind from OBJECTIVE_KINDS)
+#   optimization_config.OPTIMIZATION_SCOPES -> scopes (one per key, kind from SCOPE_KINDS)
+# Thesis key -> EventSet (parity/tests/data/thesis_eventset):
+#   experiment_config.ASSETS.*.name -> locations.name
+#   experiment_config.ASSETS.*.lat -> locations.lat
+#   experiment_config.ASSETS.*.lon -> locations.lon
+#   experiment_config.ASSETS.*.value -> locations.value
+#   experiment_config.ASSETS.*.impf_TC -> locations.impf_TC
+#   global_settings.N_YEARS -> metadata.n_years
+#   global_settings.DATA_PATH -> the EventSet itself (convert_thesis_eventset.py, MAR-9); config eventset.path and eventset.checksum
+# Dropped thesis keys:
+#   experiment_config.EXPERIMENT_INPUTS.risk_loading: unused by the thesis code (SPEC §3.1 C8); loaded pricing is pricing.kind: cost_of_capital (MAR-27)
+#   global_settings.OPTIMIZATION_RESULT_DIR: replaced by output.directory: one result store for all tables (C4, C5)
+#   global_settings.BENCHMARKING_RESULT_DIR: replaced by output.directory: one result store for all tables (C4, C5)
+#   global_settings.VISUALIZATION_DIR: figures are the viz layer's output, which reads the result store (C6)
+#   global_settings.COLOR_PALETTE: plot styling, a viz concern (C6)
+#   global_settings.RESULT_DF_COLUMNS: the wide result CSV is replaced by the records tables (C5)
+#   sweeps.VANILLA_SWEEPS.transaction_costs: no runs: the thesis applies these costs after the fact in plot_cluster_net_advantage, a figure (viz) input
+# Fixed in the thesis code, not in its YAML files:
+#   schema_version: 1
+#   name: thesis
+#   eventset.path: ../tests/data/thesis_eventset (the MAR-9 fixture of DATA_PATH)
+#   eventset.checksum: content_hash() of that fixture
+#   threshold.column: index: delete_events_below_threshold on Sub_Portfolio_Max_Wind
+#   basis: event_conditional: probabilities rescaled after the filter (SPEC §6.2)
+#   sample: full: calibration and KPIs on the same rows (in-sample)
+#   pricing: pure: budget on the expected payout
+#   scopes[cluster].strategy: thesis_ward, linkage ward (notebook clustering)
+#   sweeps[n_assets].max_combinations: 25: max_combos_per_n of the notebook's n_assets sensitivity cell
+#   output.directory: ../../results/thesis (relative to parity/configs)
+# Relative paths are relative to this file's directory.
+schema_version: 1
+name: thesis
+description: The thesis experiment (parametric-insurance-framework, configs/*.yaml and notebook
+  globals), migrated by parity/scripts/migrate_thesis_config.py for the parity runs (MAR-68).
+eventset:
+  path: ../tests/data/thesis_eventset
+  checksum: sha256:f247d02460690fec6efb80b7f4a7936671eddc6c9ccf6debe5e128276001877a
+portfolio:
+  location_ids: [A1, A2, A3, A4, A5, A6, A7, A8, A9]
+noise:
+  kind: heteroscedastic
+  level: 0.3
+  n_copies: 13
+  seed: 42
+  bounds: [20.0, 70.0]
+threshold:
+  value: 20.0
+  column: index
+basis: event_conditional
+sample:
+  kind: full
+payout:
+  kind: step
+  attachment: 20.0
+  limit: 70.0
+  n_bins: 15
+  breakpoints: null
+scopes:
+- kind: individual
+  index: null
+- kind: cluster
+  n_clusters: 3
+  strategy:
+    kind: thesis_ward
+    beta_tail: 0.9
+    linkage: ward
+  index: null
+- kind: portfolio
+  index: null
+objectives:
+- kind: mse
+- kind: expected_uncovered
+- kind: weighted_cvar
+  alpha: 0.9
+  beta: 0.95
+pricing:
+  kind: pure
+constraints:
+- kind: budget
+  loading: 1.0
+evaluation:
+  beta: 0.95
+sweeps:
+- parameter: alpha
+  values: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+  max_combinations: null
+  seed: null
+- parameter: beta
+  values: [0.9, 0.91, 0.92, 0.93, 0.94, 0.95, 0.96, 0.97, 0.98, 0.99]
+  max_combinations: null
+  seed: null
+- parameter: budget_loading
+  values: [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
+  max_combinations: null
+  seed: null
+- parameter: n_clusters
+  values: [1, 2, 3, 4, 5, 6, 7, 8, 9]
+  max_combinations: null
+  seed: null
+- parameter: n_bins
+  values: [5, 10, 15, 20, 25]
+  max_combinations: null
+  seed: null
+- parameter: n_assets
+  values: [1, 2, 3, 4, 5, 6, 7, 8, 9]
+  max_combinations: 25
+  seed: 42
+- parameter: noise_level
+  values: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+  max_combinations: null
+  seed: null
+output:
+  directory: ../../results/thesis
