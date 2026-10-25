@@ -1,0 +1,7 @@
+Approach,Method,Source,Asset_ID,Alpha,Beta,Budget_Loading,N_Bins,N_Clusters,Included_Assets,Payouts,Breakpoints
+individual_optimization,pure_uncovered_loss_minimization,single_run,A1,,,1,2,,[],[0.00000000e+00 1.00000000e+02],[20. 45. 70.]
+individual_optimization,pure_uncovered_loss_minimization,single_run,A2,,,1,2,,[],"[1.00000000e+01
+ 2.00000000e+02]",[20. 45. 70.]
+cluster_optimization,weighted_cvar_minimization,single_run,C1,0.5,0.9,1,2,1.0,"['A1', 'A2']",[  5. 300.],[20. 45. 70.]
+cluster_optimization,weighted_cvar_minimization,alpha_sweep,C1,0.5,0.9,1,2,1.0,"['A1', 'A2']",[  5. 300.],[20. 45. 70.]
+individual_optimization,pure_basis_risk_minimization,budget_loading_sweep,A1,,,0.5,2,,[],[ 0. 50.],[20. 45. 70.]
