@@ -135,7 +135,13 @@ def test_thesis_expansion_and_rates(eventset: EventSet, ported: dict) -> None:
     assert noisy.rates.sum() == pytest.approx(eventset.rates.sum(), rel=1e-12)
     np.testing.assert_array_equal(noisy.index, np.repeat(eventset.index, n, axis=0))
     assert noisy.metadata.filters == ()
-    assert "kind=heteroscedastic, level=0.3, n_copies=13" in noisy.metadata.scenario
+    # MAR-88: the noise parameters are a structured record, not scenario text.
+    assert noisy.metadata.scenario == eventset.metadata.scenario
+    (record,) = noisy.metadata.transforms
+    assert record.name == "noise"
+    assert record.n_filters_before == 0
+    assert record.parameters["kind"] == "heteroscedastic"
+    assert (record.parameters["level"], record.parameters["n_copies"]) == (0.3, 13)
 
 
 def test_other_seed_differs(eventset: EventSet, digests: dict) -> None:

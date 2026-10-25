@@ -8,6 +8,7 @@ a hash that depended on a library version would fail in one of them.
 from __future__ import annotations
 
 import dataclasses
+import json
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta, timezone
@@ -20,6 +21,7 @@ import pytest
 
 from parametric_insurance_design import records
 from parametric_insurance_design.eventset import (
+    METADATA_FILE,
     EventSet,
     EventSetMetadata,
     HazardSource,
@@ -28,6 +30,7 @@ from parametric_insurance_design.eventset import (
     Provenance,
     SchemaError,
     ThresholdFilterRecord,
+    TransformRecord,
 )
 
 # Golden hashes of canonical serialisation v1. Change them only together with
@@ -38,6 +41,10 @@ GOLDEN_SMALL_FILTERED = (
 )
 GOLDEN_PARITY_FIXTURE = (
     "sha256:f247d02460690fec6efb80b7f4a7936671eddc6c9ccf6debe5e128276001877a"
+)
+# MAR-88: the small EventSet with one transform record (_TRANSFORM below).
+GOLDEN_SMALL_TRANSFORMED = (
+    "sha256:31b2a85c3deae43ae8dc6c36026dcdece2f9f00f8271493d32b1aacee742796b"
 )
 
 PARITY_EVENTSET = (
@@ -158,10 +165,35 @@ def test_golden_hash_small_after_filter(es: EventSet) -> None:
     reason="parity fixture not present (core installed outside the repository)",
 )
 def test_golden_hash_parity_fixture(tmp_path: Path) -> None:
+    # The committed fixture predates MAR-88: its metadata.json has no
+    # "transforms" key. Re-writing it adds "transforms": [], and the hash of
+    # both is the MAR-82 golden value.
+    raw = json.loads((PARITY_EVENTSET / METADATA_FILE).read_text(encoding="utf-8"))
+    assert "transforms" not in raw
     es = EventSet.from_parquet(PARITY_EVENTSET)
+    assert es.metadata.transforms == ()
     assert es.content_hash() == GOLDEN_PARITY_FIXTURE
     back = EventSet.from_parquet(es.to_parquet(tmp_path / "es"))
+    written = json.loads((tmp_path / "es" / METADATA_FILE).read_text(encoding="utf-8"))
+    assert written["transforms"] == []
     assert back.content_hash() == GOLDEN_PARITY_FIXTURE
+
+
+def test_golden_hash_small_with_transforms(es: EventSet, tmp_path: Path) -> None:
+    transformed = rebuild(
+        es, metadata=dataclasses.replace(es.metadata, transforms=(_TRANSFORM,))
+    )
+    assert transformed.content_hash() == GOLDEN_SMALL_TRANSFORMED
+    back = EventSet.from_parquet(transformed.to_parquet(tmp_path / "es"))
+    assert back.content_hash() == GOLDEN_SMALL_TRANSFORMED
+
+
+def test_empty_transforms_hash_as_before_mar88(es: EventSet) -> None:
+    # An empty "transforms" is left out of the canonical metadata, so every
+    # EventSet without transforms keeps its MAR-82 hash.
+    assert es.metadata.transforms == ()
+    assert es.metadata.to_dict()["transforms"] == []
+    assert es.content_hash() == GOLDEN_SMALL
 
 
 # --------------------------------------------------------------------------
@@ -360,6 +392,25 @@ _FILTER = ThresholdFilterRecord(
     max_loss_dropped=None,
 )
 
+_TRANSFORM = TransformRecord(
+    name="noise",
+    function="parametric_insurance_design.noise.add_noise",
+    version="0.1.0.dev0",
+    n_filters_before=0,
+    parameters={
+        "kind": "heteroscedastic",
+        "level": 0.3,
+        "n_copies": 2,
+        "bounds": [20.0, 70.0],
+        "location_ids": ["A1", "A2", "Zürich"],
+    },
+)
+
+
+def _transforms(*records: TransformRecord) -> Change:
+    return _metadata(transforms=records)
+
+
 METADATA_CHANGES: dict[str, Change] = {
     "hazard.name": _metadata(hazard=HazardSource(name="STORM", release="v1.0")),
     "hazard.release": _metadata(hazard=HazardSource(name="IRIS", release="v1.1")),
@@ -373,6 +424,7 @@ METADATA_CHANGES: dict[str, Change] = {
     "scenario": _metadata(scenario="ssp5-8.5"),
     "licence": _metadata(licence="CC0-1.0"),
     "filters": _metadata(filters=(_FILTER,)),
+    "transforms": _transforms(_TRANSFORM),
     "provenance.producer": _provenance(producer="other"),
     "provenance.producer_version": _provenance(producer_version="0.0.2"),
     "provenance.source_checksums value": _provenance(
@@ -413,6 +465,52 @@ def test_location_change_changes_hash(es: EventSet, change: Change) -> None:
 )
 def test_metadata_change_changes_hash(es: EventSet, change: Change) -> None:
     _assert_changes(es, change)
+
+
+TRANSFORM_CHANGES: dict[str, tuple[TransformRecord, ...]] = {
+    "name": (dataclasses.replace(_TRANSFORM, name="vulnerability_draws"),),
+    "function": (dataclasses.replace(_TRANSFORM, function="pkg.other"),),
+    "version": (dataclasses.replace(_TRANSFORM, version="0.1.0"),),
+    "parameter value": (
+        dataclasses.replace(
+            _TRANSFORM, parameters={**_TRANSFORM.parameters, "level": 0.31}
+        ),
+    ),
+    "parameter added": (
+        dataclasses.replace(
+            _TRANSFORM, parameters={**_TRANSFORM.parameters, "extra": None}
+        ),
+    ),
+    "location order": (
+        dataclasses.replace(
+            _TRANSFORM,
+            parameters={
+                **_TRANSFORM.parameters,
+                "location_ids": ["A2", "A1", "Zürich"],
+            },
+        ),
+    ),
+    "second record": (_TRANSFORM, _TRANSFORM),
+}
+
+
+@pytest.mark.parametrize(
+    "transforms", TRANSFORM_CHANGES.values(), ids=TRANSFORM_CHANGES.keys()
+)
+def test_transform_change_changes_hash(
+    es: EventSet, transforms: tuple[TransformRecord, ...]
+) -> None:
+    _assert_changes(_transforms(_TRANSFORM)(es), _transforms(*transforms))
+
+
+def test_transform_position_among_filters_changes_hash(es: EventSet) -> None:
+    filtered = es.filter_threshold(0.0)  # keeps every row, records one filter
+    before = dataclasses.replace(_TRANSFORM, n_filters_before=0)
+    after = dataclasses.replace(_TRANSFORM, n_filters_before=1)
+    assert (
+        _transforms(before)(filtered).content_hash()
+        != _transforms(after)(filtered).content_hash()
+    )
 
 
 def test_every_metadata_field_has_a_sensitivity_test() -> None:
