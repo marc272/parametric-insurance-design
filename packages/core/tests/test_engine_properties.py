@@ -37,17 +37,6 @@ import pandas as pd
 import pytest
 from numpy.typing import NDArray
 
-# hypothesis is locked in the uv workspace's test group, so this skip never
-# fires there. The CLIMADA pixi env (packages/climada) also runs the core
-# tests and has no hypothesis yet; the skip reason names that gap.
-pytest.importorskip(
-    "hypothesis",
-    reason=(
-        "hypothesis is not installed: the CLIMADA pixi env lacks it "
-        "(MAR-15 follow-up: add it to packages/climada/pixi.toml)"
-    ),
-)
-
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 

@@ -13,8 +13,6 @@ from typing import Any
 
 import numpy as np
 import pytest
-import scipy
-from numpy.lib import NumpyVersion
 
 from parametric_insurance_design import splits
 from parametric_insurance_design.errors import ConfigError, InfeasibleError
@@ -57,15 +55,6 @@ PARITY_CONFIG = REPO_ROOT / "parity" / "configs" / "thesis.yaml"
 needs_fixture = pytest.mark.skipif(
     not (PARITY_EVENTSET.is_dir() and PARITY_CONFIG.is_file()),
     reason="the parity fixture is only in a repository checkout",
-)
-
-# Same scipy issue as test_solve.py: scipy 1.15.0/1.15.1 overflow int32
-# indices on the weighted-CVaR LPs of the fixture (ValueError from cvxpy).
-SCIPY_COO_RESHAPE_OVERFLOW = pytest.mark.xfail(
-    NumpyVersion(scipy.__version__) < "1.15.2",
-    reason="scipy < 1.15.2 overflows int32 indices in COO reshape",
-    raises=ValueError,
-    strict=True,
 )
 
 
@@ -660,7 +649,6 @@ def test_package_versions_list_missing_packages_as_none(
 
 
 @needs_fixture
-@SCIPY_COO_RESHAPE_OVERFLOW
 def test_thesis_run_fills_the_store_and_hits_the_cache(tmp_path: Path) -> None:
     config = load_config(PARITY_CONFIG)
     store = ResultStore(tmp_path)

@@ -17,8 +17,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
-import scipy
-from numpy.lib import NumpyVersion
 
 from parametric_insurance_design.errors import ConfigError
 from parametric_insurance_design.eventset import EventSet
@@ -60,15 +58,6 @@ GOLDEN_RESULTS = REPO_ROOT / "parity" / "golden" / "full_optimization_results.cs
 needs_fixture = pytest.mark.skipif(
     not (PARITY_EVENTSET.is_dir() and PARITY_CONFIG.is_file()),
     reason="the parity fixture is only in a repository checkout",
-)
-
-# As in test_runner.py: scipy 1.15.0/1.15.1 overflow int32 indices on the
-# weighted-CVaR LPs of the fixture.
-SCIPY_COO_RESHAPE_OVERFLOW = pytest.mark.xfail(
-    NumpyVersion(scipy.__version__) < "1.15.2",
-    reason="scipy < 1.15.2 overflows int32 indices in COO reshape",
-    raises=ValueError,
-    strict=True,
 )
 
 
@@ -633,7 +622,6 @@ def test_thesis_n_assets_points_follow_the_thesis_subsets(
 
 
 @needs_fixture
-@SCIPY_COO_RESHAPE_OVERFLOW
 @pytest.mark.filterwarnings("ignore:Solution may be inaccurate")
 def test_reduced_thesis_grid_runs(tmp_path: Path) -> None:
     # Every kind of sweep on the parity fixture, two scopes, a few values.

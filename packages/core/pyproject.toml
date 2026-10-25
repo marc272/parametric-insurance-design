@@ -14,7 +14,7 @@ dependencies = [
     "pyarrow>=15",
     "pydantic>=2.7",
     "pyyaml>=6.0.1",
-    "scipy>=1.15",
+    "scipy>=1.15.2",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
