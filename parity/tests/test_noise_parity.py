@@ -29,7 +29,7 @@ import pandas as pd
 import pytest
 
 from parametric_insurance_design.eventset import EventSet
-from parametric_insurance_design.noise import add_noise
+from parametric_insurance_design.noise import NoiseKind, add_noise
 
 PARITY_DIR = Path(__file__).resolve().parents[1]
 SCRIPT = PARITY_DIR / "scripts" / "thesis_noise_digests.py"
@@ -58,7 +58,7 @@ def digests() -> dict:
     return json.loads(nd.DIGESTS.read_text(encoding="utf-8"))
 
 
-def _port(eventset: EventSet, kind: str, seed: int = nd.SEED) -> EventSet:
+def _port(eventset: EventSet, kind: NoiseKind, seed: int = nd.SEED) -> EventSet:
     return add_noise(
         eventset,
         level=nd.LEVEL,
