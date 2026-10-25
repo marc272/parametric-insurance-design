@@ -172,7 +172,12 @@ for sname, (sthesis, scope) in SCOPES.items():
         for _ in range(REPEATS):
             start = time.perf_counter()
             built = build_problems(
-                eventset, scope, PAYOUT, objective, PurePremium(), (Budget(1.0),),
+                eventset,
+                scope,
+                PAYOUT,
+                objective,
+                PurePremium(),
+                (Budget(1.0),),
                 basis=Basis.EVENT_CONDITIONAL,
             )
             builds.append(time.perf_counter() - start)
@@ -183,12 +188,14 @@ for sname, (sthesis, scope) in SCOPES.items():
         ours = theirs = 0.0
         for b, r in zip(built, results, strict=True):
             prob = b.context.problem
-            theta = np.vstack([
-                np.fromstring(
-                    rows[rows.Asset_ID == e].Payouts.iloc[0].strip("[]"), sep=" "
-                )
-                for e in r.entity_ids
-            ])
+            theta = np.vstack(
+                [
+                    np.fromstring(
+                        rows[rows.Asset_ID == e].Payouts.iloc[0].strip("[]"), sep=" "
+                    )
+                    for e in r.entity_ids
+                ]
+            )
             ours += r.objective_value
             paid = PAYOUT.evaluate(prob.index, theta).sum(axis=1)
             theirs += numpy_objective(oname, prob.loss, paid)
