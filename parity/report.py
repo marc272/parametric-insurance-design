@@ -2,19 +2,26 @@ r"""Parity report generator: writes ``parity/REPORT.md`` (MAR-67, SPEC §7 F-06)
 
 The report renders a :class:`harness.ParityResult`:
 
-1. **Setup**: the store, the golden files and their SHA256, the
-   tolerances and the matching settings, so every number has its setup.
+1. **Setup**: the store, the golden files and their SHA256 (as read and,
+   for gzipped files, decompressed, checked against ``parity/manifest.json``),
+   the tolerances and the matching settings, so every number has its setup.
 2. **Overview**: one row per comparison (KPI values, objective values,
    payout vectors, cluster assignments) with golden, compared, matching and
    mismatching counts.
 3. **Summary by comparison group**: one row per golden ``Source`` x
    ``Approach`` x ``Method``.
-4. **Findings**: every gap the harness found, with a stable id and an
+4. **Matched runs**: the store run of every golden record, with its
+   ``config_hash`` (MAR-68).
+5. **Objective values** (only with a golden objective table): every golden
+   objective, how it was obtained, ours and the relative error (MAR-68).
+6. **Findings**: every gap the harness found, with a stable id and an
    explanation column. The parity gate (MAR-18) needs every gap explained.
-5. **Payout differences** (informational): the largest payout-level
+7. **Payout differences** (informational): the largest payout-level
    differences. They are reported, not asserted, because LP optima can be
    non-unique.
-6. **Store runs without a golden record** (informational).
+8. **Store runs without a golden record** (informational).
+9. Appendices (optional): Markdown files appended verbatim (``--appendix``),
+   e.g. an analysis that explains findings (MAR-68).
 
 Explanations
     The report is generated, so explanations live in a separate YAML file
@@ -27,9 +34,11 @@ Explanations
 Command line, from the repository root::
 
     uv run python parity/report.py --store results/thesis \
+        --objectives parity/golden/golden_objectives.csv \
         --explanations parity/explanations.yaml --out parity/REPORT.md
 
 ``--check`` exits with status 1 if a finding has no explanation.
+``parity/README.md`` gives the command that writes the committed report.
 """
 
 from __future__ import annotations
@@ -49,11 +58,13 @@ import yaml
 from harness import (
     GOLDEN_DIR,
     KPIS_FILE,
+    MANIFEST,
     RESULTS_FILE,
     Finding,
     FindingKind,
     HarnessError,
     ParityResult,
+    check_manifest,
     compare,
     load_golden,
 )
@@ -372,7 +383,31 @@ def summary_by_group(
 # --------------------------------------------------------------------------
 
 
-def _setup(result: ParityResult) -> str:
+def _content_lines(result: ParityResult, manifest: str | Path | None) -> list[str]:
+    """Return setup lines: decompressed-content SHA256 and the manifest check."""
+    content = dict(result.golden_content)
+    if not content:
+        return []
+    checks = {} if manifest is None else check_manifest(content, manifest)
+    where = "" if manifest is None else Path(manifest).name
+    lines = ["- Golden content (SHA256 of the decompressed CSV):"]
+    for name, digest in content.items():
+        status = checks.get(name)
+        if status is None:
+            suffix = ""
+        elif status == "not in the manifest":
+            suffix = f" (not in `{where}`)"
+        else:
+            suffix = f" ({status} `{where}`)"
+        lines.append(f"  - `{name}`: `{digest}`{suffix}")
+    return lines
+
+
+def _setup(
+    result: ParityResult,
+    manifest: str | Path | None = None,
+    setup_notes: Sequence[str] = (),
+) -> str:
     tol = result.tolerances
     fixed = result.fixed_parameters
     sources = result.sources
@@ -401,6 +436,7 @@ def _setup(result: ParityResult) -> str:
         "by a golden record.",
         "- Golden files (SHA256 of the files as read):",
         *(f"  - `{name}`: `{digest}`" for name, digest in result.golden_files.items()),
+        *_content_lines(result, manifest),
         "- Golden records compared: "
         + ("all sources." if sources is None else ", ".join(sources) + "."),
         matching,
@@ -418,6 +454,7 @@ def _setup(result: ParityResult) -> str:
         "reported, not asserted (LP optima can be non-unique). Bin edges must "
         f"agree within {tol.edge_atol:g}.",
         "- Cluster assignments: the map from cluster id to members must be equal.",
+        *(f"- {note.strip()}" for note in setup_notes if note.strip()),
     ]
     return "\n".join(lines)
 
@@ -518,6 +555,97 @@ def _summary_md(result: ParityResult, explanations: Mapping[str, str]) -> str:
             _table(header, rows),
         ]
     )
+
+
+def _matched_runs_md(result: ParityResult) -> str:
+    lines = [
+        "## Matched runs",
+        "",
+        "The store run each golden record was compared with. A run's "
+        "`config_hash` identifies its configuration (MAR-64); its `run_id` "
+        "adds the input checksum, package version and solver policy.",
+        "",
+    ]
+    rows = _rows(result.matched_runs)
+    if not rows:
+        lines.append("No golden records were compared.")
+        return "\n".join(lines)
+    table = [
+        (
+            f"{r['approach']} / {r['method']} / {r['source']}",
+            r["parameters"],
+            f"`{r['config_hash']}`" if r["config_hash"] else "",
+            f"`{str(r['run_id'])[:19]}…`" if r["run_id"] else "",
+            r["run_source"],
+            f"{int(r['problems']) - int(r['failed'])} / {int(r['problems'])}",
+            "" if int(r["candidates"]) == 1 else f"{int(r['candidates'])} runs match",
+        )
+        for r in rows
+    ]
+    header = (
+        "Record",
+        "Parameters",
+        "config_hash",
+        "run_id",
+        "Run source",
+        "Problems solved",
+        "Note",
+    )
+    lines.append(_table(header, table))
+    return "\n".join(lines)
+
+
+def _objectives_md(result: ParityResult) -> str:
+    lines = ["## Objective values", ""]
+    if not result.objectives_available:
+        lines.append("No golden objective table was given; nothing compared.")
+        return "\n".join(lines)
+    rows = _rows(result.objectives)
+    lines += [
+        "One row per golden design problem. *Derivation*: how the golden value "
+        "was obtained (`a_golden_kpis`: from the golden KPI row named in "
+        "*KPI source*; `b_thesis_code`: recomputed with the thesis code); "
+        "see `golden/golden_objectives.json`. Ours is `runs.objective_value` "
+        "in loss units.",
+        "",
+    ]
+    if not rows:
+        lines.append("No golden objective values for the records compared.")
+        return "\n".join(lines)
+    table = [
+        (
+            f"{r['approach']} / {r['method']} / {r['source']}",
+            r["parameters"],
+            r["problem_id"],
+            r["derivation"],
+            r["kpi_source"],
+            _num(r["golden"]),
+            _num(r["ours"]),
+            _sci(r["rel_error"]),
+            r["status"],
+        )
+        for r in rows
+    ]
+    header = (
+        "Record",
+        "Parameters",
+        "Problem",
+        "Derivation",
+        "KPI source",
+        "Golden",
+        "Ours",
+        "Rel. error",
+        "Status",
+    )
+    lines.append(_table(header, table))
+    return "\n".join(lines)
+
+
+def _num(value: object) -> str:
+    """Return a value with 10 significant digits; empty if undefined."""
+    if not isinstance(value, int | float) or math.isnan(value):
+        return ""
+    return f"{value:.10g}"
 
 
 def _findings_md(result: ParityResult, explanations: Mapping[str, str]) -> str:
@@ -625,6 +753,9 @@ def render(
     explanations: Mapping[str, str] | None = None,
     title: str = "Parity report",
     notes: str | None = None,
+    appendices: Sequence[str] = (),
+    manifest: str | Path | None = MANIFEST,
+    setup_notes: Sequence[str] = (),
 ) -> str:
     """Render the parity report as Markdown.
 
@@ -638,6 +769,13 @@ def render(
         The top heading.
     notes : str, optional
         Free text placed under the title (e.g. how the store was produced).
+    appendices : sequence of str, optional
+        Markdown texts appended at the end, in order (e.g. an analysis that
+        the explanations cite).
+    manifest : str or pathlib.Path or None, default ``parity/manifest.json``
+        Manifest to check the golden content SHA256 against; None to skip.
+    setup_notes : sequence of str, optional
+        Extra bullet points for the setup section (e.g. the solver policy).
 
     Returns
     -------
@@ -659,12 +797,15 @@ def render(
     if notes:
         parts += ["", notes.strip()]
     for section in (
-        _setup(result),
+        _setup(result, manifest, setup_notes),
         _overview_md(result, explanations),
         _summary_md(result, explanations),
+        _matched_runs_md(result),
+        _objectives_md(result),
         _findings_md(result, explanations),
         _payouts_md(result),
         _unmatched_md(result),
+        *(a.strip() for a in appendices if a.strip()),
     ):
         parts += ["", section]
     return "\n".join(parts) + "\n"
@@ -677,6 +818,9 @@ def write_report(
     explanations: Mapping[str, str] | None = None,
     title: str = "Parity report",
     notes: str | None = None,
+    appendices: Sequence[str] = (),
+    manifest: str | Path | None = MANIFEST,
+    setup_notes: Sequence[str] = (),
 ) -> Path:
     """Render the report and write it to ``path``.
 
@@ -692,6 +836,12 @@ def write_report(
         As for :func:`render`.
     notes : str, optional
         As for :func:`render`.
+    appendices : sequence of str, optional
+        As for :func:`render`.
+    manifest : str or pathlib.Path or None, default ``parity/manifest.json``
+        As for :func:`render`.
+    setup_notes : sequence of str, optional
+        As for :func:`render`.
 
     Returns
     -------
@@ -700,7 +850,15 @@ def write_report(
     """
     out = Path(path)
     out.write_text(
-        render(result, explanations=explanations, title=title, notes=notes),
+        render(
+            result,
+            explanations=explanations,
+            title=title,
+            notes=notes,
+            appendices=appendices,
+            manifest=manifest,
+            setup_notes=setup_notes,
+        ),
         encoding="utf-8",
     )
     return out
@@ -723,6 +881,14 @@ def _fixed(items: Sequence[str]) -> dict[str, object]:
         except json.JSONDecodeError:
             fixed[name] = raw
     return fixed
+
+
+def _read_text(parser: argparse.ArgumentParser, path: str) -> str:
+    """Read a text file given on the command line, or exit with an error."""
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except OSError as exc:
+        parser.error(f"cannot read {path}: {exc}")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -775,6 +941,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--notes", help="text placed under the report title")
     parser.add_argument(
+        "--notes-file", help="file whose text is placed under the report title"
+    )
+    parser.add_argument(
+        "--appendix",
+        action="append",
+        default=[],
+        metavar="FILE",
+        help="Markdown file appended to the report (repeatable)",
+    )
+    parser.add_argument(
+        "--setup-note",
+        action="append",
+        default=[],
+        metavar="TEXT",
+        help="extra bullet point for the setup section (repeatable)",
+    )
+    parser.add_argument(
+        "--manifest",
+        default=str(MANIFEST),
+        help="manifest to check the golden content SHA256 against",
+    )
+    parser.add_argument(
         "--check",
         action="store_true",
         help="exit with status 1 if a finding has no explanation",
@@ -788,6 +976,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         fixed = _fixed(args.fixed)
     except ValueError as exc:
         parser.error(str(exc))
+    notes = args.notes
+    if args.notes_file:
+        notes = "\n\n".join(
+            x for x in (notes, _read_text(parser, args.notes_file)) if x
+        )
+    appendices = [_read_text(parser, path) for path in args.appendix]
     golden = load_golden(args.results, args.kpis, args.objectives)
     explanations = load_explanations(args.explanations) if args.explanations else {}
     result = compare(
@@ -797,7 +991,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         strict_source=args.strict_source,
         sources=args.sources,
     )
-    out = write_report(result, args.out, explanations=explanations, notes=args.notes)
+    out = write_report(
+        result,
+        args.out,
+        explanations=explanations,
+        notes=notes,
+        appendices=appendices,
+        manifest=args.manifest,
+        setup_notes=args.setup_note,
+    )
     unexplained = [
         f for f in result.findings if explanation_for(f, explanations) is None
     ]
