@@ -742,9 +742,7 @@ def read_sweep_manifests(store: ResultStore) -> tuple[dict[str, Any], ...]:
     if not directory.is_dir():
         return ()
     manifests = []
-    for path in sorted(directory.glob("*.json")):
-        if path.name.startswith("."):
-            continue
+    for path in sorted(directory.glob("*.json")):  # leftovers end in .tmp
         try:
             manifest = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
