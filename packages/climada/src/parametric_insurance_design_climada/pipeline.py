@@ -16,7 +16,9 @@ Port of the thesis ``src/CLIMADA/engine.py``. :func:`build_eventset` runs:
    another, e.g. cat-in-a-circle, see :func:`make_index_builder`) and the
    loss draws with a
    :class:`~parametric_insurance_design_climada.hooks.VulnerabilityDraws`
-   (default: none, ``draw_id`` 0);
+   (default: none, ``draw_id`` 0; the config's ``vulnerability`` section
+   selects Emanuel ``v_half`` draws, MAR-25, see
+   :func:`make_vulnerability_draws`);
 5. assemble the EventSet (schema v1): ``index`` from the builder, ``loss`` = impact,
    ``rate`` = ``1 / n_years`` (divided by the number of draws), ``year`` from
    IRIS.
@@ -79,6 +81,7 @@ from parametric_insurance_design_climada import iris, tracks
 from parametric_insurance_design_climada.cat_in_circle import CatInCircleIndex
 from parametric_insurance_design_climada.config import (
     CatInCircleIndexConfig,
+    EmanuelVHalfDrawsConfig,
     LocationsConfig,
     PipelineConfig,
     PipelineConfigError,
@@ -102,6 +105,7 @@ __all__ = [
     "build_eventset",
     "make_impact_function",
     "make_index_builder",
+    "make_vulnerability_draws",
     "read_locations",
 ]
 
@@ -269,6 +273,39 @@ def make_index_builder(config: PipelineConfig) -> IndexBuilder:
     if isinstance(index, CatInCircleIndexConfig):
         return index.builder()
     return CentroidWindIndex()
+
+
+def make_vulnerability_draws(
+    config: PipelineConfig, *, record_seed: bool = True
+) -> VulnerabilityDraws:
+    """Build the vulnerability draws the config's ``vulnerability`` section selects.
+
+    Parameters
+    ----------
+    config : PipelineConfig
+        The pipeline config.
+    record_seed : bool, optional
+        Record ``vulnerability.seed`` in the draws' transform record (default).
+        False when the caller passes its own generator.
+
+    Returns
+    -------
+    VulnerabilityDraws
+        :class:`~parametric_insurance_design_climada.hooks.NoDraws` for
+        ``kind: none`` (the default),
+        :class:`~parametric_insurance_design_climada.vulnerability.EmanuelVHalfDraws`
+        for ``kind: emanuel_v_half``.
+
+    Raises
+    ------
+    VulnerabilityError
+        If the prior cannot be loaded (e.g. CLIMADA's calibration file has
+        another checksum).
+    """
+    draws = config.vulnerability
+    if isinstance(draws, EmanuelVHalfDrawsConfig):
+        return draws.draws(config.impact_function, record_seed=record_seed)
+    return NoDraws()
 
 
 def _hazard_release(
@@ -449,13 +486,16 @@ def _scenario_text(
     n_zero: int,
     n_skipped: int,
     n_draws: int,
+    has_draws: bool,
 ) -> str:
     impf = config.impact_function
-    draws = (
-        "No noise or vulnerability draws (draw_id 0)."
-        if n_draws == 1
-        else f"{n_draws} vulnerability draws per storm (draw_id 0-{n_draws - 1})."
-    )
+    if has_draws:
+        draws = (
+            f"{n_draws} vulnerability draws per storm (draw_id 0-{n_draws - 1}) "
+            "replace these losses; the last metadata transform describes them."
+        )
+    else:
+        draws = "No noise or vulnerability draws (draw_id 0)."
     skipped = (
         f" {n_skipped} storm(s) within the radius have fewer than two track "
         "points and no row (zero-loss mass)."
@@ -495,9 +535,15 @@ def build_eventset(
         config says otherwise). A builder passed here replaces the config's;
         the build record holds the parameters of the one used.
     vulnerability : VulnerabilityDraws, optional
-        Builds the loss draws. Default :class:`NoDraws`.
+        Builds the loss draws. Default: the one ``config.vulnerability``
+        selects (:func:`make_vulnerability_draws`; :class:`NoDraws` unless the
+        config says otherwise). A hook passed here replaces the config's.
     rng : numpy.random.Generator, optional
-        Passed to ``vulnerability``; unused by the defaults.
+        Passed to ``vulnerability``; unused by :class:`NoDraws`. If None and
+        the config selects draws, the pipeline creates
+        ``numpy.random.default_rng(config.vulnerability.seed)``. A generator
+        passed here replaces the config's seed, and the draws record then
+        holds ``seed: null``.
     created_at : datetime.datetime, optional
         Provenance timestamp (timezone-aware). Default: now (UTC).
 
@@ -517,6 +563,9 @@ def build_eventset(
         modelled, or a hook returns a malformed matrix.
     CatalogueFormatError
         If the catalogue is malformed.
+    VulnerabilityError
+        If the configured prior cannot be loaded, or a draws hook gets no
+        generator.
     """
     start = time.perf_counter()
     index_builder = (
@@ -527,7 +576,11 @@ def build_eventset(
             check_circle_radius(index_builder.radius_km, config.proximity_km)
         except ValueError as exc:
             raise PipelineConfigError(str(exc)) from exc
-    vulnerability = vulnerability if vulnerability is not None else NoDraws()
+    if vulnerability is None:
+        vulnerability = make_vulnerability_draws(config, record_seed=rng is None)
+        draws_config = config.vulnerability
+        if rng is None and isinstance(draws_config, EmanuelVHalfDrawsConfig):
+            rng = np.random.default_rng(draws_config.seed)
     n_draws = int(vulnerability.n_draws)
     if n_draws < 1:
         raise PipelineError(f"n_draws must be >= 1, got {n_draws}")
@@ -695,6 +748,7 @@ def build_eventset(
             n_zero=n_zero,
             n_skipped=len(skipped),
             n_draws=n_draws,
+            has_draws=not isinstance(vulnerability, NoDraws),
         ),
         provenance=Provenance(
             producer=PRODUCER,

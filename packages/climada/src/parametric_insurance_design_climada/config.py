@@ -15,6 +15,7 @@ on the working directory. Example: ``packages/climada/configs/thesis.yaml``.
     batch_size: 500
     impact_function: {kind: emanuel_usa, impf_id: 1}
     index: {kind: centroid_wind}   # or: {kind: cat_in_circle, radius_km: 50}
+    vulnerability: {kind: none}    # or: {kind: emanuel_v_half, seed: 20261025}
     output: ../../../data/eventsets/thesis-iris
 
 The defaults reproduce the thesis ``engine.py``, except where
@@ -42,15 +43,29 @@ from parametric_insurance_design_climada.cat_in_circle import (
     SAFFIR_SIMPSON_KN,
     CatInCircleIndex,
 )
+from parametric_insurance_design_climada.vulnerability import (
+    DEFAULT_N_DRAWS,
+    EBERENZ_SCALE,
+    EBERENZ_V_THRESH,
+    EberenzEdrPrior,
+    EmanuelVHalfDraws,
+    UniformPrior,
+)
 
 __all__ = [
     "CatInCircleIndexConfig",
     "CentroidWindIndexConfig",
+    "EberenzEdrPriorConfig",
+    "EmanuelVHalfDrawsConfig",
     "ImpactFunctionConfig",
     "IndexConfig",
     "LocationsConfig",
+    "NoVulnerabilityDrawsConfig",
     "PipelineConfig",
     "PipelineConfigError",
+    "UniformPriorConfig",
+    "VHalfPriorConfig",
+    "VulnerabilityConfig",
     "WindConfig",
     "check_circle_radius",
     "load_config",
@@ -229,6 +244,148 @@ IndexConfig = Annotated[
 ]
 
 
+class NoVulnerabilityDrawsConfig(_Model):
+    """No vulnerability draws: one row per storm, ``draw_id`` 0 (the default).
+
+    Selects :class:`~parametric_insurance_design_climada.hooks.NoDraws`.
+
+    Attributes
+    ----------
+    kind : {"none"}
+        The draws kind.
+    """
+
+    kind: Literal["none"] = "none"
+
+
+class EberenzEdrPriorConfig(_Model):
+    """Event-wise calibrated ``v_half`` of one region (Eberenz et al. 2021).
+
+    Selects :class:`.vulnerability.EberenzEdrPrior`, loaded from CLIMADA's
+    data. It requires ``impact_function.v_thresh`` 25.7 and ``scale`` 1, the
+    values the calibration held fixed.
+
+    Attributes
+    ----------
+    kind : {"eberenz2021_edr"}
+        The prior kind.
+    region : str
+        Calibration region; default ``NA2`` (USA and Canada).
+    """
+
+    kind: Literal["eberenz2021_edr"] = "eberenz2021_edr"
+    region: Literal["NA1", "NA2", "NI", "OC", "SI", "WP1", "WP2", "WP3", "WP4"] = (
+        "NA2"
+    )
+
+
+class UniformPriorConfig(_Model):
+    """``v_half`` uniform on ``[low, high]`` (sensitivity runs).
+
+    Selects :class:`.vulnerability.UniformPrior`.
+
+    Attributes
+    ----------
+    kind : {"uniform"}
+        The prior kind.
+    low, high : float
+        Bounds in m/s; ``low`` must exceed ``impact_function.v_thresh``.
+    source : str
+        Where the bounds come from (recorded).
+    """
+
+    kind: Literal["uniform"]
+    low: float = Field(gt=0, allow_inf_nan=False)
+    high: float = Field(gt=0, allow_inf_nan=False)
+    source: str = Field(default="user-specified", min_length=1)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> UniformPriorConfig:
+        if self.low >= self.high:
+            raise ValueError("low must be below high")
+        return self
+
+
+#: The ``prior`` of the ``emanuel_v_half`` draws, selected by ``kind``.
+VHalfPriorConfig = Annotated[
+    EberenzEdrPriorConfig | UniformPriorConfig, Field(discriminator="kind")
+]
+
+
+class EmanuelVHalfDrawsConfig(_Model):
+    """Vulnerability draws of the Emanuel ``v_half`` (MAR-25, SPEC §6.3).
+
+    Selects :class:`.vulnerability.EmanuelVHalfDraws`, with ``v_thresh`` and
+    ``scale`` from ``impact_function``.
+
+    Attributes
+    ----------
+    kind : {"emanuel_v_half"}
+        The draws kind.
+    n_draws : int
+        Draws per storm (``draw_id`` 0 to ``n_draws - 1``). Default
+        :data:`.vulnerability.DEFAULT_N_DRAWS`.
+    seed : int
+        Seed of the generator the pipeline creates for the draws. Required,
+        so that every build is reproducible from its config.
+    prior : EberenzEdrPriorConfig or UniformPriorConfig
+        Prior of ``v_half``; default: Eberenz et al. (2021), region ``NA2``.
+    """
+
+    kind: Literal["emanuel_v_half"]
+    n_draws: int = Field(default=DEFAULT_N_DRAWS, ge=1, strict=True)
+    seed: int = Field(ge=0, strict=True)
+    prior: VHalfPriorConfig = EberenzEdrPriorConfig()
+
+    def draws(
+        self, impact_function: ImpactFunctionConfig, *, record_seed: bool = True
+    ) -> EmanuelVHalfDraws:
+        """Return the configured hook.
+
+        Parameters
+        ----------
+        impact_function : ImpactFunctionConfig
+            The base impact function; supplies ``v_thresh`` and ``scale``.
+        record_seed : bool, optional
+            Record :attr:`seed` in the transform record (default). Pass False
+            when the caller supplies its own generator.
+
+        Returns
+        -------
+        EmanuelVHalfDraws
+            The hook.
+
+        Raises
+        ------
+        VulnerabilityError
+            If the prior cannot be loaded or does not fit the impact function.
+        """
+        prior_config = self.prior
+        prior = (
+            EberenzEdrPrior.from_climada(prior_config.region)
+            if isinstance(prior_config, EberenzEdrPriorConfig)
+            else UniformPrior(
+                low=prior_config.low,
+                high=prior_config.high,
+                source=prior_config.source,
+            )
+        )
+        return EmanuelVHalfDraws(
+            prior=prior,
+            n_draws=self.n_draws,
+            v_thresh=impact_function.v_thresh,
+            scale=impact_function.scale,
+            seed=self.seed if record_seed else None,
+        )
+
+
+#: The ``vulnerability`` section of a pipeline config, selected by ``kind``.
+VulnerabilityConfig = Annotated[
+    NoVulnerabilityDrawsConfig | EmanuelVHalfDrawsConfig,
+    Field(discriminator="kind"),
+]
+
+
 class PipelineConfig(_Model):
     """One EventSet build.
 
@@ -253,6 +410,9 @@ class PipelineConfig(_Model):
     index : CentroidWindIndexConfig or CatInCircleIndexConfig
         The index, selected by ``kind``. Default: the thesis index, wind at
         the asset (``centroid_wind``).
+    vulnerability : NoVulnerabilityDrawsConfig or EmanuelVHalfDrawsConfig
+        Loss draws, selected by ``kind``. Default: none (one row per storm,
+        ``draw_id`` 0).
     hazard_release : str or None
         Release text for the EventSet's ``hazard.release``. If None, the
         catalogue must be the pinned IRIS merged file (checked by SHA256),
@@ -276,6 +436,7 @@ class PipelineConfig(_Model):
     wind: WindConfig = WindConfig()
     impact_function: ImpactFunctionConfig = ImpactFunctionConfig()
     index: IndexConfig = CentroidWindIndexConfig()
+    vulnerability: VulnerabilityConfig = NoVulnerabilityDrawsConfig()
     hazard_release: str | None = Field(default=None, min_length=1)
     scenario_id: str = Field(default="iris-present-climate", min_length=1)
     scenario: str | None = Field(default=None, min_length=1)
@@ -287,6 +448,27 @@ class PipelineConfig(_Model):
         index = self.index
         if isinstance(index, CatInCircleIndexConfig):
             check_circle_radius(index.radius_km, self.proximity_km)
+        return self
+
+    @model_validator(mode="after")
+    def _draws_fit_impact_function(self) -> PipelineConfig:
+        draws = self.vulnerability
+        if not isinstance(draws, EmanuelVHalfDrawsConfig):
+            return self
+        impf = self.impact_function
+        prior = draws.prior
+        if isinstance(prior, UniformPriorConfig):
+            if prior.low <= impf.v_thresh:
+                raise ValueError(
+                    f"vulnerability.prior.low ({prior.low:g}) must exceed "
+                    f"impact_function.v_thresh ({impf.v_thresh:g})"
+                )
+        elif impf.v_thresh != EBERENZ_V_THRESH or impf.scale != EBERENZ_SCALE:
+            raise ValueError(
+                "the eberenz2021_edr prior was calibrated with v_thresh "
+                f"{EBERENZ_V_THRESH:g} m/s and scale {EBERENZ_SCALE:g}; set "
+                "impact_function.v_thresh and scale to these values"
+            )
         return self
 
 
