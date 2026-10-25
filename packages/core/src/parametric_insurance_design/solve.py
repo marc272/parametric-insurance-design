@@ -30,8 +30,10 @@ OSQP accuracy (MAR-98)
     The cost is more ADMM iterations: 8 to 13 times the MSE solve time on
     the parity fixture (``parity/BENCHMARK.md``). The MSE objective values
     there drop by up to ``9.1e-5`` relative, to the true optimum: the thesis
-    MSE values carry OSQP's default inaccuracy. To reproduce them, pass a
-    policy whose ``solver_options`` omit ``"OSQP"``.
+    MSE values carry OSQP's default inaccuracy. KPIs of the MSE payouts move
+    more, by up to about 2 % at portfolio level, because the objective is
+    flat at its optimum. To reproduce the thesis values, pass a policy whose
+    ``solver_options`` omit ``"OSQP"``.
 
 A problem is a QP when its objective is quadratic but not piecewise linear
 and cvxpy recognises the whole problem as a QP; every other problem goes to
