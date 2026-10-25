@@ -6,7 +6,11 @@ Owner: MAR-12. Port of the thesis feature-plus-Ward clustering
 value, tail share, tail beta, sigma_L and mu_W, z-scored, then hierarchical
 clustering with Ward linkage, cut into ``n_clusters`` clusters with scipy's
 ``fcluster(..., criterion="maxclust")``. Cluster labels are scipy's labels,
-as in the thesis. New clustering methods are parked (SPEC §9).
+as in the thesis (scipy 1.17). New clustering methods are parked (SPEC §9).
+
+scipy < 1.15 cuts most trees into too few clusters with ``maxclust`` (seen
+with 1.11 to 1.14), hence the core's ``scipy>=1.15`` floor. :meth:`assign
+<ThesisWardClustering.assign>` raises if the cut misses ``n_clusters``.
 
 The features (thesis definitions, ``p`` the row probabilities ``rate / sum
 rate`` of the calibration data, ``L_port`` the summed loss over all
@@ -250,6 +254,7 @@ class ThesisWardClustering:
             raise InputMismatchError(
                 f"{self.linkage} linkage yields {found} clusters, not {n_clusters}: "
                 "ties in the dendrogram (e.g. locations with identical features)"
+                " or scipy < 1.15, whose maxclust cut returns too few clusters"
             )
         return {loc: int(label) for loc, label in zip(ids, labels, strict=True)}
 
