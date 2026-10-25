@@ -1,0 +1,56 @@
+{
+  "description": "SHA256 of the noisy loss matrix that the thesis function add_noise_to_asset_losses (src/utils/data_processing.py) returns on the parity EventSet: rows in the thesis expansion order (event-major, noise_sample_id 0..n_copies-1), columns in location order, float64 little-endian bytes in C order. Written by parity/scripts/thesis_noise_digests.py; checked by parity/tests/test_noise_parity.py (MAR-10).",
+  "thesis_repo": "https://github.com/marc272/parametric-insurance-framework",
+  "thesis_commit": "ec9c782d8687af519acef7e81c07b727844ea9a2",
+  "thesis_module_sha256": "4f6ad310a1ad3e5a8f59c2e7ab703f859e9b64e598c133442c77bcb5bf42c58d",
+  "eventset": {
+    "path": "tests/data/thesis_eventset",
+    "files_sha256": {
+      "events.parquet": "bb90cbae344cd0f12cb50635911fef74ea530d341c866cd7e54a2dd7529fca57",
+      "values.parquet": "bca2cb4a4f0e0d8d40357766a39ce6430a0ac2b629e8151708bc75b439889177"
+    }
+  },
+  "parameters": {
+    "random_seed": 42,
+    "noise_level": 0.3,
+    "noise_reshuffel": 13,
+    "heteroscedastic_bounds": [
+      20.0,
+      70.0
+    ],
+    "asset_order": [
+      "A1",
+      "A2",
+      "A3",
+      "A4",
+      "A5",
+      "A6",
+      "A7",
+      "A8",
+      "A9"
+    ]
+  },
+  "generated_with": {
+    "python": "3.12.11",
+    "numpy": "2.5.4",
+    "pandas": "3.1.0",
+    "machine": "arm64",
+    "system": "Darwin"
+  },
+  "digests": {
+    "heteroscedastic": {
+      "loss_sha256": "4fa4d9b4bb30c698f3ba61b0be2b3f4a05108943db1762dc80c88281619985a4",
+      "shape": [
+        78741,
+        9
+      ]
+    },
+    "homoscedastic": {
+      "loss_sha256": "abaa3aa36c9298723301b8f3fcc9cf34e9ad51ec700cf4566c0e1d81eff7cc10",
+      "shape": [
+        78741,
+        9
+      ]
+    }
+  }
+}
