@@ -354,3 +354,83 @@ As in MAR-28, the absence of other hits is absence of evidence from a bounded se
 | `boonen2025monopoly` | arXiv API record and abstract page (v1 2025-12-01, q-fin.RM, no journal reference); Crossref title search found no published version | Full text v1: sections 1–4, 5.1.1 and 6 read; the rest of section 5 skimmed |
 
 **Limits.** The arXiv version is a preprint and may change. Only the top five Crossref rows were screened for a published version. Fan et al. (2023) is still compared through the thesis's account of its objective, since its full text is paywalled.
+
+## Addendum (MAR-99): `climada_petals.engine.cat_bonds` (petals 6.2.0) checked against claim A
+
+**Status: draft for owner review.** Prepared for [MAR-99](https://linear.app/marc-prinzing/issue/MAR-99/p-09-check-climada-petals-enginecat-bonds-petals-620-against-claim-a) on 2026-10-25, ahead of the CLIMADA proposal (MAR-47). Nothing above this heading was changed. Every summary is a paraphrase. These are observations, not conclusions; the owner decides. File and line references are to `climada_petals/engine/cat_bonds/` at tag `v6.2.0`.
+
+**Sources and access (2026-10-25).** All public and read without sign-in:
+- the `climada_petals` repository at tag `v6.2.0` (commit `6ecd7af0`, 2026-06-15), cloned read-only outside this repository. Read: every `engine/cat_bonds/*.py` file, the markdown cells of the tutorial `doc/tutorial/climada_engine_CATBonds.ipynb`, and `CHANGELOG.md`;
+- petals PR #186, through the GitHub REST API: opened 2025-11-03 by the module's author, merged 2026-06-01. All 20 conversation comments, 33 review comments and 14 reviews were scanned by keyword, and the matching ones were read;
+- petals Discussion #184 (opened 2025-09-29), from its HTML page: the opening post only, since the page showed no replies;
+- the Crossref record of the SSRN preprint that the tutorial names as the paper behind the module (doi:10.2139/ssrn.6030454), and the EGU25 abstract by the same group (doi:10.5194/egusphere-egu25-17829).
+
+Not read: the preprint's full text (SSRN returned HTTP 403 to automated access) and the master's thesis the module started from. Discussion #184 says the module is based on its author's master's thesis, but two web searches found no public copy.
+
+**Classification: related to claim A, not prior art for it.**
+
+**`climadapetals2026catbonds` and `bergmuller2026multicountry`: CLIMADA Petals 6.2.0, `engine.cat_bonds`, and Bergmüller, Juhel, Wattin Håkansson, Elsener, Bresch & Kropf (2026), SSRN preprint.**
+- *What it does:* designs and simulates parametric sovereign cat bonds.
+  - *Index and payout:* a country's exposed area is split into subareas, by a grid or a given GeoDataFrame. A subarea's index is the mean or a percentile of hazard intensity over its centroids (`subarea_calculations.py` L151–208). Each subarea gets a payout that rises linearly between a lower and an upper trigger. The payout is capped at the smaller of the subarea's largest modelled damage and the principal (L269–275, L493–521). The two triggers per subarea are the decision variables.
+  - *Bond terms:* attachment and exhaustion (the principal) are inputs, given as amounts, exposure shares or return periods (L93–149).
+  - *Simulation:* bond losses are simulated over multi-year terms, with monthly timing. VaR and ES at 95 % and 99 % of annual bond losses are reported (`sng_bond_simulation.py` L118–181, `utils_cat_bonds.py` L5–33).
+  - *Pricing:* a regression on expected loss (Chatoro et al.), a curve fitted to World Bank cat bonds, or a target Sharpe ratio (`premium_class.py` L49–230).
+  - *Pooling:* several countries can share one multi-country bond, and a genetic algorithm can form the pools (`pooling_functions.py`, `mlt_bond_simulation.py`).
+- *Q1. Objective and risk measure:*
+  - *Payout design:* per subarea, the sum over events of the squared difference between modelled subarea damage and payout (`subarea_calculations.py` L244–278; the sum of squares is at L276–277). The code calls this basis risk. It is symmetric and event-based. The payout design has no tail functional.
+  - *Bond metrics:* VaR and ES of annual bond losses are reported after the design.
+  - *Pooling:* the objective is a risk-concentration ratio, the members' summed marginal ES in the pool's tail over the sum of their standalone ES. It uses α = 1 − 1/(number of simulated years) (`pooling_functions.py` L53–57, L173–214). The tutorial attributes this method to Ciullo et al. (2023, `ciullo2023pooling`).
+- *Q2. Joint or independent:* independent. `_calibrate_payout_fcts` loops over subareas and runs one optimisation per subarea, each against that subarea's own damage column (L317–328).
+  - *Before the fit:* the only link to the aggregate is a filter. Events whose total damage over all subareas is below the attachment get zero damage (L308–309).
+  - *After the fit:* an event's subarea payouts are summed, capped at the principal, and set to zero below a minimum payout (L439–442).
+  - No term of the fitted objective depends on another subarea's payout or on the aggregate shortfall.
+- *Q3. Solver:* heuristic.
+  - *Payout design:* per subarea, SciPy `minimize` with COBYLA, a derivative-free local method, over the two triggers. The start is the 30th and 60th percentiles of hazard intensity, with up to 100,000 iterations. On failure, fallback thresholds (the median and maximum of the index) are used and a warning is logged (L37–57, L322–342). The objective is piecewise in the triggers and not convex in general.
+  - *Pooling:* a `pymoo` integer genetic algorithm (population 2,000), restarted `n_opt_rep` times (default 100), keeping the best result (`pooling_functions.py` L63–90). No random seed is passed.
+  - *Pricing:* the Sharpe-target premium comes from `scipy.optimize.minimize` on a squared Sharpe gap (`premium_class.py` L157–230).
+- *Q4. Budget or premium constraint:* none in the payout design.
+  - The principal caps the payout, but it is an input, not a decision variable.
+  - Premiums are computed after the design from the simulated losses and do not feed back into it.
+  - The only constraint inside an optimisation is in pooling: a maximum total principal per pool, entered as the constraint value `G` (`pooling_functions.py` L304–392; the constraint is at L385–392).
+  - A multi-country bond's required principal is the largest total payout of any simulated term (`mlt_bond_simulation.py` L527–554).
+- *Q5. Owners:*
+  - *Single-country bond:* one issuer (one sovereign) with several subareas. In our terms, one owner with several assets or clusters, each calibrated on its own. That is the shape of our individual scope, with a symmetric criterion.
+  - *Multi-country bond:* several owners. It reuses each country's calibrated payouts unchanged (`mlt_bond_simulation.py` L49–56). Payouts are capped per country by that country's principal, and overall by the pool's principal (L196–240). The total premium is split by each country's share of expected annual loss (L342, L426–428).
+  - *Pooling:* chooses which countries share a bond. It does not change payouts.
+- *What it does not do:*
+  - no tail functional and no one-sided shortfall in the payout design;
+  - no joint calibration of the subarea payouts against the issuer's aggregate damage or shortfall;
+  - no budget or premium constraint in the design;
+  - no LP or other exact convex program;
+  - no out-of-sample split: calibration and bond simulation use the same event set, and none was found in the module or the tutorial;
+  - no design under scenario uncertainty.
+
+**O14. `cat_bonds` is the closest software instance of one-owner, per-subarea payouts, but it calibrates them one subarea at a time.**
+- *Overlap with claim A:* one issuer, several spatial units, a distinct payout per unit, all in CLIMADA. On distinct payouts per asset it is closer to claim A than `steinmann2023framework`, which shares one product across all sites.
+- *Difference:*
+  - The subarea payouts are fitted independently, each on its own squared error, by COBYLA.
+  - The issuer's aggregate (the sum, capped at the principal) is applied after the fit and is not in the objective.
+  - In our terms, the design is the individual scope with a symmetric event-level criterion and a capped linear payout, solved heuristically.
+  - It does not cover claim A's joint, aggregate, tail, budgeted LP, or the cluster and portfolio scopes.
+- *Tail measures and pooling:* ES enters only the choice of pool members (Ciullo et al.'s concentration ratio) and the reported bond metrics, not the payout design. The pools span several sovereign owners and share premiums by expected-loss share. That matches the existing note in `positioning.md` that pools involve several owners and need a risk-sharing rule.
+- *Terms to keep apart in the manuscript:* in `cat_bonds`, "basis risk" means event-level squared error, and "pooling" means grouping countries into one bond, not joint payout design. Neither matches our use.
+- *Consistency with MAR-47:* this fits the CLIMADA proposal's description of the planned module as complementary to `cat_bonds`. The planned module would sit at the trigger-and-payout fitting step (in `cat_bonds`: per subarea, squared error, COBYLA). Bond simulation, pricing and pooling would stay downstream.
+
+**Proposed claim A wording (owner decides).**
+- *Proposal: unchanged.* Claim A's "Why it is new" (no source calibrates distinct per-asset payouts jointly against an owner's aggregate tail shortfall) still holds for this module, as far as its code shows.
+- *Proposed addition to the closest-prior-work list in `positioning.md` (not made here):* "The CLIMADA Petals `cat_bonds` module (2026; Bergmüller et al., 2026) gives each subarea of one sovereign issuer its own linear payout. It fits each payout separately by squared error (COBYLA), then sums and caps them. Countries are pooled by a genetic algorithm on an ES-based concentration ratio."
+- *What the list would gain:*
+  - a current, open, CLIMADA-native example of distinct payouts per spatial unit, which shows that this step alone is not new. What stays new is the joint fit against the aggregate tail shortfall, under one budget, as an exact LP;
+  - a precise point of contact for the CLIMADA proposal (MAR-47).
+
+**Verification log (MAR-99).**
+
+| Key | Metadata checked against | Content read |
+|---|---|---|
+| `climadapetals2026catbonds` | Repository tag `v6.2.0` (commit `6ecd7af0`); `CHANGELOG.md` (release 2026-06-15, PR #186); `pyproject.toml` (GPL-3.0); PR #186 REST record (merged 2026-06-01). No release DOI found | Every `engine/cat_bonds/*.py` file in full; tutorial markdown cells; PR #186 comments scanned by keyword; Discussion #184 opening post |
+| `bergmuller2026multicountry` | Crossref record for doi:10.2139/ssrn.6030454 (posted content, preprint, created 2026-01-06). Author's given name checked against the EGU25 abstract | Not read (SSRN HTTP 403). Only the tutorial's description of it and the EGU25 abstract |
+
+**Limits.**
+- The preprint and the thesis were not read. They may contain a joint or tail-based variant that the released code lacks. Every answer above rests on the code at `v6.2.0`.
+- Later petals versions may differ. Re-check before the CLIMADA proposal and the manuscript go out (MAR-39, MAR-47).
+- The preprint is not peer-reviewed.
