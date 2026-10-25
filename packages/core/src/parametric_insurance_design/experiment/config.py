@@ -46,7 +46,6 @@ from __future__ import annotations
 import difflib
 import hashlib
 import json
-import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -1255,15 +1254,17 @@ _ConfigDumper.add_representer(list, _represent_list)
 
 
 def _normalise(value: Any) -> Any:  # noqa: ANN401 (JSON tree)
-    """Write ``-0.0`` as ``0.0`` throughout a JSON tree; reject non-finite floats."""
+    """Write ``-0.0`` as ``0.0`` throughout a JSON tree.
+
+    Non-finite floats cannot occur (the schema rejects them), and
+    ``json.dumps(..., allow_nan=False)`` would refuse them.
+    """
     if isinstance(value, dict):
         return {k: _normalise(v) for k, v in value.items()}
     if isinstance(value, list):
         return [_normalise(v) for v in value]
-    if isinstance(value, float):
-        if not math.isfinite(value):
-            raise ConfigError(f"cannot hash the non-finite float {value!r}")
-        return 0.0 if value == 0.0 else value
+    if isinstance(value, float) and value == 0.0:
+        return 0.0
     return value
 
 
