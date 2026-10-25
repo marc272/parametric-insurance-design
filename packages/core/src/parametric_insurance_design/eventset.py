@@ -34,7 +34,8 @@ Tables
 Rates are never rescaled. :meth:`EventSet.filter_threshold` drops rows only to
 make solving faster: the dropped rows count as zero-loss mass, and every
 filter is recorded in :attr:`EventSetMetadata.filters`. Other transformations
-that change rows or values, such as the noise layer or vulnerability draws,
+that change rows, locations or values, such as a location subset
+(:meth:`EventSet.select_locations`), the noise layer or vulnerability draws,
 are recorded in :attr:`EventSetMetadata.transforms` (:class:`TransformRecord`).
 
 Content hash
@@ -60,6 +61,7 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any, Final, Literal, cast
 
@@ -76,6 +78,7 @@ __all__ = [
     "LOCATIONS_FILE",
     "METADATA_FILE",
     "SCHEMA_VERSION",
+    "SELECT_LOCATIONS_TRANSFORM",
     "VALUES_FILE",
     "DuplicateKeyError",
     "EventSet",
@@ -156,6 +159,13 @@ _ARROW_TYPES: Final[dict[_ColumnKind, pa.DataType]] = {
 }
 
 _MAX_EXAMPLES: Final[int] = 5
+
+_VERSION: Final[str] = version("parametric-insurance-design")
+"""Version recorded in the :class:`TransformRecord` of this module's methods."""
+
+SELECT_LOCATIONS_TRANSFORM: Final[str] = "select_locations"
+"""``TransformRecord.name`` of the records written by
+:meth:`EventSet.select_locations`."""
 
 
 # --------------------------------------------------------------------------
@@ -439,8 +449,9 @@ class ThresholdFilterRecord:
 class TransformRecord:
     """Record of one transformation applied to an EventSet.
 
-    A transformation changes the rows or values of an EventSet beyond a
-    threshold filter, e.g. the thesis noise layer
+    A transformation changes the rows, locations or values of an EventSet
+    beyond a threshold filter, e.g. a location subset
+    (:meth:`EventSet.select_locations`), the thesis noise layer
     (:func:`parametric_insurance_design.noise.add_noise`) or vulnerability
     draws in an adapter. The producer appends one record to
     :attr:`EventSetMetadata.transforms` per call, so that the provenance of
@@ -534,8 +545,8 @@ class EventSetMetadata:
     filters : tuple of ThresholdFilterRecord, optional
         Threshold filters applied so far, oldest first.
     transforms : tuple of TransformRecord, optional
-        Other transformations applied so far (noise, vulnerability draws),
-        oldest first. Append-only, like ``filters``. Each record's
+        Other transformations applied so far (location subsets, noise,
+        vulnerability draws), oldest first. Append-only, like ``filters``. Each record's
         ``n_filters_before`` must not exceed ``len(filters)`` and must not
         decrease along the tuple. A ``metadata.json`` without the
         ``transforms`` key reads as no transforms.
@@ -1353,6 +1364,132 @@ class EventSet:
             locations=self.locations,
             index=self.index[keep],
             loss=self.loss[keep],
+            metadata=metadata,
+        )
+
+    # -- location subset ---------------------------------------------------
+
+    def select_locations(self, location_ids: Sequence[str]) -> EventSet:
+        """Keep a subset of the locations, in a given order.
+
+        The portfolio subset of an experiment (``portfolio.location_ids``) and
+        each point of an ``n_assets`` sweep. The returned EventSet holds the
+        matrix columns and ``locations`` rows of ``location_ids``, in that
+        order, with every free metadata column. Every event row is kept, so
+        rates, years and draws are unchanged.
+
+        The metadata is kept, including every threshold filter and transform
+        record, and one :class:`TransformRecord` is appended to
+        ``metadata.transforms``:
+
+        * ``name``: :data:`SELECT_LOCATIONS_TRANSFORM` (``"select_locations"``);
+        * ``function``: ``"parametric_insurance_design.eventset.EventSet.select_locations"``;
+        * ``parameters``: ``{"location_ids": [...], "n_locations_before": n}``,
+          the kept ids in their new order and the number of locations of the
+          input.
+
+        A record is appended on every call, also when the selection keeps all
+        locations in their order, as :meth:`filter_threshold` records a
+        filter that drops nothing. So :meth:`content_hash` always tells a
+        subset from the EventSet it was cut from.
+
+        Parameters
+        ----------
+        location_ids : sequence of str
+            Locations to keep, in the order of the new matrix columns.
+            Non-empty, unique, and each one a ``location_id`` of this
+            EventSet.
+
+        Returns
+        -------
+        EventSet
+            A new EventSet with ``len(location_ids)`` locations.
+
+        Raises
+        ------
+        SchemaError
+            If ``location_ids`` is a single string, is empty (an EventSet
+            holds at least one location), or holds a value that is not a
+            string.
+        DuplicateKeyError
+            If an id appears more than once.
+        InconsistentKeysError
+            If an id is not a location of this EventSet.
+
+        Notes
+        -----
+        Thesis: ``create_sub_portfolio`` drops the ``<id>_Wind`` and
+        ``<id>_Loss`` columns of the other assets, and the solver reads the
+        kept ones in ``asset_ids`` order, the order of
+        ``itertools.combinations`` over the asset list in the ``n_assets``
+        sweep. Selecting those ids in that order gives the same matrices.
+
+        Examples
+        --------
+        >>> es = EventSet.from_parquet("parity/tests/data/thesis_eventset")  # doctest: +SKIP
+        >>> es.select_locations(["A3", "A1"]).location_ids  # doctest: +SKIP
+        ['A3', 'A1']
+        """
+        if isinstance(location_ids, str):
+            raise SchemaError(
+                "location_ids must be a sequence of ids, not the string "
+                f"{location_ids!r}",
+                table="locations",
+            )
+        requested: list[object] = list(location_ids)
+        if not requested:
+            raise SchemaError(
+                "location_ids is empty; an EventSet must hold at least one location",
+                table="locations",
+            )
+        not_text = [v for v in requested if not isinstance(v, str)]
+        if not_text:
+            raise SchemaError(
+                f"location_ids must be strings; {len(not_text)} are not, e.g. "
+                f"{', '.join(repr(v) for v in not_text[:_MAX_EXAMPLES])}",
+                table="locations",
+            )
+        ids = cast(list[str], requested)
+        seen: set[str] = set()
+        repeated: list[str] = []
+        for loc in ids:
+            if loc in seen and loc not in repeated:
+                repeated.append(loc)
+            seen.add(loc)
+        if repeated:
+            raise DuplicateKeyError(
+                f"location_ids repeat {len(repeated)} ids, e.g. "
+                f"{', '.join(repr(v) for v in repeated[:_MAX_EXAMPLES])}",
+                table="locations",
+            )
+        position = {loc: j for j, loc in enumerate(self.location_ids)}
+        unknown = [loc for loc in ids if loc not in position]
+        if unknown:
+            raise InconsistentKeysError(
+                f"{len(unknown)} location_ids are not locations of this "
+                "EventSet, e.g. "
+                f"{', '.join(repr(v) for v in unknown[:_MAX_EXAMPLES])}",
+                table="locations",
+            )
+        columns = np.array([position[loc] for loc in ids], dtype=np.int64)
+        record = TransformRecord(
+            name=SELECT_LOCATIONS_TRANSFORM,
+            function=(
+                f"{EventSet.select_locations.__module__}."
+                f"{EventSet.select_locations.__qualname__}"
+            ),
+            version=_VERSION,
+            n_filters_before=len(self.metadata.filters),
+            parameters={"location_ids": ids, "n_locations_before": self.n_locations},
+        )
+        metadata = dataclasses.replace(
+            self.metadata, transforms=(*self.metadata.transforms, record)
+        )
+        return EventSet(
+            events=self.events,
+            locations=self.locations.iloc[columns],
+            index=self.index[:, columns],
+            loss=self.loss[:, columns],
             metadata=metadata,
         )
 
