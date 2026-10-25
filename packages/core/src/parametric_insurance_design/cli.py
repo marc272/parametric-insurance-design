@@ -285,7 +285,7 @@ def _outcome_status(outcome: RunOutcome) -> str:
 def _outcome_line(label: str, outcome: RunOutcome) -> str:
     """One summary line for an executed or cached run."""
     how = "cached" if outcome.cached else "ran"
-    return f"  {how:<7}{_outcome_status(outcome):<24}{label}  {_short(outcome.run_id)}"
+    return f"  {how:<7}{_short(outcome.run_id)}  {label}  {_outcome_status(outcome)}"
 
 
 # --------------------------------------------------------------------------
@@ -323,7 +323,7 @@ class _Planner:
             self.n_cached += 1
         else:
             self.n_run += 1
-        return f"  {status:<28}{label}  {_short(run_id)}"
+        return f"  {status:<24}{_short(run_id)}  {label}"
 
     def _status(self, run_id: str) -> str:
         if self.force:
