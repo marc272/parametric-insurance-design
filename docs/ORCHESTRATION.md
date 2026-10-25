@@ -2,6 +2,37 @@
 
 You coordinate the **parametric-insurance-design** program. You plan, delegate issues to worker subagents, review, merge, and **keep Linear true**. You never do Human work. Workers follow [`AGENTS.md`](../AGENTS.md). The owner is Marc Prinzing.
 
+## Operating model
+
+- **Autonomous.** Marc starts an orchestrator session by hand, in auto mode, with `/orchestrate` (or `/loop /orchestrate` to keep it waking up while it waits on him). From then on the orchestrator runs the loop below on its own: it dispatches, reviews, merges and keeps Linear current. It contacts Marc only for hard blocks and Human work (see "Owner alerts").
+- **Stateless and resumable.** Everything needed to continue lives in Linear (statuses, dispatch records, status updates), git and GitHub, never in one conversation. After a usage-limit reset or a crash, `continue` in the same session, or `/orchestrate` in a new one, resumes the work (see "Resuming after an interruption").
+- **One orchestrator at a time.** Don't start a second orchestrator session while one is active.
+
+### One-time setup (owner)
+
+These steps are done by Marc, because agents may not change their own permissions.
+
+1. **Let the auto-mode classifier accept orchestrator merges.** By default it blocks "merging a PR no human has approved". The classifier ignores `autoMode` in project settings, so merge this block into `~/.claude/settings.json`:
+
+   ```json
+   "autoMode": {
+     "environment": [
+       "$defaults",
+       "Organization: Marc Prinzing, solo owner. Primary use: building the open-source parametric-insurance-design program, run by an orchestrator agent that delegates to worker subagents",
+       "Source control: github.com/marc272 (the owner's own GitHub account). marc272/parametric-insurance-design is a public repository the owner created for this work",
+       "Key services: the owner's Linear workspace 'Marc prinzing' (team MAR), reached through the Linear connector, is the program's tracker. Agents create and update issues, comments and project status updates there as part of the documented workflow (docs/ORCHESTRATION.md)"
+     ],
+     "allow": [
+       "$defaults",
+       "Agent PR merges in marc272/parametric-insurance-design: on 2026-10-25 the owner, Marc Prinzing, authorised the orchestrator agent to squash-merge PRs (`gh pr merge <n> --squash`) without a human approval, after it has reviewed the PR and all CI checks are green (see the repository's CLAUDE.md and docs/ORCHESTRATION.md 'Merge policy'). This does not cover admin merges, force pushes, direct pushes to main, or a worker merging its own PR"
+     ]
+   }
+   ```
+
+2. **Start sessions in auto mode.** Otherwise every command prompts and the loop stalls.
+3. **Optional: phone alerts.** Connect Remote Control, so that `PushNotification` reaches your phone as well as the desktop.
+4. **Guardrails, already checked in.** `.claude/settings.json` denies force pushes, pushes to `main`, admin merges and repository edits or deletes, in every mode.
+
 ## Ground truth
 
 - **Linear** (workspace "Marc prinzing", team MAR) is the source of truth for what we aim to do, priorities, plan, decisions and status. The entry point is the [Program hub](https://linear.app/marc-prinzing/project/program-hub-1b757250497c): its description (mission, outputs, phases, scheduling and publication rules, decision index) and its status updates (where we are).
@@ -15,7 +46,7 @@ You coordinate the **parametric-insurance-design** program. You plan, delegate i
    - is a PR merged without the issue being Done?
    - is a worker gone while its issue is still In Progress?
 
-   Fix Linear first.
+   Fix Linear first. Resume or re-dispatch interrupted work as described in "Resuming after an interruption".
 3. Read new comments since the last status update, especially on Human issues: the owner may have answered.
 4. Rebuild the ready set (see "The loop") and decide this session's dispatches.
 
@@ -84,7 +115,7 @@ The Program hub sets these rules:
    - no two concurrent issues may own the same module (ADR 0002 ownership map);
    - serialise anything that touches `pyproject.toml`, lockfiles or CI config.
 3. **Check size.** If an issue is clearly more than one PR (several modules, or more than about a day of work), first split it into sub-issues with goal, scope, acceptance and blockers. The original becomes a container. Don't pre-split far-future work; split when it becomes ready.
-4. **Delegate** (see below). Set the issue to In Progress and comment which worker took it.
+4. **Delegate** (see below). Set the issue to In Progress and post a **dispatch record** on it.
 5. **Review.** When a worker reports back, check:
    - CI is green;
    - every acceptance criterion is evidenced in the PR body;
@@ -95,7 +126,7 @@ The Program hub sets these rules:
    - external-facing work follows the publication rule.
 
    Request changes from the same worker, which keeps its context. After two failed rounds, escalate to the human. For core numerical code, an independent reviewer subagent is worth the cost.
-6. **Merge.** Squash-merge agent PRs that pass review, in dependency order, rebasing dependents when needed. Outputs of Human or Gate issues are merged only after the human approves. Set the issue to Done, comment with the PR link, and file the reported follow-ups.
+6. **Merge.** Follow the "Merge policy" below: squash-merge agent PRs that pass review, in dependency order, rebasing dependents when needed. Set the issue to Done, comment with the PR link, and file the reported follow-ups.
 7. **Repeat** from step 1. End the session with the session-end steps.
 
 ## Delegating to subagents
@@ -122,10 +153,74 @@ Why it matters: <one line linking it to the output it unblocks>
 Read first: docs/SPEC.md §<…>; docs/adr/0002 (ownership map); <merged PRs of the blockers>
 You own: <files from the ownership map>. Import anything; edit nothing else.
 Branch: <Linear gitBranchName>, from the latest main, in your own worktree.
-Done means: PR open, CI green, every acceptance criterion evidenced in the PR body.
+Push early: push the branch after your first commit, open a draft PR, and push after every meaningful commit, so your work survives an interrupted session.
+Done means: PR open (marked ready), CI green, every acceptance criterion evidenced in the PR body.
 Report back: PR link, summary, anything unverified, follow-ups you discovered, open questions.
-Don't change Linear; the orchestrator keeps it current.
+Don't change Linear; the orchestrator keeps it current. Never merge.
 ```
+
+**Resume brief.** Use this when a worker is gone but its branch or draft PR exists. Put this before the normal brief:
+
+```text
+You are resuming interrupted work. Branch <name> already exists (PR #<n>, if any).
+Check it out in your worktree (git fetch && git switch <name>), read its commits and the PR body,
+and continue from there. Don't restart from main, and don't rewrite pushed history.
+Still to do, as far as the orchestrator knows: <list>.
+```
+
+## Dispatch record
+
+Every dispatch, re-dispatch or resume posts one comment on the issue, so that a later session can find and resume the work:
+
+```text
+Dispatch record
+- worker: <agent ID or session link>, started <ISO time>
+- branch: <gitBranchName>   worktree: <path, if known>
+- PR: <link, or "none yet">
+- notes: <resume of …, review round n, anything a successor needs>
+```
+
+Update the record with a new comment when the PR opens, and at each review round.
+
+## Merge policy
+
+Marc authorised agent merges on 2026-10-25 ("PR should be merged automatically in general", MAR-80). **The orchestrator**, and never a worker, squash-merges a PR with `gh pr merge <n> --squash` when all of the following hold:
+
+- the orchestrator reviewed it against the checklist in "The loop", step 5;
+- every CI check is green: none failing, none pending;
+- it belongs to a non-Human, non-Gate issue, or Marc approved it on the issue or PR;
+- it changes no spec decision (SPEC §11, ADR outcomes) unless Marc's answer is recorded on the Decision issue;
+- it doesn't merge into, or past, a gate that isn't Done (e.g. no F5 method change before MAR-18).
+
+Otherwise, set the issue to In Review, assign it to Marc, and alert him. Never use `--admin`, never force-push, and never push to `main` directly. Branch protection (MAR-78) may require status checks, but must **not** require approving reviews: that would block every agent merge.
+
+## Resuming after an interruption
+
+Usage limits, crashes and closed laptops are normal. At session start, after reconciling:
+
+1. **Live worker** in this session, i.e. its agent ID still answers: `SendMessage` it to continue.
+2. **Worker gone, work pushed** (a branch or draft PR exists): dispatch a new worker with the resume brief on the same branch. Post a new dispatch record.
+3. **Worker gone, nothing pushed:** comment, move the issue back to Todo and re-dispatch it normally. A local worktree with uncommitted changes is reported in the comment, not deleted.
+4. **PR waiting on review or CI:** carry on with review and merge.
+
+Then continue the loop. Don't redo work that is already merged or pushed.
+
+## Owner alerts
+
+Marc is not watching the session. A **hard block** is anything that stops the critical path, or every free lane, until Marc acts:
+
+- a decision or gate sign-off;
+- a credential, account or repository setting;
+- a contradiction between the spec and an issue;
+- a worker escalation after two failed review rounds.
+
+For each new hard block:
+
+1. Assign the issue to Marc Prinzing and comment `@Marc Prinzing` with one concrete question, the options you see, and your recommendation. Linear then notifies him.
+2. Add it to the Human queue in the next Program hub status update, with health `atRisk` if it blocks the critical path.
+3. Send a one-line push notification (`PushNotification`) that leads with the action needed. Send one per new block, never for routine progress. When the session goes idle with items still waiting on Marc, send one summary notification.
+
+Keep the other lanes moving while you wait.
 
 Work started before the repository existed went into the workspace folder `/Users/marcprinzing/Parametric_Insurance/repo-seed/` at its target path, and the bootstrap (MAR-6) copied it in. New work goes straight into this repository, on its issue branch.
 
