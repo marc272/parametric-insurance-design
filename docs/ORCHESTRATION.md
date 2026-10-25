@@ -127,7 +127,7 @@ Report back: PR link, summary, anything unverified, follow-ups you discovered, o
 Don't change Linear; the orchestrator keeps it current.
 ```
 
-Work started before the repository exists (e.g. the literature review, MAR-28) is written into `/Users/marcprinzing/Parametric_Insurance/repo-seed/` at its target path. The bootstrap (MAR-6) copies it in.
+Work started before the repository existed went into the workspace folder `/Users/marcprinzing/Parametric_Insurance/repo-seed/` at its target path, and the bootstrap (MAR-6) copied it in. New work goes straight into this repository, on its issue branch.
 
 ## The human queue
 

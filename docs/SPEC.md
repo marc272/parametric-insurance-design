@@ -1,6 +1,6 @@
 # Spec: Tail-risk–optimised portfolio parametric insurance (v2)
 
-Status: draft v0.2 (2026-10-25). Moves to `docs/SPEC.md` in the new repository in the bootstrap issue (MAR-6).
+Status: draft v0.2 (2026-10-25). Lives at `docs/SPEC.md` in this repository since the bootstrap issue (MAR-6).
 
 > **Scope of this file:** the *how* (method, architecture, data contract, standards). Goals, priorities, plan, decisions and status live in **Linear**, starting at the [Program hub](https://linear.app/marc-prinzing/project/program-hub-1b757250497c). Where this file and Linear disagree on any of those, Linear wins and this file gets fixed.
 Name (D1, decided 2026-10-25): repository and distribution **`parametric-insurance-design`**. The import package is `parametric_insurance_design`, and the docs convention is `import parametric_insurance_design as pid`. The core CLI is `parametric-insurance-design`. The name is free on PyPI and GitHub as of 2026-10-25.
@@ -366,17 +366,15 @@ Each decision's status and outcome is recorded on its **Linear issue**, which is
 The build is delegated to worker agents coordinated by an orchestrator agent, with the owner making all decisions.
 
 - **Linear is the ground truth** for goals, priorities, plan, decisions and status. Every agent starts at the [Program hub](https://linear.app/marc-prinzing/project/program-hub-1b757250497c): its description and its latest status update. Before ending a session, the agent leaves Linear true.
-- **Entry points:**
-  - `CLAUDE.md` in the workspace root, until the repo exists;
-  - then the repo's `CLAUDE.md`, which loads `AGENTS.md` and points the orchestrator to the runbook.
+- **Entry point:** the repo's [`CLAUDE.md`](../CLAUDE.md), which loads `AGENTS.md` and points the orchestrator to the runbook. The workspace `CLAUDE.md` outside the repo was the entry point until the repo existed; it now points here.
 - **Scheduling across streams** (details in the runbook):
   - Foundation first;
   - then whatever brings the nearest public release forward;
   - at least one worker slot for the Paper track when it has ready work.
 
-- **Worker agreement:** [`AGENTS.md`](repo-seed/AGENTS.md). Covers sources of truth, one issue = one PR, file ownership, definition of done, escalation, and what agents never do.
-- **Orchestrator runbook:** [`docs/ORCHESTRATION.md`](repo-seed/docs/ORCHESTRATION.md). Covers status semantics (Todo = all blockers Done), the dispatch/review/merge loop, WIP limits, gates, the human queue and the start sequence.
-- Both live in `repo-seed/` until the bootstrap (MAR-6) copies them into the new repository, together with `CLAUDE.md` (`@AGENTS.md`).
+- **Worker agreement:** [`AGENTS.md`](../AGENTS.md). Covers sources of truth, one issue = one PR, file ownership, definition of done, escalation, and what agents never do.
+- **Orchestrator runbook:** [`docs/ORCHESTRATION.md`](ORCHESTRATION.md). Covers status semantics (Todo = all blockers Done), the dispatch/review/merge loop, WIP limits, gates, the human queue and the start sequence.
+- Both were drafted in the workspace's `repo-seed/` folder and live in this repository since the bootstrap (MAR-6), together with `CLAUDE.md` (`@AGENTS.md`).
 - Linear labels:
   - **Human:** never completed by agents; only its "Agent may prepare" part may be delegated;
   - **Gate:** human sign-off unblocks downstream work;
