@@ -22,7 +22,9 @@ from typing import Any, ClassVar
 import cvxpy as cp
 import numpy as np
 import pytest
+import scipy
 from cvxpy.error import SolverError
+from numpy.lib import NumpyVersion
 from numpy.typing import NDArray
 
 from parametric_insurance_design import solve as solve_module
@@ -400,6 +402,24 @@ OBJECTIVES: dict[str, Objective] = {
     "weighted_cvar": WeightedCVaR(alpha=ALPHA, beta=BETA),
 }
 N_PROBLEMS = {"individual": 9, "portfolio": 1, "cluster": 1}
+
+# scipy 1.15.0 and 1.15.1 overflow int32 indices when cvxpy reshapes the
+# sparse problem data of the weighted-CVaR LPs (more than 2**31 entries):
+# ``ValueError: negative axis 0 index``. Fixed in scipy 1.15.2. Core declares
+# ``scipy>=1.15``, so CI's lowest-direct job hits it; raising the floor is a
+# proposed follow-up (MAR-14 PR). Strict, so the mark goes stale loudly.
+SCIPY_COO_RESHAPE_OVERFLOW = pytest.mark.xfail(
+    NumpyVersion(scipy.__version__) < "1.15.2",
+    reason="scipy < 1.15.2 overflows int32 indices in COO reshape",
+    raises=ValueError,
+    strict=True,
+)
+FIXTURE_OBJECTIVES = [
+    pytest.param(name, marks=SCIPY_COO_RESHAPE_OVERFLOW)
+    if name == "weighted_cvar"
+    else name
+    for name in OBJECTIVES
+]
 N_ENTITIES = {"individual": 1, "portfolio": 9, "cluster": N_CLUSTERS}
 
 needs_fixture = pytest.mark.skipif(
@@ -439,7 +459,7 @@ def numpy_objective(
 
 
 @needs_fixture
-@pytest.mark.parametrize("objective", list(OBJECTIVES))
+@pytest.mark.parametrize("objective", FIXTURE_OBJECTIVES)
 @pytest.mark.parametrize("scope", list(SCOPES))
 def test_nine_combinations_solve_on_the_fixture(
     thesis_data: EventSet, scope: str, objective: str

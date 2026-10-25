@@ -34,6 +34,8 @@ All nine take about 7 s together. Building is negligible; the individual scope's
 
 cvxpy 1.6.0, numpy 1.26.4, scipy 1.15.3, clarabel 0.11.1, osqp 1.1.3, scs 3.3.1; HiGHS not installed (ADR 0002: cvxpy < 1.8 ships no `highspy`). Same solvers chosen, same objective values to ≤ 1e-9 relative.
 
+With scipy 1.15.0 or 1.15.1 (core's declared floor is `scipy>=1.15`), the three weighted-CVaR combinations fail before any solver runs: cvxpy reshapes their sparse problem data (more than 2^31 entries), and those scipy versions overflow int32 indices (`ValueError: negative axis 0 index`). scipy 1.15.2 fixes it. The fixture test marks these cases as a strict expected failure on scipy < 1.15.2; raising the floor is a proposed follow-up.
+
 | Scope | Objective | Solver | Build (s) | Solve (s) | Total (s) |
 |---|---|---|---:|---:|---:|
 | individual | MSE | OSQP | 0.022 | 0.25 | 0.28 |
