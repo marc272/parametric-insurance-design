@@ -45,7 +45,7 @@ import os
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -178,7 +178,8 @@ def golden_runs() -> Iterator[GoldenRun]:
     assert len(kpis) == N_GOLDEN_KPI_ROWS
     strategy = ThesisWardClustering(beta_tail=0.9, linkage="ward")
     groups = dict(list(payouts.groupby(GROUP, dropna=False, sort=False)))
-    for key, golden in kpis.groupby(GROUP, dropna=False, sort=False):
+    for group_key, golden in kpis.groupby(GROUP, dropna=False, sort=False):
+        key = cast("tuple[Any, ...]", group_key)
         rows = groups[key]
         approach, n_bins = str(key[0]), int(key[6])
         levels = [parse_levels(s) for s in rows["Payouts"]]
@@ -360,7 +361,9 @@ def test_groups_the_thesis_dropped_raise(data: EventSet) -> None:
         .index
     )
     dropped = [
-        (key, rows) for key, rows in payouts.groupby(GROUP) if key not in kpi_groups
+        (cast("tuple[Any, ...]", key), rows)
+        for key, rows in payouts.groupby(GROUP)
+        if key not in kpi_groups
     ]
     assert [(k[0], k[1], k[5], len(r)) for k, r in dropped] == [
         ("individual_optimization", "pure_basis_risk_minimization", b, 1)
