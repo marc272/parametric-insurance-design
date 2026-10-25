@@ -12,8 +12,26 @@ Default policy (:data:`DEFAULT_POLICY`)
     * LPs and other conic problems (E[U], weighted CVaR): ``CLARABEL``, then
       ``HIGHS``, then ``SCS`` with ``max_iters = 20000``. The thesis used
       Clarabel, then SCS with the same iteration limit.
-    * QPs (MSE): ``OSQP``, then ``CLARABEL``, as in the thesis.
+    * QPs (MSE): ``OSQP``, then ``CLARABEL``, as in the thesis. OSQP runs
+      with :data:`OSQP_OPTIONS` (``eps_abs = eps_rel = 1e-8``, ``max_iter =
+      100000``), not with cvxpy's defaults (``1e-5`` and ``10000``) that the
+      thesis used (MAR-98, below).
     * ``optimal_inaccurate`` is accepted (thesis).
+
+OSQP accuracy (MAR-98)
+    OSQP is a first-order (ADMM) solver. With cvxpy's default ``eps = 1e-5``
+    its solutions violate ``theta >= 0``, monotonicity, the cap and the
+    budget by up to about ``1.5e-5`` in scaled units whenever OSQP's
+    polishing step fails, which it does on about a third of the MSE
+    problems. The default policy therefore tightens OSQP to ``1e-8``, the
+    accuracy of the interior-point solvers (Clarabel, HiGHS), so a solution
+    meets the constraints to about ``1e-8`` in scaled units whichever solver
+    of the policy produced it. The cost is more ADMM iterations: about ten
+    times the MSE solve time on the parity fixture (``parity/BENCHMARK.md``).
+    The MSE optima move by up to ``9.1e-5`` relative on that fixture, towards
+    the true optimum: the thesis MSE values carry OSQP's default inaccuracy.
+    To reproduce them, pass a policy whose ``solver_options`` omit
+    ``"OSQP"``.
 
 A problem is a QP when its objective is quadratic but not piecewise linear
 and cvxpy recognises the whole problem as a QP; every other problem goes to
@@ -74,6 +92,7 @@ __all__ = [
     "DEFAULT_POLICY",
     "FAILURE_PRECEDENCE",
     "NOT_INSTALLED",
+    "OSQP_OPTIONS",
     "InfeasibleError",
     "SolveError",
     "SolveResult",
@@ -108,9 +127,22 @@ _INFEASIBLE: Final = frozenset(
 _UNBOUNDED: Final = frozenset({SolveStatus.UNBOUNDED, SolveStatus.UNBOUNDED_INACCURATE})
 
 
+OSQP_OPTIONS: Final[Mapping[str, Any]] = MappingProxyType(
+    {"eps_abs": 1e-8, "eps_rel": 1e-8, "max_iter": 100_000}
+)
+"""Default OSQP options (MAR-98): interior-point accuracy for MSE solutions.
+
+cvxpy's defaults are ``eps_abs = eps_rel = 1e-5`` and ``max_iter = 10000``.
+The parity MSE problems need up to about 15,000 iterations at ``1e-8`` and the
+engine's property tests up to about 25,000; ``max_iter`` leaves room above
+that. If OSQP still stops at the limit, it reports ``optimal_inaccurate``
+(accepted by default) or ``user_limit`` (Clarabel is tried next). Polishing
+stays on (cvxpy's default)."""
+
+
 def _default_options() -> Mapping[str, Mapping[str, Any]]:
-    """Default solver options: the thesis SCS iteration limit."""
-    return {"SCS": {"max_iters": 20000}}
+    """Default solver options: :data:`OSQP_OPTIONS` and the thesis SCS limit."""
+    return {"OSQP": dict(OSQP_OPTIONS), "SCS": {"max_iters": 20000}}
 
 
 @dataclass(frozen=True)
@@ -129,7 +161,10 @@ class SolverPolicy:
         Whether ``optimal_inaccurate`` counts as success (thesis: yes).
     solver_options : mapping of str to mapping, optional
         Keyword arguments per solver name, e.g. ``{"SCS": {"max_iters":
-        20000}}``. Default: that SCS limit (thesis). Stored read-only.
+        20000}}``. Default: :data:`OSQP_OPTIONS` for OSQP (MAR-98) and that
+        SCS limit (thesis). Passing a mapping replaces the default as a
+        whole, so a solver left out runs with cvxpy's defaults. Stored
+        read-only.
 
     Raises
     ------

@@ -55,6 +55,7 @@ from parametric_insurance_design.solve import (
     DEFAULT_POLICY,
     FAILURE_PRECEDENCE,
     NOT_INSTALLED,
+    OSQP_OPTIONS,
     SolverPolicy,
     SolveStatus,
     is_qp,
@@ -123,11 +124,30 @@ def test_default_policy_follows_the_thesis() -> None:
     assert DEFAULT_POLICY.qp_solvers == ("OSQP", "CLARABEL")
     assert DEFAULT_POLICY.accept_inaccurate
     assert dict(DEFAULT_POLICY.solver_options["SCS"]) == {"max_iters": 20000}
+    # The one deviation from the thesis: OSQP at interior-point accuracy.
+    assert set(DEFAULT_POLICY.solver_options) == {"OSQP", "SCS"}
     assert DEFAULT_POLICY.accepted == {
         SolveStatus.OPTIMAL,
         SolveStatus.OPTIMAL_INACCURATE,
     }
     assert SolverPolicy(accept_inaccurate=False).accepted == {SolveStatus.OPTIMAL}
+
+
+def test_default_osqp_options_are_tight() -> None:
+    # MAR-98: cvxpy's OSQP defaults (eps 1e-5, max_iter 10000) leave
+    # violations of ~1.5e-5 in scaled units when polishing fails.
+    options = dict(DEFAULT_POLICY.solver_options["OSQP"])
+    assert options == dict(OSQP_OPTIONS)
+    assert options == {"eps_abs": 1e-8, "eps_rel": 1e-8, "max_iter": 100_000}
+    with pytest.raises(TypeError):
+        OSQP_OPTIONS["eps_abs"] = 1e-5  # type: ignore[index]
+
+
+def test_explicit_options_replace_the_defaults() -> None:
+    # A policy that names its options runs OSQP with cvxpy's defaults, e.g.
+    # to reproduce the thesis MSE values.
+    policy = SolverPolicy(solver_options={"SCS": {"max_iters": 20000}})
+    assert "OSQP" not in policy.solver_options
 
 
 def test_policy_options_are_read_only() -> None:
@@ -200,9 +220,9 @@ def test_mse_is_reported_in_squared_loss_units(toy_eventset: EventSet) -> None:
     built = toy_built(toy_eventset, MSE(), (Budget(2.0),))
     result = solve(built)
     assert result.solver in DEFAULT_POLICY.qp_solvers
-    assert result.objective_value == pytest.approx(12.5 / 3, rel=1e-4)
+    assert result.objective_value == pytest.approx(12.5 / 3, rel=1e-6)
     assert result.diagnostics["mse"] == pytest.approx(result.objective_value)
-    np.testing.assert_allclose(result.theta.sum(axis=0), [3.5, 16.0], rtol=1e-4)
+    np.testing.assert_allclose(result.theta.sum(axis=0), [3.5, 16.0], rtol=1e-6)
 
 
 INACCURATE_WARNING = "ignore:Solution may be inaccurate:UserWarning"
@@ -484,11 +504,12 @@ def test_nine_combinations_solve_on_the_fixture(
         assert result.theta.shape == (N_ENTITIES[scope], N_BINS)
         assert result.solver == ("OSQP" if objective == "mse" else "CLARABEL")
         # Payout family and budget hold in loss units, up to the solver
-        # tolerance in scaled units (OSQP's eps is 1e-5; Clarabel's ~1e-8).
+        # tolerance in scaled units (OSQP's eps is 1e-8, MAR-98; Clarabel's
+        # ~1e-8). Measured: <= 4.4e-10 (OSQP), <= 5e-12 (Clarabel).
         violation = result.diagnostics["max_constraint_violation_scaled"]
-        assert violation <= 1e-5
+        assert violation <= 1e-6
         theta, cap = result.theta, problem.entity_loss.max(axis=0)
-        tol = 1e-5 * result.scale
+        tol = 1e-6 * result.scale
         assert np.all(theta >= -tol)
         assert np.all(np.diff(theta, axis=1) >= -tol)
         assert np.all(theta <= cap[:, None] + tol)
