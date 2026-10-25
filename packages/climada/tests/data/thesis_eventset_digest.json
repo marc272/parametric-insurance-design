@@ -1,0 +1,29 @@
+{
+  "description": "Pinned digests of the thesis parity fixture (parity/tests/data/thesis_eventset), the thesis event-loss table that the CLIMADA adapter must regenerate bit for bit (MAR-20). Written by packages/climada/scripts/thesis_adapter_parity.py --write-digest.",
+  "fixture": "parity/tests/data/thesis_eventset",
+  "source_csv_sha256": "8513f5fefdcf6686207df575e6a89d576e5ed935f71b652b4045229caf23ff68",
+  "encoding": "SHA256 of: event_id, the UTF-8 strings joined by newlines; year and draw_id, int64 little-endian; rate, index and loss, IEEE 754 binary64 little-endian, row-major (C order), bytes as stored (no -0.0 normalisation)",
+  "shape": [
+    6057,
+    9
+  ],
+  "location_ids": [
+    "A1",
+    "A2",
+    "A3",
+    "A4",
+    "A5",
+    "A6",
+    "A7",
+    "A8",
+    "A9"
+  ],
+  "sha256": {
+    "event_id": "dd7e32d51dd7750d3595596c7a6ce102eca15285fdd63db2535ce0feba7998da",
+    "year": "094607ce1d940d852514545d5d581ae151ded1344b7970c3f48e0b1db432a818",
+    "rate": "5d3e11b691fb8b452cf4a2270687e74085acc35a03b4d5b77098ae70d14c7e48",
+    "draw_id": "066ee6ff7dc15cc4b4db4e0330f7db64d93f93f5bfd4d60a2ec428d560b963cf",
+    "index": "83b27117f7f9e43e369f2d5314999c2966f75eebabe8bb6438aa2db76f0b93ac",
+    "loss": "1b39d10da61cbf0b3a1cd150705ef4e924e123d047740d7de5dcef25e3dabd26"
+  }
+}
