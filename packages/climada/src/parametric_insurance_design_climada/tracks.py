@@ -108,23 +108,32 @@ def read_iris_catalogue(path: str | Path) -> pd.DataFrame:
         number, the catalogue is empty, or an ``event_id`` maps to more than
         one IRIS ``tcid`` (or the reverse).
     """
+    # Columns are named only after counting them: with ``names=`` pandas would
+    # turn surplus leading fields into an index and shift every column.
     try:
         frame = pd.read_csv(
             path,
             sep=r"\s+",
             comment="#",
             header=None,
-            names=list(IRIS_COLUMNS),
             keep_default_na=False,
             na_values=[""],
-            dtype={"basin": str},
+            dtype={1: str},
         )
+    except pd.errors.EmptyDataError:
+        frame = pd.DataFrame()
     except (ValueError, pd.errors.ParserError) as exc:
         raise CatalogueFormatError(f"{path}: cannot parse as IRIS: {exc}") from exc
     if frame.empty:
         raise CatalogueFormatError(f"{path}: no track points")
-    if frame.isna().any().any():
-        bad = frame.columns[frame.isna().any()].tolist()
+    if frame.shape[1] != len(IRIS_COLUMNS):
+        raise CatalogueFormatError(
+            f"{path}: {frame.shape[1]} columns, expected {len(IRIS_COLUMNS)} "
+            f"({' '.join(IRIS_COLUMNS)}); cannot parse as IRIS"
+        )
+    frame.columns = list(IRIS_COLUMNS)
+    bad = [str(c) for c in frame.columns if frame[c].isna().to_numpy().any()]
+    if bad:
         raise CatalogueFormatError(f"{path}: missing values in columns {bad}")
     for column in _INT_COLUMNS:
         if not pd.api.types.is_integer_dtype(frame[column]):
@@ -139,12 +148,15 @@ def read_iris_catalogue(path: str | Path) -> pd.DataFrame:
     frame["event_id"] = (
         frame["basin"] + "_" + frame["year"].astype(str) + "_" + frame["tc"].astype(str)
     )
-    pairs = frame[["event_id", "tcid"]].drop_duplicates()
-    if pairs["event_id"].duplicated().any() or pairs["tcid"].duplicated().any():
-        example = pairs[pairs["event_id"].duplicated(keep=False)].head(4)
+    tcids_per_event = frame.groupby("event_id")["tcid"].nunique()
+    events_per_tcid = frame.groupby("tcid")["event_id"].nunique()
+    shared = [
+        *tcids_per_event.index.to_numpy()[tcids_per_event.to_numpy() > 1].tolist(),
+        *events_per_tcid.index.to_numpy()[events_per_tcid.to_numpy() > 1].tolist(),
+    ]
+    if shared:
         raise CatalogueFormatError(
-            f"{path}: event_id and tcid are not one-to-one, e.g. "
-            f"{example.to_dict('records')}"
+            f"{path}: event_id and tcid are not one-to-one, e.g. {shared[:4]}"
         )
     return frame
 
@@ -223,7 +235,8 @@ def storms_near_locations(
             out=min_dist,
         )
     closest = pd.Series(min_dist, index=catalogue["event_id"]).groupby(level=0).min()
-    return sorted(str(e) for e in closest.index[closest.to_numpy() <= radius_km])
+    keep = closest.index.to_numpy()[closest.to_numpy() <= radius_km].tolist()
+    return sorted(str(e) for e in keep)
 
 
 def storm_to_track(storm: pd.DataFrame) -> xr.Dataset:
