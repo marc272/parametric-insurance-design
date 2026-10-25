@@ -821,6 +821,41 @@ def test_out_of_range(es: EventSet, table: str, column: str, bad: float) -> None
         EventSet.from_long(**kwargs)
 
 
+@pytest.mark.parametrize("year", [-1, 100, 101])
+def test_year_out_of_range(es: EventSet, year: int) -> None:
+    # ADR 0002 §5: 0-based years, year in [0, n_years); n_years is 100 here.
+    kwargs = parts(es)
+    kwargs["events"].loc[0, "year"] = year
+    with pytest.raises(OutOfRangeError, match=r"year must lie in \[0, 100\)") as info:
+        EventSet.from_long(**kwargs)
+    assert info.value.table == "events"
+    assert "'ev0'" in str(info.value)
+    with pytest.raises(OutOfRangeError, match="year"):
+        dataclasses.replace(es, events=kwargs["events"])
+
+
+def test_year_range_bounds_are_accepted(es: EventSet, tmp_path: Path) -> None:
+    events = es.events.copy()
+    events.loc[0, "year"] = 0
+    events.loc[1, "year"] = 99
+    edge = dataclasses.replace(es, events=events)
+    assert EventSet.from_parquet(edge.to_parquet(tmp_path / "es")).equals(edge)
+
+
+def test_year_checked_against_n_years(es: EventSet) -> None:
+    assert es.events["year"].to_numpy().max() == 3
+    dataclasses.replace(es, metadata=dataclasses.replace(es.metadata, n_years=4))
+    with pytest.raises(OutOfRangeError, match=r"\[0, 3\)"):
+        dataclasses.replace(es, metadata=dataclasses.replace(es.metadata, n_years=3))
+
+
+def test_year_out_of_range_on_read(es: EventSet, tmp_path: Path) -> None:
+    es.to_parquet(tmp_path)
+    _edit_metadata(tmp_path, lambda raw: raw.update(n_years=2))
+    with pytest.raises(OutOfRangeError, match="year"):
+        EventSet.from_parquet(tmp_path)
+
+
 @pytest.mark.parametrize("n_years", [0, -5])
 def test_non_positive_n_years(n_years: int) -> None:
     with pytest.raises(OutOfRangeError, match="n_years"):

@@ -17,9 +17,10 @@ On disk
 
 Tables
     ``events``
-        ``event_id`` (str), ``year`` (int, simulation year), ``rate`` (float,
-        annual frequency, > 0), ``draw_id`` (int, >= 0; 0 if no draws),
-        ``scenario_id`` (str). The key is ``(event_id, draw_id)``.
+        ``event_id`` (str), ``year`` (int, 0-based simulation year in
+        ``[0, n_years)``), ``rate`` (float, annual frequency, > 0),
+        ``draw_id`` (int, >= 0; 0 if no draws), ``scenario_id`` (str). The key
+        is ``(event_id, draw_id)``.
     ``locations``
         ``location_id`` (str, key), ``lat`` (float, degrees in [-90, 90]),
         ``lon`` (float, degrees in [-180, 180]), ``value`` (float, >= 0),
@@ -667,11 +668,18 @@ class EventSet:
     NegativeLossError
         If a loss is < 0.
     OutOfRangeError
-        If ``draw_id``, ``lat``, ``lon`` or ``value`` is out of range.
+        If ``year`` lies outside ``[0, metadata.n_years)``, or ``draw_id``,
+        ``lat``, ``lon`` or ``value`` is out of range.
     DuplicateKeyError
         If ``(event_id, draw_id)`` or ``location_id`` repeats.
     InconsistentKeysError
         If the matrix shapes do not match the tables.
+
+    Notes
+    -----
+    Years are 0-based: ``year`` is in ``[0, n_years)``, as in IRIS, the thesis
+    and the parity fixture (ADR 0002 §5). SPEC §6 writes ``y = 1..Y`` as
+    notation only.
 
     Examples
     --------
@@ -691,6 +699,7 @@ class EventSet:
         if not isinstance(self.metadata, EventSetMetadata):
             raise SchemaError("metadata must be an EventSetMetadata")
         events = _normalise_events(self.events)
+        _check_years(events, self.metadata.n_years)
         locations = _normalise_locations(self.locations)
         shape = (len(events), len(locations))
         index = _normalise_matrix(self.index, "index", shape)
@@ -1368,6 +1377,19 @@ def _normalise_events(frame: object) -> pd.DataFrame:
             table="events",
         )
     return events
+
+
+def _check_years(events: pd.DataFrame, n_years: int) -> None:
+    # ADR 0002 §5: years are 0-based, year in [0, n_years).
+    years = events["year"].to_numpy()
+    bad = (years < 0) | (years >= n_years)
+    if bad.any():
+        raise OutOfRangeError(
+            f"year must lie in [0, {n_years}) (0-based, ADR 0002 §5; n_years from "
+            f"metadata); {int(bad.sum())} rows are outside, e.g. "
+            f"{_examples(events.loc[bad, ['event_id', 'draw_id', 'year']])}",
+            table="events",
+        )
 
 
 def _normalise_locations(frame: object) -> pd.DataFrame:

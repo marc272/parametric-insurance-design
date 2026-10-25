@@ -18,7 +18,11 @@ import pytest
 import parametric_insurance_design as pid
 from parametric_insurance_design import errors
 from parametric_insurance_design.basis import Basis, OutcomeMeasure
-from parametric_insurance_design.eventset import EventSet, EventSetError
+from parametric_insurance_design.eventset import (
+    EventSet,
+    EventSetError,
+    OutOfRangeError,
+)
 from parametric_insurance_design.interfaces import (
     SUCCESS_STATUSES,
     Constraint,
@@ -222,15 +226,20 @@ def test_sample_select_rejects_wrong_length(toy_eventset: EventSet) -> None:
 
 def test_full_sample_enforces_year_convention(toy_eventset: EventSet) -> None:
     events = toy_eventset.events.assign(year=[1, 2, 3])
-    one_based = EventSet(
-        events=events,
-        locations=toy_eventset.locations,
-        index=toy_eventset.index,
-        loss=toy_eventset.loss,
-        metadata=toy_eventset.metadata,
-    )
+    # Since MAR-82 (ADR 0002 §9 amendment) the EventSet itself rejects years
+    # outside [0, n_years).
+    with pytest.raises(OutOfRangeError, match="year"):
+        EventSet(
+            events=events,
+            locations=toy_eventset.locations,
+            index=toy_eventset.index,
+            loss=toy_eventset.loss,
+            metadata=toy_eventset.metadata,
+        )
+    # Sample.full keeps its own guard: bypass validation to reach it.
+    object.__setattr__(toy_eventset, "events", events)
     with pytest.raises(errors.InputMismatchError, match="year convention"):
-        Sample.full(one_based)
+        Sample.full(toy_eventset)
 
 
 @pytest.mark.parametrize(
