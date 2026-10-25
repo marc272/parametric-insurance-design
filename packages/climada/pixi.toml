@@ -40,6 +40,9 @@ scipy = ">=1.15"
 # Test tools.
 pytest = ">=9"
 pytest-cov = ">=7"
+# Type checker (MAR-73): the root pyright excludes this package, because it
+# needs CLIMADA, which only this env has. Same floor as the uv lint group.
+pyright = ">=1.1.400"
 
 [pypi-dependencies]
 parametric-insurance-design = { path = "../core", editable = true }
@@ -57,3 +60,10 @@ test-core = { cmd = "pytest ../core/tests -p no:cacheprovider", description = "R
 # git-ignored data/iris/ at the repository root; re-running skips verified
 # files. Pass `--archive <path>` to use a local copy of IRIS_event_set.zip.
 iris = { cmd = "python -m parametric_insurance_design_climada.iris --data-dir ../../data/iris", description = "Download, verify and merge the IRIS North Atlantic event set (MAR-72)" }
+# Track -> wind -> impact pipeline writing an EventSet (MAR-73). Pass the
+# config and options after the task name, e.g.
+#   pixi run build-eventset --config configs/thesis.yaml [--overwrite]
+build-eventset = { cmd = "python -m parametric_insurance_design_climada.cli", description = "Build an EventSet from an IRIS catalogue with CLIMADA (MAR-73)" }
+# pyright (basic) on this package's src and tests, against this env's
+# CLIMADA and core; settings in pyrightconfig.json next to this file.
+typecheck = { cmd = "pyright", description = "Type-check the CLIMADA adapter with pyright in this env" }

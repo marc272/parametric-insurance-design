@@ -44,6 +44,11 @@ jobs:
         run: pixi list --explicit
       - name: Test the CLIMADA adapter (pixi run test)
         run: pixi run --locked test
+      # The root pyright (ci.yml) excludes packages/climada, because CLIMADA
+      # is only in this env. pyrightconfig.json in packages/climada sets basic
+      # mode and points pyright at the pixi env.
+      - name: Type-check the CLIMADA adapter (pixi run typecheck)
+        run: pixi run --locked typecheck
       # The core's own tests, in the CLIMADA env (python 3.12, CLIMADA's
       # numpy/scipy/pandas pins), so that a core change that breaks there
       # shows up here and not in the adapter work.
