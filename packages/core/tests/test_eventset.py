@@ -15,6 +15,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from parametric_insurance_design.errors import ParametricInsuranceDesignError
 from parametric_insurance_design.eventset import (
     EVENTS_FILE,
     LOCATIONS_FILE,
@@ -401,6 +402,31 @@ def test_error_hierarchy() -> None:
     assert issubclass(EventSetError, ValueError)
     assert issubclass(NegativeLossError, OutOfRangeError)
     assert issubclass(NonPositiveRateError, OutOfRangeError)
+
+
+def test_eventset_errors_derive_from_library_base(es: EventSet) -> None:
+    # ADR 0002 §9 row 8: one ``except`` clause catches the whole library, and
+    # every EventSet error stays a ValueError.
+    assert issubclass(EventSetError, ParametricInsuranceDesignError)
+    for cls in (
+        SchemaError,
+        MissingColumnsError,
+        DuplicateKeyError,
+        NonFiniteValueError,
+        InconsistentKeysError,
+        OutOfRangeError,
+        NegativeLossError,
+        NonPositiveRateError,
+    ):
+        assert issubclass(cls, ParametricInsuranceDesignError)
+        assert issubclass(cls, ValueError)
+    loss = es.loss.copy()
+    loss[0, 0] = -1.0
+    with pytest.raises(ParametricInsuranceDesignError) as info:
+        dataclasses.replace(es, loss=loss)
+    assert isinstance(info.value, NegativeLossError)
+    assert isinstance(info.value, ValueError)
+    assert info.value.table == "matrices"
 
 
 # MissingColumnsError --------------------------------------------------------
