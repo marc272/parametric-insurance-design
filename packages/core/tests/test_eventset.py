@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
+import shutil
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
@@ -304,6 +306,204 @@ def test_to_parquet_rejects_file_path(es: EventSet, tmp_path: Path) -> None:
     target.write_text("x")
     with pytest.raises(FileExistsError, match="not a directory"):
         es.to_parquet(target)
+
+
+# Atomic write (MAR-82) -------------------------------------------------------
+
+
+class _Interrupted(BaseException):
+    """Stands in for a kill or Ctrl-C in the middle of a write."""
+
+
+# Every file-system step of to_parquet that an interruption can fall between.
+_WRITE_STEPS: tuple[tuple[Any, str], ...] = (
+    (pq, "write_table"),
+    (Path, "write_text"),
+    (os, "fsync"),
+    (os, "rename"),
+    (os, "replace"),
+    (os, "unlink"),
+    (os, "rmdir"),
+)
+
+
+def _staging_dirs(*directories: Path) -> list[Path]:
+    return [
+        p
+        for d in directories
+        if d.is_dir()
+        for p in d.iterdir()
+        if p.name.startswith(".") and p.name.endswith(".tmp")
+    ]
+
+
+def _read_or_none(path: Path) -> EventSet | None:
+    try:
+        return EventSet.from_parquet(path)
+    except EventSetError:
+        return None
+
+
+def _write_interrupted(
+    monkeypatch: pytest.MonkeyPatch,
+    es: EventSet,
+    target: Path,
+    *,
+    at: int | None,
+    overwrite: bool,
+    killed: bool,
+) -> int:
+    """Run ``es.to_parquet``, raising before file-system step ``at``.
+
+    Returns the number of steps run. ``killed`` also disables the cleanup,
+    as when the process dies without unwinding.
+    """
+    steps = 0
+    with monkeypatch.context() as m:
+        for owner, name in _WRITE_STEPS:
+            original = getattr(owner, name)
+
+            def step(
+                *args: object,
+                _original: Callable[..., object] = original,
+                **kwargs: object,
+            ) -> object:
+                nonlocal steps
+                steps += 1
+                if steps - 1 == at:  # fire once; the cleanup runs unhindered
+                    raise _Interrupted
+                return _original(*args, **kwargs)
+
+            m.setattr(owner, name, step)
+        if killed:
+            m.setattr(shutil, "rmtree", lambda *a, **k: None)
+        try:
+            es.to_parquet(target, overwrite=overwrite)
+        except _Interrupted:
+            assert at is not None
+    return steps
+
+
+@pytest.mark.parametrize("killed", [False, True], ids=["unwound", "killed"])
+@pytest.mark.parametrize("case", ["new directory", "overwrite", "existing directory"])
+def test_interrupted_write_leaves_old_or_no_eventset(
+    es: EventSet,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+    killed: bool,
+) -> None:
+    # Same keys as ``es`` but different content in every file, so that any mix
+    # of old and new files would load and be neither the old nor the new one.
+    other = make_eventset(seed=7)
+    new = EventSet(
+        events=other.events.assign(rate=other.events["rate"] * 2),
+        locations=other.locations.assign(name="renamed"),
+        index=other.index,
+        loss=other.loss,
+        metadata=dataclasses.replace(other.metadata, scenario="new scenario"),
+    )
+    old = es if case == "overwrite" else None
+
+    def prepare(run: int) -> Path:
+        target = tmp_path / f"run{run}" / "es"
+        if case != "new directory":
+            target.mkdir(parents=True)
+            (target / "notes.txt").write_text("keep me")
+        if old is not None:
+            old.to_parquet(target)
+        return target
+
+    total = _write_interrupted(
+        monkeypatch, new, prepare(0), at=None, overwrite=True, killed=False
+    )
+    assert total >= 8  # 3 Parquet files, metadata, fsyncs and renames
+    committed = False
+    for at in range(total):
+        target = prepare(at + 1)
+        _write_interrupted(
+            monkeypatch, new, target, at=at, overwrite=True, killed=killed
+        )
+        state = _read_or_none(target)
+        # Before the commit rename: the old EventSet or none. After it (only
+        # fsync and cleanup remain): the complete new one, for good.
+        if state is not None and state.equals(new):
+            committed = True
+        elif committed:
+            pytest.fail(f"new EventSet lost again when interrupted at step {at}")
+        elif old is None:
+            assert state is None, f"interrupted at step {at}"
+        else:
+            assert state is None or state.equals(old), f"interrupted at step {at}"
+        if case != "new directory":
+            assert (target / "notes.txt").read_text() == "keep me"
+        if not killed:
+            assert _staging_dirs(target.parent, target) == [], at
+    # Without an interruption the new EventSet is in place.
+    target = prepare(total + 1)
+    _write_interrupted(monkeypatch, new, target, at=None, overwrite=True, killed=False)
+    assert EventSet.from_parquet(target).equals(new)
+
+
+def test_to_parquet_leaves_no_staging_directory(es: EventSet, tmp_path: Path) -> None:
+    es.to_parquet(tmp_path / "es")
+    (tmp_path / "es" / "notes.txt").write_text("keep me")
+    make_eventset(seed=7).to_parquet(tmp_path / "es", overwrite=True)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["es"]
+    assert sorted(p.name for p in (tmp_path / "es").iterdir()) == sorted(
+        [EVENTS_FILE, LOCATIONS_FILE, METADATA_FILE, VALUES_FILE, "notes.txt"]
+    )
+    assert EventSet.from_parquet(tmp_path / "es").equals(make_eventset(seed=7))
+
+
+def test_to_parquet_creates_parents_and_follows_symlinks(
+    es: EventSet, tmp_path: Path
+) -> None:
+    nested = tmp_path / "a" / "b" / "es"
+    assert es.to_parquet(nested) == nested
+    assert EventSet.from_parquet(nested).equals(es)
+    real = tmp_path / "real"
+    real.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+    es.to_parquet(link)
+    assert link.is_symlink()
+    assert EventSet.from_parquet(real).equals(es)
+
+
+def test_failed_write_propagates_and_cleans_up(
+    es: EventSet, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    es.to_parquet(tmp_path / "es")
+
+    def disk_full(*args: object, **kwargs: object) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(pq, "write_table", disk_full)
+    with pytest.raises(OSError, match="No space left"):
+        make_eventset(seed=7).to_parquet(tmp_path / "es", overwrite=True)
+    with pytest.raises(OSError, match="No space left"):
+        es.to_parquet(tmp_path / "new")
+    assert EventSet.from_parquet(tmp_path / "es").equals(es)
+    assert not (tmp_path / "new").exists()
+    assert _staging_dirs(tmp_path, tmp_path / "es") == []
+
+
+def test_failed_cleanup_is_reported(
+    es: EventSet, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def disk_full(*args: object, **kwargs: object) -> None:
+        raise OSError(28, "No space left on device")
+
+    def no_cleanup(path: object) -> None:
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(pq, "write_table", disk_full)
+    monkeypatch.setattr(shutil, "rmtree", no_cleanup)
+    with pytest.raises(OSError, match="No space left") as info:
+        es.to_parquet(tmp_path / "es")
+    notes = getattr(info.value, "__notes__", [])
+    assert any("could not remove the staging directory" in n for n in notes)
 
 
 # --------------------------------------------------------------------------

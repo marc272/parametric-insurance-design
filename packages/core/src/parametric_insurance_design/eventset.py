@@ -51,6 +51,9 @@ import dataclasses
 import hashlib
 import json
 import math
+import os
+import shutil
+import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -1018,6 +1021,30 @@ class EventSet:
         FileExistsError
             If ``overwrite`` is False and the directory already holds an
             EventSet file, or ``path`` is an existing file.
+
+        Notes
+        -----
+        The write is atomic for readers: if it is interrupted at any point,
+        ``path`` holds the old EventSet, or no EventSet that
+        :meth:`from_parquet` accepts, never a mix or a partial file.
+
+        All four files are first written and flushed to disk (``fsync``) in a
+        staging directory on the same file system:
+
+        * If ``path`` does not exist, the staging directory is a hidden
+          sibling (``.<name>.*.tmp``) and is renamed to ``path`` in one step.
+        * If ``path`` is an existing directory, the staging directory is a
+          hidden subdirectory of it (``.eventset-*.tmp``), so that the other
+          files in ``path`` stay where they are. ``metadata.json`` acts as
+          the commit marker: an old one is removed first, the three Parquet
+          files are moved in, and the new ``metadata.json`` is moved in last.
+          Each move is an atomic rename, and :meth:`from_parquet` refuses a
+          directory without ``metadata.json``.
+
+        On an exception (including ``KeyboardInterrupt``), the staging
+        directory is removed before the exception propagates. A process that
+        is killed outright may leave the hidden staging directory behind; it
+        never affects :meth:`from_parquet` and may be deleted.
         """
         directory = Path(path)
         if directory.exists() and not directory.is_dir():
@@ -1029,8 +1056,42 @@ class EventSet:
                 f"{directory} already holds {', '.join(existing)}; "
                 "pass overwrite=True to replace them"
             )
-        directory.mkdir(parents=True, exist_ok=True)
+        # Resolve symlinks so that the staging directory and the target share
+        # a file system, which renames require.
+        target = directory.resolve()
+        fresh = not target.exists()
+        if fresh:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            staging = Path(
+                tempfile.mkdtemp(
+                    prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
+                )
+            )
+        else:
+            staging = Path(
+                tempfile.mkdtemp(prefix=".eventset-", suffix=".tmp", dir=target)
+            )
+        try:
+            self._write_files(staging)
+            if fresh:
+                os.rename(staging, target)
+                _fsync_directory(target.parent)
+            else:
+                _commit_files(staging, target)
+                os.rmdir(staging)
+        except BaseException as exc:
+            if staging.exists():
+                try:
+                    shutil.rmtree(staging)
+                except OSError as cleanup:
+                    exc.add_note(
+                        f"could not remove the staging directory {staging}: {cleanup}"
+                    )
+            raise
+        return directory
 
+    def _write_files(self, directory: Path) -> None:
+        """Write the four EventSet files into ``directory`` and fsync them."""
         pq.write_table(_to_arrow(self.events, _EVENT_KINDS), directory / EVENTS_FILE)
         pq.write_table(
             _to_arrow(self.locations, _LOCATION_KINDS), directory / LOCATIONS_FILE
@@ -1040,7 +1101,10 @@ class EventSet:
             json.dumps(self.metadata.to_dict(), indent=2, allow_nan=False) + "\n",
             encoding="utf-8",
         )
-        return directory
+        for name in (EVENTS_FILE, LOCATIONS_FILE, VALUES_FILE, METADATA_FILE):
+            with (directory / name).open("rb+") as handle:
+                os.fsync(handle.fileno())
+        _fsync_directory(directory)
 
     @classmethod
     def from_parquet(cls, path: str | Path) -> EventSet:
@@ -1378,6 +1442,44 @@ def _to_arrow(frame: pd.DataFrame, kinds: Mapping[str, _ColumnKind]) -> pa.Table
         else:
             arrays[column] = pa.Array.from_pandas(values)
     return pa.table(arrays)
+
+
+# --------------------------------------------------------------------------
+# Atomic write helpers (see EventSet.to_parquet)
+# --------------------------------------------------------------------------
+
+
+def _fsync_directory(directory: Path) -> None:
+    """Flush a directory's entries (renames, removals) to disk.
+
+    POSIX only: Windows cannot open a directory for ``fsync``, and NTFS
+    journals renames itself.
+    """
+    if os.name != "posix":  # pragma: no cover - CI runs on Linux
+        return
+    fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _commit_files(staging: Path, target: Path) -> None:
+    """Move the staged EventSet files into an existing directory.
+
+    ``metadata.json`` is the commit marker: it is removed first and moved in
+    last, so that every intermediate state lacks it and
+    :meth:`EventSet.from_parquet` refuses it.
+    """
+    old_metadata = target / METADATA_FILE
+    if old_metadata.exists():
+        os.unlink(old_metadata)
+        _fsync_directory(target)
+    for name in (EVENTS_FILE, LOCATIONS_FILE, VALUES_FILE):
+        os.replace(staging / name, target / name)
+    _fsync_directory(target)
+    os.replace(staging / METADATA_FILE, old_metadata)
+    _fsync_directory(target)
 
 
 # --------------------------------------------------------------------------
