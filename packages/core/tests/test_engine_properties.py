@@ -35,10 +35,9 @@ from datetime import UTC, datetime
 import numpy as np
 import pandas as pd
 import pytest
-from numpy.typing import NDArray
-
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
+from numpy.typing import NDArray
 
 from parametric_insurance_design.basis import Basis
 from parametric_insurance_design.constraints import Budget
