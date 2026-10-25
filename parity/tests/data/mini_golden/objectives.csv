@@ -1,0 +1,3 @@
+Approach,Method,Source,Alpha,Beta,Budget_Loading,N_Bins,N_Clusters,Problem,Objective_Value
+individual_optimization,pure_uncovered_loss_minimization,single_run,,,1,2,,A1,20.0
+individual_optimization,pure_uncovered_loss_minimization,single_run,,,1,2,,A2,10.0

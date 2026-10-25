@@ -1,0 +1,8 @@
+Approach,Method,Source,Scope,Asset,Alpha,Beta,Budget_Loading,N_Bins,N_Clusters,Included_Assets,CVaR_Uncovered,VaR_Uncovered,E_Uncovered,E_Residual,E_Payout_to_E_Loss_Ratio,Correlation
+individual_optimization,pure_uncovered_loss_minimization,single_run,Portfolio,Portfolio,,,1.0,2,,"['A1', 'A2']",900.0,400.0,30.0,150.0,0.95,0.9
+individual_optimization,pure_uncovered_loss_minimization,single_run,Asset,A1,,,1.0,2,,,500.0,250.0,20.0,100.0,0.9,0.8
+individual_optimization,pure_uncovered_loss_minimization,single_run,Asset,A2,,,1.0,2,,,400.0,150.0,10.0,50.0,1.1,
+cluster_optimization,weighted_cvar_minimization,single_run,Portfolio,Portfolio,0.5,0.9,1.0,2,1.0,"['A1', 'A2']",800.0,350.0,25.0,140.0,1.0,0.92
+cluster_optimization,weighted_cvar_minimization,single_run,Cluster,C1,0.5,0.9,1.0,2,1.0,"['A1', 'A2']",800.0,350.0,25.0,140.0,1.0,0.92
+cluster_optimization,weighted_cvar_minimization,alpha_sweep,Portfolio,Portfolio,0.5,0.9,1.0,2,1.0,"['A1', 'A2']",800.0,350.0,25.0,140.0,1.0,0.92
+cluster_optimization,weighted_cvar_minimization,alpha_sweep,Cluster,C1,0.5,0.9,1.0,2,1.0,"['A1', 'A2']",800.0,350.0,25.0,140.0,1.0,0.92
