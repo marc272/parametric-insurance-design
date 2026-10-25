@@ -96,13 +96,13 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       - name: Create a Python 3.11 env outside the workspace
-        run: uv venv --python 3.11 .venv-core
+        run: uv venv --no-project --python 3.11 .venv-core
       - name: Install core (${{ matrix.resolution }} resolution)
         run: uv pip install --python .venv-core --resolution ${{ matrix.resolution }} ./packages/core
       - name: Install the locked test tools
         run: |
-          uv export --locked --only-group test --no-hashes --no-annotate --no-header -o test-requirements.txt
-          uv pip install --python .venv-core -r test-requirements.txt
+          uv export --locked --only-group test --no-hashes --no-annotate --no-header -o "$RUNNER_TEMP/test-requirements.txt"
+          uv pip install --python .venv-core -r "$RUNNER_TEMP/test-requirements.txt"
       - name: Show resolved versions
         run: uv pip list --python .venv-core
       - name: Test core (coverage gate 85 %)
