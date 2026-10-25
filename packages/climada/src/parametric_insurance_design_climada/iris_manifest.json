@@ -1,0 +1,43 @@
+{
+  "dataset": "IRIS: The Imperial College Storm Model, global synthetic tropical cyclone event set",
+  "version": "figshare collection version 1 (posted 2024-04-23)",
+  "collection_doi": "10.6084/m9.figshare.c.6724251.v1",
+  "article_doi": "10.1038/s41597-024-03250-y",
+  "licence": "CC0-1.0 on the figshare item records of both files downloaded here; the collection's DataCite record states CC-BY-4.0. See docs/data-sources.md (IRIS licence check).",
+  "citation": "Sparks, N. and Toumi, R. (2024). The Imperial College Storm Model (IRIS) Dataset. Scientific Data 11, 424. https://doi.org/10.1038/s41597-024-03250-y. Data: Sparks, N.; Toumi, R. (2024). IRIS: The Imperial College Storm Model. figshare. Collection. https://doi.org/10.6084/m9.figshare.c.6724251.v1",
+  "archive": {
+    "name": "IRIS_event_set.zip",
+    "url": "https://ndownloader.figshare.com/files/43809540",
+    "doi": "10.6084/m9.figshare.24894186.v1",
+    "size": 258943060,
+    "md5": "0109eb9d04bc64fc891f9dbc368441c3",
+    "sha256": "f1b557c5bf0dd2aa142f6f253b965a38c6d8387eea6cb39c9939833c2ffd1bdc"
+  },
+  "readme": {
+    "name": "IRIS_event_set_README.txt",
+    "url": "https://ndownloader.figshare.com/files/43809543",
+    "doi": "10.6084/m9.figshare.24894189.v1",
+    "size": 946,
+    "md5": "3640f530f98d766b9d0d8464dcd5d252",
+    "sha256": "d3b63fa64f4a95eb2a3bdd47ad985b34ae2762b01dcf6690b3bf249975ea5460"
+  },
+  "basin": "NA",
+  "members": [
+    {"name": "IRIS_NA_1000Y_n0.txt", "size": 9946529, "lines": 167963, "sha256": "fd731e399bfa9c6dda84268f673585e0279b0e829b0a03cc73f7bac3e323a81d"},
+    {"name": "IRIS_NA_1000Y_n1.txt", "size": 10159833, "lines": 166666, "sha256": "894401124ee42fd689467712af7e374ca1e2a3ffb266e582f3c48104af3cb38a"},
+    {"name": "IRIS_NA_1000Y_n2.txt", "size": 10409519, "lines": 169275, "sha256": "2ccaf7a677da06dab988d3881c8e55aaa7ec4ba6ecec7e6bcdbc64ad0f1084b1"},
+    {"name": "IRIS_NA_1000Y_n3.txt", "size": 10334810, "lines": 168089, "sha256": "a4343c642220ff753b6da70b34e0dd97001738feddfb1a522587997ee2a1c3ff"},
+    {"name": "IRIS_NA_1000Y_n4.txt", "size": 10767323, "lines": 175088, "sha256": "98d5e7346562344ce587c12f513a87ff05311f6c52c820452201b8212fa128bc"},
+    {"name": "IRIS_NA_1000Y_n5.txt", "size": 10124124, "lines": 164607, "sha256": "69dc321ef320ec7cb2d5884c656a8de31134d3bca5a60ddcd707eae538573df8"},
+    {"name": "IRIS_NA_1000Y_n6.txt", "size": 10313792, "lines": 167727, "sha256": "086c79e131bf550748044467e60ab3948c72c02449b8fd9797fced6dd00a9a26"},
+    {"name": "IRIS_NA_1000Y_n7.txt", "size": 10608613, "lines": 172496, "sha256": "5a045525138b0f34e3b9d4675b47cb2075e9443a9cbfc2699e5fba46492cf6f8"},
+    {"name": "IRIS_NA_1000Y_n8.txt", "size": 10314334, "lines": 167755, "sha256": "e5fdcc28fd05ea4bdceb3d73a22ec3adcd7a0dccad50d744e0017e28d08bed28"},
+    {"name": "IRIS_NA_1000Y_n9.txt", "size": 10340750, "lines": 168162, "sha256": "135016933afb30a310396ffae32d9b47259f944b5afd2483e719eb923390c67b"}
+  ],
+  "merged": {
+    "name": "IRIS_NA_10000Y_merged.txt",
+    "size": 103319078,
+    "lines": 1687819,
+    "sha256": "7f7b224d87db743b5653ebfaa8d9ed1e9e8e7cffc1483643fc9a085f155606bd"
+  }
+}
