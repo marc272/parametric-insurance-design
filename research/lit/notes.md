@@ -166,4 +166,153 @@ None of these searches found a robust or DRO design of parametric (index) payout
 
 ## Addendum (MAR-75): targeted search for robust design of index-based payouts
 
-**Status: in progress.** Search log, hit classification and the proposal for claim B follow.
+**Status: draft for owner review.** Prepared for [MAR-75](https://linear.app/marc-prinzing/issue/MAR-75/p-09-targeted-search-robust-and-distributionally-robust-design-of) on 2026-10-25. The MAR-28 search found no robust or distributionally robust (DRO) design of index-based payouts, so claim B's "first" needed a fuller search before the manuscript (MAR-39). This addendum records that search: sources, verbatim queries, forward citations, a classification of every relevant hit, observations O7–O11, and a proposed wording for claim B. Nothing above this heading was changed. Every summary is a paraphrase. These are observations, not conclusions; the owner decides.
+
+### Sources and access (2026-10-25)
+
+| Source | Used for | Access |
+|---|---|---|
+| Scopus | Not used | Not reachable without an account (HTTP 403 on the search URL) |
+| Google Scholar | Three keyword queries (G1–G3) | First result page read once per query. A fourth automated request was refused by this session's permission policy, which treats scripted Scholar access as bot-check circumvention, so Scholar was not used further |
+| OpenAlex API (anonymous) | Keyword queries on title and abstract (`title_and_abstract.search` filter, relevance-sorted); forward citations (`cites:` filter); abstracts | Rate-limited (HTTP 429) several times. Queries were re-run after a pause; one query was never run (see the table) |
+| Semantic Scholar Graph API (no key) | Forward citations (`/paper/{id}/citations`) | Citation endpoint worked for four of the five seeds. The keyword search endpoint returned HTTP 429 every time, so it was not used |
+| Crossref API | Keyword queries (`query.bibliographic`, top rows screened); metadata and deposited abstracts of every new bib entry | Open |
+| arXiv API | Keyword queries; metadata of arXiv entries | Open |
+| General web search | Cross-checks (W1–W8) | Open |
+| Publisher pages | Abstracts | ScienceDirect and SSRN returned HTTP 403, and Springer redirected to a sign-in page, which was not followed. Abstracts were taken from Crossref, OpenAlex (publisher abstract), RePEc/IDEAS or arXiv instead |
+
+### Keyword queries (all run on 2026-10-25, recorded verbatim)
+
+"Hits" is the count that the source reported. Crossref ranks its whole index, so its totals mean nothing; only the top rows were screened.
+
+| ID | Source | Query | Hits | Relevant hits (classification below) |
+|---|---|---|---|---|
+| G1 | Google Scholar | `"distributionally robust" "index insurance"` | 1 on the first page | `sadefokamdem2026robust` |
+| G2 | Google Scholar | `"distributionally robust" "parametric insurance"` | 4 | `sadefokamdem2026robust`; the other three are unrelated (supply-chain cat bond, utility reserve fund, wind-turbine storms) |
+| G3 | Google Scholar | `"robust optimization" "index insurance" design` | 5 | `sadefokamdem2026robust`; Zhou et al. (2026); the other three are unrelated water-resources planning works |
+| O1 | OpenAlex | `"distributionally robust" AND (insurance OR "basis risk")` | 34 | `boonen2025wasserstein`, `jiang2026bregman`, `birghila2019xl`, Zenodo cluster, Tsekrekos et al. (2026) |
+| O2 | OpenAlex | `("index insurance" OR "index-based insurance" OR "parametric insurance" OR "weather derivative" OR "parametric trigger") AND (robust OR ambiguity OR "worst-case" OR "model uncertainty")` | 196 (top 50 screened) | `sadefokamdem2026robust`, Fujii & Osaki (2020), Diao, Weng & Zhang (2026), Lopez & Nkameni (2026) |
+| O3 | OpenAlex | `"basis risk" AND ("robust optimization" OR "robust optimisation" OR minimax OR "min-max" OR "worst case" OR "worst-case" OR "distributional uncertainty")` | 7 | `sadefokamdem2026robust`, `lefevre2021sconvex`, Zenodo cluster |
+| O4 | OpenAlex | `("index insurance" OR "parametric insurance" OR "index-based insurance" OR "catastrophe bond" OR "parametric trigger") AND ("climate scenarios" OR "climate change scenarios" OR "climate projections" OR "hazard catalogue" OR "event set" OR "stochastic catalog") AND (design OR optimal OR optimization)` | **not run** (HTTP 429). O5 and O8 cover its climate terms; its catalogue terms are covered only by W3 | n/a |
+| O5 | OpenAlex | `("index insurance" OR "index-based insurance" OR "parametric insurance" OR "weather index") AND ("climate change" OR "climate projections" OR "climate scenarios" OR "nonstationary" OR "non-stationary") AND (design OR "optimal contract" OR trigger OR payout)` | 236 (top 50 screened) | `daron2014assessing`; Enenkel et al. (2017, EGU abstract); Mazviona & Sølvsten (2025); Feleppa (2026) |
+| O6 | OpenAlex | `("catastrophe bond" OR "cat bond" OR "parametric trigger" OR "cat-in-a-circle" OR "cat-in-a-box" OR "index-based risk transfer") AND (robust OR ambiguity OR "worst-case" OR minimax OR "model uncertainty") AND (design OR optimal OR optimization)` | 13 | None |
+| O7 | OpenAlex | `(Wasserstein OR "phi-divergence" OR "minimax regret" OR "ambiguity set" OR "scenario-based robust") AND ("crop insurance" OR "agricultural insurance" OR "index insurance" OR "weather insurance" OR "parametric insurance" OR "basis risk" OR "disaster insurance" OR "catastrophe insurance")` | 11 | `sadefokamdem2026robust`, Tsekrekos et al. (2026), Zenodo cluster |
+| O8 | OpenAlex | `("index insurance" OR "parametric insurance" OR "index-based insurance" OR "weather index insurance") AND (scenarios OR "scenario set" OR "climate model ensemble" OR "multi-model") AND (optimization OR optimisation OR "optimal design") AND (robust OR "worst" OR "out-of-sample" OR "misspecification")` | 4 | None |
+| A1 | arXiv | `(abs:"index insurance" OR abs:"parametric insurance" OR abs:"index-based insurance" OR abs:"basis risk") AND (abs:robust OR abs:"distributionally robust" OR abs:ambiguity OR abs:"worst-case" OR abs:minimax)` | 4 | Lopez & Nkameni (2026) only, which is not robust design |
+| A2 | arXiv | `(abs:insurance OR abs:reinsurance OR abs:"catastrophe bond") AND (abs:"distributionally robust" OR abs:"scenario-robust" OR abs:"robust optimization")` | 15 | `bertsimas2024catastrophe`, `jiang2026bregman` |
+| C1 | Crossref | `robust parametric insurance design basis risk ambiguity` | top 30 screened | `sadefokamdem2026robust`, `dietz2021pricing`, Fujii & Osaki (2020), Lu & Tang (2026) |
+| C2 | Crossref | `distributionally robust index insurance contract design` | top 30 screened | `boonen2025wasserstein`, Lu & Tang (2026), Liu & Mao (2022) |
+| C3 | Crossref | `robust optimization weather index insurance crop basis risk minimization` | **not run** (HTTP 429). Covered in part by O2, O3 and W2 | n/a |
+| C4 | Crossref | `catastrophe models insurance decision making under ambiguity` | top 5 screened | `sadefokamdem2026robust` |
+| W1 | Web search | `distributionally robust optimization index insurance design basis risk` | 9 links | `jiang2026bregman`; no robust index design |
+| W2 | Web search | `robust optimization weather index insurance contract design worst-case scenarios` | 9 links | `asimit2017robust`; no robust index design |
+| W3 | Web search | `parametric insurance payout design climate change scenarios robust hazard catalogue uncertainty` | 10 links | `steinmann2023framework` (ex-post check only), Assa (2026), Huang et al. (2026) |
+| W4 | Web search | `Sadefo Kamdem "Robust Parametric Insurance Design" catastrophe-model ambiguity` | 9 links | The paper itself was not indexed. `dietz2021pricing` was |
+| W5 | Web search | `"index insurance" "robust" design "multiple models" OR "ensemble of models" OR "model ambiguity" basis risk payout optimization` | 9 links | None |
+| W6 | Web search | `min-max CVaR parametric insurance design scenarios linear programming basis risk tropical cyclone` | 9 links | None (Huang et al. use CVaR over scenarios, but not a worst case across scenario sets) |
+| W7 | Web search | `"index insurance" design "convex optimization" OR "linear program" payout function optimal contract data-driven` | 9 links | None robust. Monopoly pricing of weather index insurance (arXiv 2512.01623) uses a farmer CVaR, which bears on claim A rather than B (follow-up) |
+| W8 | Web search | `Asimit Hu Xie "Optimal robust insurance with a finite uncertainty set" abstract` | 10 links | Used to find the open abstract of `asimit2019finite` |
+
+Further web searches were used only to look up abstracts of known hits (Lu & Tang 2026, Fujii & Osaki 2020, Zhou et al. 2026). None of them found the abstract.
+
+### Forward citations (2026-10-25)
+
+| Seed | OpenAlex | Semantic Scholar | Relevant citers |
+|---|---|---|---|
+| `birghila2019xl` (W2947256753) | 20 citers, all screened | 20 citers, all screened | All robust or DRO **indemnity** or reinsurance design. In the bib: `boonen2025wasserstein`. Also Cai, Liu & Yin (2024, 2025); Xie, Liu & Mao (2023); Boonen & Jiang (2022, 2024, 2025); Birghila, Boonen & Ghossoub (2023); Jiang, Escobar-Anel & Ren (2020); Landriault, Liu & Shi (2025); Jiang, Mao & Xiong (2025); Wang & Zhang (2025). Timonina-Farkas (2025) is flood risk management by multistage stochastic programming, not contract design |
+| `zhu2009worst` (W2118856090) | 510 citers. Filtered with `title_and_abstract.search:insurance` (18) and with `index OR weather OR parametric OR "basis risk" OR catastrophe OR agricultural` (47) | 570 citers, titles filtered by the regex `insur\|index\|weather\|parametric\|basis\|catastroph\|crop\|agri\|disaster\|climat\|hazard\|hurrican\|cyclon\|flood` (37 shown) | `asimit2017robust`, `asimit2019finite` (indemnity). The rest is portfolio selection, index *tracking* (stock indices) and DRO disaster-relief logistics: unrelated |
+| `steinmann2023framework` (W4386351804) | 12 | 12 | `sadefokamdem2026robust`. The others (Franco 2024, Lemke et al. 2025, Chen et al. 2026, Men et al. 2025, Bergmüller et al. 2026, and others) do trigger design, loss prediction or pooling, with no robust design |
+| `maier2026expectiles` (W4415031982) | 2 | 4 | `sadefokamdem2026robust`. Also `maier2026weighting`, Avanzi et al. (2025), and an EAJ issue presentation |
+| `maier2026weighting` (W7155549997) | 0 | not retrieved (HTTP 429 twice) | None found |
+| Second level: `asimit2017robust` (W2516279781), `asimit2019finite` (W2786661519) | 2017: 1 citer matches the index-topic filter (portfolio selection, unrelated). 2019: 16 citers, all screened | not run | `birghila2022layering` (a 2019 citer). The rest are indemnity or reinsurance |
+
+### Classification of relevant hits
+
+Classes, as the issue defines them: **P** = robust design of index payouts (prior art for B); **I** = robust design of indemnity contracts; **U** = unrelated to robust payout design. The *Read* column says what was read: **abs** = abstract, **text** = a model section, **title** = title and venue only.
+
+| Work | Class | What it does (paraphrase) | Read |
+|---|---|---|---|
+| `sadefokamdem2026robust` (SSRN preprint, Crossref record created 2026-10-18) | **P** | The joint law of the true need D and a parametric index X lies in a convex set of plausible catastrophe models. Under a worst-case asymmetric basis-risk criterion it proves that an optimal attachment–exhaustion–limit contract exists. For unrestricted index-contingent payments, the robust payment is a capped conditional expectile under a least-favourable prior. For layer contracts the expected payout depends on the model only through the survival function of X on the layer, which gives a model-disagreement measure (LMUI) and a "contractual filtering" interpretation. Also comparative statics in ambiguity aversion and Wasserstein sensitivity bounds. Analytic examples; an El Salvador earthquake illustration is "specified … conditional on reproducible public inputs" | abs |
+| `asimit2017robust` | I | Robust indemnity contracts when the loss distribution is uncertain: worst-case-scenario and worst-case-regret models with VaR and CVaR objectives. Closed form for VaR worst case, LP formulations otherwise. Also discusses Pareto optimality of robust solutions | abs |
+| `asimit2019finite` | I | Robust indemnity or reinsurance contracts over a finite set of candidate models. Several robust models (among them weighted-average and weighted-worst-case) solved as SOCPs. Numerical results favour picking the best-fitting model with large samples and the weighted robust models with small samples | abs (IDEAS) |
+| `birghila2019xl` (MAR-28) | I | See the MAR-28 entry above | abs |
+| `boonen2025wasserstein` | I | Indemnity function that minimises the worst-case convex distortion risk measure over a p-Wasserstein ball around a benchmark loss law, with an expected-value premium. Explicit optimal indemnity and worst-case distribution | abs |
+| `jiang2026bregman` | I | Two indemnity problems over a Bregman–Wasserstein ball: α-maxmin VaR demand, and worst-case distortion risk under a VaR constraint. Closed forms with a TVaR example | abs |
+| `birghila2022layering` | I | Indemnity risk layers under ambiguity, motivated by changing climate risk, with distortion risk measures. Closed form. Drought case for Austrian farmers, with subsidies | abs |
+| `bertsimas2024catastrophe` | I (pricing) | Adaptive robust optimisation of state-level premiums for the US NFIP. Uncertainty sets come from historical statistics and from ML-predicted flood probabilities, the latter as a stand-in for climate-amplified risk. Payouts are indemnity claims; contract shape is not a decision | abs + text |
+| `dietz2021pricing` | I (pricing) | α-maxmin insurance pricing over two hurricane catastrophe-model datasets: ambiguity loads, and a comparison with model blending | abs |
+| Other indemnity or reinsurance DRO found through the citation chains: Cai, Liu & Yin (2024, EJOR); Xie, Liu & Mao (2023, ASTIN); Liu & Mao (2022, IME); Boonen & Jiang (2024, 2025, EJOR); Birghila, Boonen & Ghossoub (2023, F&S); Jiang, Escobar-Anel & Ren (2020, ASTIN); Landriault, Liu & Shi (2025, ASTIN); Jiang, Mao & Xiong (2025, NAAJ); Lu & Tang (2026, IME 129:103271) | I | Titles and venues indicate robust indemnity or reinsurance design. Lu & Tang's abstract was not reachable | title |
+| `lefevre2021sconvex` | U (robust *assessment*) | Worst-case s-convex bounds on the basis risk of index-based (re)insurance contracts, with a catastrophe-model illustration. Assesses basis risk; does not design payouts | abs |
+| `daron2014assessing` | U (uses climate scenarios) | Bayesian networks that bring observations and climate simulations into the pricing of a weather index product (Kolhapur, India). A sensitivity analysis of pricing; no robust optimisation | abs |
+| `steinmann2023framework` (MAR-28) | U (uses climate scenarios) | Ex-post check of a chosen product under Knutson-scaled projections | MAR-28 |
+| Huang, Ma, Guo & Gu (2026), arXiv 2608.15023 (MAR-28 "considered") | U | Wind-index contract for a power grid, chosen against a CVaR of energy not supplied over 80 scenarios. No worst case across scenario sets | abs |
+| Tsekrekos, Papayiannis & Yannacopoulos (2026), ERES conference, doi:10.15396/eres2026_210 | U | DRO (Wasserstein) hedge ratios for real-estate portfolios hedged with index proxies. Financial hedging, not insurance | abs |
+| Zenodo 2026 cluster: Kandil & El-Baz (doi:10.5281/zenodo.23543885); Mba Obame & Ondo Ella (…23544510); Mothibe et al. (…23545387); El Khattabi (…23545465) | U | DRO calibration of crop-yield estimators or premiums for "AI agriculture insurance". No payout design. Not peer-reviewed; the first abstract frames the work on rainfall but evaluates a temperature series. Not cited | abs |
+| Fujii & Osaki (2020), SSRN, doi:10.2139/ssrn.3561406 | U | The title indicates optimal *demand* for index insurance under basis ambiguity, not payout design. Abstract not reachable | title |
+| Diao, Weng & Zhang (2026), NAAJ, doi:10.1080/10920277.2026.2648974 | U | Expected-utility design that jointly selects weather variables and payout structure (Iowa soybeans). Not robust | abs |
+| Lopez & Nkameni (2026), EAJ 16(2):297–328 | U | Demand and solvency conditions for index insurance, and a hybrid index–indemnity product. Not robust | abs |
+| Assa (2026), arXiv 2608.24871 (NatPar) | U | A NatCat-style reporting standard for parametric contracts (EP curves, two-sided basis exceedance). Explicitly not an optimal-contract criterion | abs |
+| Zhou, Dong, Fan & Wang (2026), Oper. Manag. Res. 19(3):45 | U | The title indicates incentive contracts around an index-based catastrophe cover in humanitarian logistics. Abstract behind a sign-in redirect | title |
+| Enenkel et al. (2017), EGU abstract; Mazviona & Sølvsten (2025), *Front. Clim.*; Feleppa (2026), review | U | Climate change and index design, discussed qualitatively or reviewed. No robust optimisation (Enenkel: title only) | abs / title |
+| Lemke, Guidotti & Franco (2025), LNCS; Chen, Escoto & Guidotti (2026), *Risks* | U | Cat-in-a-circle and cat-in-a-grid trigger design on a stochastic catalogue with cross-validation. Not robust (Lemke: title only) | abs / title |
+
+### Observations for the owner (continuing O1–O6)
+
+**O7. There is now direct prior art for robust design of parametric payouts.** Sadefo Kamdem (2026) designs parametric payouts that are robust to catastrophe-model ambiguity: a convex set of joint laws of need and index, under a worst-case asymmetric (expectile-type) basis-risk criterion that extends the Maier–Scherer line.
+- *Differences from claim B, per the abstract only (full text not read):*
+  - one contract for one policyholder;
+  - analytic characterisations instead of an LP over explicit scenario event sets;
+  - no tail functional such as CVaR is mentioned;
+  - no joint multi-asset design;
+  - no climate scenarios or vulnerability draws named as uncertainty sources;
+  - no out-of-sample or price-of-robustness evaluation mentioned;
+  - the empirical illustration is described as "specified", so it is unclear whether it was run.
+- *Status:* an SSRN preprint whose Crossref record was created on 2026-10-18, a week before this search. It was found by G1–G3, O2, O3, O7, C1 and C4, and as a forward citation of both `steinmann2023framework` and `maier2026expectiles`. It is not peer-reviewed and may change.
+
+**O8. R1's formulation has an insurance precedent on the indemnity side.** Asimit et al. (2017) write worst-case-scenario CVaR contract design over a finite set of candidate distributions as an LP. That is the indemnity counterpart of R1's epigraph LP (SPEC §6.5). Asimit et al. (2019) compare weighted-average and weighted-worst-case models over a finite model set. Together with Zhu & Fukushima (2009), this makes R1's technique standard *within insurance design*, not only in portfolio optimisation.
+
+**O9. No hit designs index payouts against climate or hazard-catalogue scenarios as the uncertainty set.** Climate and catalogue uncertainty do appear elsewhere:
+- as an ex-post test (Steinmann et al. 2023);
+- in pricing assessments with climate model output (Daron & Stainforth 2014);
+- in α-maxmin pricing over two hurricane catastrophe models (Dietz & Niehörster 2021);
+- as ML-predicted emerging risk in robust premium setting (Bertsimas & Zeng 2024);
+- as the motivation for indemnity layering under ambiguity (Birghila et al. 2022);
+- as the abstract "convex set of catastrophe models" in Sadefo Kamdem (2026).
+
+The OpenAlex query with catalogue terms (O4) could not be run, so this observation rests on O5, O8, W3 and the citation chains.
+
+**O10. R2 sits closer to existing parametric work than R1 does.** Sadefo Kamdem includes Wasserstein sensitivity bounds for parametric payouts. A DRO variant (R2: a TV or χ² ball over year weights) would therefore be closer to existing parametric work than R1 over explicit hazard, vulnerability and climate event sets. Together with O2, this bears on D6 (MAR-29).
+
+**O11. Robust assessment of basis risk exists; robust minimisation of basis risk for index contracts was found only in Sadefo Kamdem.** Lefèvre, Loisel & Montesinos (2021) bound the basis risk of index contracts under worst-case scenarios within a distribution class. They assess basis risk; they do not design payouts.
+
+### Proposed claim B wording (owner decides: unchanged, narrowed or dropped)
+
+**Proposal: narrowed.** O7 means "unchanged" would need a "first" claim that the search no longer supports.
+- *Current (MAR-28):* "Robust payout design across hazard, vulnerability and climate scenarios", with "no robust or distributionally robust design of index-based payouts" in the sources checked.
+- *Proposed:* "Scenario-robust (min–max) calibration of tail-objective step payouts for one owner's assets, jointly across hazard-catalogue, vulnerability and climate-scenario event sets, as a single LP, evaluated by leave-one-scenario-out tests and a price-of-robustness curve. Robust design of a single parametric contract under catastrophe-model ambiguity has been studied analytically (Sadefo Kamdem 2026), and the min–max LP has indemnity precedents (Asimit et al. 2017; Zhu & Fukushima 2009). The contribution is the computational, multi-asset and empirical setting over explicit event sets, not robust parametric design as such."
+- *If dropped:* robustness would move into the evaluation (claim C) as robustness checks of the claim A design, and R2 would become optional (D6).
+- *Either way:* the manuscript should cite Sadefo Kamdem (2026) and Asimit et al. (2017), and should re-check the preprint's status and content before submission.
+
+### Verification log (MAR-75 entries)
+
+| Key | Metadata checked against | Content read |
+|---|---|---|
+| `sadefokamdem2026robust` | Crossref (DOI; posted content, subtype preprint) | Abstract (Crossref). SSRN full text refused automated access (403) |
+| `asimit2017robust` | Crossref (DOI) | Abstract (OpenAlex, publisher abstract) |
+| `asimit2019finite` | Crossref (DOI) | Abstract (RePEc/IDEAS). ScienceDirect refused automated access (403) |
+| `boonen2025wasserstein` | Crossref (DOI) | Abstract (OpenAlex, publisher abstract) |
+| `jiang2026bregman` | arXiv API | Abstract |
+| `birghila2022layering` | Crossref (DOI) | Abstract (Crossref) |
+| `dietz2021pricing` | Crossref (DOI) | Abstract (Crossref) |
+| `bertsimas2024catastrophe` | arXiv API | Abstract and model section (arXiv HTML v1) |
+| `daron2014assessing` | Crossref (DOI) | Abstract (OpenAlex, publisher abstract) |
+| `lefevre2021sconvex` | Crossref (DOI) | Abstract (OpenAlex, publisher abstract) |
+
+Works classified from the title only (see the table) are not in `references.bib`.
+
+**Limits of this search.**
+- Scopus was not searched, Google Scholar only through G1–G3, and Semantic Scholar's keyword search not at all.
+- O4 and C3 were not run.
+- Sadefo Kamdem (2026) was read from its abstract only.
+
+As in MAR-28, the absence of other hits is absence of evidence from a bounded search.
