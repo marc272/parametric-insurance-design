@@ -1,0 +1,39 @@
+# Python artefacts
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+build/
+dist/
+
+# Environments: uv (.venv, plus .venv-* used for out-of-workspace checks) and pixi
+.venv/
+.venv-*/
+.pixi/
+
+# Test, coverage and tool caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage*.xml
+htmlcov/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Data is never committed, except small test fixtures (AGENTS.md). Downloads
+# go through scripts with checksums. Keep fixtures under a tests/ folder.
+data/
+!**/tests/**/data/
+*.nc
+*.h5
+*.hdf5
+*.zarr/
+
+# Editors, OS and local agent state
+.DS_Store
+.idea/
+.vscode/
+.claude/worktrees/
+.claude/settings.local.json

@@ -1,0 +1,29 @@
+# Not a uv workspace member: this package gets its own pixi env with CLIMADA
+# from conda-forge (SPEC §4.1). Dependencies and the env are added by the
+# CLIMADA adapter work (MAR-19). It must never depend on or import
+# parametric-insurance-design-crc.
+
+[project]
+name = "parametric-insurance-design-climada"
+version = "0.1.0.dev0"
+description = "CLIMADA adapter for parametric-insurance-design: tracks to CLIMADA hazards and impacts to an EventSet."
+readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "Marc Prinzing" }]
+requires-python = ">=3.11"
+dependencies = []
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Repository = "https://github.com/marc272/parametric-insurance-design"
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14"]
+build-backend = "uv_build"

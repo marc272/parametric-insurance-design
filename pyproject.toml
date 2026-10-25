@@ -1,0 +1,79 @@
+# Workspace root. It is virtual (no [project] table): it holds the uv
+# workspace, the shared dev tooling and the tool configuration. Each package
+# has its own pyproject.toml under packages/.
+
+[tool.uv]
+required-version = ">=0.13"
+
+[tool.uv.workspace]
+members = ["packages/core", "packages/viz", "packages/crc"]
+# packages/climada has its own pixi env (SPEC §4.1) and is never a uv member.
+exclude = ["packages/climada"]
+
+[dependency-groups]
+test = ["pytest>=9", "pytest-cov>=7"]
+lint = ["ruff>=0.17", "pyright[nodejs]>=1.1.400", "pre-commit>=4"]
+dev = [{ include-group = "test" }, { include-group = "lint" }]
+
+# --- ruff -------------------------------------------------------------------
+# Keep the ruff rev in .pre-commit-config.yaml equal to the ruff version in
+# uv.lock.
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "NPY", # numpy-specific rules
+    "D",   # pydocstyle, numpy convention (SPEC §4.3)
+    "ANN", # type hints throughout (SPEC §4.3)
+    "PT",  # pytest style
+    "RUF", # ruff-specific rules
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "parametric_insurance_design",
+    "parametric_insurance_design_viz",
+    "parametric_insurance_design_crc",
+    "parametric_insurance_design_climada",
+]
+
+# --- pyright ----------------------------------------------------------------
+
+[tool.pyright]
+typeCheckingMode = "basic"
+include = ["packages/core", "packages/viz", "packages/crc"]
+# packages/climada is type-checked in its own pixi env (CLIMADA adapter work).
+exclude = ["**/__pycache__", "**/.*", "packages/climada"]
+executionEnvironments = [
+    { root = "packages/core", pythonVersion = "3.11" },
+    { root = "packages/viz", pythonVersion = "3.11" },
+    { root = "packages/crc", pythonVersion = "3.12" },
+]
+
+# --- pytest and coverage ----------------------------------------------------
+
+[tool.pytest]
+minversion = "9.0"
+testpaths = ["packages/core/tests", "packages/viz/tests", "packages/crc/tests"]
+addopts = ["-ra", "--import-mode=importlib"]
+strict = true
+
+# Coverage sources are passed per run (--cov=<package>), so that core's 85 %
+# gate counts only what core's own tests cover. See .github/workflows/ci.yml.
+[tool.coverage.report]
+show_missing = true

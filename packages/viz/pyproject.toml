@@ -1,0 +1,30 @@
+[project]
+name = "parametric-insurance-design-viz"
+version = "0.1.0.dev0"
+description = "Figures for parametric-insurance-design, read from its result store."
+readme = "README.md"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+authors = [{ name = "Marc Prinzing" }]
+requires-python = ">=3.11"
+dependencies = ["parametric-insurance-design"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Visualization",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Repository = "https://github.com/marc272/parametric-insurance-design"
+
+[tool.uv.sources]
+parametric-insurance-design = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14"]
+build-backend = "uv_build"
