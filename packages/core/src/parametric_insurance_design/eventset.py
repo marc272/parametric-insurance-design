@@ -1383,7 +1383,8 @@ class EventSet:
         ``metadata.transforms``:
 
         * ``name``: :data:`SELECT_LOCATIONS_TRANSFORM` (``"select_locations"``);
-        * ``function``: ``"parametric_insurance_design.eventset.EventSet.select_locations"``;
+        * ``function``: the qualified name of this method,
+          ``parametric_insurance_design.eventset.EventSet.select_locations``;
         * ``parameters``: ``{"location_ids": [...], "n_locations_before": n}``,
           the kept ids in their new order and the number of locations of the
           input.
@@ -1426,7 +1427,7 @@ class EventSet:
 
         Examples
         --------
-        >>> es = EventSet.from_parquet("parity/tests/data/thesis_eventset")  # doctest: +SKIP
+        >>> es = EventSet.from_parquet("data/eventsets/thesis")  # doctest: +SKIP
         >>> es.select_locations(["A3", "A1"]).location_ids  # doctest: +SKIP
         ['A3', 'A1']
         """
@@ -1449,7 +1450,8 @@ class EventSet:
                 f"{', '.join(repr(v) for v in not_text[:_MAX_EXAMPLES])}",
                 table="locations",
             )
-        ids = cast(list[str], requested)
+        # str() turns numpy strings into plain ones for the JSON record.
+        ids = [str(v) for v in requested]
         seen: set[str] = set()
         repeated: list[str] = []
         for loc in ids:
