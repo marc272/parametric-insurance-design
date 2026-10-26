@@ -4,11 +4,11 @@
 
 Parity of the new engine with the thesis golden tables (SPEC §7 F-06, gate MAR-18). Every gap is listed under *Findings* and needs an explanation.
 
-This report covers the thesis baseline, the golden `single_run` records (MAR-68). It is written by `uv run python parity/scripts/run_default_parity.py`, which runs the 9 default runs, checks the noise draws and the thesis payouts (appendix), and calls `report.py` with the golden objective table (`golden/golden_objectives.csv`) and `explanations.yaml`. The last section checks that the CLIMADA adapter regenerates the thesis event-loss table (MAR-20).
+This report covers the thesis baseline, the golden `single_run` records (MAR-68), and the optimisation-parameter sweeps over alpha, beta, budget loading, n_bins and n_clusters (MAR-69). It is written by `uv run python parity/scripts/run_default_parity.py`, which runs the 9 default runs and every sweep point, checks the noise draws and the thesis payouts (appendix), and calls `report.py` with the golden objective table (`golden/golden_objectives.csv`) and `explanations.yaml`. A sweep point equal to the baseline is the baseline run (a cache hit), so its *Run source* is `single_run`. The last section checks that the CLIMADA adapter regenerates the thesis event-loss table (MAR-20).
 
 ## Setup
 
-- Result store: `results/thesis`, 9 committed runs, 9 of them matched by a golden record.
+- Result store: `results/thesis`, 213 committed runs, 204 of them matched by a golden record.
 - Golden files (SHA256 of the files as read):
   - `full_optimization_results.csv.gz`: `e252ff2d45134f0f5e6c5c6d31581f95b2bceec64b3512aa6726753eed1d80cf`
   - `benchmarking_kpis.csv.gz`: `ae279c6639bcb92e72cfcd89e380ebb3e586da2259e3c66bddd3179335b8f3c4`
@@ -17,7 +17,7 @@ This report covers the thesis baseline, the golden `single_run` records (MAR-68)
   - `full_optimization_results.csv`: `98fe6556ae7b0cc9e5c48e1633ad24860cc8518047617ff2e0bbb18ae114fd31` (matches `manifest.json`)
   - `benchmarking_kpis.csv`: `6e2b9d515a3812e35391233926afb4aa118ac797a19ad99d823bd40a3ac669d6` (matches `manifest.json`)
   - `golden_objectives.csv`: `a39e8f0391b0548c230052baed1c5a01dfb322230c8551f3fa25ae2cb77b0a96` (not in `manifest.json`)
-- Golden records compared: single_run.
+- Golden records compared: alpha_sweep, beta_sweep, budget_loading_sweep, n_bins_sweep, n_clusters_sweep, single_run.
 - Matching: a golden record (approach, method, source, parameters) matches the store run with the mapped scope and objective whose `runs.parameters` hold the same `alpha`, `beta`, `budget_loading`, `n_bins` and `n_clusters` (an empty golden value: the run has no such parameter; relative tolerance 1e-09). The `source` tag need not agree: the runner's cache keeps the tag a run was first written with.
 - KPIs: basis `event_conditional`, eval split `full`, fold 0, VaR and CVaR at beta 0.95. A KPI matches if |ours - golden| <= 0.0001 |golden| + 0; both undefined is a match.
 - Objective values: |ours - golden| <= 0.0001 |golden| + 0.
@@ -27,17 +27,22 @@ This report covers the thesis baseline, the golden `single_run` records (MAR-68)
 - Thesis MSE solver error: the thesis MSE solutions carry OSQP's default inaccuracy. Against accurate solves, their objective values are slightly too high and their payouts and KPIs off, most in the cluster and portfolio scopes (up to about 1.8 % in portfolio E[U]), and the individual-scope payouts of A2 to A4 exceed the budget by about 1e-4 relative (the appendix shows the same for ours under this policy). The MSE rows below therefore compare like with like, solver error included; `parity/BENCHMARK.md` (MAR-98) gives the measurements.
 - Noise draws: the runner's data preparation (`prepare_eventset` with the config's noise, heteroscedastic, before the threshold filter) against `golden/noise_digests.json` (MAR-10): bit-identical: the SHA256 of the noisy loss matrix equals the thesis digest `4fa4d9b4bb30c698…` (platform Darwin arm64, numpy 2.5.4).
 - Runs: the 9 single runs of `parity/configs/thesis.yaml` (3 scopes x 3 objectives; noise seed 42, level 0.3, 13 copies), EventSet checksum `sha256:f247d02460690fec6efb80b7f4a7936671eddc6c9ccf6debe5e128276001877a`. Versions: parametric-insurance-design 0.1.0.dev0, numpy 2.5.4, scipy 1.18.1, pandas 3.1.0, pyarrow 26.0.0, pydantic 2.14.1, pyyaml 6.0.3, cvxpy 1.9.3, clarabel 0.11.1, osqp 1.1.3, scs 3.3.1, highspy 1.15.1.
+- Sweep `alpha` (`alpha_sweep`, values 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0): 30 points, 0 with a failed design problem; sweep manifest `sha256:cf8d19c0e24bff2d79dbd41a99121314fcb076bb1ca0c2d1b3d9fa148ff0c3cc` (MAR-65).
+- Sweep `beta` (`beta_sweep`, values 0.9, 0.91, 0.92, 0.93, 0.94, 0.95, 0.96, 0.97, 0.98, 0.99): 30 points, 0 with a failed design problem; sweep manifest `sha256:3336324934c09e958a42a9e467a3656e851a62aece84f7eab2f5a1114a05b9e5` (MAR-65).
+- Sweep `budget_loading` (`budget_loading_sweep`, values 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5): 99 points, 0 with a failed design problem; sweep manifest `sha256:d0164454dcdc6ae950c322fb8e5ab6ed1d3159c7c1e440bc258d5962f8825363` (MAR-65).
+- Sweep `n_clusters` (`n_clusters_sweep`, values 1, 2, 3, 4, 5, 6, 7, 8, 9): 27 points, 0 with a failed design problem; sweep manifest `sha256:c004527eafc5236784d8c7ddc842ef64a26ccbc3b78015261d20d8aceb57f124` (MAR-65).
+- Sweep `n_bins` (`n_bins_sweep`, values 5, 10, 15, 20, 25): 45 points, 0 with a failed design problem; sweep manifest `sha256:311bb518ce7aa11f84da7411dbf52e18d60bf943c82ef96be56bd8da3be6821d` (MAR-65).
 
 ## Overview
 
-10 findings, 10 of them explained, 0 not yet.
+720 findings, 720 of them explained, 0 not yet.
 
 | Comparison | Golden | Compared | Match | Mismatch | Not compared | Largest rel. error | Rule |
 |---|---|---|---|---|---|---|---|
-| KPI values | 432 | 432 | 422 | 10 | 0 | 7.33e-04 | relative error <= 0.0001 (atol 0) |
-| Objective values | 33 | 33 | 33 | 0 | 0 | 1.15e-09 | relative error <= 0.0001 (atol 0) |
-| Payout vectors | 63 | 63 | 63 | 0 | 0 | 1.94e-03 | levels: largest difference reported, not asserted; bin edges within 1e-06 |
-| Cluster assignments | 3 | 3 | 3 | 0 | 0 |  | cluster id to members, exactly |
+| KPI values | 10656 | 10656 | 9944 | 712 | 0 | inf | relative error <= 0.0001 (atol 0) |
+| Objective values | 759 | 759 | 751 | 8 | 0 | inf | relative error <= 0.0001 (atol 0) |
+| Payout vectors | 1551 | 1551 | 1551 | 0 | 0 | 6.85e+03 | levels: largest difference reported, not asserted; bin edges within 1e-06 |
+| Cluster assignments | 93 | 93 | 93 | 0 | 0 |  | cluster id to members, exactly |
 
 For payout vectors, *Match* counts the vectors compared, *Mismatch* those with another shape or other bin edges, and the largest error is the largest level difference over the largest golden level.
 
@@ -47,6 +52,33 @@ For payout vectors, *Match* counts the vectors compared, *Mismatch* those with a
 
 | Source | Approach | Method | Records | KPIs | Max KPI rel. error | Payouts | Max payout diff | Max payout rel. diff | Clusters equal | Max objective rel. error | Findings | Unexplained |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
+| alpha_sweep | cluster_optimization | weighted_cvar_minimization | 10 / 10 | 238 / 240 / 240 | 1.17e-04 | 30 / 30 | 1.33e+04 | 3.64e-04 | 10 / 10 | 1.18e-09 | 2 | 0 |
+| alpha_sweep | individual_optimization | weighted_cvar_minimization | 10 / 10 | 600 / 600 / 600 | 1.90e-05 | 90 / 90 | 7.30e+04 | 3.68e-03 |  | 1.02e-09 | 0 | 0 |
+| alpha_sweep | integrated_portfolio_optimization | weighted_cvar_minimization | 10 / 10 | 560 / 600 / 600 | 2.35e-03 | 90 / 90 | 3.24e+04 | 1.94e-03 |  | 2.72e-09 | 40 | 0 |
+| beta_sweep | cluster_optimization | weighted_cvar_minimization | 10 / 10 | 211 / 240 / 240 | 1.39e-03 | 30 / 30 | 4.05e+04 | 9.48e-04 | 10 / 10 | 2.33e-09 | 29 | 0 |
+| beta_sweep | individual_optimization | weighted_cvar_minimization | 10 / 10 | 600 / 600 / 600 | 9.31e-05 | 90 / 90 | 8.70e+04 | 6.66e-03 |  | 2.98e-09 | 0 | 0 |
+| beta_sweep | integrated_portfolio_optimization | weighted_cvar_minimization | 10 / 10 | 514 / 600 / 600 | 1.23e+01 | 90 / 90 | 1.09e+05 | 6.14e+00 |  | 2.83e-09 | 86 | 0 |
+| budget_loading_sweep | cluster_optimization | pure_basis_risk_minimization | 6 / 6 | 144 / 144 / 144 | 9.46e-12 | 18 / 18 | 4.99e-02 | 2.48e-09 | 6 / 6 | 7.22e-16 | 0 | 0 |
+| budget_loading_sweep | cluster_optimization | pure_uncovered_loss_minimization | 11 / 11 | 252 / 264 / 264 | 5.53e-03 | 33 / 33 | 3.25e+03 | 1.46e-04 | 11 / 11 | 2.70e-10 | 12 | 0 |
+| budget_loading_sweep | cluster_optimization | weighted_cvar_minimization | 11 / 11 | 227 / 264 / 264 | 4.67e-01 | 33 / 33 | 8.71e+04 | 4.14e-03 | 11 / 11 | inf | 39 | 0 |
+| budget_loading_sweep | individual_optimization | pure_basis_risk_minimization | 9 / 9 | 360 / 360 / 360 | 1.22e-14 | 57 / 57 | 7.61e+02 | 3.95e-05 |  | 3.90e-05 | 0 | 0 |
+| budget_loading_sweep | individual_optimization | pure_uncovered_loss_minimization | 11 / 11 | 652 / 660 / 660 | 1.35e-02 | 99 / 99 | 3.39e+03 | 1.68e-03 |  | 9.24e-07 | 8 | 0 |
+| budget_loading_sweep | individual_optimization | weighted_cvar_minimization | 11 / 11 | 625 / 660 / 660 | inf | 99 / 99 | 2.78e+05 | 1.09e-02 |  | 1.38e-07 | 35 | 0 |
+| budget_loading_sweep | integrated_portfolio_optimization | pure_basis_risk_minimization | 9 / 9 | 407 / 540 / 540 | 1.18e+05 | 81 / 81 | 1.18e+04 | 6.85e+03 |  | 5.75e-03 | 136 | 0 |
+| budget_loading_sweep | integrated_portfolio_optimization | pure_uncovered_loss_minimization | 11 / 11 | 615 / 660 / 660 | 2.26e-01 | 99 / 99 | 2.14e+04 | 5.27e-03 |  | 2.41e-08 | 45 | 0 |
+| budget_loading_sweep | integrated_portfolio_optimization | weighted_cvar_minimization | 11 / 11 | 440 / 660 / 660 | inf | 99 / 99 | 3.15e+05 | 1.98e+01 |  | inf | 223 | 0 |
+| n_bins_sweep | cluster_optimization | pure_basis_risk_minimization | 5 / 5 | 118 / 120 / 120 | 2.75e-02 | 15 / 15 | 1.83e+02 | 1.65e-05 | 5 / 5 | 3.59e-07 | 2 | 0 |
+| n_bins_sweep | cluster_optimization | pure_uncovered_loss_minimization | 5 / 5 | 120 / 120 / 120 | 2.39e-06 | 15 / 15 | 2.16e+01 | 6.36e-07 | 5 / 5 | 6.70e-15 | 0 | 0 |
+| n_bins_sweep | cluster_optimization | weighted_cvar_minimization | 5 / 5 | 120 / 120 / 120 | 2.87e-07 | 15 / 15 | 5.12e+04 | 4.23e-03 | 5 / 5 | 1.33e-09 | 0 | 0 |
+| n_bins_sweep | individual_optimization | pure_basis_risk_minimization | 5 / 5 | 300 / 300 / 300 | 2.57e-14 | 45 / 45 | 4.71e-02 | 2.83e-09 |  | 9.55e-16 | 0 | 0 |
+| n_bins_sweep | individual_optimization | pure_uncovered_loss_minimization | 5 / 5 | 300 / 300 / 300 | 1.07e-08 | 45 / 45 | 3.34e+00 | 1.87e-07 |  | 8.14e-14 | 0 | 0 |
+| n_bins_sweep | individual_optimization | weighted_cvar_minimization | 5 / 5 | 300 / 300 / 300 | 1.32e-07 | 45 / 45 | 2.31e+04 | 3.03e-03 |  | 1.39e-09 | 0 | 0 |
+| n_bins_sweep | integrated_portfolio_optimization | pure_basis_risk_minimization | 5 / 5 | 291 / 300 / 300 | 2.54e-01 | 45 / 45 | 1.12e+03 | 9.11e-04 |  | 3.80e-05 | 9 | 0 |
+| n_bins_sweep | integrated_portfolio_optimization | pure_uncovered_loss_minimization | 5 / 5 | 300 / 300 / 300 | 2.46e-06 | 45 / 45 | 2.72e+01 | 1.52e-06 |  | 7.76e-12 | 0 | 0 |
+| n_bins_sweep | integrated_portfolio_optimization | weighted_cvar_minimization | 5 / 5 | 273 / 300 / 300 | 9.83e-04 | 45 / 45 | 3.24e+04 | 1.94e-03 |  | 2.41e-09 | 27 | 0 |
+| n_clusters_sweep | cluster_optimization | pure_basis_risk_minimization | 9 / 9 | 321 / 324 / 324 | 1.91e-03 | 45 / 45 | 2.35e+02 | 1.60e-05 | 9 / 9 | 1.26e-06 | 3 | 0 |
+| n_clusters_sweep | cluster_optimization | pure_uncovered_loss_minimization | 9 / 9 | 324 / 324 / 324 | 2.46e-06 | 45 / 45 | 2.72e+01 | 1.52e-06 | 9 / 9 | 1.31e-14 | 0 | 0 |
+| n_clusters_sweep | cluster_optimization | weighted_cvar_minimization | 9 / 9 | 310 / 324 / 324 | 7.33e-04 | 45 / 45 | 6.45e+04 | 1.94e-03 | 9 / 9 | 1.99e-09 | 14 | 0 |
 | single_run | cluster_optimization | pure_basis_risk_minimization | 1 / 1 | 24 / 24 / 24 | 9.46e-12 | 3 / 3 | 4.88e-02 | 2.48e-09 | 1 / 1 | 1.81e-16 | 0 | 0 |
 | single_run | cluster_optimization | pure_uncovered_loss_minimization | 1 / 1 | 24 / 24 / 24 | 1.82e-09 | 3 / 3 | 1.37e+00 | 4.18e-08 | 1 / 1 | 6.70e-15 | 0 | 0 |
 | single_run | cluster_optimization | weighted_cvar_minimization | 1 / 1 | 24 / 24 / 24 | 2.08e-07 | 3 / 3 | 1.20e+04 | 3.21e-04 | 1 / 1 | 9.32e-10 | 0 | 0 |
@@ -63,6 +95,228 @@ The store run each golden record was compared with. A run's `config_hash` identi
 
 | Record | Parameters | config_hash | run_id | Run source | Problems solved | Note |
 |---|---|---|---|---|---|---|
+| cluster_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.1, beta=0.95, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:560ea40fe05c45df9b495370be07b6e1dc613e7e8060149448d10db281c4cd3c` | `sha256:d96f2e37cb18…` | alpha_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.2, beta=0.95, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:30060b90d0aa5529502202aa822ec9d60aedc0af6906f4a72cf4a6c836f65b2a` | `sha256:6ec64f6fdbc5…` | alpha_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.3, beta=0.95, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:1c170d898c058fc99646240ccff75eb6fd20c9f36097a4af24d03d270a690063` | `sha256:625be18f08ed…` | alpha_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.4, beta=0.95, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:d9390e487a71f8b2e55004fb2bc81b38dcef85a191a9402a7f318375756c1088` | `sha256:56c608a83e05…` | alpha_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.5, beta=0.95, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:dab7e3954d313942f25e74e736e2b74b3aa4eedd764437aa07ed1e711ee2c919` | `sha256:87d81febc41f…` | alpha_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.6, beta=0.95, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:310dbe7569c43fc12d6137b1f4dc7701a605e64446cf9e6d93ab1efc946e557a` | `sha256:d61a09477fbc…` | alpha_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.7, beta=0.95, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:c91fb04eb6773bdd2d04909c076237aba95be81b6b5358ecfafc49642dc2b7c9` | `sha256:61e279e48e37…` | alpha_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.8, beta=0.95, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:245dfe6cff55ec4275e0f1b2b4c4935deb5161f5f68e47b0b2222da4fe142d21` | `sha256:da49266c22a3…` | alpha_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:2f2eb822c199326c7cf1cb42acc2c5472d12d04aa13282eb4152d0324ace2ce0` | `sha256:f983cae22e58…` | single_run | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / alpha_sweep | alpha=1, beta=0.95, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:55f90fb588b860a9dd2228e61eb3f61ae1886e5c4f040d787fbafe3b71cbee9a` | `sha256:0b3e0a21f2dc…` | alpha_sweep | 1 / 1 |  |
+| individual_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.1, beta=0.95, budget_loading=1, n_bins=15 | `sha256:193cdacb6634c03834bbd2a784425d59d40532176e878d58aab4e90ecb147037` | `sha256:10634fbed98f…` | alpha_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.2, beta=0.95, budget_loading=1, n_bins=15 | `sha256:5ab0cb038f7d10f55a6579b32c9f068a44d93ada0a4fbb68896539a376f78038` | `sha256:3ac2944142b4…` | alpha_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.3, beta=0.95, budget_loading=1, n_bins=15 | `sha256:b22157edbfd004ee1c0673fdb55535c7a7a797b9c6b4d67263627002ed1e5ef1` | `sha256:7e5755b7ae74…` | alpha_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.4, beta=0.95, budget_loading=1, n_bins=15 | `sha256:abab099b749c28263a8348c8b9c1f9a543b155c3be6f17b1f5bc24f953ff5bcd` | `sha256:14a83db612c0…` | alpha_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.5, beta=0.95, budget_loading=1, n_bins=15 | `sha256:5d92296019672f527dfe47dac3ea0e3f0529f06921f6f9960cacbe585312e062` | `sha256:c49e6f33a0d7…` | alpha_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.6, beta=0.95, budget_loading=1, n_bins=15 | `sha256:0c70428c1e1ebfe50d83b19889203a6643d7f9790a6f745dcafa2ac927bf28fc` | `sha256:ff5fbd2cede1…` | alpha_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.7, beta=0.95, budget_loading=1, n_bins=15 | `sha256:24fb62c86dcf4ebc3395cf9977885867bd025471dc67ac09225f1f835104e4d8` | `sha256:0386208fd37f…` | alpha_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.8, beta=0.95, budget_loading=1, n_bins=15 | `sha256:08e0fa08a80ba6705ad7000be7c638d7ba62d19515810ba9f0ecd171ee5a0108` | `sha256:dd7b4602cc99…` | alpha_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | `sha256:c4c115b292ba42b866c9808cbb972910ea69c0a05cfca2b2850bc65e830d0323` | `sha256:72083aee3112…` | single_run | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / alpha_sweep | alpha=1, beta=0.95, budget_loading=1, n_bins=15 | `sha256:6668b41ce564a36552aa34f332dbada0bf6a77773b4f34cfbf8e2404d18b09fb` | `sha256:30ea2f61e228…` | alpha_sweep | 9 / 9 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.1, beta=0.95, budget_loading=1, n_bins=15 | `sha256:615da1d4019fe88526d82c150a28b432ed8634843cb902f9950ea129d8e2ed3c` | `sha256:5c9ba32741a1…` | alpha_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.2, beta=0.95, budget_loading=1, n_bins=15 | `sha256:7d441f1b4ccaf1215b9086bb26f927be02a8c66d3184654b14bc7dbf86c0ba55` | `sha256:879a9b50daae…` | alpha_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.3, beta=0.95, budget_loading=1, n_bins=15 | `sha256:cc71e5f76d2eb1ab2ca33d27a96cda9315640a3c2b0e66ccf3a871060433a84c` | `sha256:ef54db99cf8d…` | alpha_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.4, beta=0.95, budget_loading=1, n_bins=15 | `sha256:4fa6e5d75626b77946245ec2ca26c31ec8d6cf6a180ce32a802a18abf295a87e` | `sha256:5c7e8ef2debc…` | alpha_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.5, beta=0.95, budget_loading=1, n_bins=15 | `sha256:a7ab1fe6d0954aa00e9468c51d9797c64ed59b51360403533fac1403c8a48842` | `sha256:a3a107f03347…` | alpha_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.6, beta=0.95, budget_loading=1, n_bins=15 | `sha256:b75bc3868e727dd927a0004c169fadd1c6d1bd0b07429b461cdb620a7de62865` | `sha256:298568703723…` | alpha_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.7, beta=0.95, budget_loading=1, n_bins=15 | `sha256:71ec4718a21daa0b5ecd992ff7d08c1263b4f9992034ef7cdef63aa60471cba6` | `sha256:afb8a452049b…` | alpha_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.8, beta=0.95, budget_loading=1, n_bins=15 | `sha256:2e52dfdc723f3b619f200b3b9a262dc5d862d0c0c9ccf8b15d1f8ffb88fffffa` | `sha256:0e392f163f23…` | alpha_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / alpha_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | `sha256:9e8964c642474b61fcf37da58fba55a65630a9c02aa8cef85686ae58e2bec571` | `sha256:10e48bcb8769…` | single_run | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / alpha_sweep | alpha=1, beta=0.95, budget_loading=1, n_bins=15 | `sha256:1f1629f33a43d1cd587eb861e4ea5f2a0042173f30bcccda76b3d51156ce5b06` | `sha256:e6e8ccf9e3b7…` | alpha_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.9, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:08f23802f8c0a01e69b3f97e48c2dbd97ca251264c3f0ffbdab5f0462ed08913` | `sha256:22e347b8b727…` | beta_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.91, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:c30793c3acf96933e3467f1d3f1fb045d37013dc3ca0ccc3fb8395ac8db818bc` | `sha256:63c575b429f6…` | beta_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.92, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:cc9f70ca22e6634f3a7f850f57d6c8f1e3f090f64c9903de8446836c890d8dd9` | `sha256:079be5718331…` | beta_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.93, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:e53d70944245539e3fdc99b0dc305ac75d7d96221c301e5afb9dd26daaf1d820` | `sha256:aaacf0f316ef…` | beta_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.94, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:5d5e6b7ce2a489253f71cae0862e15648b8553f5c37125c2ded7cb3214d3d780` | `sha256:09aa1922d84f…` | beta_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:2f2eb822c199326c7cf1cb42acc2c5472d12d04aa13282eb4152d0324ace2ce0` | `sha256:f983cae22e58…` | single_run | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.96, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:fadd80c28fbd4b47369f3e95be573954a6b07d85f6d026e39b98ef030be89b6f` | `sha256:26a751f78916…` | beta_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.97, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:4f16089d4c6e82a1f00cb1d56787717349bdd1921bb7788efffdd3cec2f06295` | `sha256:b9f801e9e621…` | beta_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.98, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:a1e9b3b7007121bb306f253e622923b733d0c69e6562c1b2e6d89bcbbcf8f885` | `sha256:40dedd80094a…` | beta_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.99, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:c7d0ced99d84e094fe2ffdbb0142a3c9af2a3da96ad1ad7db7079be0d0bbc750` | `sha256:dd181b578e93…` | beta_sweep | 1 / 1 |  |
+| individual_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.9, budget_loading=1, n_bins=15 | `sha256:b5bd8206603f197d237a53650ac3708afa42799578fe9bf191a1a06d5695ae4c` | `sha256:33fa638e3ed7…` | beta_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.91, budget_loading=1, n_bins=15 | `sha256:92e719b55e5bf7125eb4387939f1accd76bcd67d549138c3c64e2de2d19eecd1` | `sha256:6712fe09ce56…` | beta_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.92, budget_loading=1, n_bins=15 | `sha256:e1b844e20f725d41e9ceaaf575ed576d82d44cd8d692ff9ee768f5d01df9e88b` | `sha256:55f52d7aa8fe…` | beta_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.93, budget_loading=1, n_bins=15 | `sha256:9d69d7e4cf882fe6cfea63fe428ffd9a79b4de4df0da0c6a1625dde9fa0d7652` | `sha256:b54d183d8cb9…` | beta_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.94, budget_loading=1, n_bins=15 | `sha256:7c37237e7b2f7504faf6e24e54054ff28f46b3908e520933735ef0a4f259dafa` | `sha256:be82ecb49c52…` | beta_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | `sha256:c4c115b292ba42b866c9808cbb972910ea69c0a05cfca2b2850bc65e830d0323` | `sha256:72083aee3112…` | single_run | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.96, budget_loading=1, n_bins=15 | `sha256:ee2e36961b50482f15c3f6f4aca05715bbc41eed1eeb2b1688d9606f58103445` | `sha256:cd47b8d6279a…` | beta_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.97, budget_loading=1, n_bins=15 | `sha256:a38bfa0fe5d28137f080a29d04cb9b30b65b1880ff1f4fcd32bb3b104838e246` | `sha256:cb4f9697de46…` | beta_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.98, budget_loading=1, n_bins=15 | `sha256:68b9cae388520fef1fc1293c9a06cd34f808b610ba447440205449ab30f38097` | `sha256:758868cedcae…` | beta_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.99, budget_loading=1, n_bins=15 | `sha256:ad34a518f727ba0e9106228390fbb0744865996d81219c1e295da73c26d0010e` | `sha256:eb0facf8e26d…` | beta_sweep | 9 / 9 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.9, budget_loading=1, n_bins=15 | `sha256:63bc7b26bf4138d208e89cb24e371d794f29b983979f32a05699a29aae20bd70` | `sha256:5198263d6143…` | beta_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.91, budget_loading=1, n_bins=15 | `sha256:0a2071ea0507d77efdb11b518af8c644f118ed238e5c15656e729a4e35bb54fd` | `sha256:f1ed64310fa6…` | beta_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.92, budget_loading=1, n_bins=15 | `sha256:21da26c72f067861f07b70bc6aed04250f66233308d261d9dd3ae4dee5c7dc94` | `sha256:8e69ef479090…` | beta_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.93, budget_loading=1, n_bins=15 | `sha256:00f01ccc333d0618ff69116a540d30442dadc2a2376164599a57936e3d53c0a4` | `sha256:3ac315a8596c…` | beta_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.94, budget_loading=1, n_bins=15 | `sha256:d6a09469b5c75e046d7432bf3715a86b963b0f2f7db53de344a1464d056c11fd` | `sha256:fdf677a418f2…` | beta_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | `sha256:9e8964c642474b61fcf37da58fba55a65630a9c02aa8cef85686ae58e2bec571` | `sha256:10e48bcb8769…` | single_run | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.96, budget_loading=1, n_bins=15 | `sha256:8acb8e3ebd6d02ca513fe98a27d3c79024f6f03f5b060ce4ed71cb65c2b1db7c` | `sha256:a2595ab26373…` | beta_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.97, budget_loading=1, n_bins=15 | `sha256:539db4454f9c881077362d4f8a0ecbef579b21ea1cd50e343939add8e02fbc31` | `sha256:8b7f0b2a98f1…` | beta_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.98, budget_loading=1, n_bins=15 | `sha256:b2336b8e5b04b78b83634add7c518767ef5ff46bd3fd9254b0b024bc684d7d68` | `sha256:7307faa0049c…` | beta_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.99, budget_loading=1, n_bins=15 | `sha256:18a6ed33ff0a5b990bc33503027f244c86104e86d660427f40c19f958cd6e2d9` | `sha256:63c5b9e6bb1d…` | beta_sweep | 1 / 1 |  |
+| cluster_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=1, n_bins=15, n_clusters=3 | `sha256:cc421a18661694603cd1c84f69d191427571780088e2e244e5c34e44f13a13ac` | `sha256:d32a12036b42…` | single_run | 1 / 1 |  |
+| cluster_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=1.1, n_bins=15, n_clusters=3 | `sha256:c7eed2dacf005d938531cb4eb57a6eae5b82eab4bc9410a0eb53a9cd98b5d402` | `sha256:fa57974608a0…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=1.2, n_bins=15, n_clusters=3 | `sha256:600d809d153e3bfbfd2967600fc1904effff61a67f64d952cf2cf676eb0a103d` | `sha256:95c180512eeb…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=1.3, n_bins=15, n_clusters=3 | `sha256:aafa1f4da36488edb99630d2aaf033608252ef86196ab11ed1a4b6c151dcb2f2` | `sha256:8eea400fa790…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=1.4, n_bins=15, n_clusters=3 | `sha256:2114565fed8f31db4d352aab0c1d9719fa18d27001905324bcaafd60d3564ea0` | `sha256:05c9c3317b39…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=1.5, n_bins=15, n_clusters=3 | `sha256:ba208063ddde658c0164e0a26bfeec2e7a3d20b91dd245cf4e87d977ec51ed3b` | `sha256:dce56886f928…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=0.5, n_bins=15, n_clusters=3 | `sha256:fc89711e5771c79b292fcf614d877eba903c31ae4bf3b4637ec61eb9c06d7b80` | `sha256:d4356b1e9c37…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=0.6, n_bins=15, n_clusters=3 | `sha256:f2745f87eaeb29c8c1fe86527b52ed6c94867013abc74c7402ef595391620595` | `sha256:34aad362c059…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=0.7, n_bins=15, n_clusters=3 | `sha256:c331e221c6790480bac55b99d935441bf13474f8b925a64efbe73af0b811d015` | `sha256:1c2db27f338f…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=0.8, n_bins=15, n_clusters=3 | `sha256:4e29085228d8570873372c3b24bcdd8f78817140a2de7bfa0606b9cfcd7bc066` | `sha256:51f9d627c90c…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=0.9, n_bins=15, n_clusters=3 | `sha256:04855d7693a22b4c2455fd1def9de0436170e159771aa4000ad479fda66e63dc` | `sha256:67883dff911b…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=1, n_bins=15, n_clusters=3 | `sha256:621e1248c90f0ec9f501a71671988aefe42c1f6c41896882b78050a0a14c857f` | `sha256:e2c71287f223…` | single_run | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=1.1, n_bins=15, n_clusters=3 | `sha256:cdc7cbdc36f03983c932720c3bd003b5457457d87dc9376e325a85ebfba5eb64` | `sha256:b5079f93a148…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=1.2, n_bins=15, n_clusters=3 | `sha256:2499a36545d6d13856e23a0b94450b53b3e26b3f7ce4b0f8fc8e3fec69e5d238` | `sha256:92765e061c11…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=1.3, n_bins=15, n_clusters=3 | `sha256:45b9441eceb7b478496bfc3b33d0b3409854fa56dab4670c963379e30ed78617` | `sha256:61421e4ffe65…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=1.4, n_bins=15, n_clusters=3 | `sha256:1e6ec17ae6a0893057a64c2d8dfe94c4f604879cb1a34bdff9d9e6869e701c77` | `sha256:fa52bcdf3f2b…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=1.5, n_bins=15, n_clusters=3 | `sha256:7d5e0994dfe6835d2a21513ddb6a42ebebfe2ade5abd23f8c83016c540073d46` | `sha256:5d883147eefb…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=0.5, n_bins=15, n_clusters=3 | `sha256:3b4f7de2651ad943a10ed81f1623307de65f058bd2bce0473e4b1cb1a2c17f42` | `sha256:7e369740bde5…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=0.6, n_bins=15, n_clusters=3 | `sha256:58aed3385cdb4da990422232e61f55d9df02168686a8317b396845f7ff1464c5` | `sha256:a918dd1069c0…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=0.7, n_bins=15, n_clusters=3 | `sha256:78736463116324d80b0d0d8a6592ff3cfac4bac623d145556c2f718813ba6234` | `sha256:d5ee329fcad0…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=0.8, n_bins=15, n_clusters=3 | `sha256:cb7e3b45c1492759f55d10cf986acd21438ac614a05079c90e33a0980ed54498` | `sha256:47ae43748a6f…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=0.9, n_bins=15, n_clusters=3 | `sha256:4f32050cbd2fe6687234f77917a1e966473643bb555371b3290afc6e85292561` | `sha256:2bfaf513caac…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:2f2eb822c199326c7cf1cb42acc2c5472d12d04aa13282eb4152d0324ace2ce0` | `sha256:f983cae22e58…` | single_run | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.1, n_bins=15, n_clusters=3 | `sha256:6f1a3b048c85b18d55845e300dbbb9ded5c2ba3bd9f627ba516aa4d2a9655d6e` | `sha256:ac430296f01b…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.2, n_bins=15, n_clusters=3 | `sha256:78ca7520760439a74e2e85809c4992158f5a08e0b7032d77232cf8b09661610e` | `sha256:ca3a083744a5…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.3, n_bins=15, n_clusters=3 | `sha256:b1d1515bfd61e68c2d5fd5aa1350dcfede76d384381152fa980deda73cde0846` | `sha256:70047c72acc1…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.4, n_bins=15, n_clusters=3 | `sha256:9dc202d465808b58bcc15709d63c7fe336c157e6b4a735e9c0596baff8c76315` | `sha256:c47af479e7a2…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15, n_clusters=3 | `sha256:3bed4a7a1d30fb83bd652c230fedf49a0764622f21415418fe193ca4572e7660` | `sha256:14cf18b53a73…` | budget_loading_sweep | 1 / 1 |  |
+| individual_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=0.5, n_bins=15 | `sha256:b55e6ed05359aaa84f4d919165280421a9e2bc4e9e8494818466403318a65e0e` | `sha256:fbd0c031d0fa…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=0.6, n_bins=15 | `sha256:ff4ab21a8e00dd6dde50e7fc1d563308b5f0ae6dc641f97a4d228773aff7aaa3` | `sha256:4a14e03bd1be…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=0.7, n_bins=15 | `sha256:f804fd09f5408f3fd3eec770680162a516098795c00c237160d9d8b72b0df6b7` | `sha256:6ec534d48a59…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=1, n_bins=15 | `sha256:5bbd5be29133cad1fcda35cc9414c9f6d958b694de42a17e428586f3b6df44a6` | `sha256:42e53613f013…` | single_run | 9 / 9 |  |
+| individual_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=1.1, n_bins=15 | `sha256:64dece463ff77c86056e757076089cf086eef5221160cc160b0c3f82a65ebb55` | `sha256:b902ecd5ad61…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=1.2, n_bins=15 | `sha256:1d07aba89bab395fbc7535162bd10fb056800c2314fd2e8338f546f9f22f8ac9` | `sha256:18eb87ac8008…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=1.3, n_bins=15 | `sha256:0dec2533c76c03f72eaf2de410f72e8eb18a22a45b38196447d53aaa73edf908` | `sha256:72cbef19e3f3…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=1.4, n_bins=15 | `sha256:2ab5f39729f6c93dfcb0be91719e24564ec29da09c4250736393ae36b987bea4` | `sha256:3328c83a3763…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=1.5, n_bins=15 | `sha256:7c2736744e892da86f663d5ac5886036cba458fb9eca9fcd71675e549f0909c3` | `sha256:3632f0ee4caa…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=0.5, n_bins=15 | `sha256:1acff72135718da264a2568fd68ce26d52f4c65e278dccc600d80002a0d87a00` | `sha256:9cc1bd113c26…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=0.6, n_bins=15 | `sha256:19b488fbc3c76d648c2ce30f5752d84da1a8b1cc6132b151695f7d00e6981eb3` | `sha256:9fb0bb3a284c…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=0.7, n_bins=15 | `sha256:1fdb64199db829bfa492713b1cc1cd8348f8d1b54f05e0067002d46eeec0c54e` | `sha256:403c8e3bb89a…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=0.8, n_bins=15 | `sha256:bea245032b732fdeaf720ae9e1fde4451c72bf423042e9878ed401564f6e97c0` | `sha256:88f23cefbae6…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=0.9, n_bins=15 | `sha256:e62ae30a745c1acbf2d773651901a0ce73ccfe31e0a9ea556e83116f1355fafc` | `sha256:6d2c6d04e8c5…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=1, n_bins=15 | `sha256:ffab205d6b0cef359ead067c97fc2221ad02e4a56365eb32bbe466d39eb5da0c` | `sha256:8c9cb478701f…` | single_run | 9 / 9 |  |
+| individual_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=1.1, n_bins=15 | `sha256:336c79af811fe21e3b305c2fbee5dd460e00ac91ede32602087661bb409c6b5d` | `sha256:0458d03aeb89…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=1.2, n_bins=15 | `sha256:62efe98643992c2abfbbe6753b218c23b35de4ef1ef8765fe05e1733f48b5440` | `sha256:eae22f76f929…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=1.3, n_bins=15 | `sha256:2efabbb3cbdcace91732df0aa965e8ba7a0c4dc4d27eb33ec26994928683c371` | `sha256:f633fbba58f3…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=1.4, n_bins=15 | `sha256:9ed98e3784b84086e19d29fd424fec4d1b77f830ed311e503c1960d8c27818b8` | `sha256:bc1894a4c7c0…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=1.5, n_bins=15 | `sha256:08d6333d398eaa38799bf90a93f267bb67e199b797e44f9ee4b5975aaf572d48` | `sha256:35a3d38489f7…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=0.5, n_bins=15 | `sha256:448829983c5bf49afdd240a24a25f396e536518eef88191b64c1b5db6b9c3d5d` | `sha256:d21cd02749f8…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=0.6, n_bins=15 | `sha256:294a340eb9392613026014c9a5ddf5b7d2f302918ea3cdb55e5dee14714929af` | `sha256:85c14b7adbd4…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=0.7, n_bins=15 | `sha256:009550401c45e423b9c5ef9b069023f41a4837ecb47acd724a69f80b7cfc2f47` | `sha256:f295e05b822b…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=0.8, n_bins=15 | `sha256:ccf502f043ddd5448a27c0e165af44c1da3c9350ae9b33770c143f31caa67760` | `sha256:193f91dcd0c6…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=0.9, n_bins=15 | `sha256:270d6db31d79c77f98930b5229712ee8b0ccdbe8582e55c24e31ec8851153cde` | `sha256:294df206d87d…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | `sha256:c4c115b292ba42b866c9808cbb972910ea69c0a05cfca2b2850bc65e830d0323` | `sha256:72083aee3112…` | single_run | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.1, n_bins=15 | `sha256:e32cb90e154f933d69d51d5e97fbc78a96a7fb063b317f9ab287c028c6583669` | `sha256:ab1bc8d14fba…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.2, n_bins=15 | `sha256:7fc0ba165774bebc34fd2796a89d3da3c04e554f7463d3d237bb107861639e82` | `sha256:02c39d20b6a7…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.3, n_bins=15 | `sha256:c03faf04c661a4697f9a5aa0dfb8c46f69677d9661bd4b9b5b7cde2a701c781f` | `sha256:58bd0d4d4866…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.4, n_bins=15 | `sha256:9605575026c10fc8f2cfdc5a034bb071107be99fb4c5e013691437d84389a3ef` | `sha256:f72db27980a8…` | budget_loading_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15 | `sha256:59140439959dac2dc71944b7cf93ca8c304a53096940186fa7392c293d9c8958` | `sha256:78f873981f03…` | budget_loading_sweep | 9 / 9 |  |
+| integrated_portfolio_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=0.7, n_bins=15 | `sha256:bbb19cd00ca5e0974226ab9db0f30c1e869be658aaf48e45c9b45b5ab14cb097` | `sha256:04ba364baf03…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=0.8, n_bins=15 | `sha256:ab87b14c5df5bfb165471c03b08d694a1f39170c70b58ddeef3449d5eab8ad1a` | `sha256:e244df28ea76…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=0.9, n_bins=15 | `sha256:b82edcaab0492037293174d9b9d52d1a9513ce64b9ad4ef577638109ed677c2f` | `sha256:da8905751760…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=1, n_bins=15 | `sha256:c8ef814df8beac33ad1266ada480a4d9c55b48eb81dbd55ac3cae32ee1e7c81d` | `sha256:5810a9f9e89d…` | single_run | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=1.1, n_bins=15 | `sha256:f8520aaf39ba3dded455deb20a6b2cb18e3427486341d1f6e874d7809069c31e` | `sha256:f0b183f6f0b2…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=1.2, n_bins=15 | `sha256:aa121ee4ae8e0cf61d3b44a7644de5abde76049a93cf3132d557e765bb5edd8c` | `sha256:5d3c623a3282…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=1.3, n_bins=15 | `sha256:010ac734130a5650b9672eaa593de5d1e1f113023f3501156ea4d7c2096f5345` | `sha256:496b486fefa5…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=1.4, n_bins=15 | `sha256:726de8e88226f0754aecadd1d61394a86f4205222a10fd14a9a5b52b6b662d6a` | `sha256:cde2e817fb60…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=1.5, n_bins=15 | `sha256:544439c37e89dc81b763e0941939808f8aa4bfd4db7930a8f63c1c6668a9ca32` | `sha256:519778fc214b…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=0.5, n_bins=15 | `sha256:3e941ac52f4753464ddc9e61d775ea89674dfdadbbdc66921def412b00928fd4` | `sha256:aab046d2bfaf…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=0.6, n_bins=15 | `sha256:28e4481cf6a20ce5193445593063e180691c77a88268b6fa038651f95d1c7f2f` | `sha256:8cf98c4e0bf0…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=0.7, n_bins=15 | `sha256:206780166cae4f7a0cecbfd060721a45f123b772cb07d37f1ee199dc3c9aa573` | `sha256:5954186d3ead…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=0.8, n_bins=15 | `sha256:8e01573f10b25cf9bcde9f85f0adac60cc1fd2722e4f4ba61017a532afc81cac` | `sha256:96a454a0e91f…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=0.9, n_bins=15 | `sha256:27c3e2c2b1fd00b0865d520f7ebc98aa3239a3ed2ca5ad816b676950d044a6de` | `sha256:d5a4dc59b4c2…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=1, n_bins=15 | `sha256:84118f7eab00c898c319b7eadff3409a51584c54f0614eb5a0da2e6b3ae29d27` | `sha256:4d08c10de17e…` | single_run | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=1.1, n_bins=15 | `sha256:41c3b76417055168262122cd4cbb394967faa0a2836d0e7bf2390d22eaf17413` | `sha256:fb99270dea9d…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=1.2, n_bins=15 | `sha256:d5eabf47ce93dfcbb49b5533410597e919231870611e072d89ff30fd8bdbe8c1` | `sha256:942f4f65334f…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=1.3, n_bins=15 | `sha256:bc5b58e1a7c5734fe85d3a1c830e17187745ab338aa78098542d7c258dd98bfa` | `sha256:7ad0112b988a…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=1.4, n_bins=15 | `sha256:e5e3d2f724c8b6c7c1c664b71083c3b99ec13c58ea9da8c67f50a2f3bf7970e6` | `sha256:c236b1705c74…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_uncovered_loss_minimization / budget_loading_sweep | budget_loading=1.5, n_bins=15 | `sha256:c6255c048f2d8b19067fe52d2aeb06b457def1e367b555f4658818b161308adb` | `sha256:2a3bc86aa417…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=0.5, n_bins=15 | `sha256:ce747be88b745ed4dfca7d5c84dd22b7b38dcab99c46a5aca0cfbdf167ec498f` | `sha256:9d90632ad2c7…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=0.6, n_bins=15 | `sha256:8432ff3165874c25d15ba2c12c50b694481192a2ca0b88ee2cabc4ab0d262f7a` | `sha256:284a0d857513…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=0.7, n_bins=15 | `sha256:0c7911b339656d4c80a3ab02633f8c7789ed3457a1c343869ad4c941dd8cb324` | `sha256:788349bb0ffa…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=0.8, n_bins=15 | `sha256:33738817acd8dbe546e66f02e63782a069b920dadd0717ddd653f75baed9f642` | `sha256:1f0fd6d65c74…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=0.9, n_bins=15 | `sha256:981f8575283cb0742edd7c191782cfb139e5c0a1c80a9b35a98053899b668970` | `sha256:2efafed25dcb…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | `sha256:9e8964c642474b61fcf37da58fba55a65630a9c02aa8cef85686ae58e2bec571` | `sha256:10e48bcb8769…` | single_run | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.1, n_bins=15 | `sha256:bece9fd6900d8888ea0968c05bc541222e2d6d84f9372868b3487edda719f50c` | `sha256:bfbb60e74277…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.2, n_bins=15 | `sha256:03fbb70dbf8cc6b55c0c5afd52d480d50b454a9c541f5d84b845580ecccd0cdf` | `sha256:a8967daeca45…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.3, n_bins=15 | `sha256:a1e827207b3738b5ad0f257c88908889b1b1729212a47422d8c245499dcf6177` | `sha256:c2c2660e33f5…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.4, n_bins=15 | `sha256:83064836eca4f43ac946f045a0c275319463ee4630e9c2a4f678558739f9982c` | `sha256:e98ae109b215…` | budget_loading_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15 | `sha256:9b4b06a1f5751f6bd877fbcff0e6c866e77c9c9a2e4740da14e5f01f903d74c4` | `sha256:829e1d608639…` | budget_loading_sweep | 1 / 1 |  |
+| cluster_optimization / pure_basis_risk_minimization / n_bins_sweep | budget_loading=1, n_bins=10, n_clusters=3 | `sha256:48c27ba96ad9b91cb61901dcbbc1710555d1a5db0137145141a9c71040ade197` | `sha256:2429201bd080…` | n_bins_sweep | 1 / 1 |  |
+| cluster_optimization / pure_basis_risk_minimization / n_bins_sweep | budget_loading=1, n_bins=15, n_clusters=3 | `sha256:cc421a18661694603cd1c84f69d191427571780088e2e244e5c34e44f13a13ac` | `sha256:d32a12036b42…` | single_run | 1 / 1 |  |
+| cluster_optimization / pure_basis_risk_minimization / n_bins_sweep | budget_loading=1, n_bins=20, n_clusters=3 | `sha256:9a1497bb0bc6b870065a0cdbea27cc7f028fe7b4ea2ba49975f2e1e321ab5b83` | `sha256:ed6970bf48dd…` | n_bins_sweep | 1 / 1 |  |
+| cluster_optimization / pure_basis_risk_minimization / n_bins_sweep | budget_loading=1, n_bins=25, n_clusters=3 | `sha256:6128bddeed4599198ed57d62454699da4f2ece862682edbcd85672e26b58ac3a` | `sha256:4eb6695825dd…` | n_bins_sweep | 1 / 1 |  |
+| cluster_optimization / pure_basis_risk_minimization / n_bins_sweep | budget_loading=1, n_bins=5, n_clusters=3 | `sha256:154fcef0f87d735882cd5077667002fd053d53d752b9e9d85116a883023fb521` | `sha256:893e58ed3238…` | n_bins_sweep | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / n_bins_sweep | budget_loading=1, n_bins=10, n_clusters=3 | `sha256:96595936ece24617d333ecc82aed5d43eb02fece574dbe92b052a804be16a989` | `sha256:a846c9812e80…` | n_bins_sweep | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / n_bins_sweep | budget_loading=1, n_bins=15, n_clusters=3 | `sha256:621e1248c90f0ec9f501a71671988aefe42c1f6c41896882b78050a0a14c857f` | `sha256:e2c71287f223…` | single_run | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / n_bins_sweep | budget_loading=1, n_bins=20, n_clusters=3 | `sha256:16d0b4dba975350e0cc87e944bf2ec316ccb2b9d49af9e72bcc5f17f82fc777b` | `sha256:b9103246858f…` | n_bins_sweep | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / n_bins_sweep | budget_loading=1, n_bins=25, n_clusters=3 | `sha256:57a65a1e0e65ee1b5352a3678d20e9087a69b6a707997e16e120f5423643d8f3` | `sha256:d52b080a4363…` | n_bins_sweep | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / n_bins_sweep | budget_loading=1, n_bins=5, n_clusters=3 | `sha256:b63f0cf1223cb68d6177525d375fc9deb948abf798f8c7f4bd1f2e72402d13a3` | `sha256:573b892ea55d…` | n_bins_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / n_bins_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=10, n_clusters=3 | `sha256:36d21f691ce7b56acd3d56186faa7d8be5da1eea3117ccdb19c093b276c473b7` | `sha256:9de678f1300a…` | n_bins_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / n_bins_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:2f2eb822c199326c7cf1cb42acc2c5472d12d04aa13282eb4152d0324ace2ce0` | `sha256:f983cae22e58…` | single_run | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / n_bins_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=20, n_clusters=3 | `sha256:5cd3ff02465b549cc8665d4e0840667d8b9dab2fa98451dac418d88f1136a39f` | `sha256:1c2d50de9546…` | n_bins_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / n_bins_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=25, n_clusters=3 | `sha256:f34a4a27f8a2003a3ce4e5663c10cc73086a929fc07cbd9e2281e80c11903b46` | `sha256:05fc76ca894c…` | n_bins_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / n_bins_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=5, n_clusters=3 | `sha256:21346d2eb353f5a916d7b4f3f7cb62260b1bcec251f22e195fe253221680c9c4` | `sha256:8f93e3d4ed6f…` | n_bins_sweep | 1 / 1 |  |
+| individual_optimization / pure_basis_risk_minimization / n_bins_sweep | budget_loading=1, n_bins=10 | `sha256:f83cb15817ea8e1d2a35a59ac2b108f1ce7e5f52e037fab70ad6401c7fcd80f5` | `sha256:3065274ab837…` | n_bins_sweep | 9 / 9 |  |
+| individual_optimization / pure_basis_risk_minimization / n_bins_sweep | budget_loading=1, n_bins=15 | `sha256:5bbd5be29133cad1fcda35cc9414c9f6d958b694de42a17e428586f3b6df44a6` | `sha256:42e53613f013…` | single_run | 9 / 9 |  |
+| individual_optimization / pure_basis_risk_minimization / n_bins_sweep | budget_loading=1, n_bins=20 | `sha256:c45e13867684bfc5d9403fcf7c9cad6946009721b6febbbdf011f8001734fdd0` | `sha256:0f51890d43a2…` | n_bins_sweep | 9 / 9 |  |
+| individual_optimization / pure_basis_risk_minimization / n_bins_sweep | budget_loading=1, n_bins=25 | `sha256:3eb03a144d104f6c4eb494de8bcb30578a257a22fd93563a62212d1dbd962692` | `sha256:fea0ad4cb98b…` | n_bins_sweep | 9 / 9 |  |
+| individual_optimization / pure_basis_risk_minimization / n_bins_sweep | budget_loading=1, n_bins=5 | `sha256:43651a62aa5e36bd688cc4e5dfbbcd9d5a62272e6693c5ff34156aea4ea8748b` | `sha256:1febb60cb49c…` | n_bins_sweep | 9 / 9 |  |
+| individual_optimization / pure_uncovered_loss_minimization / n_bins_sweep | budget_loading=1, n_bins=10 | `sha256:cc11953e19ff8758d809feb42b72ef395e2c30df1fe4d91e274bcf84f6e064c1` | `sha256:1cdc7a7c6526…` | n_bins_sweep | 9 / 9 |  |
+| individual_optimization / pure_uncovered_loss_minimization / n_bins_sweep | budget_loading=1, n_bins=15 | `sha256:ffab205d6b0cef359ead067c97fc2221ad02e4a56365eb32bbe466d39eb5da0c` | `sha256:8c9cb478701f…` | single_run | 9 / 9 |  |
+| individual_optimization / pure_uncovered_loss_minimization / n_bins_sweep | budget_loading=1, n_bins=20 | `sha256:c758832400c850bbc1351122d697cb265566fc1c364fba682701aba2dfb75cfa` | `sha256:ebfe6ee30fa9…` | n_bins_sweep | 9 / 9 |  |
+| individual_optimization / pure_uncovered_loss_minimization / n_bins_sweep | budget_loading=1, n_bins=25 | `sha256:c309f70abf6c2365662520230598481b8902759cbde555e05b1a5ff90d8b72e9` | `sha256:b6a8547d93ed…` | n_bins_sweep | 9 / 9 |  |
+| individual_optimization / pure_uncovered_loss_minimization / n_bins_sweep | budget_loading=1, n_bins=5 | `sha256:5cebb1997c507f0b75ccb7bb1ac2d1d3e0d7849672653bce1693f1abe35892c7` | `sha256:a669b3b602a0…` | n_bins_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / n_bins_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=10 | `sha256:e3b9c430594d4e9aca4b3fb9071efe6c1b15e2809185bf93d82e81152d64b1e4` | `sha256:f6905b827f07…` | n_bins_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / n_bins_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | `sha256:c4c115b292ba42b866c9808cbb972910ea69c0a05cfca2b2850bc65e830d0323` | `sha256:72083aee3112…` | single_run | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / n_bins_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=20 | `sha256:c1f767e9231bf53c43f1633c581d77af5e94ad08d43562dfb804ed16e41a88f2` | `sha256:67f4be603c91…` | n_bins_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / n_bins_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=25 | `sha256:907749e73fcf8526eb92e56ff142acace4910a31fd27c1fcd93837ad2067cdd6` | `sha256:ae174c424d86…` | n_bins_sweep | 9 / 9 |  |
+| individual_optimization / weighted_cvar_minimization / n_bins_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=5 | `sha256:03b1f8b7e1b13b0b8ed3dfe30c2b074a109430dfa70adf956429e399dba4c498` | `sha256:117d0e106a80…` | n_bins_sweep | 9 / 9 |  |
+| integrated_portfolio_optimization / pure_basis_risk_minimization / n_bins_sweep | budget_loading=1, n_bins=10 | `sha256:876cfb76258063b055907bc2b7d99c8e605f8137ffc92f75e51d84957155f977` | `sha256:5da731290900…` | n_bins_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_basis_risk_minimization / n_bins_sweep | budget_loading=1, n_bins=15 | `sha256:c8ef814df8beac33ad1266ada480a4d9c55b48eb81dbd55ac3cae32ee1e7c81d` | `sha256:5810a9f9e89d…` | single_run | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_basis_risk_minimization / n_bins_sweep | budget_loading=1, n_bins=20 | `sha256:3442c2ac5563dd90a45033c7ffd340a2ba004c450a52f7cc09e1ef2052cc4460` | `sha256:4f20b4cee992…` | n_bins_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_basis_risk_minimization / n_bins_sweep | budget_loading=1, n_bins=25 | `sha256:c4b37db92423cc826dbc650ef8d113dbeccc871c1134fec9e3784277eb351439` | `sha256:d23e469453d6…` | n_bins_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_basis_risk_minimization / n_bins_sweep | budget_loading=1, n_bins=5 | `sha256:fdabe6a06bc5fd2ef54ac4b396d9f75c64c44c23540e75b7e7ed4f95aa1a314d` | `sha256:71f6d7fce223…` | n_bins_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_uncovered_loss_minimization / n_bins_sweep | budget_loading=1, n_bins=10 | `sha256:bbc69d79f5933722a01d1539689198aab53a3ec152e87bee83414cda51264c10` | `sha256:dd7056106c66…` | n_bins_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_uncovered_loss_minimization / n_bins_sweep | budget_loading=1, n_bins=15 | `sha256:84118f7eab00c898c319b7eadff3409a51584c54f0614eb5a0da2e6b3ae29d27` | `sha256:4d08c10de17e…` | single_run | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_uncovered_loss_minimization / n_bins_sweep | budget_loading=1, n_bins=20 | `sha256:2a63d4da7b513136c92e31acf0dc34330c4621e6d38502c0d1bb59ad9b440646` | `sha256:a4c8e874e053…` | n_bins_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_uncovered_loss_minimization / n_bins_sweep | budget_loading=1, n_bins=25 | `sha256:401770eb3a342a16557b8defa959799c242420558e6fff5640716c9cd643670f` | `sha256:30e7e95321c1…` | n_bins_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / pure_uncovered_loss_minimization / n_bins_sweep | budget_loading=1, n_bins=5 | `sha256:ef0ee3b26e661891853d1f5c80981f59e59b358831f27e94bbe648b50995ea0c` | `sha256:5241e62a7066…` | n_bins_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / n_bins_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=10 | `sha256:c9482826e09a2a75fe76b76741c1e59bff49c8851f1594910fc2c89bc41abafc` | `sha256:04d625f8c1b8…` | n_bins_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / n_bins_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | `sha256:9e8964c642474b61fcf37da58fba55a65630a9c02aa8cef85686ae58e2bec571` | `sha256:10e48bcb8769…` | single_run | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / n_bins_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=20 | `sha256:35f66bcc5b2ddba860d6b5f1374b3d20c4ec21db377e8de6f159a1c9e47009d7` | `sha256:06fe598e47e5…` | n_bins_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / n_bins_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=25 | `sha256:5fcab8625939cdab544abd4b2e63c57edf726223e9f17fbcf7e94cff783c5213` | `sha256:2f558537880b…` | n_bins_sweep | 1 / 1 |  |
+| integrated_portfolio_optimization / weighted_cvar_minimization / n_bins_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=5 | `sha256:3af3b7cbbca8542dfccad13d62ff787da9eab70cd216b7807947531337508023` | `sha256:b772fabc5df6…` | n_bins_sweep | 1 / 1 |  |
+| cluster_optimization / pure_basis_risk_minimization / n_clusters_sweep | budget_loading=1, n_bins=15, n_clusters=1 | `sha256:248b2890744a0824b39056bd19273528e6f8c85323279fe2c507f4449e09250e` | `sha256:f70b464bf4ab…` | n_clusters_sweep | 1 / 1 |  |
+| cluster_optimization / pure_basis_risk_minimization / n_clusters_sweep | budget_loading=1, n_bins=15, n_clusters=2 | `sha256:17a7dafaa58f4284bb67449730d9e19f1c7ed3c158d59b77141e8c61ee9518cf` | `sha256:8f1d49bcd423…` | n_clusters_sweep | 1 / 1 |  |
+| cluster_optimization / pure_basis_risk_minimization / n_clusters_sweep | budget_loading=1, n_bins=15, n_clusters=3 | `sha256:cc421a18661694603cd1c84f69d191427571780088e2e244e5c34e44f13a13ac` | `sha256:d32a12036b42…` | single_run | 1 / 1 |  |
+| cluster_optimization / pure_basis_risk_minimization / n_clusters_sweep | budget_loading=1, n_bins=15, n_clusters=4 | `sha256:9d493fe696099bec07fb543905b7e61eb3d1bd5eecad85cf90e3ac31ae44f561` | `sha256:de60a6ba1e82…` | n_clusters_sweep | 1 / 1 |  |
+| cluster_optimization / pure_basis_risk_minimization / n_clusters_sweep | budget_loading=1, n_bins=15, n_clusters=5 | `sha256:d479d1647e0d1949f624589d6f24aa3dbc02b68e15d38a07697f8ae52f0c2338` | `sha256:eacbd0f40ce6…` | n_clusters_sweep | 1 / 1 |  |
+| cluster_optimization / pure_basis_risk_minimization / n_clusters_sweep | budget_loading=1, n_bins=15, n_clusters=6 | `sha256:37d93abf92f00df6034b15df1946de400c498fe6e8cac84d75f6aa88083a5a0c` | `sha256:ac307eb293d5…` | n_clusters_sweep | 1 / 1 |  |
+| cluster_optimization / pure_basis_risk_minimization / n_clusters_sweep | budget_loading=1, n_bins=15, n_clusters=7 | `sha256:f961607dfd35fc604a15da317512f8427e95d951a17a9e00ef8c2ed22e7ddc09` | `sha256:b496b3c62d4e…` | n_clusters_sweep | 1 / 1 |  |
+| cluster_optimization / pure_basis_risk_minimization / n_clusters_sweep | budget_loading=1, n_bins=15, n_clusters=8 | `sha256:35fad1dafa52c0c8ae652262184838075c8073125c3701d8663f20eb3d3af849` | `sha256:0c472915605e…` | n_clusters_sweep | 1 / 1 |  |
+| cluster_optimization / pure_basis_risk_minimization / n_clusters_sweep | budget_loading=1, n_bins=15, n_clusters=9 | `sha256:4c91d878087ec9bbab6ee1f0f07b3ac00c5d31734e9290a1dfbecd43127a1171` | `sha256:31a89aacfdde…` | n_clusters_sweep | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / n_clusters_sweep | budget_loading=1, n_bins=15, n_clusters=1 | `sha256:ffaaf4a106458d4cba00af1ac99920400f17b15e4bdc87efe081deb34234c44b` | `sha256:7a5d7d632eb7…` | n_clusters_sweep | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / n_clusters_sweep | budget_loading=1, n_bins=15, n_clusters=2 | `sha256:de3945214cce8b0f336e4540da68ce1e3647ec795a6ec9e39dbc2b93b7ddf432` | `sha256:3520e9876477…` | n_clusters_sweep | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / n_clusters_sweep | budget_loading=1, n_bins=15, n_clusters=3 | `sha256:621e1248c90f0ec9f501a71671988aefe42c1f6c41896882b78050a0a14c857f` | `sha256:e2c71287f223…` | single_run | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / n_clusters_sweep | budget_loading=1, n_bins=15, n_clusters=4 | `sha256:a6b664b29a802ffb3951f82639db8b317cc44fc59127158e9506307e5c005f05` | `sha256:7c7689e9f361…` | n_clusters_sweep | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / n_clusters_sweep | budget_loading=1, n_bins=15, n_clusters=5 | `sha256:372160846e84dd0258c6f92d53b348c89c9a86296068460b7a2a2ba9af74ea92` | `sha256:32e324147878…` | n_clusters_sweep | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / n_clusters_sweep | budget_loading=1, n_bins=15, n_clusters=6 | `sha256:61eb22afe0ccffca43dd34da3b1264f6a2fff7ab44c1298f152fc717f8d99477` | `sha256:d276f32ee8b7…` | n_clusters_sweep | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / n_clusters_sweep | budget_loading=1, n_bins=15, n_clusters=7 | `sha256:4a33a535b7faede36203d2cdf4354e293a982dec82f53d73992e58f135d6b6c4` | `sha256:f183109254fa…` | n_clusters_sweep | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / n_clusters_sweep | budget_loading=1, n_bins=15, n_clusters=8 | `sha256:84d6bd2e7bdb299fdcb2109126d585c5e89c8fca0bebb46bead26646214d4536` | `sha256:b1e35aa3aa7b…` | n_clusters_sweep | 1 / 1 |  |
+| cluster_optimization / pure_uncovered_loss_minimization / n_clusters_sweep | budget_loading=1, n_bins=15, n_clusters=9 | `sha256:80de1c57b2eaa8ef11e791cad6ddb1a09f04d55d7de374ce90a7cd92949b9b67` | `sha256:9d797e1895a3…` | n_clusters_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / n_clusters_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=1 | `sha256:088958ca3537da57c00d152d4977a467ed60061c6b4532bf94b3bcaccb9c44fb` | `sha256:ed4af3c68a0c…` | n_clusters_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / n_clusters_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=2 | `sha256:4f8570b6dd68a7f9beeca994899b8581ac95f853934d55aafda64d68f4bc68e9` | `sha256:d99191838756…` | n_clusters_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / n_clusters_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:2f2eb822c199326c7cf1cb42acc2c5472d12d04aa13282eb4152d0324ace2ce0` | `sha256:f983cae22e58…` | single_run | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / n_clusters_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=4 | `sha256:3a132d20eb9fe1813eb9a421275e5338b8cb7c9ea8862d0d3f4be6ea3dc53a3c` | `sha256:ff7cae5710d9…` | n_clusters_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / n_clusters_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=5 | `sha256:31cb5c35ccce981baf5c302e353aa087e32c9e19fd441e4a0ef4772f6c86d198` | `sha256:1e2dc5911325…` | n_clusters_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / n_clusters_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=6 | `sha256:a3df92962bf999ad26a7caa73b370e39b1cd2aa509ce95a3768fb5d39a800116` | `sha256:5e3ca4b2f87e…` | n_clusters_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / n_clusters_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=7 | `sha256:908eae2c8a61d2c412da9d59e2faae43dc289545de91994152c24d0a1b6c2198` | `sha256:ac537ddff163…` | n_clusters_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / n_clusters_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=8 | `sha256:22fba0ff51cc0884f9ee9433826c4fadbfc66e6b805e2a43d9a17749509cc718` | `sha256:fd5775d120d3…` | n_clusters_sweep | 1 / 1 |  |
+| cluster_optimization / weighted_cvar_minimization / n_clusters_sweep | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=9 | `sha256:b72fc0356f7ef846a71f66f9ac62c73f6492ca532e6b340dca40908b39c5097b` | `sha256:fc9560ff7467…` | n_clusters_sweep | 1 / 1 |  |
 | cluster_optimization / pure_basis_risk_minimization / single_run | budget_loading=1, n_bins=15, n_clusters=3 | `sha256:cc421a18661694603cd1c84f69d191427571780088e2e244e5c34e44f13a13ac` | `sha256:d32a12036b42…` | single_run | 1 / 1 |  |
 | cluster_optimization / pure_uncovered_loss_minimization / single_run | budget_loading=1, n_bins=15, n_clusters=3 | `sha256:621e1248c90f0ec9f501a71671988aefe42c1f6c41896882b78050a0a14c857f` | `sha256:e2c71287f223…` | single_run | 1 / 1 |  |
 | cluster_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:2f2eb822c199326c7cf1cb42acc2c5472d12d04aa13282eb4152d0324ace2ce0` | `sha256:f983cae22e58…` | single_run | 1 / 1 |  |
@@ -77,58 +331,1088 @@ The store run each golden record was compared with. A run's `config_hash` identi
 
 One row per golden design problem. *Derivation*: how the golden value was obtained (`a_golden_kpis`: from the golden KPI row named in *KPI source*; `b_thesis_code`: recomputed with the thesis code); see `golden/golden_objectives.json`. Ours is `runs.objective_value` in loss units.
 
+Compact form: the 751 of 759 golden objective values that match are not listed (the summary by comparison group gives the largest relative error of each group).
+
 | Record | Parameters | Problem | Derivation | KPI source | Golden | Ours | Rel. error | Status |
 |---|---|---|---|---|---|---|---|---|
-| cluster_optimization / pure_basis_risk_minimization / single_run | budget_loading=1, n_bins=15, n_clusters=3 | portfolio | a_golden_kpis | golden:Portfolio | 6.761577559e+11 | 6.761577559e+11 | 1.81e-16 | match |
-| cluster_optimization / pure_uncovered_loss_minimization / single_run | budget_loading=1, n_bins=15, n_clusters=3 | portfolio | a_golden_kpis | golden:Portfolio | 102104.2455 | 102104.2455 | 6.70e-15 | match |
-| cluster_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=3 | portfolio | a_golden_kpis | golden:Portfolio | 1181435.271 | 1181435.272 | 9.32e-10 | match |
-| individual_optimization / pure_basis_risk_minimization / single_run | budget_loading=1, n_bins=15 | A1 | a_golden_kpis | golden:A1 | 2.95183667e+11 | 2.95183667e+11 | 4.14e-16 | match |
-| individual_optimization / pure_basis_risk_minimization / single_run | budget_loading=1, n_bins=15 | A2 | a_golden_kpis | golden:A2 | 2.790264156e+11 | 2.790264156e+11 | 2.19e-16 | match |
-| individual_optimization / pure_basis_risk_minimization / single_run | budget_loading=1, n_bins=15 | A3 | a_golden_kpis | golden:A3 | 2783292563 | 2783292563 | 3.43e-16 | match |
-| individual_optimization / pure_basis_risk_minimization / single_run | budget_loading=1, n_bins=15 | A4 | a_golden_kpis | golden:A4 | 1.732938812e+10 | 1.732938812e+10 | 6.60e-16 | match |
-| individual_optimization / pure_basis_risk_minimization / single_run | budget_loading=1, n_bins=15 | A5 | a_golden_kpis | golden:A5 | 806557084.1 | 806557084.1 | 4.43e-16 | match |
-| individual_optimization / pure_basis_risk_minimization / single_run | budget_loading=1, n_bins=15 | A6 | a_golden_kpis | golden:A6 | 402696312.9 | 402696312.9 | 5.92e-16 | match |
-| individual_optimization / pure_basis_risk_minimization / single_run | budget_loading=1, n_bins=15 | A7 | a_golden_kpis | golden:A7 | 7278019660 | 7278019660 | 2.62e-16 | match |
-| individual_optimization / pure_basis_risk_minimization / single_run | budget_loading=1, n_bins=15 | A8 | a_golden_kpis | golden:A8 | 219562332.2 | 219562332.2 | 1.36e-16 | match |
-| individual_optimization / pure_basis_risk_minimization / single_run | budget_loading=1, n_bins=15 | A9 | a_golden_kpis | golden:A9 | 8.854468624e+10 | 8.854468624e+10 | 3.45e-16 | match |
-| individual_optimization / pure_uncovered_loss_minimization / single_run | budget_loading=1, n_bins=15 | A1 | a_golden_kpis | golden:A1 | 62093.35565 | 62093.35565 | 1.41e-15 | match |
-| individual_optimization / pure_uncovered_loss_minimization / single_run | budget_loading=1, n_bins=15 | A2 | a_golden_kpis | golden:A2 | 55852.05986 | 55852.05986 | 6.51e-16 | match |
-| individual_optimization / pure_uncovered_loss_minimization / single_run | budget_loading=1, n_bins=15 | A3 | a_golden_kpis | golden:A3 | 6168.544435 | 6168.544435 | 4.42e-16 | match |
-| individual_optimization / pure_uncovered_loss_minimization / single_run | budget_loading=1, n_bins=15 | A4 | a_golden_kpis | golden:A4 | 14673.41365 | 14673.41365 | 3.72e-16 | match |
-| individual_optimization / pure_uncovered_loss_minimization / single_run | budget_loading=1, n_bins=15 | A5 | a_golden_kpis | golden:A5 | 3502.691425 | 3502.691425 | 1.95e-15 | match |
-| individual_optimization / pure_uncovered_loss_minimization / single_run | budget_loading=1, n_bins=15 | A6 | a_golden_kpis | golden:A6 | 2400.596873 | 2400.596873 | 5.68e-16 | match |
-| individual_optimization / pure_uncovered_loss_minimization / single_run | budget_loading=1, n_bins=15 | A7 | a_golden_kpis | golden:A7 | 10148.66438 | 10148.66438 | 1.97e-15 | match |
-| individual_optimization / pure_uncovered_loss_minimization / single_run | budget_loading=1, n_bins=15 | A8 | a_golden_kpis | golden:A8 | 1777.219213 | 1777.219213 | 5.12e-16 | match |
-| individual_optimization / pure_uncovered_loss_minimization / single_run | budget_loading=1, n_bins=15 | A9 | a_golden_kpis | golden:A9 | 36708.73933 | 36708.73933 | 3.96e-16 | match |
-| individual_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A1 | a_golden_kpis | golden:A1 | 784924.0151 | 784924.0152 | 2.02e-10 | match |
-| individual_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A2 | a_golden_kpis | golden:A2 | 712231.4097 | 712231.4095 | 3.74e-10 | match |
-| individual_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A3 | a_golden_kpis | golden:A3 | 79187.36943 | 79187.36947 | 5.49e-10 | match |
-| individual_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A4 | a_golden_kpis | golden:A4 | 187422.9374 | 187422.9374 | 3.89e-10 | match |
-| individual_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A5 | a_golden_kpis | golden:A5 | 45262.30294 | 45262.30297 | 7.71e-10 | match |
-| individual_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A6 | a_golden_kpis | golden:A6 | 30872.63389 | 30872.63387 | 8.25e-10 | match |
-| individual_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A7 | a_golden_kpis | golden:A7 | 125270.9418 | 125270.9418 | 2.18e-11 | match |
-| individual_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A8 | a_golden_kpis | golden:A8 | 22842.58308 | 22842.58309 | 3.34e-10 | match |
-| individual_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A9 | a_golden_kpis | golden:A9 | 458376.285 | 458376.2851 | 2.28e-10 | match |
-| integrated_portfolio_optimization / pure_basis_risk_minimization / single_run | budget_loading=1, n_bins=15 | portfolio | a_golden_kpis | golden:Portfolio | 6.064242367e+11 | 6.064242367e+11 | 4.03e-16 | match |
-| integrated_portfolio_optimization / pure_uncovered_loss_minimization / single_run | budget_loading=1, n_bins=15 | portfolio | a_golden_kpis | golden:Portfolio | 85660.22695 | 85660.22695 | 1.31e-14 | match |
-| integrated_portfolio_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | portfolio | a_golden_kpis | golden:Portfolio | 972283.4809 | 972283.4798 | 1.15e-09 | match |
+| cluster_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.4, n_bins=15, n_clusters=3 | portfolio | a_golden_kpis | golden:Portfolio | 0 | 0.00674084591 | inf | mismatch |
+| cluster_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15, n_clusters=3 | portfolio | a_golden_kpis | golden:Portfolio | 0 | 0.004934006557 | inf | mismatch |
+| integrated_portfolio_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=0.7, n_bins=15 | portfolio | a_golden_kpis | golden:Portfolio | 1.769796575e+12 | 1.779981666e+12 | 5.75e-03 | mismatch |
+| integrated_portfolio_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=0.8, n_bins=15 | portfolio | a_golden_kpis | golden:Portfolio | 1.050762713e+12 | 1.056502101e+12 | 5.46e-03 | mismatch |
+| integrated_portfolio_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=0.9, n_bins=15 | portfolio | a_golden_kpis | golden:Portfolio | 7.164371473e+11 | 7.168512618e+11 | 5.78e-04 | mismatch |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.3, n_bins=15 | portfolio | a_golden_kpis | golden:Portfolio | 0 | 0.0001784036677 | inf | mismatch |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.4, n_bins=15 | portfolio | a_golden_kpis | golden:Portfolio | 0 | 0.001482379107 | inf | mismatch |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15 | portfolio | a_golden_kpis | golden:Portfolio | 0 | 0.001120021655 | inf | mismatch |
 
 ## Findings
 
-Every gap between the golden data and the store. Explain each one in the explanations file, by id or by a glob over its path (`kind/approach/method/source/parameters/subject/item`), and regenerate the report.
+Every gap between the golden data and the store, grouped by golden record. Explain each one in the explanations file, by id or by a glob over its path (`kind/approach/method/source/parameters/subject/item`), and regenerate the report. *Explanation* names the text in the *Explanations* section below.
 
-| ID | Kind | Record | Parameters | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
-|---|---|---|---|---|---|---|---|---|---|
-| `P-54f3998f25` | kpi | integrated_portfolio_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A1 / CVaR_Uncovered | 3234176.75 | 3232938.673 | 3.83e-04 | outside the tolerance | Alternative optimum (LP degeneracy). The objective and every portfolio-level KPI of this run are within tolerance (objective 1.2e-9 relative). Evaluated under our objective and constraints on the same prepared EventSet (appendix), the thesis payout is feasible (bound violations at most 9.5e-6 USD, from its 8-digit print; budget 3.6e-11 relative) and its objective is 1.18e-9 relative above ours, within solver tolerance; the midpoint of the two payouts is optimal too (5.9e-10). The objective depends on the payouts only through the portfolio's total payout per event, and the two optima split that total differently between assets (E[payout]/E[loss] of A1 +2.25e-4, A6 +4.92e-4 relative), which moves these asset-level KPIs by 1.4e-4 to 7.3e-4. This is what degeneracy predicts, not a porting bug. |
-| `P-3fc13e61d1` | kpi | integrated_portfolio_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A1 / E_Payout_to_E_Loss_Ratio | 0.5874174142 | 0.5875493216 | 2.25e-04 | outside the tolerance | Alternative optimum (LP degeneracy). The objective and every portfolio-level KPI of this run are within tolerance (objective 1.2e-9 relative). Evaluated under our objective and constraints on the same prepared EventSet (appendix), the thesis payout is feasible (bound violations at most 9.5e-6 USD, from its 8-digit print; budget 3.6e-11 relative) and its objective is 1.18e-9 relative above ours, within solver tolerance; the midpoint of the two payouts is optimal too (5.9e-10). The objective depends on the payouts only through the portfolio's total payout per event, and the two optima split that total differently between assets (E[payout]/E[loss] of A1 +2.25e-4, A6 +4.92e-4 relative), which moves these asset-level KPIs by 1.4e-4 to 7.3e-4. This is what degeneracy predicts, not a porting bug. |
-| `P-e8c4afce12` | kpi | integrated_portfolio_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A1 / E_Residual | 917008.6432 | 916579.4406 | 4.68e-04 | outside the tolerance | Alternative optimum (LP degeneracy). The objective and every portfolio-level KPI of this run are within tolerance (objective 1.2e-9 relative). Evaluated under our objective and constraints on the same prepared EventSet (appendix), the thesis payout is feasible (bound violations at most 9.5e-6 USD, from its 8-digit print; budget 3.6e-11 relative) and its objective is 1.18e-9 relative above ours, within solver tolerance; the midpoint of the two payouts is optimal too (5.9e-10). The objective depends on the payouts only through the portfolio's total payout per event, and the two optima split that total differently between assets (E[payout]/E[loss] of A1 +2.25e-4, A6 +4.92e-4 relative), which moves these asset-level KPIs by 1.4e-4 to 7.3e-4. This is what degeneracy predicts, not a porting bug. |
-| `P-165e12282c` | kpi | integrated_portfolio_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A1 / E_Uncovered | 271706.5024 | 271638.292 | 2.51e-04 | outside the tolerance | Alternative optimum (LP degeneracy). The objective and every portfolio-level KPI of this run are within tolerance (objective 1.2e-9 relative). Evaluated under our objective and constraints on the same prepared EventSet (appendix), the thesis payout is feasible (bound violations at most 9.5e-6 USD, from its 8-digit print; budget 3.6e-11 relative) and its objective is 1.18e-9 relative above ours, within solver tolerance; the midpoint of the two payouts is optimal too (5.9e-10). The objective depends on the payouts only through the portfolio's total payout per event, and the two optima split that total differently between assets (E[payout]/E[loss] of A1 +2.25e-4, A6 +4.92e-4 relative), which moves these asset-level KPIs by 1.4e-4 to 7.3e-4. This is what degeneracy predicts, not a porting bug. |
-| `P-ceca1f6b69` | kpi | integrated_portfolio_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A2 / CVaR_Uncovered | 1116921.359 | 1117177.482 | 2.29e-04 | outside the tolerance | Alternative optimum (LP degeneracy). The objective and every portfolio-level KPI of this run are within tolerance (objective 1.2e-9 relative). Evaluated under our objective and constraints on the same prepared EventSet (appendix), the thesis payout is feasible (bound violations at most 9.5e-6 USD, from its 8-digit print; budget 3.6e-11 relative) and its objective is 1.18e-9 relative above ours, within solver tolerance; the midpoint of the two payouts is optimal too (5.9e-10). The objective depends on the payouts only through the portfolio's total payout per event, and the two optima split that total differently between assets (E[payout]/E[loss] of A1 +2.25e-4, A6 +4.92e-4 relative), which moves these asset-level KPIs by 1.4e-4 to 7.3e-4. This is what degeneracy predicts, not a porting bug. |
-| `P-2e543f807e` | kpi | integrated_portfolio_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A2 / E_Residual | 581390.428 | 581251.4477 | 2.39e-04 | outside the tolerance | Alternative optimum (LP degeneracy). The objective and every portfolio-level KPI of this run are within tolerance (objective 1.2e-9 relative). Evaluated under our objective and constraints on the same prepared EventSet (appendix), the thesis payout is feasible (bound violations at most 9.5e-6 USD, from its 8-digit print; budget 3.6e-11 relative) and its objective is 1.18e-9 relative above ours, within solver tolerance; the midpoint of the two payouts is optimal too (5.9e-10). The objective depends on the payouts only through the portfolio's total payout per event, and the two optima split that total differently between assets (E[payout]/E[loss] of A1 +2.25e-4, A6 +4.92e-4 relative), which moves these asset-level KPIs by 1.4e-4 to 7.3e-4. This is what degeneracy predicts, not a porting bug. |
-| `P-03b1743fdd` | kpi | integrated_portfolio_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A2 / E_Uncovered | 91398.1574 | 91412.33857 | 1.55e-04 | outside the tolerance | Alternative optimum (LP degeneracy). The objective and every portfolio-level KPI of this run are within tolerance (objective 1.2e-9 relative). Evaluated under our objective and constraints on the same prepared EventSet (appendix), the thesis payout is feasible (bound violations at most 9.5e-6 USD, from its 8-digit print; budget 3.6e-11 relative) and its objective is 1.18e-9 relative above ours, within solver tolerance; the midpoint of the two payouts is optimal too (5.9e-10). The objective depends on the payouts only through the portfolio's total payout per event, and the two optima split that total differently between assets (E[payout]/E[loss] of A1 +2.25e-4, A6 +4.92e-4 relative), which moves these asset-level KPIs by 1.4e-4 to 7.3e-4. This is what degeneracy predicts, not a porting bug. |
-| `P-b20dd5a84f` | kpi | integrated_portfolio_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A4 / E_Payout_to_E_Loss_Ratio | 1.601691092 | 1.601466315 | 1.40e-04 | outside the tolerance | Alternative optimum (LP degeneracy). The objective and every portfolio-level KPI of this run are within tolerance (objective 1.2e-9 relative). Evaluated under our objective and constraints on the same prepared EventSet (appendix), the thesis payout is feasible (bound violations at most 9.5e-6 USD, from its 8-digit print; budget 3.6e-11 relative) and its objective is 1.18e-9 relative above ours, within solver tolerance; the midpoint of the two payouts is optimal too (5.9e-10). The objective depends on the payouts only through the portfolio's total payout per event, and the two optima split that total differently between assets (E[payout]/E[loss] of A1 +2.25e-4, A6 +4.92e-4 relative), which moves these asset-level KPIs by 1.4e-4 to 7.3e-4. This is what degeneracy predicts, not a porting bug. |
-| `P-dd56ded8e0` | kpi | integrated_portfolio_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A4 / E_Residual | 383670.3301 | 383388.9923 | 7.33e-04 | outside the tolerance | Alternative optimum (LP degeneracy). The objective and every portfolio-level KPI of this run are within tolerance (objective 1.2e-9 relative). Evaluated under our objective and constraints on the same prepared EventSet (appendix), the thesis payout is feasible (bound violations at most 9.5e-6 USD, from its 8-digit print; budget 3.6e-11 relative) and its objective is 1.18e-9 relative above ours, within solver tolerance; the midpoint of the two payouts is optimal too (5.9e-10). The objective depends on the payouts only through the portfolio's total payout per event, and the two optima split that total differently between assets (E[payout]/E[loss] of A1 +2.25e-4, A6 +4.92e-4 relative), which moves these asset-level KPIs by 1.4e-4 to 7.3e-4. This is what degeneracy predicts, not a porting bug. |
-| `P-c7904242ed` | kpi | integrated_portfolio_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A6 / E_Payout_to_E_Loss_Ratio | 0.007355178072 | 0.007358800223 | 4.92e-04 | outside the tolerance | Alternative optimum (LP degeneracy). The objective and every portfolio-level KPI of this run are within tolerance (objective 1.2e-9 relative). Evaluated under our objective and constraints on the same prepared EventSet (appendix), the thesis payout is feasible (bound violations at most 9.5e-6 USD, from its 8-digit print; budget 3.6e-11 relative) and its objective is 1.18e-9 relative above ours, within solver tolerance; the midpoint of the two payouts is optimal too (5.9e-10). The objective depends on the payouts only through the portfolio's total payout per event, and the two optima split that total differently between assets (E[payout]/E[loss] of A1 +2.25e-4, A6 +4.92e-4 relative), which moves these asset-level KPIs by 1.4e-4 to 7.3e-4. This is what degeneracy predicts, not a porting bug. |
+### cluster_optimization / weighted_cvar_minimization / alpha_sweep: alpha=1, beta=0.95, budget_loading=1, n_bins=15, n_clusters=3
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-47ae91f151` | kpi | C1 / VaR_Uncovered | 905574.4213 | 905468.1609 | 1.17e-04 | outside the tolerance | E4 |
+| `P-afa1d40409` | kpi | C2 / E_Residual | 446837.5052 | 446787.9391 | 1.11e-04 | outside the tolerance | E4 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / alpha_sweep: alpha=0.1, beta=0.95, budget_loading=1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-9ef91a88e4` | kpi | A2 / CVaR_Uncovered | 1145705.975 | 1145571.568 | 1.17e-04 | outside the tolerance | E2 |
+| `P-719276f354` | kpi | A4 / CVaR_Uncovered | 60044.24509 | 60076.77099 | 5.42e-04 | outside the tolerance | E2 |
+| `P-7d23e18848` | kpi | A4 / E_Payout_to_E_Loss_Ratio | 1.708564168 | 1.708372533 | 1.12e-04 | outside the tolerance | E2 |
+| `P-3db30a5204` | kpi | A4 / E_Residual | 370010.8237 | 369836.878 | 4.70e-04 | outside the tolerance | E2 |
+| `P-f84a496abd` | kpi | A4 / E_Uncovered | 5075.438481 | 5077.106813 | 3.29e-04 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / alpha_sweep: alpha=0.2, beta=0.95, budget_loading=1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-21370afc86` | kpi | A3 / VaR_Uncovered | 10114.40022 | 10116.83199 | 2.40e-04 | outside the tolerance | E2 |
+| `P-70e7c04996` | kpi | A4 / CVaR_Uncovered | 66399.44193 | 66417.82059 | 2.77e-04 | outside the tolerance | E2 |
+| `P-02749868c0` | kpi | A4 / E_Residual | 354300.9889 | 354262.4427 | 1.09e-04 | outside the tolerance | E2 |
+| `P-5d1f4079d7` | kpi | A4 / E_Uncovered | 5708.557254 | 5709.440985 | 1.55e-04 | outside the tolerance | E2 |
+| `P-19c6464178` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 0.1131495662 | 0.1131657396 | 1.43e-04 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / alpha_sweep: alpha=0.3, beta=0.95, budget_loading=1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-23095546a4` | kpi | A4 / CVaR_Uncovered | 90274.27363 | 90286.06164 | 1.31e-04 | outside the tolerance | E2 |
+| `P-012abec45a` | kpi | A4 / E_Residual | 364394.8117 | 364290.1149 | 2.87e-04 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / alpha_sweep: alpha=0.4, beta=0.95, budget_loading=1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-251264838e` | kpi | A1 / E_Payout_to_E_Loss_Ratio | 0.5612259551 | 0.561291087 | 1.16e-04 | outside the tolerance | E2 |
+| `P-83b1fb4740` | kpi | A1 / E_Uncovered | 288352.3553 | 288310.1499 | 1.46e-04 | outside the tolerance | E2 |
+| `P-a82ec39f49` | kpi | A2 / CVaR_Uncovered | 1086311.94 | 1086488.729 | 1.63e-04 | outside the tolerance | E2 |
+| `P-34285c7c8a` | kpi | A2 / E_Residual | 582380.9713 | 582280.0492 | 1.73e-04 | outside the tolerance | E2 |
+| `P-1f02c6e022` | kpi | A2 / E_Uncovered | 88503.68918 | 88513.41191 | 1.10e-04 | outside the tolerance | E2 |
+| `P-43340ff88e` | kpi | A4 / CVaR_Uncovered | 99571.28245 | 99677.148 | 1.06e-03 | outside the tolerance | E2 |
+| `P-e8e10c66b5` | kpi | A4 / E_Residual | 362594.7729 | 362739.7768 | 4.00e-04 | outside the tolerance | E2 |
+| `P-43cd5cf087` | kpi | A4 / E_Uncovered | 9636.62533 | 9648.848338 | 1.27e-03 | outside the tolerance | E2 |
+| `P-9080bb816c` | kpi | A4 / VaR_Uncovered | 53075.54733 | 53200.12829 | 2.35e-03 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / alpha_sweep: alpha=0.6, beta=0.95, budget_loading=1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-819ac2f297` | kpi | A1 / E_Residual | 934776.1272 | 934682.0295 | 1.01e-04 | outside the tolerance | E2 |
+| `P-f4495030cf` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 9.213839228e-05 | 9.212390511e-05 | 1.57e-04 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / alpha_sweep: alpha=0.7, beta=0.95, budget_loading=1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-88f5767ee0` | kpi | A1 / CVaR_Uncovered | 3274486.562 | 3273969.475 | 1.58e-04 | outside the tolerance | E2 |
+| `P-9e0bd6c919` | kpi | A1 / E_Residual | 926872.6852 | 926696.6593 | 1.90e-04 | outside the tolerance | E2 |
+| `P-7d4d1f67ea` | kpi | A1 / E_Uncovered | 275060.452 | 275030.5082 | 1.09e-04 | outside the tolerance | E2 |
+| `P-a7f15bd7d0` | kpi | A4 / CVaR_Uncovered | 119538.1023 | 119556.0173 | 1.50e-04 | outside the tolerance | E2 |
+| `P-417d136f60` | kpi | A4 / E_Residual | 382456.8139 | 382303.6608 | 4.00e-04 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / alpha_sweep: alpha=0.8, beta=0.95, budget_loading=1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-d515aedd69` | kpi | A4 / E_Residual | 382259.9849 | 382203.1079 | 1.49e-04 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / alpha_sweep: alpha=0.9, beta=0.95, budget_loading=1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-7618254470` | kpi | A1 / CVaR_Uncovered | 3234176.75 | 3232938.673 | 3.83e-04 | outside the tolerance | E2 |
+| `P-6737c4d10c` | kpi | A1 / E_Payout_to_E_Loss_Ratio | 0.5874174142 | 0.5875493216 | 2.25e-04 | outside the tolerance | E2 |
+| `P-d42b5c01fa` | kpi | A1 / E_Residual | 917008.6432 | 916579.4406 | 4.68e-04 | outside the tolerance | E2 |
+| `P-fd5a375068` | kpi | A1 / E_Uncovered | 271706.5024 | 271638.292 | 2.51e-04 | outside the tolerance | E2 |
+| `P-fe28926a7c` | kpi | A2 / CVaR_Uncovered | 1116921.359 | 1117177.482 | 2.29e-04 | outside the tolerance | E2 |
+| `P-edb360832e` | kpi | A2 / E_Residual | 581390.428 | 581251.4477 | 2.39e-04 | outside the tolerance | E2 |
+| `P-3db432589d` | kpi | A2 / E_Uncovered | 91398.1574 | 91412.33857 | 1.55e-04 | outside the tolerance | E2 |
+| `P-d24e4673ea` | kpi | A4 / E_Payout_to_E_Loss_Ratio | 1.601691092 | 1.601466315 | 1.40e-04 | outside the tolerance | E2 |
+| `P-ab593f0920` | kpi | A4 / E_Residual | 383670.3301 | 383388.9923 | 7.33e-04 | outside the tolerance | E2 |
+| `P-5ae6aa1df9` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 0.007355178072 | 0.007358800223 | 4.92e-04 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / alpha_sweep: alpha=1, beta=0.95, budget_loading=1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-af780eb2da` | kpi | A9 / E_Residual | 448809.3076 | 448984.2901 | 3.90e-04 | outside the tolerance | E2 |
+
+### cluster_optimization / weighted_cvar_minimization / beta_sweep: alpha=0.9, beta=0.9, budget_loading=1, n_bins=15, n_clusters=3
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-07bbf01561` | kpi | C1 / CVaR_Uncovered | 2742594.449 | 2743703.812 | 4.04e-04 | outside the tolerance | E4 |
+| `P-4e33b37fc3` | kpi | C1 / E_Payout_to_E_Loss_Ratio | 0.8446597158 | 0.8445748544 | 1.00e-04 | outside the tolerance | E4 |
+| `P-63f0a95721` | kpi | C1 / E_Residual | 910692.5057 | 910985.684 | 3.22e-04 | outside the tolerance | E4 |
+| `P-a3a8a6bc76` | kpi | C1 / E_Uncovered | 219297.8527 | 219366.8406 | 3.15e-04 | outside the tolerance | E4 |
+| `P-a7a88e8251` | kpi | C2 / CVaR_Uncovered | 107279.8742 | 107131.0503 | 1.39e-03 | outside the tolerance | E4 |
+| `P-668e85d1c1` | kpi | C2 / E_Payout_to_E_Loss_Ratio | 1.399622153 | 1.399867964 | 1.76e-04 | outside the tolerance | E4 |
+| `P-4dc347e569` | kpi | C2 / E_Residual | 365594.0918 | 365938.4783 | 9.42e-04 | outside the tolerance | E4 |
+| `P-1f7424a704` | kpi | C2 / E_Uncovered | 8380.94916 | 8373.507959 | 8.88e-04 | outside the tolerance | E4 |
+| `P-e960560159` | kpi | C3 / CVaR_Uncovered | 325338.0893 | 325284.0151 | 1.66e-04 | outside the tolerance | E4 |
+| `P-21cce2f593` | kpi | C3 / E_Residual | 553752.3384 | 553964.6044 | 3.83e-04 | outside the tolerance | E4 |
+
+### cluster_optimization / weighted_cvar_minimization / beta_sweep: alpha=0.9, beta=0.92, budget_loading=1, n_bins=15, n_clusters=3
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-34dfe7c3e4` | kpi | C1 / CVaR_Uncovered | 2794896.728 | 2796285.252 | 4.97e-04 | outside the tolerance | E4 |
+| `P-efe377916b` | kpi | C1 / E_Payout_to_E_Loss_Ratio | 0.8187783092 | 0.8186271698 | 1.85e-04 | outside the tolerance | E4 |
+| `P-8e7d19de42` | kpi | C1 / E_Residual | 937084.1093 | 937356.4822 | 2.91e-04 | outside the tolerance | E4 |
+| `P-e2de990a03` | kpi | C1 / E_Uncovered | 249433.7399 | 249583.2013 | 5.99e-04 | outside the tolerance | E4 |
+| `P-4f38c1d9ca` | kpi | C1 / VaR_Uncovered | 1172511.987 | 1173686.805 | 1.00e-03 | outside the tolerance | E4 |
+| `P-bb63e5e190` | kpi | C2 / CVaR_Uncovered | 93058.00287 | 92996.04993 | 6.66e-04 | outside the tolerance | E4 |
+| `P-40ab53dde7` | kpi | C2 / E_Payout_to_E_Loss_Ratio | 1.47072785 | 1.47112649 | 2.71e-04 | outside the tolerance | E4 |
+| `P-44a685521f` | kpi | C2 / E_Residual | 452863.7094 | 453304.3605 | 9.73e-04 | outside the tolerance | E4 |
+| `P-f8dee0a91e` | kpi | C2 / E_Uncovered | 7639.27232 | 7635.916539 | 4.39e-04 | outside the tolerance | E4 |
+| `P-7a8cf6c658` | kpi | C3 / CVaR_Uncovered | 299660.7153 | 299588.4372 | 2.41e-04 | outside the tolerance | E4 |
+| `P-739767c556` | kpi | C3 / E_Payout_to_E_Loss_Ratio | 1.170361464 | 1.170500289 | 1.19e-04 | outside the tolerance | E4 |
+| `P-26faddb654` | kpi | C3 / E_Residual | 568208.4929 | 568323.8606 | 2.03e-04 | outside the tolerance | E4 |
+| `P-cc2fc07d20` | kpi | C3 / E_Uncovered | 27907.21381 | 27901.53482 | 2.03e-04 | outside the tolerance | E4 |
+| `P-fbd91d3863` | kpi | Portfolio / E_Uncovered | 131803.553 | 131832.5935 | 2.20e-04 | outside the tolerance | E6 |
+| `P-e4e32fb088` | kpi | Portfolio / VaR_Uncovered | 551214.2364 | 550446.606 | 1.39e-03 | outside the tolerance | E6 |
+
+### cluster_optimization / weighted_cvar_minimization / beta_sweep: alpha=0.9, beta=0.96, budget_loading=1, n_bins=15, n_clusters=3
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-2491b3d074` | kpi | C1 / CVaR_Uncovered | 1974236.905 | 1973778.082 | 2.32e-04 | outside the tolerance | E4 |
+| `P-d233891c1e` | kpi | C1 / E_Uncovered | 167546.3708 | 167518.5873 | 1.66e-04 | outside the tolerance | E4 |
+| `P-decbd616fd` | kpi | C2 / E_Payout_to_E_Loss_Ratio | 1.280499589 | 1.280314347 | 1.45e-04 | outside the tolerance | E4 |
+| `P-6511d51180` | kpi | C2 / E_Residual | 396811.7704 | 396607.6579 | 5.14e-04 | outside the tolerance | E4 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / beta_sweep: alpha=0.9, beta=0.9, budget_loading=1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-dfd0d1b67d` | kpi | A8 / Correlation | 0.8838567407 | 0.8839974977 | 1.59e-04 | outside the tolerance | E2 |
+| `P-f361c58042` | kpi | A8 / E_Payout_to_E_Loss_Ratio | 0.8586480614 | 0.8584675674 | 2.10e-04 | outside the tolerance | E2 |
+| `P-e5c8984777` | kpi | A8 / E_Residual | 37572.73716 | 37529.7262 | 1.14e-03 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / beta_sweep: alpha=0.9, beta=0.91, budget_loading=1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-d19c5cdc68` | kpi | A1 / CVaR_Uncovered | 3575374.101 | 3574881.332 | 1.38e-04 | outside the tolerance | E2 |
+| `P-4e05991fa4` | kpi | A1 / E_Residual | 1016469.355 | 1016259.417 | 2.07e-04 | outside the tolerance | E2 |
+| `P-5af79264d9` | kpi | A1 / VaR_Uncovered | 1556460.424 | 1556674.785 | 1.38e-04 | outside the tolerance | E2 |
+| `P-14736051a9` | kpi | A2 / CVaR_Uncovered | 1173599.024 | 1173745.079 | 1.24e-04 | outside the tolerance | E2 |
+| `P-a4b5ae7aa4` | kpi | A4 / E_Residual | 382770.1465 | 382673.4518 | 2.53e-04 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / beta_sweep: alpha=0.9, beta=0.92, budget_loading=1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-4710e8c7f1` | kpi | A1 / E_Residual | 924623.0798 | 924530.1016 | 1.01e-04 | outside the tolerance | E2 |
+| `P-8ac9a6e217` | kpi | A2 / CVaR_Uncovered | 1215320.056 | 1215187.038 | 1.09e-04 | outside the tolerance | E2 |
+| `P-df0af113f6` | kpi | A3 / CVaR_Uncovered | 20902.45188 | 20894.12337 | 3.98e-04 | outside the tolerance | E2 |
+| `P-0b6ac9e402` | kpi | A3 / E_Uncovered | 1838.277182 | 1837.860799 | 2.27e-04 | outside the tolerance | E2 |
+| `P-02a80fa9dd` | kpi | A4 / CVaR_Uncovered | 55729.29591 | 55747.96922 | 3.35e-04 | outside the tolerance | E2 |
+| `P-64ee270a46` | kpi | A4 / E_Payout_to_E_Loss_Ratio | 1.682726803 | 1.682484242 | 1.44e-04 | outside the tolerance | E2 |
+| `P-b1d8652e53` | kpi | A4 / E_Residual | 364258.6462 | 364005.3781 | 6.95e-04 | outside the tolerance | E2 |
+| `P-9330388930` | kpi | A4 / E_Uncovered | 4558.292888 | 4559.226541 | 2.05e-04 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / beta_sweep: alpha=0.9, beta=0.93, budget_loading=1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-a5efb32255` | kpi | A1 / CVaR_Uncovered | 3251481.583 | 3250241.942 | 3.81e-04 | outside the tolerance | E2 |
+| `P-3801c59976` | kpi | A1 / Correlation | 0.9511782698 | 0.9510794594 | 1.04e-04 | outside the tolerance | E2 |
+| `P-8e0c1c1b35` | kpi | A1 / E_Payout_to_E_Loss_Ratio | 0.5832408568 | 0.583419573 | 3.06e-04 | outside the tolerance | E2 |
+| `P-94c424ddc6` | kpi | A1 / E_Residual | 924843.5126 | 924413.5546 | 4.65e-04 | outside the tolerance | E2 |
+| `P-32b8b28a65` | kpi | A1 / E_Uncovered | 274456.1937 | 274360.855 | 3.47e-04 | outside the tolerance | E2 |
+| `P-8d216589a7` | kpi | A1 / VaR_Uncovered | 1544702.136 | 1544538.121 | 1.06e-04 | outside the tolerance | E2 |
+| `P-7330d4e4a7` | kpi | A2 / CVaR_Uncovered | 1134480.872 | 1133623.834 | 7.55e-04 | outside the tolerance | E2 |
+| `P-944d31d7d6` | kpi | A2 / E_Payout_to_E_Loss_Ratio | 0.9145039458 | 0.9147596666 | 2.80e-04 | outside the tolerance | E2 |
+| `P-514610398d` | kpi | A2 / E_Residual | 578412.0825 | 578701.1384 | 5.00e-04 | outside the tolerance | E2 |
+| `P-3b7f8f9fcf` | kpi | A2 / E_Uncovered | 94518.70701 | 94470.97948 | 5.05e-04 | outside the tolerance | E2 |
+| `P-b17b82f451` | kpi | A4 / CVaR_Uncovered | 59942.75959 | 60034.22599 | 1.53e-03 | outside the tolerance | E2 |
+| `P-837229a176` | kpi | A4 / E_Payout_to_E_Loss_Ratio | 1.664646036 | 1.664233366 | 2.48e-04 | outside the tolerance | E2 |
+| `P-770258cd09` | kpi | A4 / E_Residual | 361004.8559 | 360844.9371 | 4.43e-04 | outside the tolerance | E2 |
+| `P-67bb30d6aa` | kpi | A4 / E_Uncovered | 5029.924493 | 5038.000333 | 1.61e-03 | outside the tolerance | E2 |
+| `P-4719665f70` | kpi | A9 / CVaR_Uncovered | 958168.6852 | 958637.9911 | 4.90e-04 | outside the tolerance | E2 |
+| `P-327e498f1e` | kpi | A9 / Correlation | 0.9543838984 | 0.9548084114 | 4.45e-04 | outside the tolerance | E2 |
+| `P-c0e814fdde` | kpi | A9 / E_Payout_to_E_Loss_Ratio | 0.8501782992 | 0.8496765492 | 5.90e-04 | outside the tolerance | E2 |
+| `P-5ca710db65` | kpi | A9 / E_Residual | 379680.4732 | 377947.6698 | 4.56e-03 | outside the tolerance | E2 |
+| `P-148517bbdd` | kpi | A9 / E_Uncovered | 86700.00676 | 86723.47185 | 2.71e-04 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / beta_sweep: alpha=0.9, beta=0.94, budget_loading=1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-ef1d5cb109` | kpi | A4 / CVaR_Uncovered | 80340.95525 | 80349.35033 | 1.04e-04 | outside the tolerance | E2 |
+| `P-1e7d815207` | kpi | A4 / E_Residual | 365776.075 | 365730.1074 | 1.26e-04 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / beta_sweep: alpha=0.9, beta=0.95, budget_loading=1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-5fe3d4329e` | kpi | A1 / CVaR_Uncovered | 3234176.75 | 3232938.673 | 3.83e-04 | outside the tolerance | E2 |
+| `P-e5c8ff37c4` | kpi | A1 / E_Payout_to_E_Loss_Ratio | 0.5874174142 | 0.5875493216 | 2.25e-04 | outside the tolerance | E2 |
+| `P-202aaea32e` | kpi | A1 / E_Residual | 917008.6432 | 916579.4406 | 4.68e-04 | outside the tolerance | E2 |
+| `P-4c998617b0` | kpi | A1 / E_Uncovered | 271706.5024 | 271638.292 | 2.51e-04 | outside the tolerance | E2 |
+| `P-25ee39e5a5` | kpi | A2 / CVaR_Uncovered | 1116921.359 | 1117177.482 | 2.29e-04 | outside the tolerance | E2 |
+| `P-b8c5b2f9ed` | kpi | A2 / E_Residual | 581390.428 | 581251.4477 | 2.39e-04 | outside the tolerance | E2 |
+| `P-26de106f86` | kpi | A2 / E_Uncovered | 91398.1574 | 91412.33857 | 1.55e-04 | outside the tolerance | E2 |
+| `P-ee4745640e` | kpi | A4 / E_Payout_to_E_Loss_Ratio | 1.601691092 | 1.601466315 | 1.40e-04 | outside the tolerance | E2 |
+| `P-b6353dbfa4` | kpi | A4 / E_Residual | 383670.3301 | 383388.9923 | 7.33e-04 | outside the tolerance | E2 |
+| `P-47e3871760` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 0.007355178072 | 0.007358800223 | 4.92e-04 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / beta_sweep: alpha=0.9, beta=0.96, budget_loading=1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-5194762203` | kpi | A1 / CVaR_Uncovered | 3184795.538 | 3182829.003 | 6.17e-04 | outside the tolerance | E2 |
+| `P-ba6efd4024` | kpi | A1 / Correlation | 0.9528584633 | 0.9527307474 | 1.34e-04 | outside the tolerance | E2 |
+| `P-f5fa0aafb0` | kpi | A1 / E_Payout_to_E_Loss_Ratio | 0.5884513892 | 0.5886622971 | 3.58e-04 | outside the tolerance | E2 |
+| `P-bbf6c72558` | kpi | A1 / E_Residual | 914176.1218 | 913474.6025 | 7.67e-04 | outside the tolerance | E2 |
+| `P-1bca665538` | kpi | A1 / E_Uncovered | 270885.4645 | 270773.7942 | 4.12e-04 | outside the tolerance | E2 |
+| `P-9c784e3270` | kpi | A2 / CVaR_Uncovered | 1196663.849 | 1196973.904 | 2.59e-04 | outside the tolerance | E2 |
+| `P-33fc773c07` | kpi | A2 / E_Payout_to_E_Loss_Ratio | 0.8990376696 | 0.8989242316 | 1.26e-04 | outside the tolerance | E2 |
+| `P-1ce12e82fc` | kpi | A2 / E_Residual | 597261.6882 | 597016.9054 | 4.10e-04 | outside the tolerance | E2 |
+| `P-6adfab7b6d` | kpi | A2 / E_Uncovered | 104560.676 | 104576.2103 | 1.49e-04 | outside the tolerance | E2 |
+| `P-31dbb289fc` | kpi | A4 / CVaR_Uncovered | 119201.4764 | 119236.7366 | 2.96e-04 | outside the tolerance | E2 |
+| `P-a068c98ddd` | kpi | A4 / E_Payout_to_E_Loss_Ratio | 1.631919351 | 1.631470536 | 2.75e-04 | outside the tolerance | E2 |
+| `P-751a99ee30` | kpi | A4 / E_Residual | 399191.544 | 398670.347 | 1.31e-03 | outside the tolerance | E2 |
+| `P-ecc8458747` | kpi | A4 / E_Uncovered | 11612.10202 | 11613.84369 | 1.50e-04 | outside the tolerance | E2 |
+| `P-49118658d1` | kpi | A6 / Correlation | 0.8840730832 | 0.8886674216 | 5.20e-03 | outside the tolerance | E2 |
+| `P-3293618864` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 3.194660202e-09 | 9.706823363e-10 | 6.96e-01 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / beta_sweep: alpha=0.9, beta=0.97, budget_loading=1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-f01a062e1d` | kpi | A1 / CVaR_Uncovered | 3080134.365 | 3080562.188 | 1.39e-04 | outside the tolerance | E2 |
+| `P-e674c73f25` | kpi | A1 / Correlation | 0.9318433517 | 0.9320256616 | 1.96e-04 | outside the tolerance | E2 |
+| `P-f272a96576` | kpi | A1 / E_Payout_to_E_Loss_Ratio | 0.6034684924 | 0.6033289286 | 2.31e-04 | outside the tolerance | E2 |
+| `P-2c916c733c` | kpi | A1 / E_Residual | 885896.7518 | 885782.9542 | 1.28e-04 | outside the tolerance | E2 |
+| `P-2862ec8944` | kpi | A1 / E_Uncovered | 267001.1958 | 267029.0785 | 1.04e-04 | outside the tolerance | E2 |
+| `P-3700f6b7a1` | kpi | A2 / CVaR_Uncovered | 1194863.552 | 1194722.983 | 1.18e-04 | outside the tolerance | E2 |
+| `P-c97f62355f` | kpi | A2 / Correlation | 0.9318494746 | 0.9317503301 | 1.06e-04 | outside the tolerance | E2 |
+| `P-e2ee22ede7` | kpi | A2 / E_Payout_to_E_Loss_Ratio | 0.8984742989 | 0.8986285898 | 1.72e-04 | outside the tolerance | E2 |
+| `P-ed358d5f56` | kpi | A2 / E_Residual | 813189.9809 | 814304.5661 | 1.37e-03 | outside the tolerance | E2 |
+| `P-fb75ffc2dc` | kpi | A4 / CVaR_Uncovered | 118851.8765 | 118867.0794 | 1.28e-04 | outside the tolerance | E2 |
+| `P-e3803ff153` | kpi | A6 / Correlation | 0.8656678625 | 0.8984612974 | 3.79e-02 | outside the tolerance | E2 |
+| `P-9583130012` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 4.515501698e-11 | -5.098958331e-10 | 1.23e+01 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / beta_sweep: alpha=0.9, beta=0.98, budget_loading=1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-88ded5c194` | kpi | A1 / CVaR_Uncovered | 2988644.995 | 2988313.628 | 1.11e-04 | outside the tolerance | E2 |
+| `P-7cd4798dcf` | kpi | A1 / E_Payout_to_E_Loss_Ratio | 0.6019616118 | 0.6020518125 | 1.50e-04 | outside the tolerance | E2 |
+| `P-cae9623b20` | kpi | A2 / E_Payout_to_E_Loss_Ratio | 0.9228384862 | 0.9227419076 | 1.05e-04 | outside the tolerance | E2 |
+| `P-5d9d11b0d5` | kpi | A2 / E_Residual | 838485.0082 | 837808.4454 | 8.07e-04 | outside the tolerance | E2 |
+| `P-a85ecc76bd` | kpi | A6 / Correlation | 0.6717604691 | 0.7248319947 | 7.90e-02 | outside the tolerance | E2 |
+| `P-ce532bbe09` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 8.782356337e-10 | -7.289557674e-11 | 1.08e+00 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / beta_sweep: alpha=0.9, beta=0.99, budget_loading=1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-2c681e3a04` | kpi | A2 / E_Residual | 900629.4837 | 900415.2617 | 2.38e-04 | outside the tolerance | E2 |
+| `P-b1de2b1de5` | kpi | A6 / CVaR_Uncovered | 86880.3594 | 86820.05681 | 6.94e-04 | outside the tolerance | E2 |
+| `P-e374f0367b` | kpi | A6 / Correlation | 0.9296774321 | 0.9289461253 | 7.87e-04 | outside the tolerance | E2 |
+| `P-6c09755fbd` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 0.7424293108 | 0.7439354988 | 2.03e-03 | outside the tolerance | E2 |
+| `P-21daa0a62f` | kpi | A6 / E_Residual | 32668.37011 | 32939.21112 | 8.29e-03 | outside the tolerance | E2 |
+| `P-03b66f1509` | kpi | A6 / E_Uncovered | 9143.937487 | 9139.917324 | 4.40e-04 | outside the tolerance | E2 |
+
+### cluster_optimization / pure_uncovered_loss_minimization / budget_loading_sweep: budget_loading=1.4, n_bins=15, n_clusters=3
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-1cc229c6c8` | kpi | C1 / CVaR_Uncovered | 339518.8904 | 339139.3801 | 1.12e-03 | outside the tolerance | E5 |
+| `P-25f6fc11d7` | kpi | C1 / E_Payout_to_E_Loss_Ratio | 1.301931255 | 1.302083138 | 1.17e-04 | outside the tolerance | E5 |
+| `P-566d3291f1` | kpi | C1 / E_Residual | 1250677.067 | 1251015.141 | 2.70e-04 | outside the tolerance | E5 |
+| `P-49e2693050` | kpi | C1 / E_Uncovered | 16975.94452 | 16956.96901 | 1.12e-03 | outside the tolerance | E5 |
+| `P-9e37d1e094` | kpi | C2 / CVaR_Uncovered | 89386.59709 | 89542.47981 | 1.74e-03 | outside the tolerance | E5 |
+| `P-112d4a161f` | kpi | C2 / E_Payout_to_E_Loss_Ratio | 1.516660827 | 1.516152224 | 3.35e-04 | outside the tolerance | E5 |
+| `P-29f5578c09` | kpi | C2 / E_Residual | 541499.4755 | 541298.7504 | 3.71e-04 | outside the tolerance | E5 |
+| `P-5793420ace` | kpi | C2 / E_Uncovered | 4553.703049 | 4562.588728 | 1.95e-03 | outside the tolerance | E5 |
+| `P-11618aa1f8` | kpi | C2 / VaR_Uncovered | 17525.57827 | 17622.4871 | 5.53e-03 | outside the tolerance | E5 |
+| `P-657429db53` | kpi | C3 / CVaR_Uncovered | 59396.94486 | 59404.00973 | 1.19e-04 | outside the tolerance | E5 |
+| `P-afd40663a7` | kpi | C3 / E_Residual | 751384.1906 | 751086.8485 | 3.96e-04 | outside the tolerance | E5 |
+| `P-3bb7ac22ef` | kpi | C3 / E_Uncovered | 2969.847243 | 2970.200486 | 1.19e-04 | outside the tolerance | E5 |
+
+### cluster_optimization / weighted_cvar_minimization / budget_loading_sweep: alpha=0.9, beta=0.95, budget_loading=0.9, n_bins=15, n_clusters=3
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-a086df2849` | kpi | C1 / CVaR_Uncovered | 2912400.625 | 2912097.135 | 1.04e-04 | outside the tolerance | E4 |
+| `P-e62c04e717` | kpi | C2 / CVaR_Uncovered | 242399.8747 | 242429.7653 | 1.23e-04 | outside the tolerance | E4 |
+| `P-1bf9dacc81` | kpi | C2 / E_Payout_to_E_Loss_Ratio | 1.216212761 | 1.215946451 | 2.19e-04 | outside the tolerance | E4 |
+| `P-73d675d163` | kpi | C2 / E_Residual | 372090.4614 | 371859.7984 | 6.20e-04 | outside the tolerance | E4 |
+| `P-042637e095` | kpi | C3 / E_Residual | 520855.2745 | 520985.3362 | 2.50e-04 | outside the tolerance | E4 |
+| `P-0645ccabbb` | kpi | C3 / VaR_Uncovered | 366298.1156 | 365897.3465 | 1.09e-03 | outside the tolerance | E4 |
+
+### cluster_optimization / weighted_cvar_minimization / budget_loading_sweep: alpha=0.9, beta=0.95, budget_loading=1.4, n_bins=15, n_clusters=3
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-24401cf784` | kpi | C1 / CVaR_Uncovered | 335223.8352 | 339023.4468 | 1.13e-02 | outside the tolerance | E4 |
+| `P-031a7743f5` | kpi | C1 / E_Payout_to_E_Loss_Ratio | 1.306038433 | 1.301168315 | 3.73e-03 | outside the tolerance | E4 |
+| `P-f3df9708b8` | kpi | C1 / E_Residual | 1251831.136 | 1250870.786 | 7.67e-04 | outside the tolerance | E4 |
+| `P-07728d080e` | kpi | C1 / E_Uncovered | 16761.19176 | 16951.17234 | 1.13e-02 | outside the tolerance | E4 |
+| `P-fa5312c3ad` | kpi | C2 / CVaR_Uncovered | 101929.8785 | 89465.08327 | 1.22e-01 | outside the tolerance | E4 |
+| `P-ff34010517` | kpi | C2 / Correlation | 0.9700135757 | 0.9701384485 | 1.29e-04 | outside the tolerance | E4 |
+| `P-5143c43888` | kpi | C2 / E_Payout_to_E_Loss_Ratio | 1.479476574 | 1.51369073 | 2.31e-02 | outside the tolerance | E4 |
+| `P-b0b2a54ba8` | kpi | C2 / E_Residual | 537309.0745 | 540604.1101 | 6.13e-03 | outside the tolerance | E4 |
+| `P-17f76c8492` | kpi | C2 / E_Uncovered | 5321.264104 | 4556.402273 | 1.44e-01 | outside the tolerance | E4 |
+| `P-0b9d6f0bd4` | kpi | C2 / VaR_Uncovered | 29291.83339 | 17309.10442 | 4.09e-01 | outside the tolerance | E4 |
+| `P-4c2dc11cea` | kpi | C3 / CVaR_Uncovered | 57511.02375 | 59636.90731 | 3.70e-02 | outside the tolerance | E4 |
+| `P-6eb376d660` | kpi | C3 / E_Payout_to_E_Loss_Ratio | 1.573605997 | 1.562535769 | 7.03e-03 | outside the tolerance | E4 |
+| `P-05fcb18dc1` | kpi | C3 / E_Residual | 755562.5779 | 751791.0676 | 4.99e-03 | outside the tolerance | E4 |
+| `P-e4dd504b41` | kpi | C3 / E_Uncovered | 2875.551188 | 2981.845366 | 3.70e-02 | outside the tolerance | E4 |
+| `P-a592a1b4d1` | kpi | Portfolio / E_Payout_to_E_Loss_Ratio | 1.399146695 | 1.398103738 | 7.45e-04 | outside the tolerance | E11 |
+| `P-45e20f632a` | objective | portfolio | 0 | 0.00674084591 | inf | outside the tolerance | E8 |
+
+### cluster_optimization / weighted_cvar_minimization / budget_loading_sweep: alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15, n_clusters=3
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-8ceb2d3dcf` | kpi | C1 / CVaR_Uncovered | 371543.4777 | 352677.7644 | 5.08e-02 | outside the tolerance | E4 |
+| `P-5215e33359` | kpi | C1 / E_Payout_to_E_Loss_Ratio | 1.321023134 | 1.309076307 | 9.04e-03 | outside the tolerance | E4 |
+| `P-138026dc58` | kpi | C1 / E_Residual | 1231276.672 | 1242242.413 | 8.91e-03 | outside the tolerance | E4 |
+| `P-8dbf60f315` | kpi | C1 / E_Uncovered | 18577.17389 | 17633.88822 | 5.08e-02 | outside the tolerance | E4 |
+| `P-1742397af0` | kpi | C2 / CVaR_Uncovered | 116711.4496 | 96462.62248 | 1.73e-01 | outside the tolerance | E4 |
+| `P-6e55423886` | kpi | C2 / Correlation | 0.9703459545 | 0.9700269155 | 3.29e-04 | outside the tolerance | E4 |
+| `P-2cffa5a403` | kpi | C2 / E_Payout_to_E_Loss_Ratio | 1.512696307 | 1.528954006 | 1.07e-02 | outside the tolerance | E4 |
+| `P-e87112d15a` | kpi | C2 / E_Residual | 553667.5836 | 544748.919 | 1.61e-02 | outside the tolerance | E4 |
+| `P-f55823334b` | kpi | C2 / E_Uncovered | 6394.186453 | 4994.423543 | 2.19e-01 | outside the tolerance | E4 |
+| `P-e8a6929f5e` | kpi | C2 / VaR_Uncovered | 48493.8331 | 25862.63738 | 4.67e-01 | outside the tolerance | E4 |
+| `P-1f1cbc40fc` | kpi | C3 / CVaR_Uncovered | 46444.02767 | 52149.01776 | 1.23e-01 | outside the tolerance | E4 |
+| `P-2d46a3a2f3` | kpi | C3 / E_Payout_to_E_Loss_Ratio | 1.688513992 | 1.616682424 | 4.25e-02 | outside the tolerance | E4 |
+| `P-4eab89b96f` | kpi | C3 / E_Residual | 778225.3023 | 763276.0066 | 1.92e-02 | outside the tolerance | E4 |
+| `P-7ba13b10cd` | kpi | C3 / E_Uncovered | 2322.201383 | 2607.450888 | 1.23e-01 | outside the tolerance | E4 |
+| `P-4afd5b4f2a` | kpi | Portfolio / E_Payout_to_E_Loss_Ratio | 1.442441499 | 1.418961646 | 1.63e-02 | outside the tolerance | E11 |
+| `P-41b8fd241e` | kpi | Portfolio / E_Residual | 2175632.009 | 2168420.205 | 3.31e-03 | outside the tolerance | E11 |
+| `P-d3212a25bd` | objective | portfolio | 0 | 0.004934006557 | inf | outside the tolerance | E8 |
+
+### individual_optimization / pure_uncovered_loss_minimization / budget_loading_sweep: budget_loading=1.3, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-132d9a2cce` | kpi | Portfolio / CVaR_Uncovered | 19864.29071 | 19871.3396 | 3.55e-04 | outside the tolerance | E14 |
+| `P-547c5375da` | kpi | Portfolio / E_Uncovered | 993.2145356 | 993.5669801 | 3.55e-04 | outside the tolerance | E14 |
+
+### individual_optimization / pure_uncovered_loss_minimization / budget_loading_sweep: budget_loading=1.5, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-0442152211` | kpi | A4 / E_Residual | 284816.7872 | 284781.4719 | 1.24e-04 | outside the tolerance | E14 |
+| `P-2f7b16ed1d` | kpi | A5 / E_Residual | 72391.05856 | 72436.75952 | 6.31e-04 | outside the tolerance | E14 |
+| `P-8a12801da9` | kpi | A6 / E_Residual | 46751.48078 | 46746.76603 | 1.01e-04 | outside the tolerance | E14 |
+| `P-91720cbcbb` | kpi | A8 / E_Residual | 36792.89661 | 36782.64383 | 2.79e-04 | outside the tolerance | E14 |
+| `P-8589ce8515` | kpi | Portfolio / CVaR_Uncovered | 0.05501496517 | 0.05575789255 | 1.35e-02 | outside the tolerance | E14 |
+| `P-db9d25e6c6` | kpi | Portfolio / E_Uncovered | 0.002750748259 | 0.002787894627 | 1.35e-02 | outside the tolerance | E14 |
+
+### individual_optimization / weighted_cvar_minimization / budget_loading_sweep: alpha=0.9, beta=0.95, budget_loading=0.9, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-c9228f4c9b` | kpi | A7 / E_Residual | 101452.1889 | 101379.3128 | 7.18e-04 | outside the tolerance | E13 |
+
+### individual_optimization / weighted_cvar_minimization / budget_loading_sweep: alpha=0.9, beta=0.95, budget_loading=1.1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-6e7e974785` | kpi | A4 / E_Residual | 167171.9603 | 167115.117 | 3.40e-04 | outside the tolerance | E13 |
+
+### individual_optimization / weighted_cvar_minimization / budget_loading_sweep: alpha=0.9, beta=0.95, budget_loading=1.3, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-0a92b697fe` | kpi | A3 / E_Residual | 87267.64137 | 87242.16831 | 2.92e-04 | outside the tolerance | E13 |
+| `P-1988f893e7` | kpi | A4 / E_Residual | 210229.9999 | 210414.3784 | 8.77e-04 | outside the tolerance | E13 |
+| `P-dbd1dc132e` | kpi | A5 / E_Residual | 46141.17519 | 46147.1725 | 1.30e-04 | outside the tolerance | E13 |
+| `P-0050da9a05` | kpi | Portfolio / CVaR_Uncovered | 28695.60261 | 28703.10881 | 2.62e-04 | outside the tolerance | E13 |
+| `P-3c0110b8cf` | kpi | Portfolio / E_Uncovered | 1980.994289 | 1981.373013 | 1.91e-04 | outside the tolerance | E13 |
+
+### individual_optimization / weighted_cvar_minimization / budget_loading_sweep: alpha=0.9, beta=0.95, budget_loading=1.4, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-d74b41fb0c` | kpi | A1 / VaR_Uncovered | 0 | 4.228224068e-06 | inf | outside the tolerance | E13 |
+| `P-3b401a8083` | kpi | A2 / E_Residual | 1104397.843 | 1104740.044 | 3.10e-04 | outside the tolerance | E13 |
+| `P-2c1294b9ea` | kpi | A2 / VaR_Uncovered | 0 | 7.232706399e-05 | inf | outside the tolerance | E13 |
+| `P-60116d2446` | kpi | A3 / VaR_Uncovered | 0 | 1.021389199e-05 | inf | outside the tolerance | E13 |
+| `P-6631a030ab` | kpi | A4 / VaR_Uncovered | 0 | 9.048004647e-06 | inf | outside the tolerance | E13 |
+| `P-88221b1fe7` | kpi | A5 / VaR_Uncovered | 0 | 1.908297912e-06 | inf | outside the tolerance | E13 |
+| `P-fa990b4c60` | kpi | A6 / VaR_Uncovered | 0 | 9.134749063e-07 | inf | outside the tolerance | E13 |
+| `P-e37ebd05dc` | kpi | A7 / VaR_Uncovered | 0 | 8.542164781e-06 | inf | outside the tolerance | E13 |
+| `P-c9ca213e64` | kpi | A8 / VaR_Uncovered | 0 | 1.274759231e-07 | inf | outside the tolerance | E13 |
+| `P-c0bc9feed8` | kpi | A9 / VaR_Uncovered | 0 | 5.059111207e-06 | inf | outside the tolerance | E13 |
+| `P-5ff6ee8348` | kpi | Portfolio / CVaR_Uncovered | 275.8325308 | 276.0780258 | 8.90e-04 | outside the tolerance | E13 |
+| `P-f5568595a7` | kpi | Portfolio / E_Residual | 2946867.323 | 2947219.936 | 1.20e-04 | outside the tolerance | E13 |
+| `P-61a39a8966` | kpi | Portfolio / E_Uncovered | 13.79162654 | 13.80392275 | 8.92e-04 | outside the tolerance | E13 |
+| `P-cf600bc2e3` | kpi | Portfolio / VaR_Uncovered | 0 | 0.0001123677094 | inf | outside the tolerance | E13 |
+
+### individual_optimization / weighted_cvar_minimization / budget_loading_sweep: alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-9552127f1f` | kpi | A1 / VaR_Uncovered | 0 | 2.912794357e-06 | inf | outside the tolerance | E13 |
+| `P-db82d045b6` | kpi | A2 / VaR_Uncovered | 0 | 9.861283179e-05 | inf | outside the tolerance | E13 |
+| `P-334abdb860` | kpi | A3 / VaR_Uncovered | 0 | 9.439535304e-07 | inf | outside the tolerance | E13 |
+| `P-1a911baccb` | kpi | A4 / VaR_Uncovered | 0 | 5.724912934e-06 | inf | outside the tolerance | E13 |
+| `P-64a4f62560` | kpi | A5 / E_Residual | 72466.06637 | 72531.72176 | 9.06e-04 | outside the tolerance | E13 |
+| `P-ff48ead471` | kpi | A5 / VaR_Uncovered | 0 | 3.124687613e-06 | inf | outside the tolerance | E13 |
+| `P-a2a9d5c06b` | kpi | A6 / E_Residual | 46756.4261 | 46763.04335 | 1.42e-04 | outside the tolerance | E13 |
+| `P-ffdba89b67` | kpi | A6 / VaR_Uncovered | 0 | 2.599038584e-08 | inf | outside the tolerance | E13 |
+| `P-bd29f95b68` | kpi | A7 / VaR_Uncovered | 0 | 1.064624805e-06 | inf | outside the tolerance | E13 |
+| `P-779593e2bc` | kpi | A8 / E_Residual | 36807.44818 | 36868.21519 | 1.65e-03 | outside the tolerance | E13 |
+| `P-0f94a684a4` | kpi | A8 / VaR_Uncovered | 0 | 1.787626579e-08 | inf | outside the tolerance | E13 |
+| `P-79ef2579b8` | kpi | Portfolio / CVaR_Uncovered | 0.05669467323 | 0.05679005494 | 1.68e-03 | outside the tolerance | E13 |
+| `P-9b0d0163c1` | kpi | Portfolio / E_Uncovered | 0.002834733661 | 0.00285716414 | 7.91e-03 | outside the tolerance | E13 |
+| `P-24b39acfcf` | kpi | Portfolio / VaR_Uncovered | 0 | 9.34245764e-05 | inf | outside the tolerance | E13 |
+
+### integrated_portfolio_optimization / pure_basis_risk_minimization / budget_loading_sweep: budget_loading=0.7, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-77ba3da7d6` | kpi | A1 / Correlation | 0.9343364854 | 0.9347179971 | 4.08e-04 | outside the tolerance | E15 |
+| `P-4869d8e043` | kpi | A1 / E_Payout_to_E_Loss_Ratio | 0.4103535927 | 0.4018015196 | 2.08e-02 | outside the tolerance | E15 |
+| `P-eeb7202614` | kpi | A1 / E_Uncovered | 384770.1191 | 390339.0924 | 1.45e-02 | outside the tolerance | E15 |
+| `P-776a9cb71d` | kpi | A2 / Correlation | 0.9433670558 | 0.9435894302 | 2.36e-04 | outside the tolerance | E15 |
+| `P-cac87307a3` | kpi | A2 / E_Payout_to_E_Loss_Ratio | 0.7100829099 | 0.7008835065 | 1.30e-02 | outside the tolerance | E15 |
+| `P-a561180248` | kpi | A2 / E_Residual | 661010.6768 | 661151.9915 | 2.14e-04 | outside the tolerance | E15 |
+| `P-cb10b072a8` | kpi | A2 / E_Uncovered | 194546.2686 | 199994.1186 | 2.80e-02 | outside the tolerance | E15 |
+| `P-2bd138e940` | kpi | A3 / CVaR_Uncovered | 91603.77713 | 91794.25929 | 2.08e-03 | outside the tolerance | E15 |
+| `P-1f575be173` | kpi | A3 / Correlation | 0.9122970926 | 0.9129840224 | 7.53e-04 | outside the tolerance | E15 |
+| `P-018cd54c5c` | kpi | A3 / E_Payout_to_E_Loss_Ratio | 2.084016698 | 1.996697169 | 4.19e-02 | outside the tolerance | E15 |
+| `P-d4de7305d4` | kpi | A3 / E_Residual | 348234.8878 | 348331.1182 | 2.76e-04 | outside the tolerance | E15 |
+| `P-a276af7b92` | kpi | A3 / E_Uncovered | 8968.214336 | 14681.26807 | 6.37e-01 | outside the tolerance | E15 |
+| `P-b8299f12b2` | kpi | A3 / VaR_Uncovered | 66230.06294 | 66676.45754 | 6.74e-03 | outside the tolerance | E15 |
+| `P-a70ad1ea7c` | kpi | A4 / CVaR_Uncovered | 242455.0038 | 242652.1602 | 8.13e-04 | outside the tolerance | E15 |
+| `P-7ce432a6b4` | kpi | A4 / Correlation | 0.9505751943 | 0.9510358192 | 4.85e-04 | outside the tolerance | E15 |
+| `P-1db0f5a7f8` | kpi | A4 / E_Payout_to_E_Loss_Ratio | 1.224731397 | 1.189036687 | 2.91e-02 | outside the tolerance | E15 |
+| `P-b44cabeae2` | kpi | A4 / E_Residual | 326906.7367 | 327047.7965 | 4.31e-04 | outside the tolerance | E15 |
+| `P-7143c68829` | kpi | A4 / E_Uncovered | 26502.23236 | 32103.90078 | 2.11e-01 | outside the tolerance | E15 |
+| `P-e37a2d23d9` | kpi | A4 / VaR_Uncovered | 170199.3902 | 170408.9305 | 1.23e-03 | outside the tolerance | E15 |
+| `P-0030eb6538` | kpi | A5 / CVaR_Uncovered | 87285.04452 | 87373.54715 | 1.01e-03 | outside the tolerance | E15 |
+| `P-7cbdb48bc8` | kpi | A5 / Correlation | 0.9139029488 | 0.9163702476 | 2.70e-03 | outside the tolerance | E15 |
+| `P-bde67ea029` | kpi | A5 / E_Payout_to_E_Loss_Ratio | 1.282107389 | 1.136461604 | 1.14e-01 | outside the tolerance | E15 |
+| `P-39ec9b007d` | kpi | A5 / E_Residual | 118650.9555 | 118894.6058 | 2.05e-03 | outside the tolerance | E15 |
+| `P-519f6087eb` | kpi | A5 / E_Uncovered | 10190.97393 | 15700.95269 | 5.41e-01 | outside the tolerance | E15 |
+| `P-6da27c3e03` | kpi | A5 / VaR_Uncovered | 60491.53638 | 60628.07227 | 2.26e-03 | outside the tolerance | E15 |
+| `P-6125c6f24c` | kpi | A6 / Correlation | 0.3452530108 | 0.3780758447 | 9.51e-02 | outside the tolerance | E15 |
+| `P-fb99884094` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 1.082496638e-05 | -0.2271519724 | 2.10e+04 | outside the tolerance | E15 |
+| `P-ce6ba00a20` | kpi | A6 / E_Residual | 87218.87716 | 87583.47772 | 4.18e-03 | outside the tolerance | E15 |
+| `P-b3c71ff4ae` | kpi | A6 / E_Uncovered | 26023.49926 | 31935.13414 | 2.27e-01 | outside the tolerance | E15 |
+| `P-49671ca447` | kpi | A7 / CVaR_Uncovered | 145315.9486 | 145704.8897 | 2.68e-03 | outside the tolerance | E15 |
+| `P-cc26e52f6a` | kpi | A7 / Correlation | 0.9408976213 | 0.9413309052 | 4.61e-04 | outside the tolerance | E15 |
+| `P-ba0889160f` | kpi | A7 / E_Payout_to_E_Loss_Ratio | 1.699217883 | 1.648098881 | 3.01e-02 | outside the tolerance | E15 |
+| `P-f80b96d8bc` | kpi | A7 / E_Residual | 393012.8402 | 393109.3142 | 2.45e-04 | outside the tolerance | E15 |
+| `P-74f463028f` | kpi | A7 / E_Uncovered | 14131.89809 | 19598.61052 | 3.87e-01 | outside the tolerance | E15 |
+| `P-4990adc9a8` | kpi | A7 / VaR_Uncovered | 103531.0441 | 104740.5744 | 1.17e-02 | outside the tolerance | E15 |
+| `P-1915ac4473` | kpi | A8 / CVaR_Uncovered | 196040.625 | 196066.8717 | 1.34e-04 | outside the tolerance | E15 |
+| `P-66c118f6a8` | kpi | A8 / Correlation | 0.6364401756 | 0.6519756611 | 2.44e-02 | outside the tolerance | E15 |
+| `P-8575d8c871` | kpi | A8 / E_Payout_to_E_Loss_Ratio | 0.4211166805 | 0.111219371 | 7.36e-01 | outside the tolerance | E15 |
+| `P-290e55fd62` | kpi | A8 / E_Residual | 67132.038 | 67628.2447 | 7.39e-03 | outside the tolerance | E15 |
+| `P-707e451e41` | kpi | A8 / E_Uncovered | 15416.45867 | 21472.92336 | 3.93e-01 | outside the tolerance | E15 |
+| `P-5a922d5b37` | kpi | A8 / VaR_Uncovered | 97254.49519 | 97338.26094 | 8.61e-04 | outside the tolerance | E15 |
+| `P-b20394db28` | kpi | A9 / Correlation | 0.9481588719 | 0.948576319 | 4.40e-04 | outside the tolerance | E15 |
+| `P-94b9ba8772` | kpi | A9 / E_Payout_to_E_Loss_Ratio | 0.599003601 | 0.585625835 | 2.23e-02 | outside the tolerance | E15 |
+| `P-00e7ca4cb5` | kpi | A9 / E_Residual | 486699.1555 | 486862.8555 | 3.36e-04 | outside the tolerance | E15 |
+| `P-1e5150a24a` | kpi | A9 / E_Uncovered | 168015.9651 | 173438.1745 | 3.23e-02 | outside the tolerance | E15 |
+| `P-85899e1656` | kpi | Portfolio / CVaR_Uncovered | 3901504.951 | 3902843.729 | 3.43e-04 | outside the tolerance | E15 |
+| `P-2f320c3d48` | kpi | Portfolio / Correlation | 0.9842247857 | 0.9847448288 | 5.28e-04 | outside the tolerance | E15 |
+| `P-3063f93e6d` | kpi | Portfolio / E_Payout_to_E_Loss_Ratio | 0.7264552217 | 0.7018609234 | 3.39e-02 | outside the tolerance | E15 |
+| `P-6e4e04acba` | kpi | Portfolio / E_Residual | 1330337.016 | 1334159.536 | 2.87e-03 | outside the tolerance | E15 |
+| `P-743abcf869` | kpi | Portfolio / E_Uncovered | 581004.131 | 631701.7008 | 8.73e-02 | outside the tolerance | E15 |
+| `P-60998c36a5` | kpi | Portfolio / VaR_Uncovered | 2755280.667 | 2758916.193 | 1.32e-03 | outside the tolerance | E15 |
+| `P-90db22abc0` | objective | portfolio | 1.769796575e+12 | 1.779981666e+12 | 5.75e-03 | outside the tolerance | E16 |
+
+### integrated_portfolio_optimization / pure_basis_risk_minimization / budget_loading_sweep: budget_loading=0.8, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-1f4c1bc244` | kpi | A1 / Correlation | 0.9420789261 | 0.9422638992 | 1.96e-04 | outside the tolerance | E15 |
+| `P-bf68a8b058` | kpi | A1 / E_Payout_to_E_Loss_Ratio | 0.4739662186 | 0.4674870445 | 1.37e-02 | outside the tolerance | E15 |
+| `P-4a89488119` | kpi | A1 / E_Uncovered | 343462.6461 | 347681.7807 | 1.23e-02 | outside the tolerance | E15 |
+| `P-f6b655724f` | kpi | A2 / Correlation | 0.9497226448 | 0.9498344729 | 1.18e-04 | outside the tolerance | E15 |
+| `P-b2a0def3f1` | kpi | A2 / E_Payout_to_E_Loss_Ratio | 0.7985871179 | 0.7916154488 | 8.73e-03 | outside the tolerance | E15 |
+| `P-351fd2be60` | kpi | A2 / E_Residual | 609715.6628 | 609803.5551 | 1.44e-04 | outside the tolerance | E15 |
+| `P-3a66f6c8bf` | kpi | A2 / E_Uncovered | 146818.3196 | 150946.9142 | 2.81e-02 | outside the tolerance | E15 |
+| `P-169d68ebbd` | kpi | A3 / CVaR_Uncovered | 90859.21626 | 90970.86943 | 1.23e-03 | outside the tolerance | E15 |
+| `P-c93f056390` | kpi | A3 / Correlation | 0.9178736066 | 0.9182781235 | 4.41e-04 | outside the tolerance | E15 |
+| `P-e8003926af` | kpi | A3 / E_Payout_to_E_Loss_Ratio | 2.239432411 | 2.173224823 | 2.96e-02 | outside the tolerance | E15 |
+| `P-f8004e151a` | kpi | A3 / E_Residual | 357121.595 | 357176.9144 | 1.55e-04 | outside the tolerance | E15 |
+| `P-13654e0a34` | kpi | A3 / E_Uncovered | 8400.988647 | 12732.75169 | 5.16e-01 | outside the tolerance | E15 |
+| `P-2928a0ded1` | kpi | A3 / VaR_Uncovered | 65385.30761 | 65494.37213 | 1.67e-03 | outside the tolerance | E15 |
+| `P-c54b97e037` | kpi | A4 / CVaR_Uncovered | 173379.5533 | 173667.4635 | 1.66e-03 | outside the tolerance | E15 |
+| `P-b4b6d5c9fa` | kpi | A4 / Correlation | 0.9555816553 | 0.9558193803 | 2.49e-04 | outside the tolerance | E15 |
+| `P-4c26bee132` | kpi | A4 / E_Payout_to_E_Loss_Ratio | 1.371292139 | 1.344238157 | 1.97e-02 | outside the tolerance | E15 |
+| `P-865c7427ce` | kpi | A4 / E_Residual | 348749.9124 | 348827.7774 | 2.23e-04 | outside the tolerance | E15 |
+| `P-0644f09fb9` | kpi | A4 / E_Uncovered | 18803.80825 | 23049.46371 | 2.26e-01 | outside the tolerance | E15 |
+| `P-8c8bdaf512` | kpi | A4 / VaR_Uncovered | 123779.5534 | 124327.0932 | 4.42e-03 | outside the tolerance | E15 |
+| `P-cd1f32a7b0` | kpi | A5 / Correlation | 0.9049647504 | 0.9070688139 | 2.33e-03 | outside the tolerance | E15 |
+| `P-f2edd40a87` | kpi | A5 / E_Payout_to_E_Loss_Ratio | 1.248501123 | 1.138173114 | 8.84e-02 | outside the tolerance | E15 |
+| `P-08b69ad613` | kpi | A5 / E_Residual | 124780.5097 | 124915.5443 | 1.08e-03 | outside the tolerance | E15 |
+| `P-be11813abc` | kpi | A5 / E_Uncovered | 12580.29597 | 16754.15507 | 3.32e-01 | outside the tolerance | E15 |
+| `P-00ba23946f` | kpi | A5 / VaR_Uncovered | 79879.96968 | 79908.62971 | 3.59e-04 | outside the tolerance | E15 |
+| `P-b0bb6fec02` | kpi | A6 / Correlation | 0.3182181313 | 0.3710681119 | 1.66e-01 | outside the tolerance | E15 |
+| `P-f1b950f176` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 1.453012601e-06 | -0.1720512292 | 1.18e+05 | outside the tolerance | E15 |
+| `P-7aae43d779` | kpi | A6 / E_Residual | 87219.45417 | 87434.52245 | 2.47e-03 | outside the tolerance | E15 |
+| `P-6672354f7e` | kpi | A6 / E_Uncovered | 26023.74315 | 30501.20447 | 1.72e-01 | outside the tolerance | E15 |
+| `P-d58c769a68` | kpi | A7 / CVaR_Uncovered | 73366.58787 | 74162.49313 | 1.08e-02 | outside the tolerance | E15 |
+| `P-6b7545fce1` | kpi | A7 / Correlation | 0.9454960119 | 0.9456484008 | 1.61e-04 | outside the tolerance | E15 |
+| `P-d008982259` | kpi | A7 / E_Payout_to_E_Loss_Ratio | 1.923538346 | 1.884792463 | 2.01e-02 | outside the tolerance | E15 |
+| `P-7a36206118` | kpi | A7 / E_Residual | 401332.8038 | 401387.2885 | 1.36e-04 | outside the tolerance | E15 |
+| `P-ba472dbd06` | kpi | A7 / E_Uncovered | 6848.650077 | 10992.1699 | 6.05e-01 | outside the tolerance | E15 |
+| `P-b634011485` | kpi | A7 / VaR_Uncovered | 48584.62783 | 49362.52989 | 1.60e-02 | outside the tolerance | E15 |
+| `P-a512e9a4e9` | kpi | A8 / CVaR_Uncovered | 130545.6186 | 130609.6372 | 4.90e-04 | outside the tolerance | E15 |
+| `P-426af9da4a` | kpi | A8 / Correlation | 0.7554437165 | 0.7642044167 | 1.16e-02 | outside the tolerance | E15 |
+| `P-f4b27172ad` | kpi | A8 / E_Payout_to_E_Loss_Ratio | 0.6620693826 | 0.428183645 | 3.53e-01 | outside the tolerance | E15 |
+| `P-c52276dd76` | kpi | A8 / E_Residual | 60827.05993 | 61149.61607 | 5.30e-03 | outside the tolerance | E15 |
+| `P-3ece7cb7ef` | kpi | A8 / E_Uncovered | 11256.93496 | 15827.87077 | 4.06e-01 | outside the tolerance | E15 |
+| `P-b2eacdb0b1` | kpi | A8 / VaR_Uncovered | 68391.113 | 68533.83914 | 2.09e-03 | outside the tolerance | E15 |
+| `P-c490cfef51` | kpi | A9 / Correlation | 0.9551284576 | 0.9553508795 | 2.33e-04 | outside the tolerance | E15 |
+| `P-e23c41c728` | kpi | A9 / E_Payout_to_E_Loss_Ratio | 0.6937919413 | 0.6836483139 | 1.46e-02 | outside the tolerance | E15 |
+| `P-eda8edd61f` | kpi | A9 / E_Residual | 425937.257 | 426038.42 | 2.38e-04 | outside the tolerance | E15 |
+| `P-c1f3fa9ece` | kpi | A9 / E_Uncovered | 133776.9471 | 137888.3116 | 3.07e-02 | outside the tolerance | E15 |
+| `P-4028656702` | kpi | Portfolio / CVaR_Uncovered | 2856898.244 | 2857764.077 | 3.03e-04 | outside the tolerance | E15 |
+| `P-4b13463b3a` | kpi | Portfolio / Correlation | 0.9892822987 | 0.9895276896 | 2.48e-04 | outside the tolerance | E15 |
+| `P-5ffe233ab8` | kpi | Portfolio / E_Payout_to_E_Loss_Ratio | 0.8200081786 | 0.8013789 | 2.27e-02 | outside the tolerance | E15 |
+| `P-5b245ba3b7` | kpi | Portfolio / E_Residual | 1025067.175 | 1027862.88 | 2.73e-03 | outside the tolerance | E15 |
+| `P-2cdf8432ec` | kpi | Portfolio / E_Uncovered | 398497.2391 | 436897.8237 | 9.64e-02 | outside the tolerance | E15 |
+| `P-7462c3cd29` | kpi | Portfolio / VaR_Uncovered | 1692059.037 | 1694560.214 | 1.48e-03 | outside the tolerance | E15 |
+| `P-ca60b5bf54` | objective | portfolio | 1.050762713e+12 | 1.056502101e+12 | 5.46e-03 | outside the tolerance | E16 |
+
+### integrated_portfolio_optimization / pure_basis_risk_minimization / budget_loading_sweep: budget_loading=0.9, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-178f4df851` | kpi | A1 / E_Payout_to_E_Loss_Ratio | 0.5177349389 | 0.5165270148 | 2.33e-03 | outside the tolerance | E15 |
+| `P-5b377e6aa2` | kpi | A1 / E_Uncovered | 315125.0037 | 315911.5846 | 2.50e-03 | outside the tolerance | E15 |
+| `P-c707dcbad3` | kpi | A2 / E_Payout_to_E_Loss_Ratio | 0.863810636 | 0.8625114017 | 1.50e-03 | outside the tolerance | E15 |
+| `P-e99f130b4b` | kpi | A2 / E_Uncovered | 113104.2383 | 113873.6396 | 6.80e-03 | outside the tolerance | E15 |
+| `P-d0b1a11a03` | kpi | A3 / E_Payout_to_E_Loss_Ratio | 2.518805982 | 2.506443385 | 4.91e-03 | outside the tolerance | E15 |
+| `P-104a1a0d32` | kpi | A3 / E_Uncovered | 4622.020511 | 5430.868125 | 1.75e-01 | outside the tolerance | E15 |
+| `P-0ef2131136` | kpi | A4 / CVaR_Uncovered | 120946.0465 | 120971.8962 | 2.14e-04 | outside the tolerance | E15 |
+| `P-ba5e04e9ce` | kpi | A4 / E_Payout_to_E_Loss_Ratio | 1.519457841 | 1.514421707 | 3.31e-03 | outside the tolerance | E15 |
+| `P-cd96aa43bc` | kpi | A4 / E_Uncovered | 11628.32857 | 12418.6628 | 6.80e-02 | outside the tolerance | E15 |
+| `P-c320054499` | kpi | A4 / VaR_Uncovered | 75854.49031 | 75882.25805 | 3.66e-04 | outside the tolerance | E15 |
+| `P-ffc3a79272` | kpi | A5 / Correlation | 0.9176263391 | 0.9179127412 | 3.12e-04 | outside the tolerance | E15 |
+| `P-2f59eb7ddd` | kpi | A5 / E_Payout_to_E_Loss_Ratio | 1.496820521 | 1.476270326 | 1.37e-02 | outside the tolerance | E15 |
+| `P-cc290a3e4c` | kpi | A5 / E_Uncovered | 5701.472919 | 6478.91464 | 1.36e-01 | outside the tolerance | E15 |
+| `P-764097e106` | kpi | A6 / Correlation | 0.8352943482 | 0.7679260946 | 8.07e-02 | outside the tolerance | E15 |
+| `P-128a8a89af` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 0.007683765476 | -0.02437256547 | 4.17e+00 | outside the tolerance | E15 |
+| `P-7aa86b87df` | kpi | A6 / E_Residual | 86489.38863 | 86498.44093 | 1.05e-04 | outside the tolerance | E15 |
+| `P-afac1fc200` | kpi | A6 / E_Uncovered | 25823.82033 | 26658.04727 | 3.23e-02 | outside the tolerance | E15 |
+| `P-ef5ad0537f` | kpi | A7 / CVaR_Uncovered | 27421.62988 | 27648.1129 | 8.26e-03 | outside the tolerance | E15 |
+| `P-7eb0524f6f` | kpi | A7 / E_Payout_to_E_Loss_Ratio | 1.991458026 | 1.984250288 | 3.62e-03 | outside the tolerance | E15 |
+| `P-d3bc418d86` | kpi | A7 / E_Uncovered | 2312.095308 | 3082.896629 | 3.33e-01 | outside the tolerance | E15 |
+| `P-aec57d66f1` | kpi | A7 / VaR_Uncovered | 17117.92986 | 17345.06665 | 1.33e-02 | outside the tolerance | E15 |
+| `P-353d226704` | kpi | A8 / Correlation | 0.807107132 | 0.8085839208 | 1.83e-03 | outside the tolerance | E15 |
+| `P-ed39e5162d` | kpi | A8 / E_Payout_to_E_Loss_Ratio | 0.7856389532 | 0.7422983378 | 5.52e-02 | outside the tolerance | E15 |
+| `P-ebd16be8ea` | kpi | A8 / E_Residual | 57331.39246 | 57346.57863 | 2.65e-04 | outside the tolerance | E15 |
+| `P-42b77e2243` | kpi | A8 / E_Uncovered | 9245.499891 | 10092.52531 | 9.16e-02 | outside the tolerance | E15 |
+| `P-18fbb046a7` | kpi | A8 / VaR_Uncovered | 61799.97161 | 61810.43229 | 1.69e-04 | outside the tolerance | E15 |
+| `P-0d29cf02cc` | kpi | A9 / E_Payout_to_E_Loss_Ratio | 0.8038645296 | 0.8019806165 | 2.34e-03 | outside the tolerance | E15 |
+| `P-8af12fd188` | kpi | A9 / E_Uncovered | 96372.75214 | 97136.33038 | 7.92e-03 | outside the tolerance | E15 |
+| `P-b349027ccf` | kpi | Portfolio / E_Payout_to_E_Loss_Ratio | 0.9037106738 | 0.9002430021 | 3.84e-03 | outside the tolerance | E15 |
+| `P-afdc2b76a5` | kpi | Portfolio / E_Residual | 846426.1027 | 846670.6927 | 2.89e-04 | outside the tolerance | E15 |
+| `P-40cabdb2dd` | kpi | Portfolio / E_Uncovered | 242045.3979 | 249191.7585 | 2.95e-02 | outside the tolerance | E15 |
+| `P-629d5cc02d` | kpi | Portfolio / VaR_Uncovered | 960131.0768 | 960272.8774 | 1.48e-04 | outside the tolerance | E15 |
+| `P-195604ee47` | objective | portfolio | 7.164371473e+11 | 7.168512618e+11 | 5.78e-04 | outside the tolerance | E16 |
+
+### integrated_portfolio_optimization / pure_uncovered_loss_minimization / budget_loading_sweep: budget_loading=1.3, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-ebaeb62785` | kpi | A1 / CVaR_Uncovered | 2289024.319 | 2290409.178 | 6.05e-04 | outside the tolerance | E3 |
+| `P-fb1cc8365b` | kpi | A1 / E_Payout_to_E_Loss_Ratio | 0.8545517498 | 0.854336544 | 2.52e-04 | outside the tolerance | E3 |
+| `P-70f9bb7190` | kpi | A1 / E_Residual | 724766.714 | 725026.6603 | 3.59e-04 | outside the tolerance | E3 |
+| `P-cb88f272a1` | kpi | A1 / E_Uncovered | 139405.5071 | 139523.5002 | 8.46e-04 | outside the tolerance | E3 |
+| `P-dd46ba0605` | kpi | A1 / VaR_Uncovered | 646836.2722 | 649384.0798 | 3.94e-03 | outside the tolerance | E3 |
+| `P-8c9c2618a8` | kpi | A2 / CVaR_Uncovered | 1060634.567 | 1063899.309 | 3.08e-03 | outside the tolerance | E3 |
+| `P-409356d0fe` | kpi | A2 / Correlation | 0.9333625214 | 0.9332089873 | 1.64e-04 | outside the tolerance | E3 |
+| `P-24934fd451` | kpi | A2 / E_Payout_to_E_Loss_Ratio | 1.024171525 | 1.023032593 | 1.11e-03 | outside the tolerance | E3 |
+| `P-e5daa972d3` | kpi | A2 / E_Residual | 963122.8144 | 963468.8179 | 3.59e-04 | outside the tolerance | E3 |
+| `P-a4dbf47227` | kpi | A2 / E_Uncovered | 95171.95992 | 95658.72127 | 5.11e-03 | outside the tolerance | E3 |
+| `P-b5792974b8` | kpi | A2 / VaR_Uncovered | 569364.6323 | 573095.1138 | 6.55e-03 | outside the tolerance | E3 |
+| `P-4280313696` | kpi | A3 / CVaR_Uncovered | 131369.7297 | 133046.9503 | 1.28e-02 | outside the tolerance | E3 |
+| `P-fbfe4bd205` | kpi | A3 / Correlation | 0.8855727461 | 0.8854360708 | 1.54e-04 | outside the tolerance | E3 |
+| `P-34eb72dde4` | kpi | A3 / E_Payout_to_E_Loss_Ratio | 2.501617283 | 2.50364039 | 8.09e-04 | outside the tolerance | E3 |
+| `P-dd978a5bfe` | kpi | A3 / E_Residual | 408979.3938 | 410237.6151 | 3.08e-03 | outside the tolerance | E3 |
+| `P-bc8609a2e3` | kpi | A3 / E_Uncovered | 9165.240063 | 9330.992685 | 1.81e-02 | outside the tolerance | E3 |
+| `P-3a0fdec7de` | kpi | A3 / VaR_Uncovered | 77005.19097 | 78702.24302 | 2.20e-02 | outside the tolerance | E3 |
+| `P-df82e8bb7d` | kpi | A4 / CVaR_Uncovered | 13181.19642 | 13038.34928 | 1.08e-02 | outside the tolerance | E3 |
+| `P-db8dcd244c` | kpi | A4 / E_Payout_to_E_Loss_Ratio | 2.030366604 | 2.033762871 | 1.67e-03 | outside the tolerance | E3 |
+| `P-d57ca5d3e5` | kpi | A4 / E_Residual | 439522.7189 | 440776.8101 | 2.85e-03 | outside the tolerance | E3 |
+| `P-ce3ac574f7` | kpi | A4 / E_Uncovered | 659.0598209 | 651.9174642 | 1.08e-02 | outside the tolerance | E3 |
+| `P-895f65e708` | kpi | A5 / CVaR_Uncovered | 12523.12776 | 13694.24261 | 9.35e-02 | outside the tolerance | E3 |
+| `P-d050e2144c` | kpi | A5 / Correlation | 0.9104979887 | 0.9091203877 | 1.51e-03 | outside the tolerance | E3 |
+| `P-3a18de81ea` | kpi | A5 / E_Payout_to_E_Loss_Ratio | 2.070160039 | 2.053739198 | 7.93e-03 | outside the tolerance | E3 |
+| `P-21eed2342b` | kpi | A5 / E_Residual | 110188.4975 | 109679.5459 | 4.62e-03 | outside the tolerance | E3 |
+| `P-eb53bb5895` | kpi | A5 / E_Uncovered | 626.1563882 | 684.7121303 | 9.35e-02 | outside the tolerance | E3 |
+| `P-5114bad83e` | kpi | A6 / CVaR_Uncovered | 5955.341218 | 5874.018729 | 1.37e-02 | outside the tolerance | E3 |
+| `P-37cb0274b4` | kpi | A6 / Correlation | 0.8456854898 | 0.8453818374 | 3.59e-04 | outside the tolerance | E3 |
+| `P-2a88779a4e` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 3.1715883 | 3.181256845 | 3.05e-03 | outside the tolerance | E3 |
+| `P-452cd46277` | kpi | A6 / E_Residual | 100447.0865 | 100915.0368 | 4.66e-03 | outside the tolerance | E3 |
+| `P-9817716bb3` | kpi | A6 / E_Uncovered | 297.7670609 | 293.7009364 | 1.37e-02 | outside the tolerance | E3 |
+| `P-b4a5f95e9c` | kpi | A7 / CVaR_Uncovered | 17256.42966 | 19214.84671 | 1.13e-01 | outside the tolerance | E3 |
+| `P-a5d8b85bc4` | kpi | A7 / E_Payout_to_E_Loss_Ratio | 2.452484725 | 2.448134381 | 1.77e-03 | outside the tolerance | E3 |
+| `P-a8a9d71570` | kpi | A7 / E_Uncovered | 946.4626992 | 1074.349077 | 1.35e-01 | outside the tolerance | E3 |
+| `P-1d10210a25` | kpi | A7 / VaR_Uncovered | 6552.625456 | 8031.955906 | 2.26e-01 | outside the tolerance | E3 |
+| `P-dbb1dd6876` | kpi | A8 / CVaR_Uncovered | 209.8453876 | 214.2034944 | 2.08e-02 | outside the tolerance | E3 |
+| `P-99b4b81a75` | kpi | A8 / Correlation | 0.8648731842 | 0.8630223115 | 2.14e-03 | outside the tolerance | E3 |
+| `P-5620b0e778` | kpi | A8 / E_Payout_to_E_Loss_Ratio | 4.479614468 | 4.487272957 | 1.71e-03 | outside the tolerance | E3 |
+| `P-83abf6001c` | kpi | A8 / E_Residual | 126708.6188 | 126909.0769 | 1.58e-03 | outside the tolerance | E3 |
+| `P-b6e6c266f2` | kpi | A8 / E_Uncovered | 10.49226938 | 10.71017472 | 2.08e-02 | outside the tolerance | E3 |
+| `P-c41f6107df` | kpi | A9 / CVaR_Uncovered | 362835.8603 | 360515.0776 | 6.40e-03 | outside the tolerance | E3 |
+| `P-78185a88dd` | kpi | A9 / E_Payout_to_E_Loss_Ratio | 1.292438129 | 1.294496848 | 1.59e-03 | outside the tolerance | E3 |
+| `P-f8596216d9` | kpi | A9 / E_Residual | 421550.3218 | 422275.7944 | 1.72e-03 | outside the tolerance | E3 |
+| `P-5786578963` | kpi | A9 / E_Uncovered | 18141.79302 | 18025.75388 | 6.40e-03 | outside the tolerance | E3 |
+| `P-38e789aa2d` | kpi | Portfolio / E_Residual | 1950384.866 | 1950600.546 | 1.11e-04 | outside the tolerance | E10 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep: alpha=0.9, beta=0.95, budget_loading=0.5, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-90fbf88397` | kpi | A4 / E_Residual | 277576.1185 | 277661.8874 | 3.09e-04 | outside the tolerance | E2 |
+| `P-d93ac5dbae` | kpi | A6 / Correlation | 0.7078827601 | 0.7185590878 | 1.51e-02 | outside the tolerance | E2 |
+| `P-73bd112a76` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 3.271917044e-09 | 6.963425234e-09 | 1.13e+00 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep: alpha=0.9, beta=0.95, budget_loading=0.6, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-87c0c51c21` | kpi | A1 / CVaR_Uncovered | 4455499.911 | 4425550.52 | 6.72e-03 | outside the tolerance | E2 |
+| `P-f91995d622` | kpi | A1 / E_Payout_to_E_Loss_Ratio | 0.3559615632 | 0.3584772355 | 7.07e-03 | outside the tolerance | E2 |
+| `P-9aff6bdf91` | kpi | A1 / E_Residual | 1259091.552 | 1250298.204 | 6.98e-03 | outside the tolerance | E2 |
+| `P-5b0505f84b` | kpi | A1 / E_Uncovered | 420208.2062 | 418642.8241 | 3.73e-03 | outside the tolerance | E2 |
+| `P-80a23109c2` | kpi | A1 / VaR_Uncovered | 2239708.808 | 2237536.764 | 9.70e-04 | outside the tolerance | E2 |
+| `P-45c6ad2f99` | kpi | A2 / CVaR_Uncovered | 2524709.013 | 2534800.724 | 4.00e-03 | outside the tolerance | E2 |
+| `P-9dd04eefc7` | kpi | A2 / Correlation | 0.9181382225 | 0.9189637705 | 8.99e-04 | outside the tolerance | E2 |
+| `P-c5116136f2` | kpi | A2 / E_Payout_to_E_Loss_Ratio | 0.5417785526 | 0.5389932478 | 5.14e-03 | outside the tolerance | E2 |
+| `P-42489839fc` | kpi | A2 / E_Residual | 817410.2193 | 817906.3903 | 6.07e-04 | outside the tolerance | E2 |
+| `P-bc469f4823` | kpi | A2 / E_Uncovered | 288826.2699 | 289555.733 | 2.53e-03 | outside the tolerance | E2 |
+| `P-5dffd52239` | kpi | A2 / VaR_Uncovered | 1684595.075 | 1685428.058 | 4.94e-04 | outside the tolerance | E2 |
+| `P-c5976ecab2` | kpi | A4 / E_Residual | 242099.4707 | 242179.4629 | 3.30e-04 | outside the tolerance | E2 |
+| `P-35080fd4c2` | kpi | A6 / Correlation | 0.8118713277 | 0.8324882962 | 2.54e-02 | outside the tolerance | E2 |
+| `P-37ab23d2a4` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 9.891173855e-10 | -6.73614183e-09 | 7.81e+00 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep: alpha=0.9, beta=0.95, budget_loading=0.7, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-3be7c5d2a8` | kpi | A4 / E_Residual | 251504.1047 | 251443.5584 | 2.41e-04 | outside the tolerance | E2 |
+| `P-6ef2ae4877` | kpi | A6 / Correlation | 0.893431321 | 0.9133096847 | 2.22e-02 | outside the tolerance | E2 |
+| `P-cd87e5766a` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 2.637048967e-10 | -5.914156677e-09 | 2.34e+01 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep: alpha=0.9, beta=0.95, budget_loading=0.8, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-351d85de58` | kpi | A1 / CVaR_Uncovered | 3481664.48 | 3478669.665 | 8.60e-04 | outside the tolerance | E2 |
+| `P-efbf9b3ddc` | kpi | A1 / E_Payout_to_E_Loss_Ratio | 0.5461225379 | 0.5463884086 | 4.87e-04 | outside the tolerance | E2 |
+| `P-b970c5a256` | kpi | A1 / E_Residual | 1002274.174 | 1001335.457 | 9.37e-04 | outside the tolerance | E2 |
+| `P-4ebc105966` | kpi | A1 / E_Uncovered | 297047.9798 | 296884.956 | 5.49e-04 | outside the tolerance | E2 |
+| `P-240c533367` | kpi | A2 / CVaR_Uncovered | 1703644.907 | 1704368.145 | 4.25e-04 | outside the tolerance | E2 |
+| `P-9045016b1f` | kpi | A2 / E_Payout_to_E_Loss_Ratio | 0.7219700851 | 0.7216919059 | 3.85e-04 | outside the tolerance | E2 |
+| `P-bcccdd6619` | kpi | A2 / E_Residual | 669004.6769 | 668684.9559 | 4.78e-04 | outside the tolerance | E2 |
+| `P-45ed317efc` | kpi | A2 / E_Uncovered | 194936.2549 | 194985.0887 | 2.51e-04 | outside the tolerance | E2 |
+| `P-8d5437d866` | kpi | A4 / E_Residual | 289179.9437 | 289109.8326 | 2.42e-04 | outside the tolerance | E2 |
+| `P-99dfb75988` | kpi | A6 / Correlation | 0.8848016147 | 0.9022079153 | 1.97e-02 | outside the tolerance | E2 |
+| `P-11894bb67a` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 5.566934722e-10 | -2.141689055e-09 | 4.85e+00 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep: alpha=0.9, beta=0.95, budget_loading=0.9, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-ec774616eb` | kpi | A4 / E_Residual | 340981.5655 | 341026.9516 | 1.33e-04 | outside the tolerance | E2 |
+| `P-c50be79996` | kpi | A6 / Correlation | 0.861651461 | 0.8754330419 | 1.60e-02 | outside the tolerance | E2 |
+| `P-ff52b0f1b2` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 4.194199914e-09 | -1.670645072e-09 | 1.40e+00 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep: alpha=0.9, beta=0.95, budget_loading=1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-a96bfcf623` | kpi | A1 / CVaR_Uncovered | 3234176.75 | 3232938.673 | 3.83e-04 | outside the tolerance | E2 |
+| `P-f7181b2171` | kpi | A1 / E_Payout_to_E_Loss_Ratio | 0.5874174142 | 0.5875493216 | 2.25e-04 | outside the tolerance | E2 |
+| `P-b0cf13069a` | kpi | A1 / E_Residual | 917008.6432 | 916579.4406 | 4.68e-04 | outside the tolerance | E2 |
+| `P-3c78a7b23a` | kpi | A1 / E_Uncovered | 271706.5024 | 271638.292 | 2.51e-04 | outside the tolerance | E2 |
+| `P-c3636e7628` | kpi | A2 / CVaR_Uncovered | 1116921.359 | 1117177.482 | 2.29e-04 | outside the tolerance | E2 |
+| `P-505ae062c8` | kpi | A2 / E_Residual | 581390.428 | 581251.4477 | 2.39e-04 | outside the tolerance | E2 |
+| `P-981e371d84` | kpi | A2 / E_Uncovered | 91398.1574 | 91412.33857 | 1.55e-04 | outside the tolerance | E2 |
+| `P-7daa5f8fbc` | kpi | A4 / E_Payout_to_E_Loss_Ratio | 1.601691092 | 1.601466315 | 1.40e-04 | outside the tolerance | E2 |
+| `P-2c3cf76f1e` | kpi | A4 / E_Residual | 383670.3301 | 383388.9923 | 7.33e-04 | outside the tolerance | E2 |
+| `P-b6e7a1eeee` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 0.007355178072 | 0.007358800223 | 4.92e-04 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep: alpha=0.9, beta=0.95, budget_loading=1.1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-0790fa7ae0` | kpi | A1 / CVaR_Uncovered | 2929258.625 | 2928014.687 | 4.25e-04 | outside the tolerance | E2 |
+| `P-1139efe266` | kpi | A1 / E_Payout_to_E_Loss_Ratio | 0.6731736459 | 0.6733237768 | 2.23e-04 | outside the tolerance | E2 |
+| `P-e18e2a6c12` | kpi | A1 / E_Residual | 846875.7682 | 846558.1454 | 3.75e-04 | outside the tolerance | E2 |
+| `P-7311309d5a` | kpi | A1 / E_Uncovered | 224035.9637 | 223959.2759 | 3.42e-04 | outside the tolerance | E2 |
+| `P-d74ce733f6` | kpi | A4 / CVaR_Uncovered | 42258.54201 | 42306.31076 | 1.13e-03 | outside the tolerance | E2 |
+| `P-2a93c65d00` | kpi | A4 / E_Payout_to_E_Loss_Ratio | 1.862906973 | 1.86239947 | 2.72e-04 | outside the tolerance | E2 |
+| `P-7ed6c5b327` | kpi | A4 / E_Residual | 463470.6475 | 463035.5445 | 9.39e-04 | outside the tolerance | E2 |
+| `P-3c43ec0f13` | kpi | A4 / E_Uncovered | 3569.675451 | 3573.019814 | 9.37e-04 | outside the tolerance | E2 |
+| `P-157077407c` | kpi | A4 / VaR_Uncovered | 22541.77424 | 22574.14115 | 1.44e-03 | outside the tolerance | E2 |
+| `P-aed0e10197` | kpi | A9 / CVaR_Uncovered | 938794.9534 | 938963.2725 | 1.79e-04 | outside the tolerance | E2 |
+| `P-a4f7633acb` | kpi | A9 / E_Uncovered | 74784.31718 | 74793.6189 | 1.24e-04 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep: alpha=0.9, beta=0.95, budget_loading=1.2, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-80ce90ed66` | kpi | A1 / CVaR_Uncovered | 2294553.673 | 2294991.699 | 1.91e-04 | outside the tolerance | E2 |
+| `P-cf3c581cf0` | kpi | A1 / Correlation | 0.9397419265 | 0.9398386543 | 1.03e-04 | outside the tolerance | E2 |
+| `P-2e08553159` | kpi | A1 / E_Payout_to_E_Loss_Ratio | 0.8250591302 | 0.8249279595 | 1.59e-04 | outside the tolerance | E2 |
+| `P-05a9aa6e37` | kpi | A1 / E_Residual | 740215.2712 | 739929.7005 | 3.86e-04 | outside the tolerance | E2 |
+| `P-a839e769b9` | kpi | A1 / E_Uncovered | 146055.0183 | 146079.1101 | 1.65e-04 | outside the tolerance | E2 |
+| `P-3b3284c9d7` | kpi | A2 / CVaR_Uncovered | 760876.8503 | 761010.7782 | 1.76e-04 | outside the tolerance | E2 |
+| `P-8a33786221` | kpi | A2 / E_Payout_to_E_Loss_Ratio | 1.095339888 | 1.095192884 | 1.34e-04 | outside the tolerance | E2 |
+| `P-247ff39f53` | kpi | A2 / E_Residual | 897918.3499 | 896922.4581 | 1.11e-03 | outside the tolerance | E2 |
+| `P-dabfdc941e` | kpi | A2 / E_Uncovered | 55119.23819 | 55125.93397 | 1.21e-04 | outside the tolerance | E2 |
+| `P-95afd86a3f` | kpi | A4 / VaR_Uncovered | 0 | 1.407837883e-05 | inf | outside the tolerance | E2 |
+| `P-96f8009dc1` | kpi | A5 / VaR_Uncovered | 0 | 1.408414282e-05 | inf | outside the tolerance | E2 |
+| `P-e9de29fe88` | kpi | A6 / CVaR_Uncovered | 61725.19811 | 60603.99264 | 1.82e-02 | outside the tolerance | E2 |
+| `P-5f4a092851` | kpi | A6 / Correlation | 0.9059495659 | 0.9065080066 | 6.16e-04 | outside the tolerance | E2 |
+| `P-ed6399a180` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 1.206346691 | 1.213059162 | 5.56e-03 | outside the tolerance | E2 |
+| `P-4fe95e8fad` | kpi | A6 / E_Residual | 36666.42237 | 36975.01664 | 8.42e-03 | outside the tolerance | E2 |
+| `P-5735f4b009` | kpi | A6 / E_Uncovered | 3296.590188 | 3236.693244 | 1.82e-02 | outside the tolerance | E2 |
+| `P-f498e7339d` | kpi | A6 / VaR_Uncovered | 6945.257011 | 6871.003897 | 1.07e-02 | outside the tolerance | E2 |
+| `P-94e0b4437b` | kpi | Portfolio / VaR_Uncovered | 0 | 0.0001266085395 | inf | outside the tolerance | E12 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep: alpha=0.9, beta=0.95, budget_loading=1.3, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-eff129c8d0` | kpi | A1 / CVaR_Uncovered | 2312073.994 | 2294997.153 | 7.39e-03 | outside the tolerance | E2 |
+| `P-b1c45400e5` | kpi | A1 / Correlation | 0.9411944713 | 0.9415686977 | 3.98e-04 | outside the tolerance | E2 |
+| `P-7101a43649` | kpi | A1 / E_Payout_to_E_Loss_Ratio | 0.8553537893 | 0.8539198833 | 1.68e-03 | outside the tolerance | E2 |
+| `P-f691f97a99` | kpi | A1 / E_Residual | 727747.7358 | 725216.838 | 3.48e-03 | outside the tolerance | E2 |
+| `P-c0520c96ba` | kpi | A1 / E_Uncovered | 139862.2299 | 139616.1411 | 1.76e-03 | outside the tolerance | E2 |
+| `P-e0076b74a3` | kpi | A1 / VaR_Uncovered | 657517.0237 | 649328.3602 | 1.25e-02 | outside the tolerance | E2 |
+| `P-a03a5ea3c6` | kpi | A2 / CVaR_Uncovered | 1057126.139 | 1059810.367 | 2.54e-03 | outside the tolerance | E2 |
+| `P-42be63830c` | kpi | A2 / E_Payout_to_E_Loss_Ratio | 1.025845956 | 1.024470895 | 1.34e-03 | outside the tolerance | E2 |
+| `P-80b73c29a2` | kpi | A2 / E_Residual | 961858.3699 | 963822.9029 | 2.04e-03 | outside the tolerance | E2 |
+| `P-5d665d3db8` | kpi | A2 / E_Uncovered | 94940.172 | 95308.31306 | 3.88e-03 | outside the tolerance | E2 |
+| `P-424cfeb6c0` | kpi | A2 / VaR_Uncovered | 569396.4504 | 570313.7922 | 1.61e-03 | outside the tolerance | E2 |
+| `P-544f3adda7` | kpi | A3 / CVaR_Uncovered | 144008.899 | 130402.1258 | 9.45e-02 | outside the tolerance | E2 |
+| `P-e5a7aa35eb` | kpi | A3 / Correlation | 0.8830596137 | 0.8854115922 | 2.66e-03 | outside the tolerance | E2 |
+| `P-27169bb33a` | kpi | A3 / E_Payout_to_E_Loss_Ratio | 2.499582706 | 2.508029587 | 3.38e-03 | outside the tolerance | E2 |
+| `P-5ed49336ce` | kpi | A3 / E_Residual | 421257.4094 | 410184.7892 | 2.63e-02 | outside the tolerance | E2 |
+| `P-b0655ea4b3` | kpi | A3 / E_Uncovered | 10664.62213 | 9070.933889 | 1.49e-01 | outside the tolerance | E2 |
+| `P-74d3bfc9e2` | kpi | A3 / VaR_Uncovered | 88902.66466 | 76061.56584 | 1.44e-01 | outside the tolerance | E2 |
+| `P-89cf0ff7aa` | kpi | A4 / CVaR_Uncovered | 12599.17767 | 12964.67725 | 2.90e-02 | outside the tolerance | E2 |
+| `P-116c7c4441` | kpi | A4 / Correlation | 0.9474473705 | 0.9471235447 | 3.42e-04 | outside the tolerance | E2 |
+| `P-cae59d9aa9` | kpi | A4 / E_Payout_to_E_Loss_Ratio | 2.046274881 | 2.035299944 | 5.36e-03 | outside the tolerance | E2 |
+| `P-e2709d0471` | kpi | A4 / E_Residual | 443058.2906 | 441406.5415 | 3.73e-03 | outside the tolerance | E2 |
+| `P-0d1c2f3704` | kpi | A4 / E_Uncovered | 629.9588836 | 648.2338624 | 2.90e-02 | outside the tolerance | E2 |
+| `P-5ba05456fb` | kpi | A5 / CVaR_Uncovered | 23504.53119 | 13973.45988 | 4.05e-01 | outside the tolerance | E2 |
+| `P-d449fbeb0f` | kpi | A5 / Correlation | 0.898639192 | 0.9084827783 | 1.10e-02 | outside the tolerance | E2 |
+| `P-3ab2891151` | kpi | A5 / E_Payout_to_E_Loss_Ratio | 1.948308598 | 2.05604694 | 5.53e-02 | outside the tolerance | E2 |
+| `P-3a82bc26aa` | kpi | A5 / E_Residual | 108622.686 | 109744.4438 | 1.03e-02 | outside the tolerance | E2 |
+| `P-f470bff527` | kpi | A5 / E_Uncovered | 1175.22656 | 698.672994 | 4.05e-01 | outside the tolerance | E2 |
+| `P-1a68676d91` | kpi | A6 / CVaR_Uncovered | 7251.356198 | 6289.56664 | 1.33e-01 | outside the tolerance | E2 |
+| `P-fb496e4958` | kpi | A6 / Correlation | 0.8444229685 | 0.8452376414 | 9.65e-04 | outside the tolerance | E2 |
+| `P-d008092911` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 3.115911336 | 3.161496991 | 1.46e-02 | outside the tolerance | E2 |
+| `P-a83a5f7f4d` | kpi | A6 / E_Residual | 100166.7155 | 100261.2612 | 9.44e-04 | outside the tolerance | E2 |
+| `P-e737a72535` | kpi | A6 / E_Uncovered | 362.5678099 | 314.478332 | 1.33e-01 | outside the tolerance | E2 |
+| `P-8229b14007` | kpi | A7 / CVaR_Uncovered | 24565.87725 | 17171.57359 | 3.01e-01 | outside the tolerance | E2 |
+| `P-7546e63ec4` | kpi | A7 / Correlation | 0.9422585746 | 0.9417535793 | 5.36e-04 | outside the tolerance | E2 |
+| `P-983d430d0b` | kpi | A7 / E_Payout_to_E_Loss_Ratio | 2.422027276 | 2.450575215 | 1.18e-02 | outside the tolerance | E2 |
+| `P-00fdd51a9c` | kpi | A7 / E_Residual | 519070.2614 | 521909.2588 | 5.47e-03 | outside the tolerance | E2 |
+| `P-5e41f66e4e` | kpi | A7 / E_Uncovered | 1631.777783 | 949.8352476 | 4.18e-01 | outside the tolerance | E2 |
+| `P-4e956ef2a2` | kpi | A7 / VaR_Uncovered | 13743.51258 | 6630.408495 | 5.18e-01 | outside the tolerance | E2 |
+| `P-f4953d9424` | kpi | A8 / CVaR_Uncovered | 208.2576187 | 212.5417322 | 2.06e-02 | outside the tolerance | E2 |
+| `P-07d6ef426f` | kpi | A8 / Correlation | 0.8603718597 | 0.8639490945 | 4.16e-03 | outside the tolerance | E2 |
+| `P-c0463e104b` | kpi | A8 / E_Payout_to_E_Loss_Ratio | 4.606243136 | 4.487411388 | 2.58e-02 | outside the tolerance | E2 |
+| `P-619118f695` | kpi | A8 / E_Residual | 130531.7615 | 126774.7263 | 2.88e-02 | outside the tolerance | E2 |
+| `P-9dd42cd2a7` | kpi | A8 / E_Uncovered | 10.41288094 | 10.62708661 | 2.06e-02 | outside the tolerance | E2 |
+| `P-f68baf236e` | kpi | A9 / CVaR_Uncovered | 360949.3538 | 360152.653 | 2.21e-03 | outside the tolerance | E2 |
+| `P-ce0043be36` | kpi | A9 / Correlation | 0.9533620726 | 0.9541433038 | 8.19e-04 | outside the tolerance | E2 |
+| `P-02579075ed` | kpi | A9 / E_Payout_to_E_Loss_Ratio | 1.299760675 | 1.292037594 | 5.94e-03 | outside the tolerance | E2 |
+| `P-496d33cb81` | kpi | A9 / E_Residual | 424768.7422 | 421199.26 | 8.40e-03 | outside the tolerance | E2 |
+| `P-88be6f96a5` | kpi | A9 / E_Uncovered | 18047.46769 | 18007.63265 | 2.21e-03 | outside the tolerance | E2 |
+| `P-a56231e385` | kpi | Portfolio / E_Residual | 1949305.923 | 1950820.426 | 7.77e-04 | outside the tolerance | E9 |
+| `P-e7f8359e2c` | objective | portfolio | 0 | 0.0001784036677 | inf | outside the tolerance | E7 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep: alpha=0.9, beta=0.95, budget_loading=1.4, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-f31ef74199` | kpi | A1 / CVaR_Uncovered | 2344378.47 | 2321359.759 | 9.82e-03 | outside the tolerance | E2 |
+| `P-217a5af4f6` | kpi | A1 / Correlation | 0.9403920838 | 0.9412983311 | 9.64e-04 | outside the tolerance | E2 |
+| `P-5756b96a0f` | kpi | A1 / E_Payout_to_E_Loss_Ratio | 0.8588892814 | 0.8495684317 | 1.09e-02 | outside the tolerance | E2 |
+| `P-ee2882ed2c` | kpi | A1 / E_Residual | 734015.9428 | 729010.7785 | 6.82e-03 | outside the tolerance | E2 |
+| `P-ce3b6fd4c8` | kpi | A1 / E_Uncovered | 148768.4001 | 148181.4576 | 3.95e-03 | outside the tolerance | E2 |
+| `P-b66a3daaeb` | kpi | A1 / VaR_Uncovered | 701484.1132 | 699739.7357 | 2.49e-03 | outside the tolerance | E2 |
+| `P-797a5fc839` | kpi | A2 / CVaR_Uncovered | 938435.4787 | 965780.1565 | 2.91e-02 | outside the tolerance | E2 |
+| `P-ab4c0364c3` | kpi | A2 / Correlation | 0.9358822013 | 0.9353920185 | 5.24e-04 | outside the tolerance | E2 |
+| `P-49540d0cb6` | kpi | A2 / E_Payout_to_E_Loss_Ratio | 1.103107405 | 1.08251256 | 1.87e-02 | outside the tolerance | E2 |
+| `P-edf818c3ec` | kpi | A2 / E_Residual | 959282.0375 | 963278.6569 | 4.17e-03 | outside the tolerance | E2 |
+| `P-8d8d025cd5` | kpi | A2 / E_Uncovered | 72091.76536 | 77133.81647 | 6.99e-02 | outside the tolerance | E2 |
+| `P-93b4533815` | kpi | A2 / VaR_Uncovered | 441776.6576 | 474305.5463 | 7.36e-02 | outside the tolerance | E2 |
+| `P-e3f65f98cf` | kpi | A3 / CVaR_Uncovered | 105724.4761 | 103377.8495 | 2.22e-02 | outside the tolerance | E2 |
+| `P-09d3f72bef` | kpi | A3 / Correlation | 0.8874214626 | 0.889181667 | 1.98e-03 | outside the tolerance | E2 |
+| `P-c06cbd0138` | kpi | A3 / E_Payout_to_E_Loss_Ratio | 2.883285695 | 2.775130402 | 3.75e-02 | outside the tolerance | E2 |
+| `P-25f4b19093` | kpi | A3 / E_Residual | 399324.4763 | 387144.5401 | 3.05e-02 | outside the tolerance | E2 |
+| `P-adeda9eb06` | kpi | A3 / E_Uncovered | 6394.023634 | 6198.05431 | 3.06e-02 | outside the tolerance | E2 |
+| `P-6e29a70fff` | kpi | A3 / VaR_Uncovered | 53003.53807 | 51049.53272 | 3.69e-02 | outside the tolerance | E2 |
+| `P-7043faa4a5` | kpi | A4 / CVaR_Uncovered | 12963.10248 | 13216.78613 | 1.96e-02 | outside the tolerance | E2 |
+| `P-5f3c96b63e` | kpi | A4 / Correlation | 0.9491767725 | 0.9488215905 | 3.74e-04 | outside the tolerance | E2 |
+| `P-742cd18a01` | kpi | A4 / E_Payout_to_E_Loss_Ratio | 2.174566796 | 2.110843389 | 2.93e-02 | outside the tolerance | E2 |
+| `P-4993a7b066` | kpi | A4 / E_Residual | 435868.6033 | 431767.9135 | 9.41e-03 | outside the tolerance | E2 |
+| `P-386bf2bfc3` | kpi | A4 / E_Uncovered | 648.1551242 | 660.8393063 | 1.96e-02 | outside the tolerance | E2 |
+| `P-caf192dd30` | kpi | A5 / CVaR_Uncovered | 39683.73907 | 21031.30101 | 4.70e-01 | outside the tolerance | E2 |
+| `P-65a758833b` | kpi | A5 / Correlation | 0.9203005792 | 0.9262991314 | 6.52e-03 | outside the tolerance | E2 |
+| `P-ef24d69730` | kpi | A5 / E_Payout_to_E_Loss_Ratio | 1.64713026 | 1.873326839 | 1.37e-01 | outside the tolerance | E2 |
+| `P-7c7b84014d` | kpi | A5 / E_Residual | 97064.51022 | 98947.48434 | 1.94e-02 | outside the tolerance | E2 |
+| `P-b42ae39569` | kpi | A5 / E_Uncovered | 1984.186953 | 1051.56505 | 4.70e-01 | outside the tolerance | E2 |
+| `P-945f179eac` | kpi | A6 / CVaR_Uncovered | 2847.219417 | 2442.302305 | 1.42e-01 | outside the tolerance | E2 |
+| `P-1aa14122e6` | kpi | A6 / Correlation | 0.8564861742 | 0.8594745362 | 3.49e-03 | outside the tolerance | E2 |
+| `P-c1af584e25` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 4.046888289 | 3.838517663 | 5.15e-02 | outside the tolerance | E2 |
+| `P-c95ac1ad84` | kpi | A6 / E_Residual | 116400.07 | 111418.6057 | 4.28e-02 | outside the tolerance | E2 |
+| `P-5a5bde8565` | kpi | A6 / E_Uncovered | 142.3609708 | 122.1151152 | 1.42e-01 | outside the tolerance | E2 |
+| `P-85a6c40bf3` | kpi | A7 / CVaR_Uncovered | 5133.394458 | 1034.407173 | 7.98e-01 | outside the tolerance | E2 |
+| `P-0b37d92120` | kpi | A7 / Correlation | 0.9435915777 | 0.9424229634 | 1.24e-03 | outside the tolerance | E2 |
+| `P-8819f4c900` | kpi | A7 / E_Payout_to_E_Loss_Ratio | 2.418800778 | 2.513207941 | 3.90e-02 | outside the tolerance | E2 |
+| `P-1f033ccdf4` | kpi | A7 / E_Residual | 505893.2451 | 519391.3673 | 2.67e-02 | outside the tolerance | E2 |
+| `P-7647a510d0` | kpi | A7 / E_Uncovered | 256.6697229 | 51.72035866 | 7.98e-01 | outside the tolerance | E2 |
+| `P-f663c070f1` | kpi | A8 / CVaR_Uncovered | 187.2251415 | 178.4902429 | 4.67e-02 | outside the tolerance | E2 |
+| `P-74f5dbce3d` | kpi | A8 / Correlation | 0.9029184804 | 0.89529123 | 8.45e-03 | outside the tolerance | E2 |
+| `P-718b04b4f3` | kpi | A8 / E_Payout_to_E_Loss_Ratio | 4.687309678 | 4.617648139 | 1.49e-02 | outside the tolerance | E2 |
+| `P-7d41e1bf1a` | kpi | A8 / E_Residual | 117278.1897 | 119269.7379 | 1.70e-02 | outside the tolerance | E2 |
+| `P-32f83f109c` | kpi | A8 / E_Uncovered | 9.361257074 | 8.924512145 | 4.67e-02 | outside the tolerance | E2 |
+| `P-bcc8db1096` | kpi | A9 / CVaR_Uncovered | 346171.7342 | 346802.5873 | 1.82e-03 | outside the tolerance | E2 |
+| `P-705a593fc3` | kpi | A9 / Correlation | 0.9531012442 | 0.9545690044 | 1.54e-03 | outside the tolerance | E2 |
+| `P-72cca69c3e` | kpi | A9 / E_Payout_to_E_Loss_Ratio | 1.356020679 | 1.329737138 | 1.94e-02 | outside the tolerance | E2 |
+| `P-826f3743c4` | kpi | A9 / E_Residual | 436083.1446 | 427021.6135 | 2.08e-02 | outside the tolerance | E2 |
+| `P-046a670946` | kpi | A9 / E_Uncovered | 17308.58671 | 17340.12936 | 1.82e-03 | outside the tolerance | E2 |
+| `P-50e38d5bfa` | kpi | Portfolio / E_Payout_to_E_Loss_Ratio | 1.363143029 | 1.346588139 | 1.21e-02 | outside the tolerance | E9 |
+| `P-0de13678db` | kpi | Portfolio / E_Residual | 1960712.586 | 1960080.834 | 3.22e-04 | outside the tolerance | E9 |
+| `P-f5de87eccd` | objective | portfolio | 0 | 0.001482379107 | inf | outside the tolerance | E7 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep: alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-a895a3107a` | kpi | A1 / CVaR_Uncovered | 2391419.516 | 2316887.658 | 3.12e-02 | outside the tolerance | E2 |
+| `P-2ade797383` | kpi | A1 / Correlation | 0.9400428586 | 0.9410989519 | 1.12e-03 | outside the tolerance | E2 |
+| `P-14cfddc615` | kpi | A1 / E_Residual | 740691.5817 | 728586.5173 | 1.63e-02 | outside the tolerance | E2 |
+| `P-5e1bc9fecf` | kpi | A1 / E_Uncovered | 152182.4439 | 148159.9598 | 2.64e-02 | outside the tolerance | E2 |
+| `P-26e3a7769d` | kpi | A1 / VaR_Uncovered | 731596.0723 | 708890.7518 | 3.10e-02 | outside the tolerance | E2 |
+| `P-346a9d9f9a` | kpi | A2 / CVaR_Uncovered | 933884.6838 | 955256.0041 | 2.29e-02 | outside the tolerance | E2 |
+| `P-c21534f870` | kpi | A2 / E_Payout_to_E_Loss_Ratio | 1.104586642 | 1.085437241 | 1.73e-02 | outside the tolerance | E2 |
+| `P-16c7cc839d` | kpi | A2 / E_Residual | 964015.9091 | 961369.1183 | 2.75e-03 | outside the tolerance | E2 |
+| `P-ba6ecf1d55` | kpi | A2 / E_Uncovered | 71860.29953 | 75938.35203 | 5.67e-02 | outside the tolerance | E2 |
+| `P-c336130ba5` | kpi | A2 / VaR_Uncovered | 441476.8592 | 464515.1385 | 5.22e-02 | outside the tolerance | E2 |
+| `P-67466ee56a` | kpi | A3 / CVaR_Uncovered | 107310.0002 | 102550.1703 | 4.44e-02 | outside the tolerance | E2 |
+| `P-8c8255478a` | kpi | A3 / Correlation | 0.8869550549 | 0.8890195536 | 2.33e-03 | outside the tolerance | E2 |
+| `P-4b1000ba5d` | kpi | A3 / E_Payout_to_E_Loss_Ratio | 2.884256226 | 2.775000592 | 3.79e-02 | outside the tolerance | E2 |
+| `P-c6e9362eb5` | kpi | A3 / E_Residual | 402132.0921 | 387133.8313 | 3.73e-02 | outside the tolerance | E2 |
+| `P-b7898f20c9` | kpi | A3 / E_Uncovered | 6528.679328 | 6105.745257 | 6.48e-02 | outside the tolerance | E2 |
+| `P-7562f14869` | kpi | A3 / VaR_Uncovered | 54151.37806 | 49896.45327 | 7.86e-02 | outside the tolerance | E2 |
+| `P-126a7f071b` | kpi | A4 / CVaR_Uncovered | 11926.80445 | 13660.72825 | 1.45e-01 | outside the tolerance | E2 |
+| `P-6354ece6b9` | kpi | A4 / Correlation | 0.9499657745 | 0.9484206363 | 1.63e-03 | outside the tolerance | E2 |
+| `P-deecc583f9` | kpi | A4 / E_Payout_to_E_Loss_Ratio | 2.182559218 | 2.107711226 | 3.43e-02 | outside the tolerance | E2 |
+| `P-b2d6b154f6` | kpi | A4 / E_Residual | 441639.0443 | 429922.5167 | 2.65e-02 | outside the tolerance | E2 |
+| `P-7fbc281519` | kpi | A4 / E_Uncovered | 596.3402227 | 683.0364123 | 1.45e-01 | outside the tolerance | E2 |
+| `P-f01f6d9e12` | kpi | A5 / CVaR_Uncovered | 41432.67921 | 18123.87997 | 5.63e-01 | outside the tolerance | E2 |
+| `P-1aa75dfc2e` | kpi | A5 / Correlation | 0.9184478827 | 0.9284533973 | 1.09e-02 | outside the tolerance | E2 |
+| `P-7fce7c62f4` | kpi | A5 / E_Payout_to_E_Loss_Ratio | 1.63930381 | 1.89298354 | 1.55e-01 | outside the tolerance | E2 |
+| `P-a14c0b1347` | kpi | A5 / E_Residual | 97080.78683 | 99359.20651 | 2.35e-02 | outside the tolerance | E2 |
+| `P-0da9ac6c31` | kpi | A5 / E_Uncovered | 2071.633961 | 906.1939985 | 5.63e-01 | outside the tolerance | E2 |
+| `P-d222442147` | kpi | A6 / CVaR_Uncovered | 2821.445928 | 2563.182942 | 9.15e-02 | outside the tolerance | E2 |
+| `P-437d4a32fa` | kpi | A6 / Correlation | 0.8542882856 | 0.8576585992 | 3.95e-03 | outside the tolerance | E2 |
+| `P-45ca4b3dbd` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 4.084104172 | 3.853002825 | 5.66e-02 | outside the tolerance | E2 |
+| `P-3512b40397` | kpi | A6 / E_Residual | 117279.9564 | 112106.7844 | 4.41e-02 | outside the tolerance | E2 |
+| `P-6121be4f97` | kpi | A6 / E_Uncovered | 141.0722964 | 128.1591471 | 9.15e-02 | outside the tolerance | E2 |
+| `P-143a43ef54` | kpi | A7 / CVaR_Uncovered | 5069.510517 | 1133.411805 | 7.76e-01 | outside the tolerance | E2 |
+| `P-de607b8073` | kpi | A7 / Correlation | 0.9436704379 | 0.9425649072 | 1.17e-03 | outside the tolerance | E2 |
+| `P-720e32d0a0` | kpi | A7 / E_Payout_to_E_Loss_Ratio | 2.417156623 | 2.513253911 | 3.98e-02 | outside the tolerance | E2 |
+| `P-0e50edb682` | kpi | A7 / E_Residual | 505266.2147 | 518730.2812 | 2.66e-02 | outside the tolerance | E2 |
+| `P-e44f205a65` | kpi | A7 / E_Uncovered | 253.4755259 | 56.67059025 | 7.76e-01 | outside the tolerance | E2 |
+| `P-e28e4373b3` | kpi | A8 / CVaR_Uncovered | 161.4567199 | 168.2506909 | 4.21e-02 | outside the tolerance | E2 |
+| `P-5a1cf1704f` | kpi | A8 / Correlation | 0.902486428 | 0.8971218399 | 5.94e-03 | outside the tolerance | E2 |
+| `P-8e6cca7a65` | kpi | A8 / E_Payout_to_E_Loss_Ratio | 4.746948921 | 4.587019086 | 3.37e-02 | outside the tolerance | E2 |
+| `P-616b94a752` | kpi | A8 / E_Residual | 117511.1843 | 119028.9653 | 1.29e-02 | outside the tolerance | E2 |
+| `P-a0741b26f0` | kpi | A8 / E_Uncovered | 8.072835993 | 8.412534545 | 4.21e-02 | outside the tolerance | E2 |
+| `P-34b6c52a98` | kpi | A9 / CVaR_Uncovered | 333965.1096 | 358648.4443 | 7.39e-02 | outside the tolerance | E2 |
+| `P-80623ef20e` | kpi | A9 / Correlation | 0.95393391 | 0.9541843924 | 2.63e-04 | outside the tolerance | E2 |
+| `P-5347f05dc0` | kpi | A9 / E_Payout_to_E_Loss_Ratio | 1.359053126 | 1.324125617 | 2.57e-02 | outside the tolerance | E2 |
+| `P-9f07933993` | kpi | A9 / E_Residual | 436287.9275 | 425058.9772 | 2.57e-02 | outside the tolerance | E2 |
+| `P-759e525673` | kpi | A9 / E_Uncovered | 16698.25548 | 17932.42222 | 7.39e-02 | outside the tolerance | E2 |
+| `P-809f0ba7e2` | kpi | Portfolio / E_Payout_to_E_Loss_Ratio | 1.362952131 | 1.346607023 | 1.20e-02 | outside the tolerance | E9 |
+| `P-d570b6c71c` | kpi | Portfolio / E_Residual | 1962595.561 | 1958790.134 | 1.94e-03 | outside the tolerance | E9 |
+| `P-224de154ca` | objective | portfolio | 0 | 0.001120021655 | inf | outside the tolerance | E7 |
+
+### cluster_optimization / pure_basis_risk_minimization / n_bins_sweep: budget_loading=1, n_bins=20, n_clusters=3
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-5bf0d617f8` | kpi | C2 / E_Payout_to_E_Loss_Ratio | 1.414196001 | 1.413986777 | 1.48e-04 | outside the tolerance | E15 |
+| `P-ac09ba192b` | kpi | C2 / E_Uncovered | 2176.60442 | 2236.487346 | 2.75e-02 | outside the tolerance | E15 |
+
+### integrated_portfolio_optimization / pure_basis_risk_minimization / n_bins_sweep: budget_loading=1, n_bins=5
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-bb43314738` | kpi | A3 / E_Payout_to_E_Loss_Ratio | 2.085963428 | 2.083720045 | 1.08e-03 | outside the tolerance | E15 |
+| `P-a40d08ab0a` | kpi | A3 / E_Uncovered | 8264.801395 | 8411.579213 | 1.78e-02 | outside the tolerance | E15 |
+| `P-09d8d9dcba` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 3.046457477 | 3.016912514 | 9.70e-03 | outside the tolerance | E15 |
+| `P-b66a685e43` | kpi | A6 / E_Uncovered | 3021.417497 | 3790.289137 | 2.54e-01 | outside the tolerance | E15 |
+| `P-5f0572efe0` | kpi | A8 / E_Payout_to_E_Loss_Ratio | 1.665560884 | 1.658640867 | 4.15e-03 | outside the tolerance | E15 |
+| `P-2a05e37fd2` | kpi | A8 / E_Uncovered | 2372.096283 | 2507.337323 | 5.70e-02 | outside the tolerance | E15 |
+| `P-fa6cf1d0d0` | kpi | Portfolio / E_Payout_to_E_Loss_Ratio | 1.000235306 | 0.9997255101 | 5.10e-04 | outside the tolerance | E15 |
+| `P-1176596221` | kpi | Portfolio / E_Uncovered | 181788.4463 | 182100.6992 | 1.72e-03 | outside the tolerance | E15 |
+
+### integrated_portfolio_optimization / pure_basis_risk_minimization / n_bins_sweep: budget_loading=1, n_bins=10
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-4f80aca5a1` | kpi | A9 / E_Uncovered | 72421.92911 | 72433.59486 | 1.61e-04 | outside the tolerance | E15 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / n_bins_sweep: alpha=0.9, beta=0.95, budget_loading=1, n_bins=5
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-f76bbdc1b5` | kpi | A1 / E_Payout_to_E_Loss_Ratio | 0.652261274 | 0.6523370243 | 1.16e-04 | outside the tolerance | E2 |
+| `P-b1d4e79dc3` | kpi | A4 / CVaR_Uncovered | 245257.3814 | 245295.3259 | 1.55e-04 | outside the tolerance | E2 |
+| `P-23f32a2f4a` | kpi | A4 / E_Payout_to_E_Loss_Ratio | 1.516876383 | 1.516562056 | 2.07e-04 | outside the tolerance | E2 |
+| `P-44dbdc63de` | kpi | A4 / E_Residual | 461756.6381 | 461466.3703 | 6.29e-04 | outside the tolerance | E2 |
+| `P-430d9f661b` | kpi | A4 / E_Uncovered | 24140.48253 | 24143.01223 | 1.05e-04 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / n_bins_sweep: alpha=0.9, beta=0.95, budget_loading=1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-380a3d8126` | kpi | A1 / CVaR_Uncovered | 3234176.75 | 3232938.673 | 3.83e-04 | outside the tolerance | E2 |
+| `P-243aecd6c6` | kpi | A1 / E_Payout_to_E_Loss_Ratio | 0.5874174142 | 0.5875493216 | 2.25e-04 | outside the tolerance | E2 |
+| `P-acb79982eb` | kpi | A1 / E_Residual | 917008.6432 | 916579.4406 | 4.68e-04 | outside the tolerance | E2 |
+| `P-73fcd08a4e` | kpi | A1 / E_Uncovered | 271706.5024 | 271638.292 | 2.51e-04 | outside the tolerance | E2 |
+| `P-9abf356a31` | kpi | A2 / CVaR_Uncovered | 1116921.359 | 1117177.482 | 2.29e-04 | outside the tolerance | E2 |
+| `P-362fbf6384` | kpi | A2 / E_Residual | 581390.428 | 581251.4477 | 2.39e-04 | outside the tolerance | E2 |
+| `P-09a3cfc119` | kpi | A2 / E_Uncovered | 91398.1574 | 91412.33857 | 1.55e-04 | outside the tolerance | E2 |
+| `P-d6100c6d6b` | kpi | A4 / E_Payout_to_E_Loss_Ratio | 1.601691092 | 1.601466315 | 1.40e-04 | outside the tolerance | E2 |
+| `P-21ddc1599a` | kpi | A4 / E_Residual | 383670.3301 | 383388.9923 | 7.33e-04 | outside the tolerance | E2 |
+| `P-2464b43cfb` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 0.007355178072 | 0.007358800223 | 4.92e-04 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / n_bins_sweep: alpha=0.9, beta=0.95, budget_loading=1, n_bins=20
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-f9ac49fa7d` | kpi | A1 / CVaR_Uncovered | 2121593.503 | 2121046.63 | 2.58e-04 | outside the tolerance | E2 |
+| `P-a86ce120a4` | kpi | A1 / E_Residual | 733991.1348 | 733713.0444 | 3.79e-04 | outside the tolerance | E2 |
+| `P-92c73e45ed` | kpi | A1 / E_Uncovered | 174957.8208 | 174928.7987 | 1.66e-04 | outside the tolerance | E2 |
+| `P-814d1aee70` | kpi | A2 / CVaR_Uncovered | 799459.9029 | 799591.5529 | 1.65e-04 | outside the tolerance | E2 |
+| `P-63398d65ef` | kpi | A2 / E_Residual | 573181.3796 | 573082.1979 | 1.73e-04 | outside the tolerance | E2 |
+| `P-6778e55953` | kpi | A2 / E_Uncovered | 67090.69267 | 67098.23464 | 1.12e-04 | outside the tolerance | E2 |
+| `P-de9931a93f` | kpi | A4 / E_Residual | 348466.2376 | 348427.2309 | 1.12e-04 | outside the tolerance | E2 |
+| `P-e7af39aa38` | kpi | A6 / E_Residual | 79731.22715 | 79721.45627 | 1.23e-04 | outside the tolerance | E2 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / n_bins_sweep: alpha=0.9, beta=0.95, budget_loading=1, n_bins=25
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-0811753be1` | kpi | A2 / CVaR_Uncovered | 705750.2797 | 705980.6348 | 3.26e-04 | outside the tolerance | E2 |
+| `P-469338145c` | kpi | A2 / E_Uncovered | 53907.17656 | 53918.69426 | 2.14e-04 | outside the tolerance | E2 |
+| `P-89e4c0e99e` | kpi | A4 / E_Payout_to_E_Loss_Ratio | 1.20518964 | 1.205339424 | 1.24e-04 | outside the tolerance | E2 |
+| `P-9085ec2c45` | kpi | A4 / E_Residual | 320888.2547 | 321203.7629 | 9.83e-04 | outside the tolerance | E2 |
+
+### cluster_optimization / pure_basis_risk_minimization / n_clusters_sweep: budget_loading=1, n_bins=15, n_clusters=4
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-42c7172caf` | kpi | C3 / E_Uncovered | 12939.2596 | 12961.93595 | 1.75e-03 | outside the tolerance | E15 |
+
+### cluster_optimization / pure_basis_risk_minimization / n_clusters_sweep: budget_loading=1, n_bins=15, n_clusters=6
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-d10f72e705` | kpi | C5 / E_Payout_to_E_Loss_Ratio | 0.9885847504 | 0.988367044 | 2.20e-04 | outside the tolerance | E15 |
+| `P-6f0347d83f` | kpi | C5 / E_Uncovered | 46221.09541 | 46309.33511 | 1.91e-03 | outside the tolerance | E15 |
+
+### cluster_optimization / weighted_cvar_minimization / n_clusters_sweep: alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=2
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-e07d9ae138` | kpi | C1 / CVaR_Uncovered | 2172074.951 | 2172296.932 | 1.02e-04 | outside the tolerance | E4 |
+| `P-515cc2b73b` | kpi | C2 / CVaR_Uncovered | 439133.3726 | 439069.9569 | 1.44e-04 | outside the tolerance | E4 |
+| `P-66727a3b1c` | kpi | C2 / E_Residual | 757102.4814 | 757222.172 | 1.58e-04 | outside the tolerance | E4 |
+
+### cluster_optimization / weighted_cvar_minimization / n_clusters_sweep: alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=6
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-11a387f20f` | kpi | C2 / E_Residual | 636052.1344 | 636121.5878 | 1.09e-04 | outside the tolerance | E4 |
+
+### cluster_optimization / weighted_cvar_minimization / n_clusters_sweep: alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=9
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-5b7c8a4ba0` | kpi | C1 / CVaR_Uncovered | 3234176.75 | 3232938.673 | 3.83e-04 | outside the tolerance | E4 |
+| `P-842f4d31e6` | kpi | C1 / E_Payout_to_E_Loss_Ratio | 0.5874174142 | 0.5875493216 | 2.25e-04 | outside the tolerance | E4 |
+| `P-f18c3610c1` | kpi | C1 / E_Residual | 917008.6432 | 916579.4406 | 4.68e-04 | outside the tolerance | E4 |
+| `P-9fc3579d12` | kpi | C1 / E_Uncovered | 271706.5024 | 271638.292 | 2.51e-04 | outside the tolerance | E4 |
+| `P-781af7bb3f` | kpi | C2 / CVaR_Uncovered | 1116921.359 | 1117177.482 | 2.29e-04 | outside the tolerance | E4 |
+| `P-c331f63d7d` | kpi | C2 / E_Residual | 581390.428 | 581251.4477 | 2.39e-04 | outside the tolerance | E4 |
+| `P-0b7ee35d30` | kpi | C2 / E_Uncovered | 91398.1574 | 91412.33857 | 1.55e-04 | outside the tolerance | E4 |
+| `P-9e7e4df41c` | kpi | C4 / E_Payout_to_E_Loss_Ratio | 1.601691092 | 1.601466315 | 1.40e-04 | outside the tolerance | E4 |
+| `P-94ba5f82a5` | kpi | C4 / E_Residual | 383670.3301 | 383388.9923 | 7.33e-04 | outside the tolerance | E4 |
+| `P-bdf0ab949f` | kpi | C6 / E_Payout_to_E_Loss_Ratio | 0.007355178072 | 0.007358800223 | 4.92e-04 | outside the tolerance | E4 |
+
+### integrated_portfolio_optimization / weighted_cvar_minimization / single_run: alpha=0.9, beta=0.95, budget_loading=1, n_bins=15
+
+| ID | Kind | Subject / item | Golden | Ours | Rel. error | Detail | Explanation |
+|---|---|---|---|---|---|---|---|
+| `P-54f3998f25` | kpi | A1 / CVaR_Uncovered | 3234176.75 | 3232938.673 | 3.83e-04 | outside the tolerance | E1 |
+| `P-3fc13e61d1` | kpi | A1 / E_Payout_to_E_Loss_Ratio | 0.5874174142 | 0.5875493216 | 2.25e-04 | outside the tolerance | E1 |
+| `P-e8c4afce12` | kpi | A1 / E_Residual | 917008.6432 | 916579.4406 | 4.68e-04 | outside the tolerance | E1 |
+| `P-165e12282c` | kpi | A1 / E_Uncovered | 271706.5024 | 271638.292 | 2.51e-04 | outside the tolerance | E1 |
+| `P-ceca1f6b69` | kpi | A2 / CVaR_Uncovered | 1116921.359 | 1117177.482 | 2.29e-04 | outside the tolerance | E1 |
+| `P-2e543f807e` | kpi | A2 / E_Residual | 581390.428 | 581251.4477 | 2.39e-04 | outside the tolerance | E1 |
+| `P-03b1743fdd` | kpi | A2 / E_Uncovered | 91398.1574 | 91412.33857 | 1.55e-04 | outside the tolerance | E1 |
+| `P-b20dd5a84f` | kpi | A4 / E_Payout_to_E_Loss_Ratio | 1.601691092 | 1.601466315 | 1.40e-04 | outside the tolerance | E1 |
+| `P-dd56ded8e0` | kpi | A4 / E_Residual | 383670.3301 | 383388.9923 | 7.33e-04 | outside the tolerance | E1 |
+| `P-c7904242ed` | kpi | A6 / E_Payout_to_E_Loss_Ratio | 0.007355178072 | 0.007358800223 | 4.92e-04 | outside the tolerance | E1 |
+
+## Explanations
+
+The explanations the findings above use, from the explanations file (key: a finding id or a glob over the finding path).
+
+**E1** (`kpi/integrated_portfolio_optimization/weighted_cvar_minimization/single_run/alpha=0.9, beta=0.95, budget_loading=1, n_bins=15/A?/*`, 10 findings): Alternative optimum (LP degeneracy). The objective and every portfolio-level KPI of this run are within tolerance (objective 1.2e-9 relative). Evaluated under our objective and constraints on the same prepared EventSet (appendix), the thesis payout is feasible (bound violations at most 9.5e-6 USD, from its 8-digit print; budget 3.6e-11 relative) and its objective is 1.18e-9 relative above ours, within solver tolerance; the midpoint of the two payouts is optimal too (5.9e-10). The objective depends on the payouts only through the portfolio's total payout per event, and the two optima split that total differently between assets (E[payout]/E[loss] of A1 +2.25e-4, A6 +4.92e-4 relative), which moves these asset-level KPIs by 1.4e-4 to 7.3e-4. This is what degeneracy predicts, not a porting bug.
+
+**E2** (`kpi/integrated_portfolio_optimization/weighted_cvar_minimization/*_sweep/*/A?/*`, 367 findings): Alternative optimum (LP degeneracy), as for the baseline. In the cluster and portfolio scopes the objective depends on the payouts only through the total payout per event, and two optima can split that total differently between the entities, which moves entity-level KPIs. For this record the appendix shows the thesis payout feasible and its objective, and the midpoint's, equal to ours within solver tolerance (verdict "alternative optimum"); its table "Joint scopes with asset-level KPI findings" gives the entity whose E[payout]/E[loss] differs most. Not a porting bug.
+
+**E3** (`kpi/integrated_portfolio_optimization/pure_uncovered_loss_minimization/*_sweep/*/A?/*`, 44 findings): Alternative optimum (LP degeneracy), as for the baseline. In the cluster and portfolio scopes the objective depends on the payouts only through the total payout per event, and two optima can split that total differently between the entities, which moves entity-level KPIs. For this record the appendix shows the thesis payout feasible and its objective, and the midpoint's, equal to ours within solver tolerance (verdict "alternative optimum"); its table "Joint scopes with asset-level KPI findings" gives the entity whose E[payout]/E[loss] differs most. Not a porting bug.
+
+**E4** (`kpi/cluster_optimization/weighted_cvar_minimization/*_sweep/*/C?/*`, 77 findings): Alternative optimum (LP degeneracy), as for the baseline. In the cluster and portfolio scopes the objective depends on the payouts only through the total payout per event, and two optima can split that total differently between the entities, which moves entity-level KPIs. For this record the appendix shows the thesis payout feasible and its objective, and the midpoint's, equal to ours within solver tolerance (verdict "alternative optimum"); its table "Joint scopes with asset-level KPI findings" gives the entity whose E[payout]/E[loss] differs most. Not a porting bug.
+
+**E5** (`kpi/cluster_optimization/pure_uncovered_loss_minimization/*_sweep/*/C?/*`, 12 findings): Alternative optimum (LP degeneracy), as for the baseline. In the cluster and portfolio scopes the objective depends on the payouts only through the total payout per event, and two optima can split that total differently between the entities, which moves entity-level KPIs. For this record the appendix shows the thesis payout feasible and its objective, and the midpoint's, equal to ours within solver tolerance (verdict "alternative optimum"); its table "Joint scopes with asset-level KPI findings" gives the entity whose E[payout]/E[loss] differs most. Not a porting bug.
+
+**E6** (`kpi/cluster_optimization/weighted_cvar_minimization/beta_sweep/alpha=0.9, beta=0.92, budget_loading=1, n_bins=15, n_clusters=3/Portfolio/*`, 2 findings): Alternative optimum (LP degeneracy). At beta 0.92 the objective is 0.9 CVaR_0.92 + 0.1 E[U]; it is within tolerance, and the appendix shows the thesis payout feasible with our objective within solver tolerance. The KPIs here, E[U] and VaR at the evaluation beta 0.95, are not the objective and differ between the two optima (2.2e-4 and 1.4e-3 relative).
+
+**E7** (`objective/integrated_portfolio_optimization/weighted_cvar_minimization/budget_loading_sweep/*budget_loading=1.[3-5],*/portfolio/*`, 3 findings): Alternative optimum with a slack budget. At this loading the optimal uncovered loss is zero: in the appendix the thesis payout and our stored payout both evaluate (numpy) to an objective of 0, and both spend less than the budget (negative *budget* columns). So the optimisation does not determine the expected payout, E_Residual or the split between entities; these KPIs differ between the optima. The objective findings compare the golden 0 (from the thesis KPIs) with the objective value our solver reports, at most 0.007 USD (an infinite relative error), while our stored payout evaluates to 0.
+
+**E8** (`objective/cluster_optimization/weighted_cvar_minimization/budget_loading_sweep/*budget_loading=1.[4-5],*/portfolio/*`, 2 findings): Alternative optimum with a slack budget. At this loading the optimal uncovered loss is zero: in the appendix the thesis payout and our stored payout both evaluate (numpy) to an objective of 0, and both spend less than the budget (negative *budget* columns). So the optimisation does not determine the expected payout, E_Residual or the split between entities; these KPIs differ between the optima. The objective findings compare the golden 0 (from the thesis KPIs) with the objective value our solver reports, at most 0.007 USD (an infinite relative error), while our stored payout evaluates to 0.
+
+**E9** (`kpi/integrated_portfolio_optimization/weighted_cvar_minimization/budget_loading_sweep/*budget_loading=1.[3-5],*/Portfolio/*`, 5 findings): Alternative optimum with a slack budget. At this loading the optimal uncovered loss is zero: in the appendix the thesis payout and our stored payout both evaluate (numpy) to an objective of 0, and both spend less than the budget (negative *budget* columns). So the optimisation does not determine the expected payout, E_Residual or the split between entities; these KPIs differ between the optima. The objective findings compare the golden 0 (from the thesis KPIs) with the objective value our solver reports, at most 0.007 USD (an infinite relative error), while our stored payout evaluates to 0.
+
+**E10** (`kpi/integrated_portfolio_optimization/pure_uncovered_loss_minimization/budget_loading_sweep/*budget_loading=1.[3-5],*/Portfolio/*`, 1 findings): Alternative optimum with a slack budget. At this loading the optimal uncovered loss is zero: in the appendix the thesis payout and our stored payout both evaluate (numpy) to an objective of 0, and both spend less than the budget (negative *budget* columns). So the optimisation does not determine the expected payout, E_Residual or the split between entities; these KPIs differ between the optima. The objective findings compare the golden 0 (from the thesis KPIs) with the objective value our solver reports, at most 0.007 USD (an infinite relative error), while our stored payout evaluates to 0.
+
+**E11** (`kpi/cluster_optimization/weighted_cvar_minimization/budget_loading_sweep/*budget_loading=1.[4-5],*/Portfolio/*`, 3 findings): Alternative optimum with a slack budget. At this loading the optimal uncovered loss is zero: in the appendix the thesis payout and our stored payout both evaluate (numpy) to an objective of 0, and both spend less than the budget (negative *budget* columns). So the optimisation does not determine the expected payout, E_Residual or the split between entities; these KPIs differ between the optima. The objective findings compare the golden 0 (from the thesis KPIs) with the objective value our solver reports, at most 0.007 USD (an infinite relative error), while our stored payout evaluates to 0.
+
+**E12** (`P-94e0b4437b`, 1 findings): Alternative optimum (LP degeneracy). The objective is within tolerance and the appendix shows the thesis payout feasible with our objective within solver tolerance. The portfolio's VaR_0.95 of the uncovered loss is 0 for the thesis payout and 1.3e-4 USD for ours: an absolute difference far below the solver's tolerance, which the relative rule turns into an infinite error.
+
+**E13** (`kpi/individual_optimization/weighted_cvar_minimization/budget_loading_sweep/*`, 35 findings): Alternative optimum (LP degeneracy) in the individual scope. Each asset's LP can have several optima: the weighted CVaR depends on the payout only through the tail of the uncovered loss and its mean, and E[U] only through the uncovered part, so E_Residual is free among the optima. For this record the appendix shows every asset's thesis payout feasible with our objective within solver tolerance (verdict "alternative optimum"). The KPIs here are not an asset's objective: E_Residual; VaR where the uncovered loss is (near) zero (golden 0, ours at most 1.2e-4 USD, an infinite relative error); and the portfolio-level KPIs, which in the individual scope evaluate the nine asset payouts summed per event, which no design problem optimises (at loading 1.5 the portfolio E[U] is 0.003 USD). They differ between the optima.
+
+**E14** (`kpi/individual_optimization/pure_uncovered_loss_minimization/budget_loading_sweep/*`, 8 findings): Alternative optimum (LP degeneracy) in the individual scope. Each asset's LP can have several optima: the weighted CVaR depends on the payout only through the tail of the uncovered loss and its mean, and E[U] only through the uncovered part, so E_Residual is free among the optima. For this record the appendix shows every asset's thesis payout feasible with our objective within solver tolerance (verdict "alternative optimum"). The KPIs here are not an asset's objective: E_Residual; VaR where the uncovered loss is (near) zero (golden 0, ours at most 1.2e-4 USD, an infinite relative error); and the portfolio-level KPIs, which in the individual scope evaluate the nine asset payouts summed per event, which no design problem optimises (at loading 1.5 the portfolio E[U] is 0.003 USD). They differ between the optima.
+
+**E15** (`kpi/*/pure_basis_risk_minimization/*_sweep/*`, 147 findings): OSQP accuracy (MSE). By owner decision (MAR-98) the gate solves the MSE problems as the thesis did, with OSQP at cvxpy's default accuracy. At this point the thesis's solution and ours are both inaccurate, in different ways: they overspend the budget or break the payout bounds by different amounts (appendix, "MSE against accurate optima"), which moves the objective (up to 5.8e-3 relative, portfolio scope at loading 0.7) and the KPIs much more (E[U] up to 9.6e-2 relative): an MSE optimum is flat in the payouts. Against the accurate optimum of our problem (DEFAULT_POLICY, OSQP at 1e-8) at the loading each payout actually spends, the thesis payout is within 1.4e-4 at every such point, and within 2.2e-5 at the budget-loading points, so it is optimal for our problem up to the solver's accuracy (verdict "OSQP accuracy"). Our own solution is the less accurate one at the portfolio loadings 0.7 and 0.8 (OSQP status optimal_inaccurate, bounds broken by up to 1.2e4 USD).
+
+**E16** (`objective/*/pure_basis_risk_minimization/*_sweep/*`, 3 findings): OSQP accuracy (MSE). By owner decision (MAR-98) the gate solves the MSE problems as the thesis did, with OSQP at cvxpy's default accuracy. At this point the thesis's solution and ours are both inaccurate, in different ways: they overspend the budget or break the payout bounds by different amounts (appendix, "MSE against accurate optima"), which moves the objective (up to 5.8e-3 relative, portfolio scope at loading 0.7) and the KPIs much more (E[U] up to 9.6e-2 relative): an MSE optimum is flat in the payouts. Against the accurate optimum of our problem (DEFAULT_POLICY, OSQP at 1e-8) at the loading each payout actually spends, the thesis payout is within 1.4e-4 at every such point, and within 2.2e-5 at the budget-loading points, so it is optimal for our problem up to the solver's accuracy (verdict "OSQP accuracy"). Our own solution is the less accurate one at the portfolio loadings 0.7 and 0.8 (OSQP status optimal_inaccurate, bounds broken by up to 1.2e4 USD).
 
 ## Payout differences (informational)
 
@@ -136,76 +1420,325 @@ Payout levels are not asserted: LP optima can be non-unique. The 20 largest leve
 
 | Record | Parameters | Entity | Levels | Max abs. diff (USD) | Rel. to max level |
 |---|---|---|---|---|---|
-| integrated_portfolio_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A1 | 15 | 32370.5 | 1.94e-03 |
-| integrated_portfolio_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A4 | 15 | 14505.2 | 1.81e-03 |
-| individual_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A4 | 15 | 10185.5 | 1.65e-03 |
-| integrated_portfolio_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A2 | 15 | 26555.1 | 1.32e-03 |
-| individual_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A2 | 15 | 14734.5 | 6.31e-04 |
-| integrated_portfolio_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A6 | 15 | 0.545017 | 4.93e-04 |
-| cluster_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=3 | C1 | 15 | 12037.8 | 3.21e-04 |
-| individual_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A3 | 15 | 253.069 | 1.15e-04 |
-| integrated_portfolio_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A3 | 15 | 86.4046 | 2.84e-05 |
-| integrated_portfolio_optimization / pure_uncovered_loss_minimization / single_run | budget_loading=1, n_bins=15 | A2 | 15 | 27.244 | 1.52e-06 |
-| integrated_portfolio_optimization / pure_uncovered_loss_minimization / single_run | budget_loading=1, n_bins=15 | A4 | 15 | 11.8132 | 1.48e-06 |
-| integrated_portfolio_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A9 | 15 | 22.6373 | 1.36e-06 |
-| integrated_portfolio_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A8 | 15 | 0.379138 | 5.67e-07 |
-| integrated_portfolio_optimization / pure_uncovered_loss_minimization / single_run | budget_loading=1, n_bins=15 | A1 | 15 | 5.95296 | 4.54e-07 |
-| integrated_portfolio_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A5 | 15 | 0.737213 | 4.39e-07 |
-| integrated_portfolio_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A7 | 15 | 0.869281 | 1.61e-07 |
-| individual_optimization / weighted_cvar_minimization / single_run | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A6 | 15 | 0.0877296 | 1.08e-07 |
-| cluster_optimization / pure_uncovered_loss_minimization / single_run | budget_loading=1, n_bins=15, n_clusters=3 | C1 | 15 | 1.37328 | 4.18e-08 |
-| individual_optimization / pure_uncovered_loss_minimization / single_run | budget_loading=1, n_bins=15 | A4 | 15 | 0.199057 | 3.73e-08 |
-| individual_optimization / pure_uncovered_loss_minimization / single_run | budget_loading=1, n_bins=15 | A3 | 15 | 0.0644357 | 3.30e-08 |
+| integrated_portfolio_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=0.8, n_bins=15 | A6 | 15 | 8867.67 | 6.85e+03 |
+| integrated_portfolio_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=0.7, n_bins=15 | A6 | 15 | 11580.1 | 9.01e+02 |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=0.7, n_bins=15 | A6 | 15 | 0.00892078 | 1.98e+01 |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=0.6, n_bins=15 | A6 | 15 | 0.0301554 | 1.46e+01 |
+| integrated_portfolio_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.97, budget_loading=1, n_bins=15 | A6 | 15 | 0.000265551 | 6.14e+00 |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=0.5, n_bins=15 | A6 | 15 | 0.0436136 | 5.27e+00 |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=0.8, n_bins=15 | A6 | 15 | 0.00380332 | 4.14e+00 |
+| integrated_portfolio_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.96, budget_loading=1, n_bins=15 | A6 | 15 | 0.00137596 | 1.00e+00 |
+| integrated_portfolio_optimization / weighted_cvar_minimization / beta_sweep | alpha=0.9, beta=0.98, budget_loading=1, n_bins=15 | A6 | 15 | 0.00190199 | 8.78e-01 |
+| integrated_portfolio_optimization / pure_basis_risk_minimization / budget_loading_sweep | budget_loading=0.9, n_bins=15 | A6 | 15 | 1694.53 | 4.52e-01 |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=0.9, n_bins=15 | A6 | 15 | 0.00029137 | 1.09e-01 |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.2, n_bins=15 | A6 | 15 | 62246 | 8.32e-02 |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.3, n_bins=15 | A6 | 15 | 62415.7 | 5.22e-02 |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.3, n_bins=15 | A5 | 15 | 70880.4 | 4.23e-02 |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.4, n_bins=15 | A6 | 15 | 46103.4 | 4.06e-02 |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15 | A3 | 15 | 99240.5 | 3.13e-02 |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15 | A4 | 15 | 225550 | 2.78e-02 |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.4, n_bins=15 | A3 | 15 | 86625.3 | 2.74e-02 |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15 | A6 | 15 | 29772.8 | 2.64e-02 |
+| integrated_portfolio_optimization / weighted_cvar_minimization / budget_loading_sweep | alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15 | A5 | 15 | 42673.9 | 2.55e-02 |
 
 ## Store runs without a golden record (informational)
 
-None.
+| Source | Scope | Objective | Runs |
+|---|---|---|---|
+| budget_loading_sweep | cluster | mse | 5 |
+| budget_loading_sweep | individual | mse | 2 |
+| budget_loading_sweep | portfolio | mse | 2 |
 
 ## Appendix: the thesis payouts under our design problems
 
-Generated by `parity/scripts/run_default_parity.py` (MAR-68). Each golden `single_run` thesis payout is evaluated under **our** objective and constraints on the same prepared EventSet, with numpy (not the solver): objective, bound violations in USD (theta >= 0, monotone levels, cap at the entity's largest loss) and the budget, as (E[payout] - loading E[L]) / (loading E[L]). *Gap* is (thesis - ours) / ours. If the thesis payout is feasible and its objective equals ours within solver tolerance, both are optimal: they are alternative optima, and so is every convex combination (the problem is convex), checked at the midpoint. The bound and budget violations of the MSE solutions, ours and the thesis's alike, come from OSQP at cvxpy's default accuracy, which `THESIS_POLICY` keeps (MAR-98).
+Generated by `parity/scripts/run_default_parity.py` (MAR-68, MAR-69). Each golden thesis payout of the records compared (alpha_sweep, beta_sweep, budget_loading_sweep, n_bins_sweep, n_clusters_sweep, single_run) is evaluated under **our** objective and constraints on the same prepared EventSet, with numpy (not the solver), next to our stored solution of the matched run: objective, bound violations in USD (theta >= 0, monotone levels, cap at the entity's largest loss) and the budget, as (E[payout] - loading E[L]) / (loading E[L]). *Gap* is (thesis - ours) / ours. If the thesis payout is feasible and its objective equals ours within solver tolerance, both are optimal: they are alternative optima, and so is every convex combination (the problem is convex), checked at the midpoint. The bound and budget violations of the MSE solutions, ours and the thesis's alike, come from OSQP at cvxpy's default accuracy, which `THESIS_POLICY` keeps (MAR-98).
 
-| Scope | Objective | config_hash | Problem | Solver | Ours (solver) | Ours (numpy) | Thesis payout | Gap | Midpoint gap | Thesis bound viol. (USD) | Thesis budget | Our bound viol. (USD) | Our budget |
+*Verdict*: **alternative optimum** if the thesis payout's objective and the midpoint's differ from ours by at most 1e-07 |ours| (plus 1e-08 E[L] for the LPs, where ours can be zero: *Gap / E[L]* is the difference over the problem's expected loss) and the thesis payout is feasible (LPs: bound violation at most 0.1 USD, the rounding of its 8-digit print, and budget excess at most 1e-08; MSE: no larger than our own solution's, x1.01). **OSQP accuracy** (MSE only, see *MSE against accurate optima* below): not so, but the thesis payout's objective lies within 0.0001 of the accurate optimum of our problem at the budget it spends (or no further from it than our own solution from its own, plus 1e-5). **Infeasible**: the objectives agree but the thesis payout breaks one of our constraints (LPs). **Potential porting bug**: otherwise. A design problem is checked when the golden table has a payout for each of its entities and, in the cluster scope, the golden cluster has our members.
+
+### Summary
+
+| Source | Scope | Objective | Records | Problems | Max \\|gap\\| | Max \\|midpoint gap\\| | Max gap / E[L] | Max thesis bound viol. (USD) | Max thesis budget | Alternative optima | OSQP accuracy | Infeasible | Potential porting bugs |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| individual | mse | `sha256:5bbd5be29133…` | A1 | OSQP (optimal) | 2.95183667e+11 | 2.95183667e+11 | 2.95183667e+11 | 0.00e+00 | 0.00e+00 | 0 | -4.39e-11 | 6.7e-11 | 2.15e-15 |
-| individual | mse | `sha256:5bbd5be29133…` | A2 | OSQP (optimal) | 2.790264156e+11 | 2.790264156e+11 | 2.790264156e+11 | 1.95e-14 | 9.84e-15 | 0 | 9.56e-05 | 0 | 9.56e-05 |
-| individual | mse | `sha256:5bbd5be29133…` | A3 | OSQP (optimal) | 2783292563 | 2783292563 | 2783292563 | -2.40e-14 | -1.20e-14 | 0 | 9.16e-05 | 0 | 9.16e-05 |
-| individual | mse | `sha256:5bbd5be29133…` | A4 | OSQP (optimal) | 1.732938812e+10 | 1.732938812e+10 | 1.732938812e+10 | 3.10e-14 | 1.54e-14 | 0 | 9.65e-05 | 0 | 9.65e-05 |
-| individual | mse | `sha256:5bbd5be29133…` | A5 | OSQP (optimal) | 806557084.1 | 806557084.1 | 806557084.1 | 0.00e+00 | 0.00e+00 | 0 | -2.80e-10 | 3.2e-12 | 1.92e-15 |
-| individual | mse | `sha256:5bbd5be29133…` | A6 | OSQP (optimal) | 402696312.9 | 402696312.9 | 402696312.9 | 1.48e-16 | 0.00e+00 | 0 | -4.13e-11 | 3.3e-12 | 2.24e-15 |
-| individual | mse | `sha256:5bbd5be29133…` | A7 | OSQP (optimal) | 7278019660 | 7278019660 | 7278019660 | 1.31e-16 | -1.31e-16 | 0 | -9.68e-12 | 1e-11 | 1.22e-15 |
-| individual | mse | `sha256:5bbd5be29133…` | A8 | OSQP (optimal) | 219562332.2 | 219562332.2 | 219562332.2 | 0.00e+00 | 0.00e+00 | 0 | -4.42e-10 | 2.9e-12 | 5.58e-16 |
-| individual | mse | `sha256:5bbd5be29133…` | A9 | OSQP (optimal) | 8.854468624e+10 | 8.854468624e+10 | 8.854468624e+10 | 0.00e+00 | 0.00e+00 | 0 | -1.33e-10 | 3.2e-11 | 2.30e-15 |
-| individual | expected_uncovered | `sha256:ffab205d6b0c…` | A1 | CLARABEL (optimal) | 62093.35565 | 62093.35565 | 62093.35567 | 2.44e-10 | 1.04e-10 | 0 | -1.92e-12 | 0 | 4.16e-11 |
-| individual | expected_uncovered | `sha256:ffab205d6b0c…` | A2 | CLARABEL (optimal) | 55852.05986 | 55852.05986 | 55852.05965 | -3.70e-09 | -1.85e-09 | 0 | 7.65e-10 | 0 | 8.45e-12 |
-| individual | expected_uncovered | `sha256:ffab205d6b0c…` | A3 | CLARABEL (optimal) | 6168.544435 | 6168.544435 | 6168.544436 | 7.53e-11 | 3.71e-11 | 0 | -2.48e-12 | 0 | 7.30e-12 |
-| individual | expected_uncovered | `sha256:ffab205d6b0c…` | A4 | CLARABEL (optimal) | 14673.41365 | 14673.41365 | 14673.41366 | 1.03e-09 | 5.13e-10 | 0 | -1.88e-10 | 0 | 2.33e-11 |
-| individual | expected_uncovered | `sha256:ffab205d6b0c…` | A5 | CLARABEL (optimal) | 3502.691425 | 3502.691425 | 3502.691424 | -4.44e-10 | -2.22e-10 | 0 | 1.01e-10 | 0 | 2.80e-12 |
-| individual | expected_uncovered | `sha256:ffab205d6b0c…` | A6 | CLARABEL (optimal) | 2400.596873 | 2400.596873 | 2400.596866 | -2.89e-09 | -1.45e-09 | 0 | 6.21e-10 | 0 | 2.71e-11 |
-| individual | expected_uncovered | `sha256:ffab205d6b0c…` | A7 | CLARABEL (optimal) | 10148.66438 | 10148.66438 | 10148.66438 | -3.61e-10 | -1.85e-10 | 0 | 1.18e-10 | 0 | 3.48e-11 |
-| individual | expected_uncovered | `sha256:ffab205d6b0c…` | A8 | CLARABEL (optimal) | 1777.219213 | 1777.219213 | 1777.21921 | -1.53e-09 | -7.64e-10 | 0 | 3.16e-10 | 0 | 9.93e-13 |
-| individual | expected_uncovered | `sha256:ffab205d6b0c…` | A9 | CLARABEL (optimal) | 36708.73933 | 36708.73933 | 36708.73944 | 3.05e-09 | 1.53e-09 | 0 | -5.33e-10 | 0 | 6.60e-11 |
-| individual | weighted_cvar | `sha256:c4c115b292ba…` | A1 | CLARABEL (optimal) | 784924.0152 | 784924.0152 | 784924.0174 | 2.70e-09 | 1.35e-09 | 0 | -8.49e-10 | 6.6e-06 | 3.68e-12 |
-| individual | weighted_cvar | `sha256:c4c115b292ba…` | A2 | CLARABEL (optimal) | 712231.4095 | 712231.4095 | 712231.4097 | 3.75e-10 | 1.87e-10 | 0 | 2.11e-10 | 0.00018 | 1.13e-10 |
-| individual | weighted_cvar | `sha256:c4c115b292ba…` | A3 | CLARABEL (optimal) | 79187.36947 | 79187.36947 | 79187.36943 | -5.49e-10 | -2.75e-10 | 0 | 1.95e-10 | 1.1e-06 | 6.91e-12 |
-| individual | weighted_cvar | `sha256:c4c115b292ba…` | A4 | CLARABEL (optimal) | 187422.9374 | 187422.9374 | 187422.9374 | -3.89e-10 | -1.95e-10 | 0 | 2.91e-10 | 2.3e-05 | 5.77e-11 |
-| individual | weighted_cvar | `sha256:c4c115b292ba…` | A5 | CLARABEL (optimal) | 45262.30297 | 45262.30297 | 45262.30294 | -7.71e-10 | -3.85e-10 | 0 | 2.50e-10 | 2.9e-07 | 2.84e-12 |
-| individual | weighted_cvar | `sha256:c4c115b292ba…` | A6 | CLARABEL (optimal) | 30872.63387 | 30872.63387 | 30872.63389 | 8.25e-10 | 4.12e-10 | 0 | 9.72e-12 | 6.1e-06 | 9.39e-11 |
-| individual | weighted_cvar | `sha256:c4c115b292ba…` | A7 | CLARABEL (optimal) | 125270.9418 | 125270.9418 | 125270.9418 | 2.21e-11 | 1.11e-11 | 0 | 4.71e-11 | 5.2e-06 | 1.86e-11 |
-| individual | weighted_cvar | `sha256:c4c115b292ba…` | A8 | CLARABEL (optimal) | 22842.58309 | 22842.58309 | 22842.58308 | -3.35e-10 | -1.67e-10 | 0 | 1.06e-10 | 1.7e-07 | 3.64e-12 |
-| individual | weighted_cvar | `sha256:c4c115b292ba…` | A9 | CLARABEL (optimal) | 458376.2851 | 458376.2851 | 458376.285 | -2.28e-10 | -1.14e-10 | 0 | 7.53e-11 | 2.2e-06 | 2.05e-12 |
-| cluster | mse | `sha256:cc421a186616…` | portfolio | OSQP (optimal) | 6.761577559e+11 | 6.761577559e+11 | 6.761577559e+11 | 1.00e-11 | 5.01e-12 | 0 | -7.21e-05 | 0 | -7.21e-05 |
-| cluster | expected_uncovered | `sha256:621e1248c90f…` | portfolio | CLARABEL (optimal) | 102104.2455 | 102104.2455 | 102104.2457 | 1.96e-09 | 9.78e-10 | 0 | -1.84e-10 | 0 | 2.63e-11 |
-| cluster | weighted_cvar | `sha256:2f2eb822c199…` | portfolio | CLARABEL (optimal) | 1181435.272 | 1181435.272 | 1181435.271 | -9.32e-10 | -4.66e-10 | 1.1e-05 | 1.60e-10 | 6.3e-06 | 1.10e-12 |
-| portfolio | mse | `sha256:c8ef814df8be…` | portfolio | OSQP (optimal) | 6.064242367e+11 | 6.064242367e+11 | 6.064242367e+11 | 1.21e-11 | 6.04e-12 | 3.2e+02 | -1.67e-04 | 3.2e+02 | -1.67e-04 |
-| portfolio | expected_uncovered | `sha256:84118f7eab00…` | portfolio | CLARABEL (optimal) | 85660.22695 | 85660.22695 | 85660.22676 | -2.19e-09 | -1.10e-09 | 7e-06 | 2.03e-10 | 6.9e-06 | 2.55e-12 |
-| portfolio | weighted_cvar | `sha256:9e8964c64247…` | portfolio | CLARABEL (optimal) | 972283.4798 | 972283.4798 | 972283.4809 | 1.18e-09 | 5.92e-10 | 9.5e-06 | 3.64e-11 | 6.1e-05 | 1.21e-11 |
+| alpha_sweep | cluster | weighted_cvar | 10 | 10 | 2.02e-09 | 1.01e-09 | 7.41e-10 | 1.1e-05 | 3.32e-10 | 10 | 0 | 0 | 0 |
+| alpha_sweep | individual | weighted_cvar | 10 | 90 | 3.77e-09 | 1.89e-09 | 4.99e-09 | 0 | 6.90e-10 | 90 | 0 | 0 | 0 |
+| alpha_sweep | portfolio | weighted_cvar | 10 | 10 | 2.95e-09 | 1.47e-09 | 1.26e-09 | 4.8e-05 | 1.84e-10 | 10 | 0 | 0 | 0 |
+| beta_sweep | cluster | weighted_cvar | 10 | 10 | 2.34e-09 | 1.17e-09 | 1.13e-09 | 2.7e-05 | 3.82e-10 | 10 | 0 | 0 | 0 |
+| beta_sweep | individual | weighted_cvar | 10 | 90 | 2.98e-09 | 1.49e-09 | 3.26e-09 | 0 | 4.70e-10 | 90 | 0 | 0 | 0 |
+| beta_sweep | portfolio | weighted_cvar | 10 | 10 | 2.83e-09 | 1.39e-09 | 1.41e-09 | 7.3e-05 | 3.35e-10 | 10 | 0 | 0 | 0 |
+| budget_loading_sweep | cluster | mse | 6 | 6 | 1.50e-11 | 7.49e-12 | 4.91e-06 | 4.9e+02 | -7.21e-05 | 6 | 0 | 0 | 0 |
+| budget_loading_sweep | cluster | expected_uncovered | 11 | 11 | 2.07e-08 | 9.68e-09 | 3.17e-10 | 0 | 4.58e-10 | 11 | 0 | 0 | 0 |
+| budget_loading_sweep | cluster | weighted_cvar | 11 | 11 | 6.38e-08 | 3.10e-08 | 7.18e-09 | 1.1e-05 | 1.86e-09 | 11 | 0 | 0 | 0 |
+| budget_loading_sweep | individual | mse | 9 | 57 | 3.90e-05 | 1.96e-05 | 4.83e+01 | 0 | 2.05e-03 | 54 | 3 | 0 | 0 |
+| budget_loading_sweep | individual | expected_uncovered | 11 | 99 | 9.31e-07 | 4.65e-07 | 2.87e-09 | 0.033 | 1.14e-09 | 99 | 0 | 0 | 0 |
+| budget_loading_sweep | individual | weighted_cvar | 11 | 99 | 1.83e-08 | 9.16e-09 | 6.18e-09 | 0.033 | 1.27e-09 | 99 | 0 | 0 | 0 |
+| budget_loading_sweep | portfolio | mse | 9 | 9 | 5.72e-03 | 3.42e-03 | 4.94e+03 | 3.2e+02 | 3.78e-02 | 6 | 3 | 0 | 0 |
+| budget_loading_sweep | portfolio | expected_uncovered | 11 | 11 | 2.61e-08 | 1.33e-08 | 2.69e-10 | 0.033 | 4.85e-10 | 11 | 0 | 0 | 0 |
+| budget_loading_sweep | portfolio | weighted_cvar | 11 | 11 | 7.03e-09 | 3.51e-09 | 1.79e-08 | 0.00011 | 7.52e-10 | 11 | 0 | 0 | 0 |
+| n_bins_sweep | cluster | mse | 5 | 5 | 3.59e-07 | 1.75e-07 | 1.10e-01 | 0.2 | 3.33e-04 | 3 | 2 | 0 | 0 |
+| n_bins_sweep | cluster | expected_uncovered | 5 | 5 | 3.27e-09 | 1.63e-09 | 2.04e-10 | 4e-05 | 5.35e-10 | 5 | 0 | 0 | 0 |
+| n_bins_sweep | cluster | weighted_cvar | 5 | 5 | 9.32e-10 | 4.66e-10 | 7.10e-10 | 1.1e-05 | 1.60e-10 | 5 | 0 | 0 | 0 |
+| n_bins_sweep | individual | mse | 5 | 45 | 2.88e-10 | 1.44e-10 | 1.20e-04 | 11 | 3.08e-04 | 45 | 0 | 0 | 0 |
+| n_bins_sweep | individual | expected_uncovered | 5 | 45 | 4.68e-09 | 2.34e-09 | 4.94e-10 | 0 | 8.96e-10 | 45 | 0 | 0 | 0 |
+| n_bins_sweep | individual | weighted_cvar | 5 | 45 | 2.70e-09 | 1.35e-09 | 3.26e-09 | 4.5e-06 | 3.08e-10 | 45 | 0 | 0 | 0 |
+| n_bins_sweep | portfolio | mse | 5 | 5 | 3.80e-05 | 1.87e-05 | 2.33e+01 | 4.2e+02 | 2.35e-04 | 3 | 2 | 0 | 0 |
+| n_bins_sweep | portfolio | expected_uncovered | 5 | 5 | 2.66e-09 | 1.31e-09 | 2.08e-10 | 3e-05 | 5.12e-10 | 5 | 0 | 0 | 0 |
+| n_bins_sweep | portfolio | weighted_cvar | 5 | 5 | 2.41e-09 | 1.21e-09 | 1.39e-09 | 9.4e-05 | 4.98e-10 | 5 | 0 | 0 | 0 |
+| n_clusters_sweep | cluster | mse | 9 | 9 | 1.26e-06 | 6.20e-07 | 3.85e-01 | 1.1e+03 | 6.07e-05 | 7 | 2 | 0 | 0 |
+| n_clusters_sweep | cluster | expected_uncovered | 9 | 9 | 4.53e-09 | 2.27e-09 | 2.45e-10 | 1.6e-05 | 5.51e-10 | 9 | 0 | 0 | 0 |
+| n_clusters_sweep | cluster | weighted_cvar | 9 | 9 | 1.99e-09 | 9.97e-10 | 1.14e-09 | 0.00015 | 3.31e-10 | 9 | 0 | 0 | 0 |
+| single_run | cluster | mse | 1 | 1 | 1.00e-11 | 5.01e-12 | 3.28e-06 | 0 | -7.21e-05 | 1 | 0 | 0 | 0 |
+| single_run | cluster | expected_uncovered | 1 | 1 | 1.96e-09 | 9.78e-10 | 9.69e-11 | 0 | -1.84e-10 | 1 | 0 | 0 | 0 |
+| single_run | cluster | weighted_cvar | 1 | 1 | 9.32e-10 | 4.66e-10 | 5.34e-10 | 1.1e-05 | 1.60e-10 | 1 | 0 | 0 | 0 |
+| single_run | individual | mse | 1 | 9 | 3.10e-14 | 1.54e-14 | 9.17e-09 | 0 | 9.65e-05 | 9 | 0 | 0 | 0 |
+| single_run | individual | expected_uncovered | 1 | 9 | 3.70e-09 | 1.85e-09 | 3.49e-10 | 0 | 7.65e-10 | 9 | 0 | 0 | 0 |
+| single_run | individual | weighted_cvar | 1 | 9 | 2.70e-09 | 1.35e-09 | 3.26e-09 | 0 | 2.91e-10 | 9 | 0 | 0 | 0 |
+| single_run | portfolio | mse | 1 | 1 | 1.21e-11 | 6.04e-12 | 3.56e-06 | 3.2e+02 | -1.67e-04 | 1 | 0 | 0 | 0 |
+| single_run | portfolio | expected_uncovered | 1 | 1 | 2.19e-09 | 1.10e-09 | 9.09e-11 | 7e-06 | 2.03e-10 | 1 | 0 | 0 | 0 |
+| single_run | portfolio | weighted_cvar | 1 | 1 | 1.18e-09 | 5.92e-10 | 5.59e-10 | 9.5e-06 | 3.64e-11 | 1 | 0 | 0 | 0 |
 
-Largest |gap| over the 33 design problems: 3.70e-09; largest |midpoint gap|: 1.85e-09.
+759 design problems checked: 747 alternative optimum, 12 OSQP accuracy, 0 infeasible, 0 potential porting bug. Over the 612 LP problems (E[U] and weighted CVaR), the largest |gap| is 9.31e-07 where ours is not zero, the largest gap / E[L] 1.79e-08.
 
-### portfolio / weighted_cvar: expected payout per entity
+### Potential porting bugs
 
-The objective depends on the payouts only through the portfolio's total payout per event; the two optima above split that total differently between assets. E[payout] / E[loss] per asset (the KPI `E_Payout_to_E_Loss_Ratio`):
+None: every thesis payout checked is optimal for our problem within solver tolerance (verdicts above).
+
+### MSE against accurate optima
+
+MSE design problems whose thesis payout is not an alternative optimum by the strict test. Under `THESIS_POLICY` both the thesis and we solve them with OSQP at cvxpy's default accuracy (MAR-98), whose solutions can overspend the budget and break the payout bounds, so their gap says little. Each payout is compared instead with the accurate optimum of **our** problem (`DEFAULT_POLICY`, OSQP at 1e-8; reference runs in a separate store) at the loading the payout spends, loading x (1 + budget excess). *vs. optimum*: (payout - that optimum) / that optimum. A payout can beat it only by breaking the payout bounds (columns *bound viol.*).
+
+| Source | Scope | Parameters | Problem | Our status | Accurate optimum at the loading | Thesis: loading spent | Thesis: vs. optimum | Thesis bound viol. (USD) | Ours: loading spent | Ours: vs. optimum | Our bound viol. (USD) | Gap (thesis vs. ours) | Verdict |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| budget_loading_sweep | individual | budget_loading=0.5, n_bins=15 | A1 | OSQP (optimal) | 8.090547227e+11 | 0.501023 | 3.20e-06 | 0 | 0.500404 | -1.95e-03 | 7.6e+02 | -3.90e-05 | OSQP accuracy |
+| budget_loading_sweep | individual | budget_loading=0.6, n_bins=15 | A1 | OSQP (optimal) | 5.916340637e+11 | 0.600979 | 2.94e-06 | 0 | 0.60038 | -1.80e-03 | 7.5e+02 | -3.38e-05 | OSQP accuracy |
+| budget_loading_sweep | individual | budget_loading=0.7, n_bins=15 | A1 | OSQP (optimal) | 4.441996726e+11 | 0.70094 | 2.43e-06 | 0 | 0.700357 | -1.48e-03 | 7.5e+02 | -2.32e-05 | OSQP accuracy |
+| budget_loading_sweep | portfolio | budget_loading=0.7, n_bins=15 | portfolio | OSQP (optimal_inaccurate) | 2.047598546e+12 | 0.726455 | 2.13e-05 | 7 | 0.701861 | -1.22e-01 | 1.2e+04 | -5.72e-03 | OSQP accuracy |
+| budget_loading_sweep | portfolio | budget_loading=0.8, n_bins=15 | portfolio | OSQP (optimal_inaccurate) | 1.171746568e+12 | 0.820008 | 2.07e-05 | 8.7 | 0.801379 | -9.15e-02 | 9e+03 | -5.43e-03 | OSQP accuracy |
+| budget_loading_sweep | portfolio | budget_loading=0.9, n_bins=15 | portfolio | OSQP (optimal) | 7.2612802e+11 | 0.903711 | 1.28e-05 | 0.44 | 0.900243 | -1.19e-02 | 1.7e+03 | -5.78e-04 | OSQP accuracy |
+| n_bins_sweep | cluster | budget_loading=1, n_bins=20, n_clusters=3 | portfolio | OSQP (optimal) | 6.302373881e+11 | 0.999966 | 1.10e-05 | 0.1 | 0.999937 | 1.06e-05 | 1.8e+02 | 3.59e-07 | OSQP accuracy |
+| n_bins_sweep | cluster | budget_loading=1, n_bins=25, n_clusters=3 | portfolio | OSQP (optimal) | 6.193264315e+11 | 0.999937 | 7.19e-06 | 0.2 | 0.999937 | 7.19e-06 | 0.19 | -8.53e-11 | OSQP accuracy |
+| n_bins_sweep | portfolio | budget_loading=1, n_bins=5 | portfolio | OSQP (optimal) | 1.264359709e+12 | 1.00024 | 5.73e-05 | 40 | 0.999726 | 1.05e-06 | 1.1e+03 | 3.80e-05 | OSQP accuracy |
+| n_bins_sweep | portfolio | budget_loading=1, n_bins=10 | portfolio | OSQP (optimal) | 6.826468461e+11 | 0.999843 | 1.38e-04 | 2.4e+02 | 0.999837 | 1.37e-04 | 2.4e+02 | 2.95e-07 | OSQP accuracy |
+| n_clusters_sweep | cluster | budget_loading=1, n_bins=15, n_clusters=4 | portfolio | OSQP (optimal) | 6.690988193e+11 | 0.999959 | -9.44e-06 | 1.1e+03 | 0.999948 | -9.68e-06 | 1.1e+03 | 2.30e-07 | OSQP accuracy |
+| n_clusters_sweep | cluster | budget_loading=1, n_bins=15, n_clusters=6 | portfolio | OSQP (optimal) | 6.318604306e+11 | 1.00006 | 3.21e-05 | 4.5e+02 | 1.00002 | 3.08e-05 | 4.5e+02 | 1.26e-06 | OSQP accuracy |
+
+### Design problems of the baseline and of every record with a finding
+
+| Source | Scope | Objective | Parameters | config_hash | Problem | Solver | Ours (solver) | Ours (numpy) | Thesis payout | Gap | Midpoint gap | Gap / E[L] | Thesis bound viol. (USD) | Thesis budget | Our bound viol. (USD) | Our budget | Verdict |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| alpha_sweep | cluster | weighted_cvar | alpha=1, beta=0.95, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:55f90fb588b8…` | portfolio | CLARABEL (optimal) | 1296468.078 | 1296468.078 | 1296468.077 | -1.18e-09 | -5.89e-10 | 7.41e-10 | 0 | 3.32e-10 | 0.00011 | 2.03e-11 | alternative optimum |
+| alpha_sweep | portfolio | weighted_cvar | alpha=0.1, beta=0.95, budget_loading=1, n_bins=15 | `sha256:615da1d4019f…` | portfolio | CLARABEL (optimal) | 210096.711 | 210096.711 | 210096.711 | -5.06e-12 | -2.68e-12 | 5.16e-13 | 3e-05 | 7.93e-12 | 2.1e-06 | 4.00e-13 | alternative optimum |
+| alpha_sweep | portfolio | weighted_cvar | alpha=0.2, beta=0.95, budget_loading=1, n_bins=15 | `sha256:7d441f1b4cca…` | portfolio | CLARABEL (optimal) | 312295.4195 | 312295.4195 | 312295.4196 | 3.26e-10 | 1.49e-10 | 4.94e-11 | 2.6e-06 | 2.41e-11 | 5.1e-05 | 1.03e-11 | alternative optimum |
+| alpha_sweep | portfolio | weighted_cvar | alpha=0.3, beta=0.95, budget_loading=1, n_bins=15 | `sha256:cc71e5f76d2e…` | portfolio | CLARABEL (optimal) | 409028.1609 | 409028.1609 | 409028.1609 | -2.90e-11 | -1.46e-11 | 5.75e-12 | 2.4e-06 | 1.44e-11 | 6.8e-06 | 1.16e-12 | alternative optimum |
+| alpha_sweep | portfolio | weighted_cvar | alpha=0.4, beta=0.95, budget_loading=1, n_bins=15 | `sha256:4fa6e5d75626…` | portfolio | CLARABEL (optimal) | 503686.3083 | 503686.3083 | 503686.3083 | 3.94e-11 | 1.72e-11 | 9.63e-12 | 3.5e-05 | 1.31e-10 | 6e-05 | 1.22e-11 | alternative optimum |
+| alpha_sweep | portfolio | weighted_cvar | alpha=0.6, beta=0.95, budget_loading=1, n_bins=15 | `sha256:b75bc3868e72…` | portfolio | CLARABEL (optimal) | 691647.3432 | 691647.3432 | 691647.3434 | 2.36e-10 | 1.17e-10 | 7.92e-11 | 1.6e-05 | -5.23e-13 | 9.6e-06 | 1.93e-12 | alternative optimum |
+| alpha_sweep | portfolio | weighted_cvar | alpha=0.7, beta=0.95, budget_loading=1, n_bins=15 | `sha256:71ec4718a21d…` | portfolio | CLARABEL (optimal) | 785274.1618 | 785274.1618 | 785274.1624 | 8.32e-10 | 4.08e-10 | 3.17e-10 | 1.6e-05 | 6.79e-11 | 5.9e-05 | 1.18e-11 | alternative optimum |
+| alpha_sweep | portfolio | weighted_cvar | alpha=0.8, beta=0.95, budget_loading=1, n_bins=15 | `sha256:2e52dfdc723f…` | portfolio | CLARABEL (optimal) | 878856.1229 | 878856.1229 | 878856.1255 | 2.95e-09 | 1.47e-09 | 1.26e-09 | 4.8e-05 | 1.84e-10 | 0.00019 | 3.73e-11 | alternative optimum |
+| alpha_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | `sha256:9e8964c64247…` | portfolio | CLARABEL (optimal) | 972283.4798 | 972283.4798 | 972283.4809 | 1.18e-09 | 5.92e-10 | 5.59e-10 | 9.5e-06 | 3.64e-11 | 6.1e-05 | 1.21e-11 | alternative optimum |
+| alpha_sweep | portfolio | weighted_cvar | alpha=1, beta=0.95, budget_loading=1, n_bins=15 | `sha256:1f1629f33a43…` | portfolio | CLARABEL (optimal) | 1065485.397 | 1065485.397 | 1065485.397 | -5.32e-11 | -2.67e-11 | 2.75e-11 | 7.3e-06 | 2.37e-11 | 4.7e-06 | 9.43e-13 | alternative optimum |
+| beta_sweep | cluster | weighted_cvar | alpha=0.9, beta=0.9, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:08f23802f8c0…` | portfolio | CLARABEL (optimal) | 805461.0797 | 805461.0797 | 805461.0795 | -2.63e-10 | -1.31e-10 | 1.03e-10 | 0 | 4.25e-11 | 6.8e-06 | 1.28e-12 | alternative optimum |
+| beta_sweep | cluster | weighted_cvar | alpha=0.9, beta=0.92, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:cc9f70ca22e6…` | portfolio | CLARABEL (optimal) | 924455.5701 | 924455.5701 | 924455.57 | -1.18e-10 | -5.91e-11 | 5.30e-11 | 0 | 2.37e-11 | 5.7e-06 | 1.10e-12 | alternative optimum |
+| beta_sweep | cluster | weighted_cvar | alpha=0.9, beta=0.96, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:fadd80c28fbd…` | portfolio | CLARABEL (optimal) | 1302159.944 | 1302159.944 | 1302159.942 | -1.47e-09 | -7.39e-10 | 9.31e-10 | 0 | 3.82e-10 | 8.6e-05 | 1.60e-11 | alternative optimum |
+| beta_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.9, budget_loading=1, n_bins=15 | `sha256:63bc7b26bf41…` | portfolio | CLARABEL (optimal) | 664806.8694 | 664806.8694 | 664806.8713 | 2.83e-09 | 1.39e-09 | 9.13e-10 | 2.2e-05 | -1.31e-10 | 6.1e-05 | 1.22e-11 | alternative optimum |
+| beta_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.91, budget_loading=1, n_bins=15 | `sha256:0a2071ea0507…` | portfolio | CLARABEL (optimal) | 711019.5608 | 711019.5608 | 711019.5616 | 1.12e-09 | 5.59e-10 | 3.86e-10 | 4.2e-05 | 1.75e-10 | 0.0001 | 2.06e-11 | alternative optimum |
+| beta_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.92, budget_loading=1, n_bins=15 | `sha256:21da26c72f06…` | portfolio | CLARABEL (optimal) | 762604.5333 | 762604.5333 | 762604.532 | -1.73e-09 | -8.64e-10 | 6.39e-10 | 5.7e-05 | 2.38e-10 | 5.2e-06 | 1.02e-12 | alternative optimum |
+| beta_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.93, budget_loading=1, n_bins=15 | `sha256:00f01ccc333d…` | portfolio | CLARABEL (optimal) | 821104.4894 | 821104.4894 | 821104.4899 | 6.13e-10 | 3.06e-10 | 2.44e-10 | 1.4e-05 | 5.60e-11 | 4.5e-05 | 8.99e-12 | alternative optimum |
+| beta_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.94, budget_loading=1, n_bins=15 | `sha256:d6a09469b5c7…` | portfolio | CLARABEL (optimal) | 888224.172 | 888224.172 | 888224.1721 | 9.20e-11 | 4.60e-11 | 3.96e-11 | 1.7e-06 | 7.44e-12 | 6.4e-06 | 1.27e-12 | alternative optimum |
+| beta_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | `sha256:9e8964c64247…` | portfolio | CLARABEL (optimal) | 972283.4798 | 972283.4798 | 972283.4809 | 1.18e-09 | 5.92e-10 | 5.59e-10 | 9.5e-06 | 3.64e-11 | 6.1e-05 | 1.21e-11 | alternative optimum |
+| beta_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.96, budget_loading=1, n_bins=15 | `sha256:8acb8e3ebd6d…` | portfolio | CLARABEL (optimal) | 1078039.506 | 1078039.506 | 1078039.508 | 1.63e-09 | 8.13e-10 | 8.50e-10 | 7.3e-05 | 3.35e-10 | 0.00017 | 3.42e-11 | alternative optimum |
+| beta_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.97, budget_loading=1, n_bins=15 | `sha256:539db4454f9c…` | portfolio | CLARABEL (optimal) | 1198147.213 | 1198147.213 | 1198147.215 | 2.42e-09 | 1.21e-09 | 1.41e-09 | 2.8e-06 | -2.58e-10 | 2.7e-05 | 5.34e-12 | alternative optimum |
+| beta_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.98, budget_loading=1, n_bins=15 | `sha256:b2336b8e5b04…` | portfolio | CLARABEL (optimal) | 1347780.03 | 1347780.03 | 1347780.03 | -1.22e-11 | -7.29e-12 | 7.99e-12 | 4.1e-05 | 7.09e-11 | 6.1e-06 | 1.22e-12 | alternative optimum |
+| beta_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.99, budget_loading=1, n_bins=15 | `sha256:18a6ed33ff0a…` | portfolio | CLARABEL (optimal) | 1557493.611 | 1557493.611 | 1557493.611 | 4.73e-11 | 2.16e-11 | 3.57e-11 | 2.8e-06 | 3.14e-11 | 8.5e-06 | 1.71e-12 | alternative optimum |
+| budget_loading_sweep | cluster | expected_uncovered | budget_loading=1.4, n_bins=15, n_clusters=3 | `sha256:1e6ec17ae6a0…` | portfolio | CLARABEL (optimal) | 0 | 0 | 0 | 0.00e+00 | 0.00e+00 | 0.00e+00 | 0 | -1.09e-05 | 0 | -1.11e-05 | alternative optimum |
+| budget_loading_sweep | cluster | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=0.9, n_bins=15, n_clusters=3 | `sha256:4f32050cbd2f…` | portfolio | CLARABEL (optimal) | 1946401.372 | 1946401.372 | 1946401.37 | -8.44e-10 | -4.22e-10 | 7.97e-10 | 0 | 4.08e-10 | 0.00016 | 2.79e-11 | alternative optimum |
+| budget_loading_sweep | cluster | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.4, n_bins=15, n_clusters=3 | `sha256:9dc202d46580…` | portfolio | CLARABEL (optimal) | 0.00674084591 | 0 | 0 | 0.00e+00 | 0.00e+00 | 0.00e+00 | 0 | -6.10e-04 | 0 | -1.35e-03 | alternative optimum |
+| budget_loading_sweep | cluster | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15, n_clusters=3 | `sha256:3bed4a7a1d30…` | portfolio | CLARABEL (optimal) | 0.004934006557 | 0 | 0 | 0.00e+00 | 0.00e+00 | 0.00e+00 | 0 | -3.84e-02 | 0 | -5.40e-02 | alternative optimum |
+| budget_loading_sweep | individual | expected_uncovered | budget_loading=1.3, n_bins=15 | `sha256:2efabbb3cbdc…` | A1 | CLARABEL (optimal) | 11289.89422 | 11289.89422 | 11289.89422 | -4.17e-10 | -2.10e-10 | 7.22e-12 | 0 | 1.73e-10 | 0 | 1.33e-11 | alternative optimum |
+| budget_loading_sweep | individual | expected_uncovered | budget_loading=1.3, n_bins=15 | `sha256:2efabbb3cbdc…` | A2 | CLARABEL (optimal) | 11402.88323 | 11402.88323 | 11402.88322 | -5.49e-10 | -2.75e-10 | 1.06e-11 | 0 | 3.11e-11 | 0 | 6.78e-12 | alternative optimum |
+| budget_loading_sweep | individual | expected_uncovered | budget_loading=1.3, n_bins=15 | `sha256:2efabbb3cbdc…` | A3 | CLARABEL (optimal) | 1078.341157 | 1078.341157 | 1078.341168 | 1.05e-08 | 5.23e-09 | 1.73e-10 | 0 | 6.87e-10 | 0 | 2.07e-12 | alternative optimum |
+| budget_loading_sweep | individual | expected_uncovered | budget_loading=1.3, n_bins=15 | `sha256:2efabbb3cbdc…` | A4 | CLARABEL (optimal) | 2798.01484 | 2798.01484 | 2798.015083 | 8.68e-08 | 4.34e-08 | 1.55e-09 | 0 | -1.23e-10 | 0 | 9.99e-13 | alternative optimum |
+| budget_loading_sweep | individual | expected_uncovered | budget_loading=1.3, n_bins=15 | `sha256:2efabbb3cbdc…` | A5 | CLARABEL (optimal) | 631.837629 | 631.837629 | 631.8376301 | 1.74e-09 | 8.69e-10 | 2.90e-11 | 0 | -1.72e-10 | 0 | 7.70e-13 | alternative optimum |
+| budget_loading_sweep | individual | expected_uncovered | budget_loading=1.3, n_bins=15 | `sha256:2efabbb3cbdc…` | A6 | CLARABEL (optimal) | 411.9632338 | 411.9632338 | 411.963236 | 5.37e-09 | 2.69e-09 | 8.50e-11 | 0 | -5.77e-10 | 0 | 1.68e-12 | alternative optimum |
+| budget_loading_sweep | individual | expected_uncovered | budget_loading=1.3, n_bins=15 | `sha256:2efabbb3cbdc…` | A7 | CLARABEL (optimal) | 1666.204575 | 1666.204575 | 1666.20458 | 3.12e-09 | 1.56e-09 | 4.86e-11 | 0 | -3.25e-10 | 0 | 9.01e-13 | alternative optimum |
+| budget_loading_sweep | individual | expected_uncovered | budget_loading=1.3, n_bins=15 | `sha256:2efabbb3cbdc…` | A8 | CLARABEL (optimal) | 294.0453781 | 294.0453781 | 294.0453794 | 4.42e-09 | 2.21e-09 | 6.64e-11 | 0 | -4.07e-10 | 0 | 8.52e-12 | alternative optimum |
+| budget_loading_sweep | individual | expected_uncovered | budget_loading=1.3, n_bins=15 | `sha256:2efabbb3cbdc…` | A9 | CLARABEL (optimal) | 5945.715245 | 5945.715245 | 5945.715269 | 4.02e-09 | 1.99e-09 | 5.90e-11 | 0 | -3.00e-10 | 0 | 1.44e-12 | alternative optimum |
+| budget_loading_sweep | individual | expected_uncovered | budget_loading=1.5, n_bins=15 | `sha256:08d6333d398e…` | A1 | CLARABEL (optimal) | 2233.04206 | 2233.04206 | 2233.042124 | 2.90e-08 | 1.45e-08 | 9.94e-11 | 0 | -9.53e-10 | 0 | 5.57e-13 | alternative optimum |
+| budget_loading_sweep | individual | expected_uncovered | budget_loading=1.5, n_bins=15 | `sha256:08d6333d398e…` | A2 | CLARABEL (optimal) | 2816.527909 | 2816.527909 | 2816.528775 | 3.08e-07 | 1.54e-07 | 1.46e-09 | 0 | -9.85e-11 | 0 | 7.56e-12 | alternative optimum |
+| budget_loading_sweep | individual | expected_uncovered | budget_loading=1.5, n_bins=15 | `sha256:08d6333d398e…` | A3 | CLARABEL (optimal) | 164.2689633 | 164.2689633 | 164.2689667 | 2.07e-08 | 1.03e-08 | 5.19e-11 | 0 | 3.63e-10 | 0 | 1.50e-11 | alternative optimum |
+| budget_loading_sweep | individual | expected_uncovered | budget_loading=1.5, n_bins=15 | `sha256:08d6333d398e…` | A4 | CLARABEL (optimal) | 852.4119901 | 852.4119901 | 852.4124198 | 5.04e-07 | 2.52e-07 | 2.74e-09 | 0 | -7.18e-10 | 0 | 7.27e-13 | alternative optimum |
+| budget_loading_sweep | individual | expected_uncovered | budget_loading=1.5, n_bins=15 | `sha256:08d6333d398e…` | A5 | CLARABEL (optimal) | 116.6990894 | 116.6990894 | 116.6989807 | -9.31e-07 | -4.65e-07 | 2.87e-09 | 0 | 5.03e-10 | 0 | 2.24e-11 | alternative optimum |
+| budget_loading_sweep | individual | expected_uncovered | budget_loading=1.5, n_bins=15 | `sha256:08d6333d398e…` | A6 | CLARABEL (optimal) | 95.46420487 | 95.46420487 | 95.46422731 | 2.35e-07 | 1.17e-07 | 8.62e-10 | 0 | -4.36e-10 | 0 | 2.84e-12 | alternative optimum |
+| budget_loading_sweep | individual | expected_uncovered | budget_loading=1.5, n_bins=15 | `sha256:08d6333d398e…` | A7 | CLARABEL (optimal) | 359.2031378 | 359.2031378 | 359.2030319 | -2.95e-07 | -1.48e-07 | 9.91e-10 | 0 | -5.12e-10 | 0 | 8.76e-12 | alternative optimum |
+| budget_loading_sweep | individual | expected_uncovered | budget_loading=1.5, n_bins=15 | `sha256:08d6333d398e…` | A8 | CLARABEL (optimal) | 62.66263513 | 62.66263513 | 62.66263294 | -3.50e-08 | -1.75e-08 | 1.12e-10 | 0 | 5.01e-10 | 0 | 2.10e-12 | alternative optimum |
+| budget_loading_sweep | individual | expected_uncovered | budget_loading=1.5, n_bins=15 | `sha256:08d6333d398e…` | A9 | CLARABEL (optimal) | 1083.750783 | 1083.750783 | 1083.750749 | -3.08e-08 | -1.56e-08 | 8.23e-11 | 0.033 | -8.12e-11 | 0 | 2.73e-12 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=0.9, n_bins=15 | `sha256:270d6db31d79…` | A1 | CLARABEL (optimal) | 1064366.31 | 1064366.31 | 1064366.311 | 1.20e-09 | 6.02e-10 | 1.97e-09 | 0 | 6.62e-12 | 0.00024 | 1.48e-10 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=0.9, n_bins=15 | `sha256:270d6db31d79…` | A2 | CLARABEL (optimal) | 946184.5795 | 946184.5795 | 946184.5795 | 9.60e-11 | 4.80e-11 | 1.53e-10 | 0 | 2.51e-11 | 3e-05 | 2.10e-11 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=0.9, n_bins=15 | `sha256:270d6db31d79…` | A3 | CLARABEL (optimal) | 106994.9402 | 106994.9402 | 106994.9402 | 1.42e-11 | 7.11e-12 | 2.32e-11 | 0 | 1.22e-11 | 8.7e-07 | 5.82e-12 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=0.9, n_bins=15 | `sha256:270d6db31d79…` | A4 | CLARABEL (optimal) | 248875.971 | 248875.971 | 248875.9707 | -9.67e-10 | -4.84e-10 | 1.53e-09 | 0 | 4.07e-10 | 2.9e-06 | 8.02e-12 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=0.9, n_bins=15 | `sha256:270d6db31d79…` | A5 | CLARABEL (optimal) | 60583.28718 | 60583.28718 | 60583.28718 | 3.58e-11 | 1.79e-11 | 5.73e-11 | 0 | 4.01e-12 | 5.4e-07 | 5.89e-12 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=0.9, n_bins=15 | `sha256:270d6db31d79…` | A6 | CLARABEL (optimal) | 42081.85419 | 42081.85419 | 42081.85423 | 9.48e-10 | 4.74e-10 | 1.53e-09 | 0 | 2.49e-11 | 7.9e-06 | 1.27e-10 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=0.9, n_bins=15 | `sha256:270d6db31d79…` | A7 | CLARABEL (optimal) | 170093.2045 | 170093.2045 | 170093.2044 | -2.30e-10 | -1.15e-10 | 3.66e-10 | 0 | 8.92e-11 | 3.9e-07 | 1.52e-12 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=0.9, n_bins=15 | `sha256:270d6db31d79…` | A8 | CLARABEL (optimal) | 31635.8332 | 31635.8332 | 31635.8332 | -1.33e-11 | -6.64e-12 | 2.15e-11 | 0 | 2.45e-11 | 3.2e-07 | 6.93e-12 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=0.9, n_bins=15 | `sha256:270d6db31d79…` | A9 | CLARABEL (optimal) | 623605.1643 | 623605.1643 | 623605.1645 | 3.02e-10 | 1.51e-10 | 4.65e-10 | 0 | 4.92e-12 | 3.7e-05 | 3.75e-11 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.1, n_bins=15 | `sha256:e32cb90e154f…` | A1 | CLARABEL (optimal) | 548314.8987 | 548314.8987 | 548314.899 | 5.20e-10 | 2.60e-10 | 4.38e-10 | 0 | 4.72e-12 | 8.5e-05 | 4.53e-11 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.1, n_bins=15 | `sha256:e32cb90e154f…` | A2 | CLARABEL (optimal) | 503227.5833 | 503227.5833 | 503227.5834 | 4.79e-11 | 2.40e-11 | 4.07e-11 | 0 | 3.95e-11 | 3.2e-05 | 1.86e-11 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.1, n_bins=15 | `sha256:e32cb90e154f…` | A3 | CLARABEL (optimal) | 54555.5319 | 54555.5319 | 54555.5319 | 3.33e-11 | 1.66e-11 | 2.78e-11 | 0 | 2.94e-12 | 6.8e-07 | 3.71e-12 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.1, n_bins=15 | `sha256:e32cb90e154f…` | A4 | CLARABEL (optimal) | 131196.3093 | 131196.3093 | 131196.3093 | 1.58e-10 | 7.88e-11 | 1.32e-10 | 0 | 1.46e-11 | 8.3e-06 | 1.86e-11 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.1, n_bins=15 | `sha256:e32cb90e154f…` | A5 | CLARABEL (optimal) | 31358.58192 | 31358.58192 | 31358.58192 | -1.41e-11 | -7.06e-12 | 1.17e-11 | 0 | 2.42e-11 | 8.4e-07 | 7.46e-12 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.1, n_bins=15 | `sha256:e32cb90e154f…` | A6 | CLARABEL (optimal) | 21037.85326 | 21037.85326 | 21037.85326 | 2.29e-10 | 1.14e-10 | 1.85e-10 | 0 | 3.42e-11 | 2.3e-06 | 3.20e-11 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.1, n_bins=15 | `sha256:e32cb90e154f…` | A7 | CLARABEL (optimal) | 85941.40639 | 85941.40639 | 85941.40647 | 8.60e-10 | 4.30e-10 | 6.91e-10 | 0 | 6.29e-12 | 2.1e-05 | 6.74e-11 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.1, n_bins=15 | `sha256:e32cb90e154f…` | A8 | CLARABEL (optimal) | 15345.9491 | 15345.9491 | 15345.9491 | -2.47e-10 | -1.24e-10 | 1.94e-10 | 0 | 6.67e-11 | 2.1e-07 | 3.94e-12 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.1, n_bins=15 | `sha256:e32cb90e154f…` | A9 | CLARABEL (optimal) | 312753.2746 | 312753.2746 | 312753.2746 | 8.26e-11 | 4.13e-11 | 6.37e-11 | 0 | 6.07e-12 | 1e-05 | 8.88e-12 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.3, n_bins=15 | `sha256:c03faf04c661…` | A1 | CLARABEL (optimal) | 200393.3838 | 200393.3838 | 200393.384 | 1.13e-09 | 5.66e-10 | 3.49e-10 | 0 | -9.10e-11 | 5.4e-06 | 2.50e-12 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.3, n_bins=15 | `sha256:c03faf04c661…` | A2 | CLARABEL (optimal) | 203747.3219 | 203747.3219 | 203747.3212 | -3.33e-09 | -1.67e-09 | 1.15e-09 | 0 | 5.75e-10 | 5.3e-05 | 2.55e-11 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.3, n_bins=15 | `sha256:c03faf04c661…` | A3 | CLARABEL (optimal) | 19239.7287 | 19239.7287 | 19239.72878 | 4.07e-09 | 2.03e-09 | 1.20e-09 | 0 | -4.20e-10 | 1.1e-06 | 4.90e-12 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.3, n_bins=15 | `sha256:c03faf04c661…` | A4 | CLARABEL (optimal) | 50109.70146 | 50109.70146 | 50109.70179 | 6.48e-09 | 3.24e-09 | 2.07e-09 | 0 | -8.31e-10 | 2.5e-06 | 4.78e-12 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.3, n_bins=15 | `sha256:c03faf04c661…` | A5 | CLARABEL (optimal) | 11224.99601 | 11224.99601 | 11224.99605 | 3.58e-09 | 1.79e-09 | 1.06e-09 | 0 | -3.59e-10 | 4.5e-07 | 3.45e-12 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.3, n_bins=15 | `sha256:c03faf04c661…` | A6 | CLARABEL (optimal) | 7350.882543 | 7350.882542 | 7350.882537 | -7.17e-10 | -3.60e-10 | 2.03e-10 | 0 | 2.30e-10 | 4.4e-06 | 5.23e-11 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.3, n_bins=15 | `sha256:c03faf04c661…` | A7 | CLARABEL (optimal) | 29603.45518 | 29603.45518 | 29603.45508 | -3.44e-09 | -1.72e-09 | 9.52e-10 | 0 | 4.37e-10 | 2.2e-06 | 5.58e-12 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.3, n_bins=15 | `sha256:c03faf04c661…` | A8 | CLARABEL (optimal) | 5290.449973 | 5290.449973 | 5290.449973 | -2.70e-12 | -1.37e-12 | 7.30e-13 | 0 | 1.94e-12 | 4.5e-08 | 7.56e-13 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.3, n_bins=15 | `sha256:c03faf04c661…` | A9 | CLARABEL (optimal) | 105743.5217 | 105743.5217 | 105743.5221 | 3.68e-09 | 1.84e-09 | 9.61e-10 | 0 | -2.95e-10 | 7.2e-06 | 5.10e-12 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.4, n_bins=15 | `sha256:9605575026c1…` | A1 | CLARABEL (optimal) | 100175.6422 | 100175.642 | 100175.6422 | 1.69e-09 | 8.42e-10 | 2.59e-10 | 0 | -7.13e-11 | 4.2e-06 | 1.74e-12 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.4, n_bins=15 | `sha256:9605575026c1…` | A2 | CLARABEL (optimal) | 112944.242 | 112944.2398 | 112944.2406 | 6.79e-09 | 3.39e-09 | 1.29e-09 | 0 | -6.03e-10 | 7.2e-05 | 3.27e-11 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.4, n_bins=15 | `sha256:9605575026c1…` | A3 | CLARABEL (optimal) | 8896.881932 | 8896.88142 | 8896.881319 | -1.14e-08 | -6.03e-09 | 1.55e-09 | 0 | 7.84e-10 | 1e-05 | 4.30e-11 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.4, n_bins=15 | `sha256:9605575026c1…` | A4 | CLARABEL (optimal) | 27520.3955 | 27520.39504 | 27520.39515 | 4.19e-09 | 2.05e-09 | 7.35e-10 | 0 | -5.35e-10 | 9e-06 | 1.60e-11 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.4, n_bins=15 | `sha256:9605575026c1…` | A5 | CLARABEL (optimal) | 5346.657123 | 5346.657018 | 5346.657045 | 5.11e-09 | 2.38e-09 | 7.22e-10 | 0 | -2.73e-10 | 1.9e-06 | 1.34e-11 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.4, n_bins=15 | `sha256:9605575026c1…` | A6 | CLARABEL (optimal) | 3553.858651 | 3553.858592 | 3553.858596 | 9.04e-10 | 3.93e-10 | 1.23e-10 | 0 | -7.89e-11 | 9.1e-07 | 1.01e-11 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.4, n_bins=15 | `sha256:9605575026c1…` | A7 | CLARABEL (optimal) | 14576.65021 | 14576.64969 | 14576.64977 | 5.90e-09 | 2.70e-09 | 8.04e-10 | 0 | -6.08e-10 | 8.5e-06 | 2.15e-11 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.4, n_bins=15 | `sha256:9605575026c1…` | A8 | CLARABEL (optimal) | 2606.387561 | 2606.387553 | 2606.387563 | 3.93e-09 | 1.97e-09 | 5.24e-10 | 0 | -3.32e-10 | 1.3e-07 | 1.94e-12 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.4, n_bins=15 | `sha256:9605575026c1…` | A9 | CLARABEL (optimal) | 46920.04902 | 46920.04876 | 46920.04917 | 8.80e-09 | 4.37e-09 | 1.02e-09 | 0 | -5.55e-10 | 5.1e-06 | 3.37e-12 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15 | `sha256:59140439959d…` | A1 | CLARABEL (optimal) | 40418.06069 | 40418.06051 | 40418.06125 | 1.83e-08 | 9.16e-09 | 1.14e-09 | 0 | -9.38e-10 | 2.9e-06 | 1.13e-12 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15 | `sha256:59140439959d…` | A2 | CLARABEL (optimal) | 50979.15383 | 50979.14842 | 50979.14788 | -1.05e-08 | -5.87e-09 | 9.03e-10 | 0 | 8.27e-10 | 9.9e-05 | 4.15e-11 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15 | `sha256:59140439959d…` | A3 | CLARABEL (optimal) | 2973.265541 | 2973.265474 | 2973.265464 | -3.48e-09 | -1.80e-09 | 1.58e-10 | 0 | 2.25e-10 | 9.4e-07 | 3.28e-12 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15 | `sha256:59140439959d…` | A4 | CLARABEL (optimal) | 15428.65717 | 15428.65677 | 15428.65676 | -1.06e-09 | -6.03e-10 | 1.05e-10 | 0 | 1.23e-10 | 5.7e-06 | 1.02e-11 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15 | `sha256:59140439959d…` | A5 | CLARABEL (optimal) | 2112.251053 | 2112.250763 | 2112.250774 | 5.63e-09 | 2.66e-09 | 3.14e-10 | 0 | -3.86e-10 | 3.1e-06 | 2.21e-11 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15 | `sha256:59140439959d…` | A6 | CLARABEL (optimal) | 1727.901855 | 1727.901852 | 1727.901849 | -1.41e-09 | -7.14e-10 | 9.38e-11 | 0 | 2.01e-10 | 2.6e-08 | 4.39e-13 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15 | `sha256:59140439959d…` | A7 | CLARABEL (optimal) | 6501.574262 | 6501.574179 | 6501.574264 | 1.30e-08 | 6.44e-09 | 7.93e-10 | 0 | -8.15e-10 | 1.1e-06 | 2.58e-12 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15 | `sha256:59140439959d…` | A8 | CLARABEL (optimal) | 1134.193571 | 1134.193568 | 1134.193558 | -8.69e-09 | -4.36e-09 | 5.05e-10 | 0 | 7.70e-10 | 1.8e-08 | 4.47e-13 | alternative optimum |
+| budget_loading_sweep | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15 | `sha256:59140439959d…` | A9 | CLARABEL (optimal) | 19615.8849 | 19615.88471 | 19615.88471 | 2.46e-10 | 9.80e-11 | 1.19e-11 | 0.033 | 4.52e-10 | 0 | 1.23e-12 | alternative optimum |
+| budget_loading_sweep | portfolio | mse | budget_loading=0.7, n_bins=15 | `sha256:bbb19cd00ca5…` | portfolio | OSQP (optimal_inaccurate) | 1.779981666e+12 | 1.779981666e+12 | 1.769796575e+12 | -5.72e-03 | -3.42e-03 | 4.94e+03 | 7 | 3.78e-02 | 1.2e+04 | 2.66e-03 | OSQP accuracy |
+| budget_loading_sweep | portfolio | mse | budget_loading=0.8, n_bins=15 | `sha256:ab87b14c5df5…` | portfolio | OSQP (optimal_inaccurate) | 1.056502101e+12 | 1.056502101e+12 | 1.050762713e+12 | -5.43e-03 | -3.27e-03 | 2.78e+03 | 8.7 | 2.50e-02 | 9e+03 | 1.72e-03 | OSQP accuracy |
+| budget_loading_sweep | portfolio | mse | budget_loading=0.9, n_bins=15 | `sha256:b82edcaab049…` | portfolio | OSQP (optimal) | 7.168512618e+11 | 7.168512618e+11 | 7.164371473e+11 | -5.78e-04 | -3.18e-04 | 2.01e+02 | 0.44 | 4.12e-03 | 1.7e+03 | 2.70e-04 | OSQP accuracy |
+| budget_loading_sweep | portfolio | expected_uncovered | budget_loading=1.3, n_bins=15 | `sha256:bc5b58e1a7c5…` | portfolio | CLARABEL (optimal) | 0 | 0 | 0 | 0.00e+00 | 0.00e+00 | 0.00e+00 | 0 | -4.17e-06 | 0 | -4.17e-06 | alternative optimum |
+| budget_loading_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=0.5, n_bins=15 | `sha256:ce747be88b74…` | portfolio | CLARABEL (optimal) | 6899768.976 | 6899768.976 | 6899768.998 | 3.16e-09 | 1.58e-09 | 1.06e-08 | 0 | 6.24e-10 | 0.00039 | 1.54e-10 | alternative optimum |
+| budget_loading_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=0.6, n_bins=15 | `sha256:8432ff316587…` | portfolio | CLARABEL (optimal) | 5262921.868 | 5262921.868 | 5262921.905 | 7.03e-09 | 3.51e-09 | 1.79e-08 | 0 | -4.53e-11 | 0.00063 | 2.11e-10 | alternative optimum |
+| budget_loading_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=0.7, n_bins=15 | `sha256:0c7911b33965…` | portfolio | CLARABEL (optimal) | 3828075.373 | 3828075.373 | 3828075.388 | 3.93e-09 | 1.96e-09 | 7.30e-09 | 6.7e-06 | 1.13e-10 | 0.00033 | 9.38e-11 | alternative optimum |
+| budget_loading_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=0.8, n_bins=15 | `sha256:33738817acd8…` | portfolio | CLARABEL (optimal) | 2707308.795 | 2707308.795 | 2707308.802 | 2.25e-09 | 1.12e-09 | 2.95e-09 | 1.9e-05 | -7.14e-11 | 0.00015 | 3.59e-11 | alternative optimum |
+| budget_loading_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=0.9, n_bins=15 | `sha256:981f8575283c…` | portfolio | CLARABEL (optimal) | 1738683.835 | 1738683.835 | 1738683.835 | -1.67e-10 | -8.38e-11 | 1.41e-10 | 0.00011 | 7.52e-10 | 0.0002 | 4.17e-11 | alternative optimum |
+| budget_loading_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | `sha256:9e8964c64247…` | portfolio | CLARABEL (optimal) | 972283.4798 | 972283.4798 | 972283.4809 | 1.18e-09 | 5.92e-10 | 5.59e-10 | 9.5e-06 | 3.64e-11 | 6.1e-05 | 1.21e-11 | alternative optimum |
+| budget_loading_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.1, n_bins=15 | `sha256:bece9fd6900d…` | portfolio | CLARABEL (optimal) | 374256.2186 | 374256.2186 | 374256.2191 | 1.35e-09 | 6.66e-10 | 2.46e-10 | 3.7e-05 | 8.61e-11 | 6.5e-05 | 1.17e-11 | alternative optimum |
+| budget_loading_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.2, n_bins=15 | `sha256:03fbb70dbf8c…` | portfolio | CLARABEL (optimal) | 51504.08556 | 51504.085 | 51504.08519 | 3.84e-09 | 1.74e-09 | 9.60e-11 | 8.9e-06 | 4.88e-12 | 1.4e-05 | 2.39e-12 | alternative optimum |
+| budget_loading_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.3, n_bins=15 | `sha256:a1e827207b37…` | portfolio | CLARABEL (optimal) | 0.0001784036677 | 0 | 0 | 0.00e+00 | 0.00e+00 | 0.00e+00 | 0 | -2.64e-06 | 0 | -2.33e-05 | alternative optimum |
+| budget_loading_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.4, n_bins=15 | `sha256:83064836eca4…` | portfolio | CLARABEL (optimal) | 0.001482379107 | 0 | 0 | 0.00e+00 | 0.00e+00 | 0.00e+00 | 0 | -2.63e-02 | 0 | -3.82e-02 | alternative optimum |
+| budget_loading_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15 | `sha256:9b4b06a1f575…` | portfolio | CLARABEL (optimal) | 0.001120021655 | 0 | 0 | 0.00e+00 | 0.00e+00 | 0.00e+00 | 0 | -9.14e-02 | 0 | -1.02e-01 | alternative optimum |
+| n_bins_sweep | cluster | mse | budget_loading=1, n_bins=20, n_clusters=3 | `sha256:9a1497bb0bc6…` | portfolio | OSQP (optimal) | 6.302440974e+11 | 6.302440974e+11 | 6.302443235e+11 | 3.59e-07 | 1.75e-07 | 1.10e-01 | 0.1 | -3.44e-05 | 1.8e+02 | -6.34e-05 | OSQP accuracy |
+| n_bins_sweep | portfolio | mse | budget_loading=1, n_bins=5 | `sha256:fdabe6a06bc5…` | portfolio | OSQP (optimal) | 1.264374148e+12 | 1.264374148e+12 | 1.264422233e+12 | 3.80e-05 | 1.87e-05 | 2.33e+01 | 40 | 2.35e-04 | 1.1e+03 | -2.74e-04 | OSQP accuracy |
+| n_bins_sweep | portfolio | mse | budget_loading=1, n_bins=10 | `sha256:876cfb762580…` | portfolio | OSQP (optimal) | 6.827413259e+11 | 6.827413259e+11 | 6.827415273e+11 | 2.95e-07 | 1.47e-07 | 9.77e-02 | 2.4e+02 | -1.57e-04 | 2.4e+02 | -1.63e-04 | OSQP accuracy |
+| n_bins_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=5 | `sha256:3af3b7cbbca8…` | portfolio | CLARABEL (optimal) | 2223529.794 | 2223529.794 | 2223529.797 | 1.03e-09 | 5.12e-10 | 1.11e-09 | 2.4e-06 | -1.19e-10 | 8.2e-05 | 2.72e-11 | alternative optimum |
+| n_bins_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | `sha256:9e8964c64247…` | portfolio | CLARABEL (optimal) | 972283.4798 | 972283.4798 | 972283.4809 | 1.18e-09 | 5.92e-10 | 5.59e-10 | 9.5e-06 | 3.64e-11 | 6.1e-05 | 1.21e-11 | alternative optimum |
+| n_bins_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=20 | `sha256:35f66bcc5b2d…` | portfolio | CLARABEL (optimal) | 918999.9527 | 918999.9527 | 918999.9538 | 1.14e-09 | 5.71e-10 | 5.09e-10 | 2.5e-06 | 1.16e-11 | 5.1e-05 | 8.82e-12 | alternative optimum |
+| n_bins_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=25 | `sha256:5fcab8625939…` | portfolio | CLARABEL (optimal) | 884983.9721 | 884983.9721 | 884983.9722 | 1.33e-10 | 6.53e-11 | 5.72e-11 | 4e-06 | 1.10e-11 | 5.7e-06 | 6.39e-13 | alternative optimum |
+| n_clusters_sweep | cluster | mse | budget_loading=1, n_bins=15, n_clusters=4 | `sha256:9d493fe69609…` | portfolio | OSQP (optimal) | 6.69092378e+11 | 6.69092378e+11 | 6.690925318e+11 | 2.30e-07 | 1.14e-07 | 7.46e-02 | 1.1e+03 | -4.14e-05 | 1.1e+03 | -5.24e-05 | OSQP accuracy |
+| n_clusters_sweep | cluster | mse | budget_loading=1, n_bins=15, n_clusters=6 | `sha256:37d93abf92f0…` | portfolio | OSQP (optimal) | 6.31879847e+11 | 6.31879847e+11 | 6.318806409e+11 | 1.26e-06 | 6.20e-07 | 3.85e-01 | 4.5e+02 | 6.07e-05 | 4.5e+02 | 1.79e-05 | OSQP accuracy |
+| n_clusters_sweep | cluster | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=2 | `sha256:4f8570b6dd68…` | portfolio | CLARABEL (optimal) | 1250413.365 | 1250413.365 | 1250413.366 | 6.39e-10 | 3.19e-10 | 3.87e-10 | 0 | 7.23e-12 | 0.00017 | 2.51e-11 | alternative optimum |
+| n_clusters_sweep | cluster | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=6 | `sha256:a3df92962bf9…` | portfolio | CLARABEL (optimal) | 1058146.664 | 1058146.664 | 1058146.663 | -8.17e-10 | -4.08e-10 | 4.19e-10 | 3.4e-05 | 1.31e-10 | 7e-06 | 9.86e-13 | alternative optimum |
+| n_clusters_sweep | cluster | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=9 | `sha256:b72fc0356f7e…` | portfolio | CLARABEL (optimal) | 972283.4798 | 972283.4798 | 972283.4809 | 1.18e-09 | 5.92e-10 | 5.59e-10 | 9.5e-06 | 3.64e-11 | 6.1e-05 | 1.21e-11 | alternative optimum |
+| single_run | cluster | mse | budget_loading=1, n_bins=15, n_clusters=3 | `sha256:cc421a186616…` | portfolio | OSQP (optimal) | 6.761577559e+11 | 6.761577559e+11 | 6.761577559e+11 | 1.00e-11 | 5.01e-12 | 3.28e-06 | 0 | -7.21e-05 | 0 | -7.21e-05 | alternative optimum |
+| single_run | cluster | expected_uncovered | budget_loading=1, n_bins=15, n_clusters=3 | `sha256:621e1248c90f…` | portfolio | CLARABEL (optimal) | 102104.2455 | 102104.2455 | 102104.2457 | 1.96e-09 | 9.78e-10 | 9.69e-11 | 0 | -1.84e-10 | 0 | 2.63e-11 | alternative optimum |
+| single_run | cluster | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=3 | `sha256:2f2eb822c199…` | portfolio | CLARABEL (optimal) | 1181435.272 | 1181435.272 | 1181435.271 | -9.32e-10 | -4.66e-10 | 5.34e-10 | 1.1e-05 | 1.60e-10 | 6.3e-06 | 1.10e-12 | alternative optimum |
+| single_run | individual | mse | budget_loading=1, n_bins=15 | `sha256:5bbd5be29133…` | A1 | OSQP (optimal) | 2.95183667e+11 | 2.95183667e+11 | 2.95183667e+11 | 0.00e+00 | 0.00e+00 | 0.00e+00 | 0 | -4.39e-11 | 6.7e-11 | 2.15e-15 | alternative optimum |
+| single_run | individual | mse | budget_loading=1, n_bins=15 | `sha256:5bbd5be29133…` | A2 | OSQP (optimal) | 2.790264156e+11 | 2.790264156e+11 | 2.790264156e+11 | 1.95e-14 | 9.84e-15 | 9.17e-09 | 0 | 9.56e-05 | 0 | 9.56e-05 | alternative optimum |
+| single_run | individual | mse | budget_loading=1, n_bins=15 | `sha256:5bbd5be29133…` | A3 | OSQP (optimal) | 2783292563 | 2783292563 | 2783292563 | -2.40e-14 | -1.20e-14 | 1.02e-09 | 0 | 9.16e-05 | 0 | 9.16e-05 | alternative optimum |
+| single_run | individual | mse | budget_loading=1, n_bins=15 | `sha256:5bbd5be29133…` | A4 | OSQP (optimal) | 1.732938812e+10 | 1.732938812e+10 | 1.732938812e+10 | 3.10e-14 | 1.54e-14 | 3.43e-09 | 0 | 9.65e-05 | 0 | 9.65e-05 | alternative optimum |
+| single_run | individual | mse | budget_loading=1, n_bins=15 | `sha256:5bbd5be29133…` | A5 | OSQP (optimal) | 806557084.1 | 806557084.1 | 806557084.1 | 0.00e+00 | 0.00e+00 | 0.00e+00 | 0 | -2.80e-10 | 3.2e-12 | 1.92e-15 | alternative optimum |
+| single_run | individual | mse | budget_loading=1, n_bins=15 | `sha256:5bbd5be29133…` | A6 | OSQP (optimal) | 402696312.9 | 402696312.9 | 402696312.9 | 1.48e-16 | 0.00e+00 | 2.29e-12 | 0 | -4.13e-11 | 3.3e-12 | 2.24e-15 | alternative optimum |
+| single_run | individual | mse | budget_loading=1, n_bins=15 | `sha256:5bbd5be29133…` | A7 | OSQP (optimal) | 7278019660 | 7278019660 | 7278019660 | 1.31e-16 | -1.31e-16 | 8.92e-12 | 0 | -9.68e-12 | 1e-11 | 1.22e-15 | alternative optimum |
+| single_run | individual | mse | budget_loading=1, n_bins=15 | `sha256:5bbd5be29133…` | A8 | OSQP (optimal) | 219562332.2 | 219562332.2 | 219562332.2 | 0.00e+00 | 0.00e+00 | 0.00e+00 | 0 | -4.42e-10 | 2.9e-12 | 5.58e-16 | alternative optimum |
+| single_run | individual | mse | budget_loading=1, n_bins=15 | `sha256:5bbd5be29133…` | A9 | OSQP (optimal) | 8.854468624e+10 | 8.854468624e+10 | 8.854468624e+10 | 0.00e+00 | 0.00e+00 | 0.00e+00 | 0 | -1.33e-10 | 3.2e-11 | 2.30e-15 | alternative optimum |
+| single_run | individual | expected_uncovered | budget_loading=1, n_bins=15 | `sha256:ffab205d6b0c…` | A1 | CLARABEL (optimal) | 62093.35565 | 62093.35565 | 62093.35567 | 2.44e-10 | 1.04e-10 | 2.32e-11 | 0 | -1.92e-12 | 0 | 4.16e-11 | alternative optimum |
+| single_run | individual | expected_uncovered | budget_loading=1, n_bins=15 | `sha256:ffab205d6b0c…` | A2 | CLARABEL (optimal) | 55852.05986 | 55852.05986 | 55852.05965 | -3.70e-09 | -1.85e-09 | 3.49e-10 | 0 | 7.65e-10 | 0 | 8.45e-12 | alternative optimum |
+| single_run | individual | expected_uncovered | budget_loading=1, n_bins=15 | `sha256:ffab205d6b0c…` | A3 | CLARABEL (optimal) | 6168.544435 | 6168.544435 | 6168.544436 | 7.53e-11 | 3.71e-11 | 7.10e-12 | 0 | -2.48e-12 | 0 | 7.30e-12 | alternative optimum |
+| single_run | individual | expected_uncovered | budget_loading=1, n_bins=15 | `sha256:ffab205d6b0c…` | A4 | CLARABEL (optimal) | 14673.41365 | 14673.41365 | 14673.41366 | 1.03e-09 | 5.13e-10 | 9.65e-11 | 0 | -1.88e-10 | 0 | 2.33e-11 | alternative optimum |
+| single_run | individual | expected_uncovered | budget_loading=1, n_bins=15 | `sha256:ffab205d6b0c…` | A5 | CLARABEL (optimal) | 3502.691425 | 3502.691425 | 3502.691424 | -4.44e-10 | -2.22e-10 | 4.11e-11 | 0 | 1.01e-10 | 0 | 2.80e-12 | alternative optimum |
+| single_run | individual | expected_uncovered | budget_loading=1, n_bins=15 | `sha256:ffab205d6b0c…` | A6 | CLARABEL (optimal) | 2400.596873 | 2400.596873 | 2400.596866 | -2.89e-09 | -1.45e-09 | 2.66e-10 | 0 | 6.21e-10 | 0 | 2.71e-11 | alternative optimum |
+| single_run | individual | expected_uncovered | budget_loading=1, n_bins=15 | `sha256:ffab205d6b0c…` | A7 | CLARABEL (optimal) | 10148.66438 | 10148.66438 | 10148.66438 | -3.61e-10 | -1.85e-10 | 3.42e-11 | 0 | 1.18e-10 | 0 | 3.48e-11 | alternative optimum |
+| single_run | individual | expected_uncovered | budget_loading=1, n_bins=15 | `sha256:ffab205d6b0c…` | A8 | CLARABEL (optimal) | 1777.219213 | 1777.219213 | 1777.21921 | -1.53e-09 | -7.64e-10 | 1.39e-10 | 0 | 3.16e-10 | 0 | 9.93e-13 | alternative optimum |
+| single_run | individual | expected_uncovered | budget_loading=1, n_bins=15 | `sha256:ffab205d6b0c…` | A9 | CLARABEL (optimal) | 36708.73933 | 36708.73933 | 36708.73944 | 3.05e-09 | 1.53e-09 | 2.76e-10 | 0 | -5.33e-10 | 0 | 6.60e-11 | alternative optimum |
+| single_run | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | `sha256:c4c115b292ba…` | A1 | CLARABEL (optimal) | 784924.0152 | 784924.0152 | 784924.0174 | 2.70e-09 | 1.35e-09 | 3.26e-09 | 0 | -8.49e-10 | 6.6e-06 | 3.68e-12 | alternative optimum |
+| single_run | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | `sha256:c4c115b292ba…` | A2 | CLARABEL (optimal) | 712231.4095 | 712231.4095 | 712231.4097 | 3.75e-10 | 1.87e-10 | 4.52e-10 | 0 | 2.11e-10 | 0.00018 | 1.13e-10 | alternative optimum |
+| single_run | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | `sha256:c4c115b292ba…` | A3 | CLARABEL (optimal) | 79187.36947 | 79187.36947 | 79187.36943 | -5.49e-10 | -2.75e-10 | 6.65e-10 | 0 | 1.95e-10 | 1.1e-06 | 6.91e-12 | alternative optimum |
+| single_run | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | `sha256:c4c115b292ba…` | A4 | CLARABEL (optimal) | 187422.9374 | 187422.9374 | 187422.9374 | -3.89e-10 | -1.95e-10 | 4.65e-10 | 0 | 2.91e-10 | 2.3e-05 | 5.77e-11 | alternative optimum |
+| single_run | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | `sha256:c4c115b292ba…` | A5 | CLARABEL (optimal) | 45262.30297 | 45262.30297 | 45262.30294 | -7.71e-10 | -3.85e-10 | 9.22e-10 | 0 | 2.50e-10 | 2.9e-07 | 2.84e-12 | alternative optimum |
+| single_run | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | `sha256:c4c115b292ba…` | A6 | CLARABEL (optimal) | 30872.63387 | 30872.63387 | 30872.63389 | 8.25e-10 | 4.12e-10 | 9.78e-10 | 0 | 9.72e-12 | 6.1e-06 | 9.39e-11 | alternative optimum |
+| single_run | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | `sha256:c4c115b292ba…` | A7 | CLARABEL (optimal) | 125270.9418 | 125270.9418 | 125270.9418 | 2.21e-11 | 1.11e-11 | 2.59e-11 | 0 | 4.71e-11 | 5.2e-06 | 1.86e-11 | alternative optimum |
+| single_run | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | `sha256:c4c115b292ba…` | A8 | CLARABEL (optimal) | 22842.58309 | 22842.58309 | 22842.58308 | -3.35e-10 | -1.67e-10 | 3.91e-10 | 0 | 1.06e-10 | 1.7e-07 | 3.64e-12 | alternative optimum |
+| single_run | individual | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | `sha256:c4c115b292ba…` | A9 | CLARABEL (optimal) | 458376.2851 | 458376.2851 | 458376.285 | -2.28e-10 | -1.14e-10 | 2.58e-10 | 0 | 7.53e-11 | 2.2e-06 | 2.05e-12 | alternative optimum |
+| single_run | portfolio | mse | budget_loading=1, n_bins=15 | `sha256:c8ef814df8be…` | portfolio | OSQP (optimal) | 6.064242367e+11 | 6.064242367e+11 | 6.064242367e+11 | 1.21e-11 | 6.04e-12 | 3.56e-06 | 3.2e+02 | -1.67e-04 | 3.2e+02 | -1.67e-04 | alternative optimum |
+| single_run | portfolio | expected_uncovered | budget_loading=1, n_bins=15 | `sha256:84118f7eab00…` | portfolio | CLARABEL (optimal) | 85660.22695 | 85660.22695 | 85660.22676 | -2.19e-09 | -1.10e-09 | 9.09e-11 | 7e-06 | 2.03e-10 | 6.9e-06 | 2.55e-12 | alternative optimum |
+| single_run | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | `sha256:9e8964c64247…` | portfolio | CLARABEL (optimal) | 972283.4798 | 972283.4798 | 972283.4809 | 1.18e-09 | 5.92e-10 | 5.59e-10 | 9.5e-06 | 3.64e-11 | 6.1e-05 | 1.21e-11 | alternative optimum |
+
+### Joint scopes with asset-level KPI findings: expected payout per entity
+
+In the cluster and portfolio scopes the objective depends on the payouts only through the portfolio's total payout per event; two optima can split that total differently between entities. Per record: E[payout] / E[loss] (the KPI `E_Payout_to_E_Loss_Ratio`) of the entity whose ratio differs most between the thesis payout and ours, and the number of entities whose ratio differs by more than 1e-4 relative.
+
+| Source | Scope | Objective | Parameters | Entity | Thesis payout | Our payout | Relative difference | Entities > 1e-4 |
+|---|---|---|---|---|---|---|---|---|
+| alpha_sweep | cluster | weighted_cvar | alpha=1, beta=0.95, budget_loading=1, n_bins=15, n_clusters=3 | C2 | 1.37908812 | 1.37899889 | -6.47e-05 | 0 |
+| alpha_sweep | portfolio | weighted_cvar | alpha=0.1, beta=0.95, budget_loading=1, n_bins=15 | A4 | 1.708564168 | 1.708372533 | -1.12e-04 | 1 |
+| alpha_sweep | portfolio | weighted_cvar | alpha=0.2, beta=0.95, budget_loading=1, n_bins=15 | A6 | 0.1131495664 | 0.1131657396 | 1.43e-04 | 1 |
+| alpha_sweep | portfolio | weighted_cvar | alpha=0.3, beta=0.95, budget_loading=1, n_bins=15 | A4 | 1.620874256 | 1.620775306 | -6.10e-05 | 0 |
+| alpha_sweep | portfolio | weighted_cvar | alpha=0.4, beta=0.95, budget_loading=1, n_bins=15 | A1 | 0.5612259551 | 0.561291087 | 1.16e-04 | 1 |
+| alpha_sweep | portfolio | weighted_cvar | alpha=0.6, beta=0.95, budget_loading=1, n_bins=15 | A6 | 9.213839228e-05 | 9.212390511e-05 | -1.57e-04 | 1 |
+| alpha_sweep | portfolio | weighted_cvar | alpha=0.7, beta=0.95, budget_loading=1, n_bins=15 | A1 | 0.5819583832 | 0.5820142466 | 9.60e-05 | 0 |
+| alpha_sweep | portfolio | weighted_cvar | alpha=0.8, beta=0.95, budget_loading=1, n_bins=15 | A6 | 0.002375898313 | 0.002375825947 | -3.05e-05 | 0 |
+| alpha_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A6 | 0.007355178072 | 0.007358800223 | 4.92e-04 | 3 |
+| alpha_sweep | portfolio | weighted_cvar | alpha=1, beta=0.95, budget_loading=1, n_bins=15 | A1 | 0.5825380862 | 0.5825030765 | -6.01e-05 | 0 |
+| beta_sweep | cluster | weighted_cvar | alpha=0.9, beta=0.9, budget_loading=1, n_bins=15, n_clusters=3 | C2 | 1.399622153 | 1.399867964 | 1.76e-04 | 2 |
+| beta_sweep | cluster | weighted_cvar | alpha=0.9, beta=0.92, budget_loading=1, n_bins=15, n_clusters=3 | C2 | 1.47072785 | 1.47112649 | 2.71e-04 | 3 |
+| beta_sweep | cluster | weighted_cvar | alpha=0.9, beta=0.96, budget_loading=1, n_bins=15, n_clusters=3 | C2 | 1.280499589 | 1.280314347 | -1.45e-04 | 1 |
+| beta_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.9, budget_loading=1, n_bins=15 | A8 | 0.8586480614 | 0.8584675674 | -2.10e-04 | 1 |
+| beta_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.91, budget_loading=1, n_bins=15 | A1 | 0.5836701679 | 0.5837147311 | 7.63e-05 | 0 |
+| beta_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.92, budget_loading=1, n_bins=15 | A4 | 1.682726803 | 1.682484242 | -1.44e-04 | 1 |
+| beta_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.93, budget_loading=1, n_bins=15 | A9 | 0.8501782992 | 0.8496765492 | -5.90e-04 | 4 |
+| beta_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.94, budget_loading=1, n_bins=15 | A1 | 0.5649851248 | 0.5650071787 | 3.90e-05 | 0 |
+| beta_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A6 | 0.007355178072 | 0.007358800223 | 4.92e-04 | 3 |
+| beta_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.96, budget_loading=1, n_bins=15 | A6 | 3.194660204e-09 | 9.706823363e-10 | -6.96e-01 | 4 |
+| beta_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.97, budget_loading=1, n_bins=15 | A6 | 4.515501696e-11 | -5.098958331e-10 | -1.23e+01 | 3 |
+| beta_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.98, budget_loading=1, n_bins=15 | A6 | 8.782356334e-10 | -7.289557674e-11 | -1.08e+00 | 3 |
+| beta_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.99, budget_loading=1, n_bins=15 | A6 | 0.7424293106 | 0.7439354988 | 2.03e-03 | 1 |
+| budget_loading_sweep | cluster | expected_uncovered | budget_loading=1.4, n_bins=15, n_clusters=3 | C2 | 1.516660827 | 1.516152224 | -3.35e-04 | 2 |
+| budget_loading_sweep | cluster | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=0.9, n_bins=15, n_clusters=3 | C2 | 1.216212761 | 1.215946451 | -2.19e-04 | 1 |
+| budget_loading_sweep | cluster | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.4, n_bins=15, n_clusters=3 | C2 | 1.479476576 | 1.51369073 | 2.31e-02 | 3 |
+| budget_loading_sweep | cluster | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15, n_clusters=3 | C3 | 1.688513992 | 1.616682424 | -4.25e-02 | 3 |
+| budget_loading_sweep | portfolio | mse | budget_loading=0.7, n_bins=15 | A6 | 1.082496638e-05 | -0.2271519724 | -2.10e+04 | 9 |
+| budget_loading_sweep | portfolio | mse | budget_loading=0.8, n_bins=15 | A6 | 1.453012601e-06 | -0.1720512292 | -1.18e+05 | 9 |
+| budget_loading_sweep | portfolio | mse | budget_loading=0.9, n_bins=15 | A6 | 0.007683765476 | -0.02437256547 | -4.17e+00 | 9 |
+| budget_loading_sweep | portfolio | expected_uncovered | budget_loading=1.3, n_bins=15 | A5 | 2.070160039 | 2.053739198 | -7.93e-03 | 9 |
+| budget_loading_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=0.5, n_bins=15 | A6 | 3.271917044e-09 | 6.963425234e-09 | 1.13e+00 | 1 |
+| budget_loading_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=0.6, n_bins=15 | A6 | 9.89117386e-10 | -6.73614183e-09 | -7.81e+00 | 3 |
+| budget_loading_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=0.7, n_bins=15 | A6 | 2.637048968e-10 | -5.914156677e-09 | -2.34e+01 | 1 |
+| budget_loading_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=0.8, n_bins=15 | A6 | 5.566909364e-10 | -2.141689055e-09 | -4.85e+00 | 3 |
+| budget_loading_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=0.9, n_bins=15 | A6 | 4.194200032e-09 | -1.670645072e-09 | -1.40e+00 | 1 |
+| budget_loading_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A6 | 0.007355178072 | 0.007358800223 | 4.92e-04 | 3 |
+| budget_loading_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.1, n_bins=15 | A4 | 1.862906972 | 1.86239947 | -2.72e-04 | 2 |
+| budget_loading_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.2, n_bins=15 | A6 | 1.206346691 | 1.213059162 | 5.56e-03 | 3 |
+| budget_loading_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.3, n_bins=15 | A5 | 1.948308598 | 2.05604694 | 5.53e-02 | 9 |
+| budget_loading_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.4, n_bins=15 | A5 | 1.64713026 | 1.873326839 | 1.37e-01 | 9 |
+| budget_loading_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1.5, n_bins=15 | A5 | 1.63930381 | 1.89298354 | 1.55e-01 | 8 |
+| n_bins_sweep | cluster | mse | budget_loading=1, n_bins=20, n_clusters=3 | C2 | 1.414196001 | 1.413986777 | -1.48e-04 | 1 |
+| n_bins_sweep | portfolio | mse | budget_loading=1, n_bins=5 | A6 | 3.046457477 | 3.016912514 | -9.70e-03 | 3 |
+| n_bins_sweep | portfolio | mse | budget_loading=1, n_bins=10 | A9 | 0.878309987 | 0.8782812055 | -3.28e-05 | 0 |
+| n_bins_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=5 | A4 | 1.516876383 | 1.516562056 | -2.07e-04 | 2 |
+| n_bins_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A6 | 0.007355178072 | 0.007358800223 | 4.92e-04 | 3 |
+| n_bins_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=20 | A1 | 0.7482781625 | 0.7483278983 | 6.65e-05 | 0 |
+| n_bins_sweep | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=25 | A4 | 1.20518964 | 1.205339424 | 1.24e-04 | 1 |
+| n_clusters_sweep | cluster | mse | budget_loading=1, n_bins=15, n_clusters=4 | C3 | 1.2112504 | 1.211206139 | -3.65e-05 | 0 |
+| n_clusters_sweep | cluster | mse | budget_loading=1, n_bins=15, n_clusters=6 | C5 | 0.98858475 | 0.988367044 | -2.20e-04 | 1 |
+| n_clusters_sweep | cluster | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=2 | C2 | 1.165651565 | 1.165689359 | 3.24e-05 | 0 |
+| n_clusters_sweep | cluster | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=6 | C2 | 1.897913481 | 1.8979825 | 3.64e-05 | 0 |
+| n_clusters_sweep | cluster | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15, n_clusters=9 | C6 | 0.007355178072 | 0.007358800223 | 4.92e-04 | 3 |
+| single_run | portfolio | weighted_cvar | alpha=0.9, beta=0.95, budget_loading=1, n_bins=15 | A6 | 0.007355178072 | 0.007358800223 | 4.92e-04 | 3 |
+
+### portfolio / weighted_cvar (single_run): expected payout per entity
 
 | Entity | Thesis payout | Our payout | Relative difference |
 |---|---|---|---|
@@ -218,6 +1751,25 @@ The objective depends on the payouts only through the portfolio's total payout p
 | A7 | 2.408571459 | 2.408570967 | -2.04e-07 |
 | A8 | 0.9699075658 | 0.9699081282 | 5.80e-07 |
 | A9 | 0.8546350946 | 0.8546351715 | 9.00e-08 |
+
+### Extra runs, no golden
+
+Design problems we solved for which the golden tables hold neither a payout nor an objective: the thesis solves failed there and the thesis dropped them without a record (MAR-65). They are not compared, so they are not findings. *Whole run*: no golden record at these parameters (the run is also listed under *Store runs without a golden record*); otherwise the golden record lacks these problems. *Our status*: solver and status, with the number of problems. With nothing to compare, the last two columns say how well our solutions meet our own constraints (numpy, as above; the largest over the problems listed). Observation: these are exactly the MSE problems where OSQP at cvxpy's default accuracy returns no accepted solution and `THESIS_POLICY` falls back to Clarabel. The thesis's fallback, `solve(solver=CLARABEL, max_iters=20000)`, raises with the workspace's cvxpy 1.9.3 (`TypeError: Clarabel: unrecognized solver setting 'max_iters'`), and its `_solve` swallows that.
+
+| Source | Scope | Objective | Parameters | config_hash | Whole run | Problems | Our status | Our bound viol. (USD) | Our budget |
+|---|---|---|---|---|---|---|---|---|---|
+| budget_loading_sweep | cluster | mse | budget_loading=0.5, n_bins=15, n_clusters=3 | `sha256:ec0df963f119…` | yes | portfolio | CLARABEL optimal (1) | 0 | -9.99e-09 |
+| budget_loading_sweep | cluster | mse | budget_loading=0.6, n_bins=15, n_clusters=3 | `sha256:bd7e83278aa3…` | yes | portfolio | CLARABEL optimal (1) | 0 | -4.00e-09 |
+| budget_loading_sweep | cluster | mse | budget_loading=0.7, n_bins=15, n_clusters=3 | `sha256:d1ced2f9977f…` | yes | portfolio | CLARABEL optimal (1) | 0 | -1.97e-08 |
+| budget_loading_sweep | cluster | mse | budget_loading=0.8, n_bins=15, n_clusters=3 | `sha256:87f1fd2be739…` | yes | portfolio | CLARABEL optimal (1) | 0 | -1.01e-08 |
+| budget_loading_sweep | cluster | mse | budget_loading=0.9, n_bins=15, n_clusters=3 | `sha256:cdf0f8e9cc4e…` | yes | portfolio | CLARABEL optimal (1) | 0 | -3.61e-08 |
+| budget_loading_sweep | individual | mse | budget_loading=0.5, n_bins=15 | `sha256:b55e6ed05359…` | no | A2, A3, A4, A5, A6, A7, A8, A9 | CLARABEL optimal (8) | 0 | -2.78e-08 |
+| budget_loading_sweep | individual | mse | budget_loading=0.6, n_bins=15 | `sha256:ff4ab21a8e00…` | no | A2, A3, A4, A5, A6, A7, A8, A9 | CLARABEL optimal (8) | 0 | -4.16e-09 |
+| budget_loading_sweep | individual | mse | budget_loading=0.7, n_bins=15 | `sha256:f804fd09f540…` | no | A2, A3, A4, A5, A6, A7, A8, A9 | CLARABEL optimal (8) | 0 | -1.01e-08 |
+| budget_loading_sweep | individual | mse | budget_loading=0.8, n_bins=15 | `sha256:c37611ddff26…` | yes | A1, A2, A3, A4, A5, A6, A7, A8, A9 | CLARABEL optimal (9) | 0 | -1.12e-08 |
+| budget_loading_sweep | individual | mse | budget_loading=0.9, n_bins=15 | `sha256:63e29212ce41…` | yes | A1, A2, A3, A4, A5, A6, A7, A8, A9 | CLARABEL optimal (9) | 0 | -2.59e-08 |
+| budget_loading_sweep | portfolio | mse | budget_loading=0.5, n_bins=15 | `sha256:72dd4972f82c…` | yes | portfolio | CLARABEL optimal (1) | 0 | -4.42e-10 |
+| budget_loading_sweep | portfolio | mse | budget_loading=0.6, n_bins=15 | `sha256:24941d1790fc…` | yes | portfolio | CLARABEL optimal (1) | 0 | -1.13e-09 |
 
 ## Adapter: the CLIMADA pipeline regenerates the thesis event-loss table
 

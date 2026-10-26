@@ -11,9 +11,11 @@ Three groups:
 - Against the thesis code (``PARITY_THESIS_REPO``): the whole golden
   objective table, including the rows recomputed with the thesis code, is
   rewritten byte-identically.
-- ``parity_full``: the 9 runs are solved, the report is regenerated and must
-  agree with the committed one (findings and overview), and every thesis
-  payout is an alternative optimum of our design problem.
+- ``parity_full``: the 9 runs are solved, the baseline report
+  (``--no-sweeps``) is regenerated and its findings must be the committed
+  report's ``single_run`` findings, and every thesis payout is an alternative
+  optimum of our design problem. The sweeps (MAR-69) are in
+  ``test_sweeps.py``.
 """
 
 from __future__ import annotations
@@ -195,8 +197,7 @@ def test_committed_report_explains_every_finding() -> None:
     text = REPORT.read_text(encoding="utf-8")
     match = re.search(r"\n(\d+) findings, (\d+) of them explained, 0 not yet\.\n", text)
     assert match is not None, "the committed report has unexplained findings"
-    assert "- Golden records compared: single_run." in text
-    assert "| Objective values | 33 | 33 | 33 | 0 | 0 |" in text
+    assert re.search(r"\n- Golden records compared: [a-z_, ]*single_run\.\n", text)
     assert "## Appendix: the thesis payouts under our design problems" in text
     assert "Solver policy: by owner decision (MAR-98)" in text
     assert "`solve.THESIS_POLICY`" in text
@@ -269,25 +270,37 @@ def test_default_runs_reproduce_the_committed_report(tmp_path: Path) -> None:
         str(out),
         "--analysis",
         str(tmp_path / "analysis.md"),
+        "--no-sweeps",
         "--check",
     ]
     assert rdp.main(args) == 0  # every run solved, every finding explained
     ours, committed = out.read_text(), REPORT.read_text()
-    assert _findings(ours) == _findings(committed)
-    assert _overview(ours)[:4] == _overview(committed)[:4]  # counts, not errors
+    # The baseline's findings are the committed report's single_run ones; the
+    # same runs reappear under the sweeps at their baseline values, so the
+    # committed report holds more.
+    assert len(_findings(ours)) == 10
+    assert _findings(ours) <= _findings(committed)
     assert "| KPI values | 432 | 432 | 422 | 10 | 0 |" in ours
     assert "| Objective values | 33 | 33 | 33 | 0 | 0 |" in ours
+    assert "- Golden records compared: single_run." in ours
 
 
 @pytest.mark.parity_full
-def test_thesis_payouts_are_alternative_optima(config_and_input: tuple) -> None:
+def test_thesis_payouts_are_alternative_optima(
+    config_and_input: tuple, tmp_path: Path
+) -> None:
+    from parametric_insurance_design.experiment.store import ResultStore
+
     config, data = config_and_input
-    checks = rdp.thesis_payout_checks(config, data, harness.load_golden())
+    store = ResultStore(tmp_path / "store")
+    rdp.run_defaults(config, store, data)
+    checks = rdp.thesis_payout_checks(config, data, harness.load_golden(), store)
     assert len(checks) == 33
     for c in checks:
         label = f"{c.scope}/{c.objective}/{c.problem_id}"
         assert abs(c.gap) <= 1e-7, label
         assert abs(c.midpoint_gap) <= 1e-7, label
+        assert c.verdict == "alternative optimum", label
         if c.objective != "mse":  # OSQP's default accuracy: see the appendix
             assert c.thesis.max_bound_violation <= 1e-3, label
             assert c.thesis.budget <= 1e-8, label
