@@ -52,10 +52,10 @@ Thesis golden data and the parity tests that check the new core reproduces the t
 To regenerate them, from the repository root:
 
 ```bash
-uv run python parity/scripts/run_default_parity.py --check
+uv run python parity/scripts/run_default_parity.py --check --jobs 8
 ```
 
-The first run takes about 50 minutes (the 1,860 runs of the baseline and the sweep points about 22, the thesis-payout checks and the accurate MSE reference runs the rest); later runs reuse the cached runs and take about 4 minutes, mostly the thesis-payout checks of the 1,419 asset-count records. `--sweep PARAM` (repeatable) chooses the sweeps, by default all seven, and `--no-sweeps` runs and reports the baseline only.
+From an empty store the first run takes about 95 minutes serially (measured in MAR-109): the 1,860 runs of the baseline and the sweep points take about 65 of them (MAR-112), and the thesis-payout checks with the accurate MSE reference runs most of the rest. `--jobs N` (default 1) solves the sweep points in `N` worker processes (MAR-105) and writes byte-identical reports. At `--jobs 8` the first run took 47 minutes (MAR-125, on a 10-core Mac shared with other jobs). The baseline and the sweep points took 10 of them. The other 37 went to the thesis-payout checks, which write the 646 reference runs into `results/thesis-reference`, and the reports, all of which stay serial. Later runs reuse both stores and take about 2 minutes (106 s measured), mostly the thesis-payout checks of the 1,419 asset-count records. `--sweep PARAM` (repeatable) chooses the sweeps, by default all seven, and `--no-sweeps` runs and reports the baseline only.
 
 To run the parity sweeps by hand, without the reports, use the CLI (MAR-66) with the thesis policy; `-p` (repeatable) chooses the sweeps, by default all:
 
