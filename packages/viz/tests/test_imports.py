@@ -124,4 +124,4 @@ def test_figures_never_solve(
         eventset=toy.eventset,
     )
     assert report.ok
-    assert len(report.written) == 6
+    assert len(report.written) == 7  # the payout figures and premium_reallocation

@@ -17,6 +17,7 @@ from importlib.metadata import requires
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
 import pytest
 import yaml
 
@@ -187,7 +188,7 @@ def test_figures_writes_the_payout_figures(
         assert (figures / f"{name}.png").is_file()
         assert (figures / f"{name}.csv").is_file()
         assert f"wrote   {name}.png" in out
-    assert "4 figures written, 0 skipped" in out
+    assert "5 figures written, 0 skipped" in out  # and premium_reallocation (MAR-112)
 
 
 @pytest.mark.usefixtures("viz")
@@ -238,3 +239,44 @@ def test_figures_of_a_failed_run_exit_1(
         next((tmp_path / "results" / "manifests").glob("*.json")).read_text()
     )
     assert manifest["format"]  # the store is untouched by figures
+
+
+# -- sweep points (MAR-112) ----------------------------------------------------
+
+
+@pytest.mark.usefixtures("viz")
+def test_figures_reads_the_sweep_points(
+    tmp_path: Path, toy_eventset: EventSet, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sweeps = [{"parameter": "alpha", "values": [0.3, 0.5]}]
+    path = toy_config(tmp_path, toy_eventset, sweeps=sweeps)
+    assert main(["sweep", str(path), "-q"]) == ExitCode.OK
+    capsys.readouterr()
+    assert main(["figures", str(path), "-q"]) == ExitCode.OK
+    out = capsys.readouterr().out
+    assert "read 4 sweep points of 1 sweeps" in out  # 2 values x 2 scopes
+    figures = tmp_path / "results" / "figures"
+    for name in (
+        "premium_reallocation",
+        "payout_sweep_individual_a_alpha",
+        "payout_sweep_portfolio_a_alpha",
+        "sensitivity_alpha",
+        "tradeoff_portfolio_alpha",
+    ):
+        assert (figures / f"{name}.png").is_file(), name
+        assert f"wrote   {name}.png" in out
+    points = pd.read_csv(figures / "sensitivity_alpha.points.csv")
+    assert set(points["parameter_value"].dropna()) == {0.3, 0.5}
+
+
+@pytest.mark.usefixtures("viz")
+def test_missing_sweep_points_name_the_sweep_command(
+    tmp_path: Path, toy_eventset: EventSet, caplog: pytest.LogCaptureFixture
+) -> None:
+    sweeps = [{"parameter": "alpha", "values": [0.3]}]
+    path = toy_config(tmp_path, toy_eventset, sweeps=sweeps)
+    assert main(["run", str(path), "-q"]) == ExitCode.OK
+    with caplog.at_level(logging.ERROR, logger="parametric_insurance_design"):
+        assert main(["figures", str(path)]) == ExitCode.INPUT_ERROR
+    assert "2 of 2 sweep points are not in the result store" in caplog.text
+    assert "parametric-insurance-design sweep CONFIG" in caplog.text

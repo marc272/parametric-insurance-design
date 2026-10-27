@@ -1767,8 +1767,10 @@ def _payout_sweeps(
     for scope, s in rows:
         if s.objective != FOCUS_OBJECTIVE or not s.points:
             continue
-        entity = s.baseline.entity_order()[0] if s.baseline.complete else ""
-        name = f"payout_sweep_{scope.key}_{entity}_{s.parameter}".lower()
+        # a failed baseline has no entities: its skip names the scope only
+        entity = s.baseline.entity_order()[0] if s.baseline.complete else None
+        parts = [scope.key, entity, s.parameter]
+        name = "payout_sweep_" + "_".join(x for x in parts if x).lower()
         benchmark = next(
             (r for r in scope.runs if r.objective == style.BENCHMARK_OBJECTIVE), None
         )
@@ -1780,7 +1782,7 @@ def _payout_sweeps(
             continue
         yield payout_sweep(
             s,
-            entity,
+            cast(str, entity),  # the baseline is complete, so it has entities
             benchmark=benchmark,
             events=scope.events,
             labels=context.labels,
