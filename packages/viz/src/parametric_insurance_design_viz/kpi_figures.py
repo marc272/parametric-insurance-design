@@ -28,6 +28,13 @@ Which rows are read
 * **Evaluation split:** the ``test`` rows where every run has them (holdout
   samples, out of sample), else ``full`` (in sample), else ``train``. The
   figure data record the split.
+* **Samples:** ``full`` and ``holdout`` runs. Runs of a ``kfold`` sample are
+  refused with :class:`KFoldRunsError` (MAR-137). A k-fold experiment is a
+  run per fold (MAR-22), so one scope x objective has ``k`` test values; a
+  figure that drew one of them, or their mean without the spread, would
+  misstate the result. The figures accept k-fold runs once the rule for
+  combining folds is decided together with the confidence intervals
+  (MAR-23).
 * **VaR/CVaR level:** the rows at the runs' ``evaluation_beta`` parameter.
 * **Curve:** ``event`` on the event bases (return periods count events, the
   thesis convention), ``aep`` on the ``annual`` basis.
@@ -103,6 +110,7 @@ __all__ = [
     "OVERVIEW_KPIS",
     "SPLIT_PREFERENCE",
     "Baseline",
+    "KFoldRunsError",
     "exceedance_curves",
     "kpi_figures",
     "kpi_heatmap",
@@ -120,6 +128,21 @@ SPLIT_PREFERENCE: Final[tuple[str, ...]] = (
     Split.TRAIN.value,
 )
 """Evaluation split read when every run has it, in order of preference."""
+
+KFOLD_SAMPLE: Final[str] = "kfold"
+"""``runs.parameters["sample"]`` of a k-fold run, which the figures refuse."""
+
+
+class KFoldRunsError(InconsistentRunsError):
+    """The runs are folds of a k-fold sample, which the KPI figures refuse.
+
+    A k-fold experiment stores a run per fold (MAR-22), so one scope x
+    objective has ``k`` out-of-sample values. The KPI figures don't combine
+    folds yet (MAR-137): the rule, e.g. the mean over folds with the
+    per-fold spread, is decided with the confidence intervals (MAR-23).
+    Draw the figures from a ``holdout`` (or ``full``) run instead.
+    """
+
 
 HEATMAP_KPIS: Final[tuple[str, ...]] = (
     KpiName.CVAR_UNCOVERED.value,
@@ -233,15 +256,34 @@ def kpi_label(kpi: str, *, unit: str | None = None) -> str:
     return f"{text} [{unit}]" if unit else text
 
 
+def _refuse_kfold(runs: Sequence[RunResult]) -> None:
+    """Raise :class:`KFoldRunsError` if a run is a fold of a k-fold sample."""
+    folds = [r for r in runs if r.parameters.get("sample") == KFOLD_SAMPLE]
+    if folds:
+        names = "; ".join(
+            f"{r.run_id} ({r.scope} x {r.objective}, fold "
+            f"{r.parameters.get('fold')} of k={r.parameters.get('k')})"
+            for r in folds
+        )
+        raise KFoldRunsError(
+            f"the KPI figures refuse k-fold runs (MAR-137): {names}. A k-fold "
+            "experiment has a run per fold, and the rule for combining folds "
+            "is decided with the confidence intervals (MAR-23); draw the "
+            "figures from a holdout run"
+        )
+
+
 def _grid(scopes: ScopeGrid) -> tuple[list[str], list[str]]:
     """Check a scope grid; return its scope keys and its objectives.
 
     Every scope must hold complete runs, of its own scope, one per objective,
-    with the same objectives in the same order.
+    with the same objectives in the same order. No run may be a fold of a
+    k-fold sample (:class:`KFoldRunsError`).
     """
     keys = list(scopes)
     if not keys:
         raise InconsistentRunsError("a KPI figure needs at least one scope")
+    _refuse_kfold([r for key in keys for r in scopes[key]])
     objectives: list[str] | None = None
     for key in keys:
         runs = tuple(scopes[key])
@@ -358,6 +400,8 @@ def kpi_table(
     InconsistentRunsError
         If the grid is inconsistent, a KPI is unknown, or a run lacks the
         portfolio row of a KPI (or has several).
+    KFoldRunsError
+        If a run is a fold of a k-fold sample (an ``InconsistentRunsError``).
     """
     known = {k.value for k in KpiName}
     unknown = [k for k in kpis if k not in known]
@@ -998,6 +1042,8 @@ def exceedance_curves(
     InconsistentRunsError
         If the runs mix scopes, repeat an objective, lack the curve, or
         disagree on its return periods.
+    KFoldRunsError
+        If a run is a fold of a k-fold sample (an ``InconsistentRunsError``).
     """
     runs = tuple(runs)
     if not runs:
@@ -1155,10 +1201,25 @@ def kpi_figures(context: FigureContext) -> list[FigureOutput | SkippedFigure]:
         ``performance_overview``, then ``exceedance_<scope key>`` per scope.
         A cross-scope figure is skipped (``failed=True``) if any run failed;
         an exceedance figure if a run of its scope failed.
+
+    Raises
+    ------
+    KFoldRunsError
+        If the config's sample is ``kfold``: its runs are a run per fold, and
+        the KPI figures refuse folds (MAR-137). Nothing is drawn.
     """
     # Imported here: command imports this module to register the builder.
     from parametric_insurance_design_viz.command import SkippedFigure
 
+    sample = context.config.sample
+    if sample.kind == "kfold":  # KFOLD_SAMPLE, as a literal for narrowing
+        raise KFoldRunsError(
+            f"config {context.config.name!r} has a k-fold sample (k={sample.k}): "
+            "the KPI figures refuse k-fold runs (MAR-137). A k-fold experiment "
+            "has a run per fold, and the rule for combining folds is decided "
+            "with the confidence intervals (MAR-23); draw the figures from a "
+            "holdout config"
+        )
     out: list[FigureOutput | SkippedFigure] = []
     failed = [s for s in context.scopes if s.failed]
     grid = {s.key: s.runs for s in context.scopes}
