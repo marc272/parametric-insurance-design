@@ -398,8 +398,12 @@ def test_sweep_refuses_missing_sweeps(
     assert not (path.parent / "results").exists()
 
 
-def _without_timings(out: str) -> list[str]:
-    return [re.sub(r"\d+\.\d s;", "_ s;", line) for line in lines(out)]
+def _without_timings(out: str, store: str) -> list[str]:
+    """The summary lines without wall times, the store directory as ``STORE``."""
+    return [
+        re.sub(r"\d+\.\d s;", "_ s;", line).replace(f"/{store}/", "/STORE/")
+        for line in lines(out)
+    ]
 
 
 def test_sweep_jobs_runs_in_worker_processes(
@@ -411,14 +415,15 @@ def test_sweep_jobs_runs_in_worker_processes(
         "parallel.yaml", **SWEEP, output={"directory": "results-parallel"}
     )
     assert main(["sweep", str(serial), "-q"]) == ExitCode.OK
-    expected = _without_timings(capsys.readouterr().out)
+    expected = _without_timings(capsys.readouterr().out, "results")
     assert main(["sweep", str(parallel), "-q", "--jobs", "2"]) == ExitCode.OK
-    got = _without_timings(capsys.readouterr().out)
+    got = _without_timings(capsys.readouterr().out, "results-parallel")
+    assert any("/STORE/sweeps/" in line for line in got)
     assert got[1:] == expected[1:]  # the first line names the store
     left = ResultStore(tmp_path / "results")
     right = ResultStore(tmp_path / "results-parallel")
     assert left.run_ids() == right.run_ids()
-    assert len(right.run_ids()) == 5
+    assert len(right.run_ids()) == 3  # 5 runs, 2 of them baseline cache hits
     manifests = [
         sorted(p.name for p in (store.root / SWEEPS_DIR).glob("*.json"))
         for store in (left, right)
