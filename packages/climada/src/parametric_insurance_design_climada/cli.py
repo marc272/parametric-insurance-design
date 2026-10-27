@@ -43,7 +43,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="build-eventset",
         description=(
-            "Build an EventSet from an IRIS track catalogue with CLIMADA: "
+            "Build an EventSet from an IRIS or STORM track catalogue with CLIMADA: "
             "proximity filter, TropCyclone wind at the asset centroids, "
             "ImpactCalc losses."
         ),

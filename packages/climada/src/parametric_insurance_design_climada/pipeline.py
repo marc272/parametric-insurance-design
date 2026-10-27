@@ -23,6 +23,21 @@ Port of the thesis ``src/CLIMADA/engine.py``. :func:`build_eventset` runs:
    ``rate`` = ``1 / n_years`` (divided by the number of draws), ``year`` from
    IRIS.
 
+**STORM tracks** (D7, MAR-32). With ``tracks: {kind: storm}`` step 1 reads
+the STORM files of one basin instead
+(:func:`~parametric_insurance_design_climada.storm.read_storm_catalogue`,
+which rebuilds ``year`` as ``1000 * file index + year in file``), and step 3
+converts each storm with
+:func:`~parametric_insurance_design_climada.storm.storm_to_track` (10-minute
+to 1-minute wind; the same time axis, units and environmental pressure as
+IRIS). Everything else, from the proximity filter to the EventSet, is the
+IRIS path, so the two scenarios differ only in the tracks. The build record's
+``catalogue`` then lists every STORM file with its SHA256 and year mapping,
+``track_conversion`` holds
+:data:`~parametric_insurance_design_climada.storm.TRACK_CONVERSION`, and
+``source_checksums`` has one entry per file. IRIS builds are unchanged, so
+their content hashes stay as they were.
+
 **Loss per cell** (MAR-114, D2). By default the loss is the impact at the
 location's centroid, as in the thesis (``loss: {kind: centroid}``). With
 ``loss: {kind: cells, cells: <parquet>}`` each location is an aggregate of
@@ -69,7 +84,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib.metadata import version
@@ -79,6 +94,7 @@ from typing import Any, Final, cast
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
+import xarray as xr
 import yaml
 from climada.engine.impact_calc import ImpactCalc
 from climada.entity import Exposures, ImpactFuncSet
@@ -97,6 +113,7 @@ from parametric_insurance_design.eventset import (
     TransformRecord,
 )
 from parametric_insurance_design_climada import iris, tracks
+from parametric_insurance_design_climada import storm as storm_tracks
 from parametric_insurance_design_climada.cat_in_circle import CatInCircleIndex
 from parametric_insurance_design_climada.config import (
     CatInCircleIndexConfig,
@@ -105,6 +122,7 @@ from parametric_insurance_design_climada.config import (
     LocationsConfig,
     PipelineConfig,
     PipelineConfigError,
+    StormTracksConfig,
     check_circle_radius,
 )
 from parametric_insurance_design_climada.hooks import (
@@ -511,6 +529,75 @@ def _hazard_release(
     return config.hazard_release, config.catalogue.name
 
 
+@dataclass(frozen=True)
+class _TrackSource:
+    """A track catalogue as the pipeline uses it, IRIS or STORM.
+
+    ``frame`` has one row per track point with at least ``event_id``,
+    ``year`` (simulation year), ``lat``, ``lon`` and ``basin``; ``to_track``
+    turns one storm's rows into a CLIMADA track. The other fields go into
+    the metadata: the hazard name and release, the build record's
+    ``catalogue`` (without the counts) and ``track_conversion``, and the
+    ``source_checksums`` entries.
+    """
+
+    name: str
+    release: str
+    frame: pd.DataFrame
+    to_track: Callable[[pd.DataFrame], xr.Dataset]
+    catalogue_record: dict[str, Any]
+    track_conversion: dict[str, Any]
+    checksums: dict[str, str]
+
+
+def _iris_track_conversion() -> dict[str, Any]:
+    """Return the IRIS track conversion of the build record (as in MAR-73)."""
+    return {
+        "vmax_m_s_to_kn": tracks.MS_TO_KT,
+        "rmw_r18_km_to_nm": tracks.KM_TO_NM,
+        "radius_oci": "r18",
+        "timestep_hours": tracks.TIMESTEP_HOURS,
+        "environmental_pressure_hpa": tracks.ENV_PRESSURE_HPA,
+    }
+
+
+def _read_tracks(config: PipelineConfig) -> _TrackSource:
+    """Read the configured track catalogue (IRIS or STORM)."""
+    if isinstance(config.tracks, StormTracksConfig):
+        if config.hazard_release is None:  # also checked by the config
+            raise PipelineConfigError("STORM tracks need hazard_release")
+        loaded = storm_tracks.read_storm_catalogue(
+            config.catalogue, basin=config.tracks.basin, n_years=config.n_years
+        )
+        return _TrackSource(
+            name="STORM",
+            release=config.hazard_release,
+            frame=loaded.frame,
+            to_track=storm_tracks.storm_to_track,
+            catalogue_record={
+                "format": "storm",
+                "basin": loaded.basin,
+                "year_mapping": loaded.year_mapping(),
+            },
+            track_conversion=dict(storm_tracks.TRACK_CONVERSION),
+            checksums={f.name: f"sha256:{f.sha256}" for f in loaded.files},
+        )
+    catalogue_sha = iris.file_digests(config.catalogue)[1]
+    frame = tracks.read_iris_catalogue(config.catalogue)
+    release, catalogue_key = _hazard_release(
+        config, catalogue_sha, sorted(frame["basin"].unique().tolist())
+    )
+    return _TrackSource(
+        name="IRIS",
+        release=release,
+        frame=frame,
+        to_track=tracks.storm_to_track,
+        catalogue_record={"file": catalogue_key, "sha256": catalogue_sha},
+        track_conversion=_iris_track_conversion(),
+        checksums={catalogue_key: f"sha256:{catalogue_sha}"},
+    )
+
+
 def _file_checksum(path: Path) -> tuple[str, str]:
     """Return ``(file name, sha256)``."""
     return path.name, iris.file_digests(path)[1]
@@ -702,13 +789,15 @@ def _run_batch(
     vulnerability: VulnerabilityDraws,
     rng: np.random.Generator | None,
     cells: _CellLoss | None = None,
+    to_track: Callable[[pd.DataFrame], xr.Dataset] = tracks.storm_to_track,
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     """Return ``(index, loss draws)`` of one batch of modelled storms.
 
     With ``cells``, the loss draws are computed on the cells and summed per
-    location; the location-level impact is then not computed.
+    location; the location-level impact is then not computed. ``to_track``
+    converts one storm's rows to a CLIMADA track (IRIS by default).
     """
-    track_data = TCTracks([tracks.storm_to_track(storms[e]) for e in event_ids])
+    track_data = TCTracks([to_track(storms[e]) for e in event_ids])
     hazard, wind, base_loss = _hazard_and_impact(
         event_ids,
         track_data,
@@ -790,6 +879,7 @@ def _scenario_text(
     n_draws: int,
     has_draws: bool,
     cells: CellTable | None,
+    hazard_name: str = "IRIS",
 ) -> str:
     impf = config.impact_function
     if has_draws:
@@ -813,7 +903,8 @@ def _scenario_text(
         else ""
     )
     return (
-        f"IRIS {config.n_years:,}-year synthetic tropical-cyclone catalogue "
+        f"{hazard_name} {config.n_years:,}-year synthetic tropical-cyclone "
+        "catalogue "
         f"for {n_locations} locations. One row per storm whose track passes "
         f"within {config.proximity_km:g} km of any location ({n_events:,} "
         f"storms, {n_zero:,} of them with zero index and loss at every "
@@ -904,11 +995,8 @@ def build_eventset(
         cell_table = read_cells(config.loss.cells, locations)
         _check_cell_reach(cell_table, config)
 
-    catalogue_sha = iris.file_digests(config.catalogue)[1]
-    catalogue = tracks.read_iris_catalogue(config.catalogue)
-    release, catalogue_key = _hazard_release(
-        config, catalogue_sha, sorted(catalogue["basin"].unique().tolist())
-    )
+    source = _read_tracks(config)
+    catalogue = source.frame
     years = catalogue["year"].to_numpy()
     if years.min() < 0 or years.max() >= config.n_years:
         raise PipelineError(
@@ -985,6 +1073,7 @@ def build_eventset(
             vulnerability=vulnerability,
             rng=rng,
             cells=cell_loss,
+            to_track=source.to_track,
         )
         index_parts.append(index)
         loss_parts.append(draws)
@@ -1040,8 +1129,7 @@ def build_eventset(
         parameters={
             "climada_version": climada_version,
             "catalogue": {
-                "file": catalogue_key,
-                "sha256": catalogue_sha,
+                **source.catalogue_record,
                 "n_storms": n_storms,
                 "n_track_points": len(catalogue),
             },
@@ -1051,13 +1139,7 @@ def build_eventset(
                 {"event_id": s.event_id, "reason": s.reason} for s in skipped
             ],
             "event_order": "event_id sorted as strings (thesis order)",
-            "track_conversion": {
-                "vmax_m_s_to_kn": tracks.MS_TO_KT,
-                "rmw_r18_km_to_nm": tracks.KM_TO_NM,
-                "radius_oci": "r18",
-                "timestep_hours": tracks.TIMESTEP_HOURS,
-                "environmental_pressure_hpa": tracks.ENV_PRESSURE_HPA,
-            },
+            "track_conversion": source.track_conversion,
             "wind": config.wind.model_dump(mode="json"),
             "impact_function": {
                 **config.impact_function.model_dump(mode="json"),
@@ -1087,9 +1169,10 @@ def build_eventset(
         n_draws=n_draws,
         has_draws=not isinstance(vulnerability, NoDraws),
         cells=cell_table,
+        hazard_name=source.name,
     )
     metadata = EventSetMetadata(
-        hazard=HazardSource(name="IRIS", release=release),
+        hazard=HazardSource(name=source.name, release=source.release),
         index=index_builder.describe(_wind_field_text(config, climada_version)),
         loss=LossDefinition(unit=config.loss.unit, currency="USD"),
         n_years=config.n_years,
@@ -1099,7 +1182,7 @@ def build_eventset(
             producer_version=version(PRODUCER),
             created_at=created_at or datetime.now(UTC),
             source_checksums={
-                catalogue_key: f"sha256:{catalogue_sha}",
+                **source.checksums,
                 location_key: f"sha256:{location_sha}",
                 **cell_checksums,
             },

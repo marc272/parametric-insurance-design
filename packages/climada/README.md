@@ -51,6 +51,16 @@ The pinned URLs, DOIs, version, citation and checksums are in `src/parametric_in
 
 **No Parquet copy of the catalogue.** pandas parses the 103 MB merged text file in about half a second, and the build itself takes about 30 s, so a typed Parquet copy would add a second artefact to keep in sync for no measurable gain. The reader checks the layout and types instead (`tracks.read_iris_catalogue`).
 
+## STORM tracks (D7)
+
+The second hazard catalogue (D7, SPEC §6.5 (i); MAR-32) is STORM present climate, version 4 (Bloemendaal et al. 2020; doi:10.4121/12706085, CC0 1.0): ten 1,000-year North Atlantic files, `STORM_DATA_IBTRACS_NA_1000_YEARS_0.txt` … `_9.txt`. A config selects it with `tracks: {kind: storm}` and points `catalogue` at the directory that holds the files (`configs/florida_counties_storm.yaml`). The reader (`storm.read_storm_catalogue`):
+
+- rebuilds the simulation year as `1000 * k + year in file`, because STORM's year restarts at 0 in every file (CLIMADA's own `TCTracks.from_simulations_storm` puts every track in 1980 with frequency 1, so the adapter does not use it), and raises if a file index is missing or repeated, a year lies outside [0, 1000), or `n_years` is not 1,000 times the number of files;
+- divides the 10-minute wind by 0.88 to get the 1-minute wind (as CLIMADA does) and maps longitudes from 0–360° to (−180, 180];
+- raises on duplicate or non-consecutive time steps, rows of another basin and out-of-range values, where CLIMADA's reader drops duplicates silently.
+
+Each storm then goes through the IRIS path's track conversion, wind field and impact (same time axis, units and environmental pressure), so an IRIS and a STORM build of one portfolio differ only in the tracks. A STORM config must state `hazard_release` and `licence`. The download script and its checksum manifest are still to come: the 4TU host refused connections when MAR-32 was written. `scripts/compare_hazard_return_levels.py` compares the per-location return levels of two such EventSets.
+
 ## Florida county locations (LitPop, D2)
 
 `pixi run florida-locations` (module `parametric_insurance_design_climada.portfolio_litpop`, MAR-113) builds the paper portfolio's `locations` table (D2, SPEC §6.6): Florida's 67 counties, each valued by the sum of its cells in the pinned CLIMADA data-API file `LitPop_150arcsec_USA` v3 and placed at the cells' value-weighted centroid.
