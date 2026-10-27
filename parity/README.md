@@ -7,7 +7,7 @@ Thesis golden data and the parity tests that check the new core reproduces the t
 - Only small fixtures are committed. Anything larger is fetched by a script with checksums.
 - Licences (ADR 0001, amendment 1; owner decisions MAR-79 and MAR-94):
   - the code under `parity/` is BSD-3-Clause (`LICENSE`);
-  - the thesis result tables in `golden/`, the simulation-sweep tables in `golden/simulation_sweeps/` included, are CC0-1.0 (`golden/LICENSE`);
+  - the thesis result tables in `golden/`, the simulation-sweep tables in `golden/simulation_sweeps/` included, are CC-BY-4.0 (`golden/LICENSE`). They were computed from IRIS-derived losses, so they follow the IRIS treatment below (owner decision MAR-94, revised 2026-10-27; it supersedes the earlier CC0-1.0);
   - the fixture data in `tests/data/thesis_eventset/` is CC-BY-4.0, recorded in its `metadata.json`. It is derived from IRIS, whose licence records differ (CC0 on the figshare items, CC BY 4.0 on the collection's DataCite record); IRIS-derived data is treated as CC BY 4.0, the stricter of the two (`docs/data-sources.md`).
 
 ## Contents
@@ -15,7 +15,7 @@ Thesis golden data and the parity tests that check the new core reproduces the t
 | Path | What it is |
 |---|---|
 | `tests/data/thesis_eventset/` | The thesis event-loss table as an EventSet (schema v1, `docs/SPEC.md` §5): 6,057 storm rows × 9 Miami assets, `n_years` 10,000, rate 1/10,000 per row, `draw_id` 0. Index: max sustained wind at the asset (m/s). Loss: USD |
-| `golden/LICENSE` | CC0-1.0 for every file under `golden/` (owner decision, MAR-94) |
+| `golden/LICENSE` | CC-BY-4.0 for every file under `golden/`, with the attribution to give (owner decision MAR-94, revised 2026-10-27) |
 | `golden/full_optimization_results.csv.gz` | The thesis optimisation results, the parity targets. Gzipped copy, byte-identical to the thesis file after decompression (the raw CSV is 803 kB, over the repository's 500 kB limit) |
 | `golden/benchmarking_kpis.csv.gz` | The thesis KPI table, the parity targets. Gzipped the same way |
 | `golden/thesis_cluster_assignments.json` | Thesis cluster assignments (`n_clusters` 1 to 9) and clustering features of the 9 assets, on the thesis' prepared data (noise layer, 20 m/s filter) and without the noise layer. Derived from the thesis code by `scripts/derive_thesis_clusters.py` (MAR-12) |

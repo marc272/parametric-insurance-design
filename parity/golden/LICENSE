@@ -1,12 +1,18 @@
-SPDX-License-Identifier: CC0-1.0
+SPDX-License-Identifier: CC-BY-4.0
+
+Copyright (c) 2026 Marc Prinzing
 
 The thesis result tables in this directory, parity/golden/, and in its
-subdirectories are dedicated to the public domain under CC0 1.0 Universal
-(CC0-1.0), by decision of their author, Marc Prinzing, on 2026-10-27
-(MAR-94). To the extent possible under law, he waives all copyright and
-related or neighbouring rights to them.
+subdirectories are licensed under the Creative Commons Attribution 4.0
+International licence (CC-BY-4.0), by decision of their author, Marc
+Prinzing, on 2026-10-27 (MAR-94, revised). They were computed from
+per-asset losses derived from the IRIS event set, and IRIS-derived data is
+treated as CC BY 4.0 (docs/data-sources.md, IRIS licence check). This
+decision supersedes the CC0-1.0 dedication these files carried earlier
+(MAR-109); see docs/adr/0001-name-and-licence.md, amendment 1.
 
-Legal code: https://creativecommons.org/publicdomain/zero/1.0/legalcode
+Legal code: https://creativecommons.org/licenses/by/4.0/legalcode
+Summary: https://creativecommons.org/licenses/by/4.0/
 
 Files covered:
 
@@ -22,13 +28,22 @@ Files covered:
 Not covered:
 
 - the parity fixture, parity/tests/data/thesis_eventset/, which is derived
-  from the IRIS event set and recorded as CC-BY-4.0 (owner decision,
-  MAR-94; docs/data-sources.md);
+  from the IRIS event set and records its own licence, CC-BY-4.0, in its
+  metadata.json (MAR-94; docs/data-sources.md);
 - the code under parity/, which is BSD-3-Clause (parity/LICENSE).
 
-CC0 requires no attribution. Scientific practice still asks for it: please
-cite the thesis repository (https://github.com/marc272/parametric-insurance-framework)
-and the IRIS event set the results were computed from: Sparks, N. and
-Toumi, R. (2024). The Imperial College Storm Model (IRIS) Dataset.
-Scientific Data 11, 424, https://doi.org/10.1038/s41597-024-03250-y; data:
-https://doi.org/10.6084/m9.figshare.c.6724251.v1.
+Attribution. When you share these tables or work based on them, give
+credit, link to the licence, and indicate changes. Please credit:
+
+- the tables: Marc Prinzing, parametric-insurance-design, parity/golden/,
+  https://github.com/marc272/parametric-insurance-design, CC BY 4.0;
+- the thesis code that produced them:
+  https://github.com/marc272/parametric-insurance-framework;
+- the hazard data they were computed from: Sparks, N. and Toumi, R. (2024).
+  The Imperial College Storm Model (IRIS) Dataset. Scientific Data 11, 424,
+  https://doi.org/10.1038/s41597-024-03250-y; dataset:
+  https://doi.org/10.6084/m9.figshare.c.6724251.v1 (CC BY 4.0).
+
+Changes from the IRIS data: per-asset losses for nine Miami assets were
+computed with CLIMADA from the IRIS tracks, and the thesis optimisation and
+simulation code was run on them to produce these tables.
