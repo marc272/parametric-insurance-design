@@ -16,7 +16,9 @@ Owner: MAR-64. Executes one configured run end to end and persists it in a
    threshold filter (``EventSet.filter_threshold``).
 4. **Samples.** ``full``: calibrate and evaluate on every row. ``holdout``:
    calibrate on the training years, evaluate on both samples
-   (``splits.holdout``, MAR-22). ``kfold`` is refused (see below).
+   (``splits.holdout``, MAR-22). ``kfold``: one run per fold (see below);
+   calibrate on the fold's training years, evaluate on its training and
+   test samples (``splits.year_block_kfold``).
 5. **Build, solve, evaluate.** ``problem.build_problems``, then
    ``solve.solve`` for every design problem, then ``evaluate.kpis`` and
    ``evaluate.exceedance_curves`` when every design problem was solved.
@@ -86,10 +88,16 @@ No silent failures
 * Any other exception (an input or configuration error, or a bug) propagates
   and nothing is written for that run.
 
-k-fold samples are refused with :class:`ConfigError`: they calibrate once
-per fold, but the ``runs`` key is ``(run_id, problem_id)`` without the fold,
-so a k-fold run needs either a ``run_id`` per fold or an ADR 0002 amendment.
-That decision belongs to the out-of-sample work (MAR-22/MAR-23).
+k-fold: a run per fold
+----------------------
+A k-fold experiment calibrates once per fold, and the ``runs`` key is
+``(run_id, problem_id)`` without the fold. MAR-22 therefore makes each fold a
+run of its own: ``ExperimentConfig.single_runs()`` expands a k-fold sample
+into one config per fold (``sample.fold`` set), so the fold is part of the
+config hash and hence of the ``run_id``. ``runs.fold``, ``kpis.fold`` and
+``exceedance.fold`` carry the fold number; the KPI rows of a fold are its
+``train`` (in-sample) and ``test`` (out-of-sample) evaluations. A config
+whose k-fold sample has no ``fold`` is refused with :class:`ConfigError`.
 """
 
 from __future__ import annotations
@@ -477,9 +485,9 @@ def run_parameters(config: ExperimentConfig, eventset: EventSet) -> dict[str, An
     -------
     dict
         ``attachment``, ``limit``, ``n_bins``, ``n_assets``,
-        ``evaluation_beta``, ``sample``; ``train_fraction`` (holdout), ``k``
-        (k-fold); ``n_clusters``, ``beta_tail``, ``linkage`` (cluster scope);
-        ``scope_index`` (if set); ``alpha``, ``beta`` (weighted CVaR);
+        ``evaluation_beta``, ``sample``; ``train_fraction`` (holdout);
+        ``k``, ``fold`` (k-fold); ``n_clusters``, ``beta_tail``, ``linkage``
+        (cluster scope); ``scope_index`` (if set); ``alpha``, ``beta`` (weighted CVaR);
         ``pricing_rate``, ``pricing_q`` (cost of capital); ``budget_loading``
         (budget); ``noise_kind``, ``noise_level``, ``n_copies``,
         ``noise_seed``, ``noise_low``, ``noise_high`` (noise); ``threshold``,
@@ -499,6 +507,7 @@ def run_parameters(config: ExperimentConfig, eventset: EventSet) -> dict[str, An
         params["train_fraction"] = sample.train_fraction
     elif sample.kind == "kfold":
         params["k"] = sample.k
+        params["fold"] = sample.fold
     for scope in config.scopes:
         if scope.index is not None:
             params["scope_index"] = scope.index
@@ -658,10 +667,13 @@ def _samples(
     if sample.kind == "holdout":
         train, test = splits.holdout(eventset, train_fraction=sample.train_fraction)
         return train, (train, test)
-    raise ConfigError(
-        "k-fold samples are not supported by the runner yet: the runs table is "
-        "keyed by (run_id, problem_id) without the fold (see the runner docstring)"
-    )
+    if sample.fold is None:
+        raise ConfigError(
+            "a k-fold run needs sample.fold: each fold is a run of its own "
+            "(use ExperimentConfig.single_runs() or run_config())"
+        )
+    train, test = splits.year_block_kfold(eventset, k=sample.k)[sample.fold]
+    return train, (train, test)
 
 
 def _attempts(attempts: tuple[SolverAttempt, ...]) -> list[dict[str, Any]]:
@@ -707,7 +719,8 @@ def execute(
     Raises
     ------
     ConfigError
-        If the config has several scopes or objectives, or a k-fold sample.
+        If the config has several scopes or objectives, or a k-fold sample
+        without ``fold``.
     ChecksumMismatchError
         If the config pins a checksum that ``data`` does not have.
     EventSetError
