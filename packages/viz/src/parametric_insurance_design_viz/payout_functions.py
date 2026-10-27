@@ -1,0 +1,782 @@
+"""Payout-function figures: the per-entity grid and the normalised view.
+
+Owner: MAR-110. Ports two figures of the thesis ``plotting.py``
+(parametric-insurance-framework):
+
+* :func:`payout_grid` (thesis ``plot_payout_functions_grid``, view
+  ``"vanilla"``; thesis Figures 5.1, 5.3 and 5.4): one panel per payout
+  entity of a scope, with the calibrated step payout function of every
+  objective over the entity's event data (index against loss).
+* :func:`normalised_payout` (thesis ``plot_normalized_payout_functions``;
+  thesis Figure 5.2 and A.1, A.2): one entity's payout per bin relative to
+  the benchmark objective's payout in the same bin, over the event density
+  of the entity index.
+
+Both read :class:`~parametric_insurance_design_viz.reader.RunResult` objects
+(the result store) and never re-run an optimisation. The event overlays come
+from :func:`~parametric_insurance_design_viz.reader.entity_events`, the
+run's prepared EventSet; without it the figures show the payout functions
+alone. Each figure returns its data as tidy tables
+(:class:`~parametric_insurance_design_viz.figure_data.FigureOutput`).
+
+Differences from the thesis code, all deliberate:
+
+* Bins whose benchmark payout is zero to solver precision (``|level| <=``
+  :data:`BENCHMARK_ZERO_RTOL` times the benchmark's largest level) have no
+  normalised value (NaN). The thesis divided by any non-zero level, so bins
+  where both payouts were solver noise showed arbitrary ratios.
+* The event density and the tail quantile weight each event row by its
+  ``rate``. For the thesis event set (equal rates) this is the thesis'
+  unweighted KDE; the quantile is the inverse of the weighted empirical CDF
+  rather than numpy's linear interpolation.
+* Axis labels name the index generically ("Index") with its unit from the
+  EventSet metadata, as the core is hazard-agnostic; the thesis wrote "Wind
+  speed".
+"""
+
+from __future__ import annotations
+
+import math
+import re
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Final, cast
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
+from matplotlib.ticker import FuncFormatter, ScalarFormatter
+from numpy.typing import NDArray
+from scipy.stats import gaussian_kde
+
+from parametric_insurance_design_viz import style
+from parametric_insurance_design_viz.errors import (
+    FigureDataError,
+    InconsistentRunsError,
+)
+from parametric_insurance_design_viz.figure_data import MAIN_TABLE, FigureOutput
+from parametric_insurance_design_viz.reader import RunResult
+
+__all__ = [
+    "BENCHMARK_ZERO_RTOL",
+    "DENSITY_POINTS",
+    "MARKER_COLUMNS",
+    "STEP_COLUMNS",
+    "AxisLabels",
+    "normalised_payout",
+    "payout_grid",
+    "payout_steps",
+    "weighted_quantile",
+]
+
+BENCHMARK_ZERO_RTOL: Final[float] = 1e-6
+"""Benchmark levels at most this times its largest level count as zero."""
+
+DENSITY_POINTS: Final[int] = 500
+"""Grid points of the event density (thesis: 500)."""
+
+STEP_COLUMNS: Final[tuple[str, ...]] = (
+    "run_id",
+    "scope",
+    "objective",
+    "problem_id",
+    "entity_id",
+    "location_ids",
+    "param_index",
+    "lower",
+    "upper",
+    "value",
+)
+"""Columns of :func:`payout_steps` and of the grid's figure data."""
+
+MARKER_COLUMNS: Final[tuple[str, ...]] = ("entity_id", "marker", "level", "value")
+"""Columns of the ``markers`` table: vertical reference lines."""
+
+_SHADE_ALPHA: Final[float] = 0.15
+_SCATTER_ALPHA: Final[float] = 0.25
+_SCATTER_SIZE: Final[float] = 8
+_DENSITY_ALPHA: Final[float] = 0.25
+_PANEL_FONT: Final[float] = 9  # thesis _plot_payout_subfigure axis labels
+_LABEL_Y: Final[float] = 0.05  # height of vertical-line labels, axes fraction
+_SCI_OFFSET: Final[re.Pattern[str]] = re.compile(r"1e([+-]?\d+)")
+
+
+@dataclass(frozen=True)
+class AxisLabels:
+    """Axis labels of the payout figures.
+
+    Parameters
+    ----------
+    index_unit : str or None, default None
+        Unit of the index, e.g. ``"m/s"`` (EventSet ``metadata.index.unit``).
+    payout_unit : str or None, default None
+        Unit of losses and payouts, e.g. ``"USD"``.
+    """
+
+    index_unit: str | None = None
+    payout_unit: str | None = None
+
+    @staticmethod
+    def _unit(unit: str | None) -> str:
+        return f" [{unit}]" if unit else ""
+
+    def index(self, *, aggregate: bool) -> str:
+        """Label of the index axis; ``aggregate`` for multi-location entities."""
+        if aggregate:
+            return rf"Aggregate index $x^{{(c)}}${self._unit(self.index_unit)}"
+        return rf"Index $x${self._unit(self.index_unit)}"
+
+    def payout(self) -> str:
+        """Label of the payout axis."""
+        return rf"Payout $Y_{{P}}(x)${self._unit(self.payout_unit)}"
+
+
+# --------------------------------------------------------------------------
+# Data
+# --------------------------------------------------------------------------
+
+
+def _where(frame: pd.DataFrame, mask: object) -> pd.DataFrame:
+    """Return the rows of ``frame`` where ``mask`` is true."""
+    return cast(pd.DataFrame, frame.loc[np.asarray(mask, dtype=bool)])
+
+
+def _scope_runs(runs: Sequence[RunResult]) -> tuple[RunResult, ...]:
+    """Check that runs are complete, share one scope and differ in objective."""
+    runs = tuple(runs)
+    if not runs:
+        raise InconsistentRunsError("a payout figure needs at least one run")
+    for run in runs:
+        run.require_complete()
+    scopes = sorted({r.scope for r in runs})
+    if len(scopes) != 1:
+        raise InconsistentRunsError(
+            f"a payout figure shows one scope, got runs of scopes {scopes}"
+        )
+    objectives = [r.objective for r in runs]
+    if len(set(objectives)) != len(objectives):
+        raise InconsistentRunsError(
+            f"a payout figure shows each objective once, got {objectives}"
+        )
+    members = {r.run_id: _membership(r) for r in runs}
+    first = runs[0]
+    for run in runs[1:]:
+        if members[run.run_id] != members[first.run_id]:
+            raise InconsistentRunsError(
+                f"runs {first.run_id} and {run.run_id} have different entities: "
+                f"{members[first.run_id]} and {members[run.run_id]}"
+            )
+    return runs
+
+
+def _membership(run: RunResult) -> dict[str, tuple[str, ...]]:
+    """Entity id to its locations, from the ``entities`` table."""
+    return {
+        entity.entity_id: entity.location_ids
+        for spec in run.problem_specs()
+        for entity in spec.entities
+    }
+
+
+def _attachment_limit(runs: Sequence[RunResult]) -> tuple[float, float]:
+    """Return the attachment and limit the runs share (``runs.parameters``)."""
+    pairs = {
+        (float(r.parameters["attachment"]), float(r.parameters["limit"])) for r in runs
+    }
+    if len(pairs) != 1:
+        raise InconsistentRunsError(
+            "the runs of one figure must share attachment and limit, got "
+            f"{sorted(pairs)}"
+        )
+    return pairs.pop()
+
+
+def payout_steps(runs: Sequence[RunResult]) -> pd.DataFrame:
+    """Return the fitted step payout functions of runs as one tidy table.
+
+    Parameters
+    ----------
+    runs : sequence of RunResult
+        Complete runs.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns :data:`STEP_COLUMNS`, one row per (run, entity, bin), bins
+        in ``param_index`` order. ``location_ids`` joins the entity's
+        locations with ``";"``.
+
+    Raises
+    ------
+    IncompleteRunError
+        If a run has a failed design problem.
+    InconsistentRunsError
+        If an entity's bins are not contiguous.
+    """
+    frames: list[pd.DataFrame] = []
+    for run in runs:
+        run.require_complete()
+        members = _membership(run)
+        payouts = run.payouts.sort_values(
+            ["problem_id", "entity_id", "param_index"], kind="stable"
+        )
+        frame = payouts.assign(
+            scope=run.scope,
+            objective=run.objective,
+            location_ids=[";".join(members.get(e, ())) for e in payouts["entity_id"]],
+        )
+        frames.append(frame.loc[:, list(STEP_COLUMNS)])
+    if not frames:
+        return pd.DataFrame({c: [] for c in STEP_COLUMNS})
+    steps = pd.concat(frames, ignore_index=True)
+    for key, bins in steps.groupby(["run_id", "entity_id"], sort=False):
+        run_id, entity_id = cast(tuple[str, str], key)
+        lower = bins["lower"].to_numpy()
+        upper = bins["upper"].to_numpy()
+        if not np.allclose(lower[1:], upper[:-1], rtol=0.0, atol=1e-9):
+            raise InconsistentRunsError(
+                f"run {run_id}, entity {entity_id}: payout bins are not contiguous"
+            )
+    return steps
+
+
+def _breakpoints(bins: pd.DataFrame) -> NDArray[np.float64]:
+    """Breakpoints ``b_0 .. b_n`` of one entity's bins (in order)."""
+    lower = bins["lower"].to_numpy(dtype=np.float64)
+    return np.append(lower, float(bins["upper"].iloc[-1]))
+
+
+def weighted_quantile(
+    values: NDArray[np.float64], weights: NDArray[np.float64], level: float
+) -> float:
+    """Return the ``level`` quantile of a weighted sample.
+
+    The smallest value whose cumulative weight share reaches ``level``
+    (inverse of the weighted empirical CDF).
+
+    Parameters
+    ----------
+    values : ndarray of float
+        Sample, finite.
+    weights : ndarray of float
+        Non-negative weights with a positive sum, same shape.
+    level : float
+        In ``[0, 1]``.
+
+    Returns
+    -------
+    float
+        The quantile.
+
+    Raises
+    ------
+    FigureDataError
+        If the sample is empty, the shapes differ, the weights are invalid or
+        ``level`` is outside ``[0, 1]``.
+    """
+    v = np.asarray(values, dtype=np.float64)
+    w = np.asarray(weights, dtype=np.float64)
+    if v.ndim != 1 or v.shape != w.shape or v.size == 0:
+        raise FigureDataError("weighted_quantile needs two equal-length 1-d arrays")
+    if not 0.0 <= level <= 1.0:
+        raise FigureDataError(f"quantile level must be in [0, 1], got {level}")
+    if np.any(w < 0) or not np.all(np.isfinite(w)) or w.sum() <= 0:
+        raise FigureDataError("weights must be finite, >= 0 and not all zero")
+    order = np.argsort(v, kind="stable")
+    share = np.cumsum(w[order]) / w.sum()
+    position = int(np.searchsorted(share, level - 1e-12, side="left"))
+    return float(v[order][min(position, v.size - 1)])
+
+
+def _entity_events(events: pd.DataFrame | None, entity_id: str) -> pd.DataFrame | None:
+    """Return the event rows of one entity, or None without event data."""
+    if events is None:
+        return None
+    rows = _where(events, events["entity_id"] == entity_id)
+    return rows if len(rows) else None
+
+
+# --------------------------------------------------------------------------
+# Drawing helpers
+# --------------------------------------------------------------------------
+
+
+def _default_xlim(attachment: float, limit: float) -> tuple[float, float]:
+    """Thesis axis range: 20 % of the payout range on either side (10 to 80)."""
+    margin = 0.2 * (limit - attachment)
+    return attachment - margin, limit + margin
+
+
+def _step_xy(
+    breakpoints: NDArray[np.float64],
+    levels: NDArray[np.float64],
+    xlim: tuple[float, float],
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Points for ``ax.step(where="post")`` over the whole axis.
+
+    Below the attachment the payout is the first level and above the limit
+    the last one (``StepPayout`` clips the index into the first and last
+    bins), so the steps extend to the axis edges, as in the thesis.
+    """
+    left = min(xlim[0], float(breakpoints[0]))
+    right = max(xlim[1], float(breakpoints[-1]))
+    x = np.concatenate([[left], breakpoints, [right]])
+    y = np.concatenate([[levels[0]], levels, [levels[-1], levels[-1]]])
+    return x, y
+
+
+def _reference_lines(
+    ax: Axes, attachment: float, limit: float, *, fontsize: float
+) -> None:
+    """Dashed attachment and limit lines with rotated labels (thesis).
+
+    Labels sit 5 % above the bottom of the axes (thesis: at 5 % of the upper
+    y limit, which leaves the axes when the y range does not start near 0).
+    """
+    for x, label in ((attachment, r"Attachment $x_-$"), (limit, r"Limit $x^-$")):
+        ax.axvline(x=x, color="grey", linestyle="--", linewidth=1)
+        ax.text(
+            x,
+            _LABEL_Y,
+            label,
+            transform=ax.get_xaxis_transform(),
+            rotation=90,
+            verticalalignment="bottom",
+            horizontalalignment="right",
+            fontsize=fontsize,
+            color="black",
+        )
+
+
+class _SciOffsetFormatter(ScalarFormatter):
+    """Scientific y ticks with a compact offset text such as ``e+07``."""
+
+    def get_offset(self) -> str:
+        """Return ``e+NN`` instead of matplotlib's ``1eN`` multiplier text."""
+        text = super().get_offset()
+        match = _SCI_OFFSET.fullmatch(text)
+        return f"e{int(match.group(1)):+03d}" if match else text
+
+
+def _figure_legend(fig: Figure, handles: list, labels: list[str], *, ncol: int) -> None:
+    """Legend centred below the axes, without a frame (thesis)."""
+    if not handles:
+        return
+    fig.legend(
+        handles,
+        labels,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.0),
+        ncol=max(1, ncol),
+        frameon=False,
+        fontsize=style.FONT.legend_size,
+    )
+
+
+def _entity_title(entity_id: str, locations: tuple[str, ...]) -> str:
+    """Panel title: the entity id, plus its locations if it has several."""
+    if locations == (entity_id,):
+        return entity_id
+    return f"{entity_id}  [{', '.join(locations)}]"
+
+
+# --------------------------------------------------------------------------
+# Figures
+# --------------------------------------------------------------------------
+
+
+def payout_grid(
+    runs: Sequence[RunResult],
+    *,
+    events: pd.DataFrame | None = None,
+    entity_ids: Sequence[str] | None = None,
+    ncols: int = 3,
+    panel_size: tuple[float, float] = (5.0, 4.0),
+    shade_objective: str | None = "weighted_cvar",
+    labels: AxisLabels | None = None,
+    xlim: tuple[float, float] | None = None,
+    name: str | None = None,
+) -> FigureOutput:
+    """Draw the calibrated payout functions of a scope, one panel per entity.
+
+    Thesis ``plot_payout_functions_grid`` (view ``"vanilla"``).
+
+    Parameters
+    ----------
+    runs : sequence of RunResult
+        Complete runs of one scope, one per objective, in legend order.
+    events : pandas.DataFrame, optional
+        :func:`~parametric_insurance_design_viz.reader.entity_events` of the
+        runs; drawn as a grey scatter of index against loss.
+    entity_ids : sequence of str, optional
+        Entities to draw, in panel order. Default: every entity, in the
+        order of the first run's ``entities`` table.
+    ncols : int, default 3
+        Panels per row.
+    panel_size : (float, float), default (5, 4)
+        Width and height of one panel in inches.
+    shade_objective : str or None, default "weighted_cvar"
+        Objective whose payout function is shaded underneath.
+    labels : AxisLabels, optional
+        Axis labels (units). Default: no units.
+    xlim : (float, float), optional
+        Index axis range. Default: 20 % of the payout range on either side
+        of attachment and limit (the thesis 10 to 80 for 20 and 70).
+    name : str, optional
+        Figure name. Default ``"payout_grid_<scope>"``.
+
+    Returns
+    -------
+    FigureOutput
+        The figure, its steps (main table, :data:`STEP_COLUMNS`), the
+        ``markers`` table (attachment and limit) and, with ``events``, the
+        ``events`` table it scatters.
+
+    Raises
+    ------
+    IncompleteRunError
+        If a run has a failed design problem.
+    InconsistentRunsError
+        If the runs mix scopes, repeat an objective, differ in entities,
+        attachment or limit, or an entity is unknown.
+    """
+    runs = _scope_runs(runs)
+    labels = labels or AxisLabels()
+    attachment, limit = _attachment_limit(runs)
+    xlim = xlim or _default_xlim(attachment, limit)
+    members = _membership(runs[0])
+    order = runs[0].entity_order()
+    if entity_ids is None:
+        entity_ids = order
+    unknown = [e for e in entity_ids if e not in members]
+    if unknown or not entity_ids:
+        raise InconsistentRunsError(
+            f"entities {unknown or '(none)'} are not entities of the runs ({order})"
+        )
+    entity_ids = tuple(entity_ids)
+    steps = payout_steps(runs)
+    steps = _where(steps, steps["entity_id"].isin(entity_ids)).reset_index(drop=True)
+    scope = runs[0].scope
+    ncols = max(1, min(ncols, len(entity_ids)))
+    nrows = math.ceil(len(entity_ids) / ncols)
+
+    with style.style():
+        fig, axes = plt.subplots(
+            nrows=nrows,
+            ncols=ncols,
+            figsize=(panel_size[0] * ncols, panel_size[1] * nrows),
+            squeeze=False,
+        )
+        for i, entity_id in enumerate(entity_ids):
+            ax = axes[divmod(i, ncols)]
+            aggregate = len(members[entity_id]) > 1
+            rows = _entity_events(events, entity_id)
+            if rows is not None:
+                ax.scatter(
+                    rows["index"],
+                    rows["loss"],
+                    alpha=_SCATTER_ALPHA,
+                    color=style.EVENT_COLOR,
+                    s=_SCATTER_SIZE,
+                    label=(
+                        "Underlying cluster event data"
+                        if aggregate
+                        else "Underlying event data"
+                    ),
+                    rasterized=True,
+                )
+            for run in runs:
+                bins = _where(
+                    steps,
+                    (steps["run_id"] == run.run_id) & (steps["entity_id"] == entity_id),
+                )
+                x, y = _step_xy(
+                    _breakpoints(bins), bins["value"].to_numpy(dtype=np.float64), xlim
+                )
+                color = style.objective_color(run.objective)
+                ax.step(
+                    x,
+                    y,
+                    where="post",
+                    color=color,
+                    linewidth=2,
+                    label=style.objective_label(run.objective),
+                    zorder=2,
+                )
+                if run.objective == shade_objective:
+                    ax.fill_between(
+                        x,
+                        y,
+                        step="post",
+                        color=color,
+                        alpha=_SHADE_ALPHA,
+                        linewidth=0,
+                        zorder=1.5,
+                    )
+            _reference_lines(ax, attachment, limit, fontsize=10)
+            ax.set_xlim(*xlim)
+            ax.set_title(
+                _entity_title(entity_id, members[entity_id]),
+                fontsize=style.FONT.label_size,
+            )
+            ax.set_xlabel(labels.index(aggregate=aggregate), fontsize=_PANEL_FONT)
+            ax.set_ylabel(labels.payout(), fontsize=_PANEL_FONT)
+            formatter = _SciOffsetFormatter(useMathText=False)
+            formatter.set_scientific(True)
+            formatter.set_powerlimits((0, 0))
+            ax.yaxis.set_major_formatter(formatter)
+            ax.yaxis.get_offset_text().set_fontsize(style.FONT.tick_size)
+        for j in range(len(entity_ids), nrows * ncols):
+            axes[divmod(j, ncols)].set_axis_off()
+        fig.tight_layout()
+        handles, legend_labels = axes[0, 0].get_legend_handles_labels()
+        _figure_legend(fig, handles, legend_labels, ncol=len(handles))
+
+    markers = pd.DataFrame(
+        [
+            {"entity_id": e, "marker": m, "level": None, "value": v}
+            for e in entity_ids
+            for m, v in (("attachment", attachment), ("limit", limit))
+        ],
+        columns=list(MARKER_COLUMNS),
+    )
+    data: dict[str, pd.DataFrame] = {MAIN_TABLE: steps, "markers": markers}
+    if events is not None:
+        data["events"] = _where(
+            events, events["entity_id"].isin(entity_ids)
+        ).reset_index(drop=True)
+    return FigureOutput(name=name or f"payout_grid_{scope}", figure=fig, data=data)
+
+
+def _normalised_levels(
+    breakpoints: NDArray[np.float64],
+    levels: NDArray[np.float64],
+    bench_breakpoints: NDArray[np.float64],
+    bench_levels: NDArray[np.float64],
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Benchmark level at each bin midpoint, and the level relative to it in %.
+
+    The benchmark bin of a midpoint is found as in the thesis
+    (``searchsorted`` on the benchmark breakpoints, clipped). Benchmark
+    levels that are zero to solver precision give NaN.
+    """
+    mid = 0.5 * (breakpoints[:-1] + breakpoints[1:])
+    k = np.searchsorted(bench_breakpoints, mid, side="right") - 1
+    k = np.clip(k, 0, bench_levels.size - 1)
+    bench = bench_levels[k]
+    scale = float(np.max(np.abs(bench_levels))) if bench_levels.size else 0.0
+    zero = np.abs(bench) <= BENCHMARK_ZERO_RTOL * scale
+    with np.errstate(divide="ignore", invalid="ignore"):
+        relative = np.where(zero, np.nan, levels / np.where(zero, 1.0, bench) * 100.0)
+    return bench, relative
+
+
+def _density(
+    rows: pd.DataFrame | None,
+) -> pd.DataFrame:
+    """Rate-weighted Gaussian KDE of an entity's index on a grid.
+
+    Empty if there are fewer than two distinct index values (the KDE is
+    undefined there).
+    """
+    columns = {"index": [], "density": []}
+    if rows is None:
+        return pd.DataFrame(columns)
+    x = rows["index"].to_numpy(dtype=np.float64)
+    w = rows["rate"].to_numpy(dtype=np.float64)
+    keep = np.isfinite(x) & (w > 0)
+    x, w = x[keep], w[keep]
+    if np.unique(x).size < 2:
+        return pd.DataFrame(columns)
+    kde = gaussian_kde(x, weights=w)
+    grid = np.linspace(x.min(), x.max(), DENSITY_POINTS)
+    return pd.DataFrame({"index": grid, "density": kde(grid)})
+
+
+def normalised_payout(
+    runs: Sequence[RunResult],
+    entity_id: str,
+    *,
+    events: pd.DataFrame | None = None,
+    benchmark: str = style.BENCHMARK_OBJECTIVE,
+    tail_level: float | None = None,
+    figsize: tuple[float, float] = (8.0, 6.0),
+    labels: AxisLabels | None = None,
+    xlim: tuple[float, float] | None = None,
+    name: str | None = None,
+) -> FigureOutput:
+    """Draw one entity's payout per bin relative to the benchmark objective.
+
+    Thesis ``plot_normalized_payout_functions``: each objective's level in a
+    bin divided by the benchmark's level in the same bin, in percent, so the
+    benchmark is the flat 100 % line. With ``events``, the entity's event
+    density is drawn on a second axis and its ``tail_level`` quantile is
+    marked.
+
+    Parameters
+    ----------
+    runs : sequence of RunResult
+        Complete runs of one scope, one per objective, including the
+        benchmark; in legend order.
+    entity_id : str
+        The entity, e.g. ``"A1"`` or ``"C1"``.
+    events : pandas.DataFrame, optional
+        :func:`~parametric_insurance_design_viz.reader.entity_events` of the
+        runs.
+    benchmark : str, default "mse"
+        Objective to normalise by (thesis: the residual loss objective).
+    tail_level : float, optional
+        Level of the marked index quantile. Default: the runs'
+        ``evaluation_beta`` parameter (thesis ``BENCHMARK_BETA``).
+    figsize : (float, float), default (8, 6)
+        Figure size in inches.
+    labels : AxisLabels, optional
+        Axis labels (units). Default: no units.
+    xlim : (float, float), optional
+        Index axis range; default as :func:`payout_grid`.
+    name : str, optional
+        Figure name. Default ``"normalised_payout_<scope>_<entity>"``
+        (lowercase).
+
+    Returns
+    -------
+    FigureOutput
+        The figure; its main table (:data:`STEP_COLUMNS` plus
+        ``benchmark_value`` and ``relative_pct``), ``density`` (index,
+        density; empty without events) and ``markers`` (attachment, limit
+        and, with events, the tail quantile).
+
+    Raises
+    ------
+    IncompleteRunError
+        If a run has a failed design problem.
+    InconsistentRunsError
+        If the runs are inconsistent (:func:`payout_grid`), the benchmark
+        objective is missing or the entity is unknown.
+    """
+    runs = _scope_runs(runs)
+    labels = labels or AxisLabels()
+    by_objective = {r.objective: r for r in runs}
+    if benchmark not in by_objective:
+        raise InconsistentRunsError(
+            f"normalising needs a run of the benchmark objective {benchmark!r}; "
+            f"got {sorted(by_objective)}"
+        )
+    members = _membership(runs[0])
+    if entity_id not in members:
+        raise InconsistentRunsError(
+            f"{entity_id!r} is not an entity of the runs ({runs[0].entity_order()})"
+        )
+    attachment, limit = _attachment_limit(runs)
+    xlim = xlim or _default_xlim(attachment, limit)
+    if tail_level is None:
+        levels = {float(r.parameters["evaluation_beta"]) for r in runs}
+        if len(levels) != 1:
+            raise InconsistentRunsError(
+                f"the runs differ in evaluation_beta {sorted(levels)}; pass tail_level"
+            )
+        tail_level = levels.pop()
+    steps = payout_steps(runs)
+    steps = _where(steps, steps["entity_id"] == entity_id).reset_index(drop=True)
+    bench_bins = _where(steps, steps["run_id"] == by_objective[benchmark].run_id)
+    bench_bp = _breakpoints(bench_bins)
+    bench_levels = bench_bins["value"].to_numpy(dtype=np.float64)
+    rows = _entity_events(events, entity_id)
+    aggregate = len(members[entity_id]) > 1
+    tables: list[pd.DataFrame] = []
+
+    with style.style():
+        fig, ax = plt.subplots(figsize=figsize)
+        density = _density(rows)
+        ax2 = ax.twinx()
+        if len(density):
+            ax2.fill_between(
+                density["index"],
+                density["density"],
+                alpha=_DENSITY_ALPHA,
+                color=style.EVENT_COLOR,
+                label="Event density",
+            )
+            ax2.plot(
+                density["index"],
+                density["density"],
+                color=style.EVENT_COLOR,
+                alpha=_DENSITY_ALPHA,
+                linewidth=1,
+            )
+        ax2.set_ylabel("Density", fontsize=style.FONT.label_size)
+        ax2.set_ylim(bottom=0)
+        ax2.set_zorder(ax.get_zorder() - 1)
+        ax.patch.set_visible(False)
+
+        for run in runs:
+            bins = _where(steps, steps["run_id"] == run.run_id)
+            bp = _breakpoints(bins)
+            bench, relative = _normalised_levels(
+                bp, bins["value"].to_numpy(dtype=np.float64), bench_bp, bench_levels
+            )
+            tables.append(bins.assign(benchmark_value=bench, relative_pct=relative))
+            ax.step(
+                bp,
+                np.append(relative, relative[-1]),
+                where="post",
+                color=style.objective_color(run.objective),
+                linewidth=1.5,
+                label=style.objective_label(run.objective),
+                zorder=2,
+            )
+        _reference_lines(ax, attachment, limit, fontsize=style.FONT.tick_size)
+        marker_rows = [
+            {
+                "entity_id": entity_id,
+                "marker": "attachment",
+                "level": None,
+                "value": attachment,
+            },
+            {"entity_id": entity_id, "marker": "limit", "level": None, "value": limit},
+        ]
+        if rows is not None:
+            quantile = weighted_quantile(
+                rows["index"].to_numpy(dtype=np.float64),
+                rows["rate"].to_numpy(dtype=np.float64),
+                tail_level,
+            )
+            marker_rows.append(
+                {
+                    "entity_id": entity_id,
+                    "marker": "tail_quantile",
+                    "level": tail_level,
+                    "value": quantile,
+                }
+            )
+            ax.axvline(x=quantile, color="black", linestyle="--", linewidth=1)
+            ax.text(
+                quantile,
+                _LABEL_Y,
+                f"{round(tail_level * 100):d}% Quantile",
+                transform=ax.get_xaxis_transform(),
+                rotation=90,
+                verticalalignment="bottom",
+                horizontalalignment="right",
+                fontsize=style.FONT.tick_size,
+                color="black",
+            )
+        ax.set_xlim(*xlim)
+        ax.set_xlabel(labels.index(aggregate=aggregate))
+        ax.set_ylabel(r"Payout $Y_P(x)$ relative to benchmark [%]")
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0f}%"))
+        fig.tight_layout()
+        handles, legend_labels = ax.get_legend_handles_labels()
+        h2, l2 = ax2.get_legend_handles_labels()
+        _figure_legend(fig, handles + h2, legend_labels + l2, ncol=3)
+
+    main = pd.concat(tables, ignore_index=True)
+    markers = pd.DataFrame(marker_rows, columns=list(MARKER_COLUMNS))
+    scope = runs[0].scope
+    return FigureOutput(
+        name=name or f"normalised_payout_{scope}_{entity_id}".lower(),
+        figure=fig,
+        data={MAIN_TABLE: main, "density": density, "markers": markers},
+    )

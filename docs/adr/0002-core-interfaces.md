@@ -195,6 +195,20 @@ One owner issue per file. Other issues may import a module but never edit it. A 
 | `pyproject.toml`, `uv.lock` (core and root) | Shared, append-only | An issue may add its own dependency or entry-point lines, with a one-line justification in its PR; never edit another issue's lines. On conflict: rebase on `main` and run `uv lock`. A change to the core's dependencies (`packages/core/pyproject.toml`) must also run `pixi lock` in `packages/climada` and commit `packages/climada/pixi.lock`, because the climada CI job installs with `--locked` and fails on a stale lock (MAR-71, PR #28). Examples: scipy (MAR-12/MAR-24), pydantic (MAR-63), the CLI entry point (MAR-66), hypothesis (MAR-15, root dev group) |
 | `parity/BENCHMARK.md` | MAR-14 | Solve-time baseline |
 
+The viz package (`packages/viz/`, MAR-21 / F-08) follows the same rule. Viz modules read the result store and never import the solver, the problem builder, the runner, the sweeps or an adapter (SPEC §3.1 C6, ADR 0001; checked by `tests/test_imports.py`).
+
+| File | Owner | Notes |
+|---|---|---|
+| `packages/viz/src/.../__init__.py`, `errors.py`, `style.py`, `reader.py`, `figure_data.py` | MAR-110 | Foundation: shared style (thesis `global_settings`), result-store reader, figure-data CSV writer, typed errors. Later sub-issues import them; a change goes through a follow-up |
+| `packages/viz/src/.../payout_functions.py` | MAR-110 | Payout-function grid and normalised payout figure |
+| `packages/viz/src/.../command.py` | MAR-110 → **MAR-111**, **MAR-112** | The `figures` figure set. MAR-111 and MAR-112 only append their builder to `FIGURE_SETS` (append-only); on conflict, rebase on `main` |
+| `packages/viz/src/.../kpi_figures.py` (new, not created yet) | MAR-111 | KPI heatmaps, performance overview, exceedance curves |
+| `packages/viz/src/.../sweep_figures.py` (new, not created yet) | MAR-112 | Sweep plots, premium reallocation, tail-vs-total trade-off, cluster net advantage |
+| `packages/viz/tests/conftest.py`, `tests/test_<module>.py` | The module's owner (MAR-110 for `conftest.py` and the foundation) | Others may use the `toy` and `failed` fixture stores but add their own fixtures in their test files |
+| `packages/viz/pyproject.toml` | Shared, append-only | As the core's: MAR-110 added matplotlib, numpy, pandas, scipy |
+| `packages/core/src/.../cli.py`, the `figures` subcommand only | MAR-110 | Imports `parametric_insurance_design_viz.command` lazily (`VizNotInstalledError` without it); the core never depends on viz. The rest of `cli.py` stays MAR-66's |
+| `packages/core/tests/test_cli_figures.py` | MAR-110 | |
+
 **Parallel dispatch.** MAR-10, MAR-11, MAR-12, MAR-13, MAR-14 and MAR-16 own disjoint files and can be built at the same time. Each one tests against the contracts with small test doubles, as the walking skeleton does. The acceptance tests that need several real components (MAR-14: all nine combinations solve on the fixture; MAR-16: KPIs match the thesis on the fixture) also need MAR-11, MAR-12 and MAR-13 merged, plus the MAR-9 fixture.
 
 ### 11. How the contracts fit the planned work
