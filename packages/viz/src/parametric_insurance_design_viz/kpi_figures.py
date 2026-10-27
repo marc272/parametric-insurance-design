@@ -958,7 +958,8 @@ def exceedance_curves(
     For the uncovered loss on the ``event`` or ``aep`` curve, the
     portfolio ``var_uncovered`` KPI at ``beta`` is the same quantile at
     ``1 / (1 - beta)``; it is added as that curve point (``source =
-    "kpis"``) when the store has no point there.
+    "kpis"``) when that return period lies inside the stored range but is
+    not one of the stored points.
 
     Parameters
     ----------
@@ -1023,7 +1024,7 @@ def exceedance_curves(
     add_var = (
         quantity == CurveQuantity.UNCOVERED.value
         and kind in {CurveKind.EVENT.value, CurveKind.AEP.value}
-        and np.isfinite(var_period)
+        and bool(stored[0] < var_period < stored[-1])  # inside the stored range
         and not np.any(np.isclose(stored, var_period))
     )
     if add_var:

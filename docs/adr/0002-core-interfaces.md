@@ -203,7 +203,7 @@ The viz package (`packages/viz/`, MAR-21 / F-08) follows the same rule. Viz modu
 | `packages/viz/src/.../__init__.py`, `errors.py`, `style.py`, `reader.py`, `figure_data.py` | MAR-110 | Foundation: shared style (thesis `global_settings`), result-store reader, figure-data CSV writer, typed errors. Later sub-issues import them; a change goes through a follow-up |
 | `packages/viz/src/.../payout_functions.py` | MAR-110 | Payout-function grid and normalised payout figure |
 | `packages/viz/src/.../command.py` | MAR-110 → **MAR-111**, **MAR-112** | The `figures` figure set. MAR-111 and MAR-112 only append their builder to `FIGURE_SETS` (append-only); on conflict, rebase on `main` |
-| `packages/viz/src/.../kpi_figures.py` (new, not created yet) | MAR-111 | KPI heatmaps, performance overview, exceedance curves |
+| `packages/viz/src/.../kpi_figures.py` | MAR-111 | KPI heatmaps (`kpi_heatmap`), performance overview (`performance_overview`, thesis Fig 5.5) and exceedance curves (`exceedance_curves`, Fig 5.6), plus `kpi_table` and the `kpi_figures` builder in `FIGURE_SETS`. Reads only the `kpis` and `exceedance` tables; never re-evaluates payouts |
 | `packages/viz/src/.../sweep_figures.py` (new, not created yet) | MAR-112 | Sweep plots, premium reallocation, tail-vs-total trade-off, cluster net advantage |
 | `packages/viz/tests/conftest.py`, `tests/test_<module>.py` | The module's owner (MAR-110 for `conftest.py` and the foundation) | Others may use the `toy` and `failed` fixture stores but add their own fixtures in their test files |
 | `packages/viz/pyproject.toml` | Shared, append-only | As the core's: MAR-110 added matplotlib, numpy, pandas, scipy |

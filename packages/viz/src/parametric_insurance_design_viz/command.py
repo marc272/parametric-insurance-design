@@ -20,6 +20,9 @@ Figure                                   Thesis
                                          (portfolio), 5.4 (cluster)
 ``normalised_payout_<scope>_<entity>``   Figure 5.2 (individual, A1), A.1
                                          (portfolio, A1), A.2 (cluster, C1)
+``kpi_heatmap_<kpi>``                    Notebook heatmaps (MAR-111)
+``performance_overview``                 Figure 5.5 (MAR-111)
+``exceedance_<scope>``                   Figure 5.6 (portfolio; MAR-111)
 =======================================  ====================================
 
 ``<scope>`` is the scope name, with ``_2``, ``_3``, ... appended when a
