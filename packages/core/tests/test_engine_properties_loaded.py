@@ -16,7 +16,13 @@ components and tolerances it reuses through the public engine API
 * Scaling invariance: losses times ``c`` give ``theta`` and the loaded
   premium times ``c``.
 
-Every example uses the ``event_conditional`` basis, as the MAR-15 tests do.
+These use the ``event_conditional`` basis, as the MAR-15 tests do. On the
+``annual`` and ``event`` bases (MAR-24), with the EventSets and the
+independent numpy outcome measure of ``test_engine_properties_bases.py``:
+``r = 0`` equals ``PurePremium`` again, and the loaded premium is priced over
+the basis's outcomes (years on ``annual``): ``SolveResult.premium`` equals
+the numpy premium, the budget holds under it, and the optimum is no worse
+than no cover.
 """
 
 from __future__ import annotations
@@ -58,6 +64,9 @@ from .test_engine_properties import (
     step_payouts,
     with_scaled_losses,
 )
+from .test_engine_properties_bases import Layout, layouts, numpy_measure
+from .test_engine_properties_bases import make_eventset as make_layout_eventset
+from .test_engine_properties_bases import objective_value as basis_objective_value
 
 
 def loaded_pricings() -> st.SearchStrategy[CostOfCapitalLoad]:
@@ -282,3 +291,150 @@ def test_scaling_losses_scales_the_loaded_design(
         np.testing.assert_allclose(b.payout, factor * a.payout, atol=tol)
         assert b.result.premium == pytest.approx(factor * a.result.premium, abs=tol)
         assert b.loaded(pricing) == pytest.approx(factor * a.loaded(pricing), abs=tol)
+
+
+# --- The annual and event bases (MAR-24) --------------------------------------
+
+
+@dataclass(frozen=True)
+class SolvedOnBasis:
+    """One solved design problem with the numpy outcome measure of MAR-24's
+    sibling tests (every (year, draw) slot on ``annual``; rows plus "no
+    event" on ``event``)."""
+
+    result: SolveResult
+    problem: DesignProblem
+    grouping: NDArray[np.float64]
+    probability: NDArray[np.float64]
+
+    @property
+    def payout(self) -> NDArray[np.float64]:
+        """Objective-level payout per row of the fitted ``theta``."""
+        entity = self.result.payout_structure.evaluate(
+            self.problem.index, self.result.theta
+        )
+        return entity.sum(axis=1)
+
+    def loaded(self, pricing: CostOfCapitalLoad) -> float:
+        """Loaded premium over outcomes (e.g. years), in numpy."""
+        outcome_payout = self.grouping @ self.payout
+        expected = float(self.probability @ outcome_payout)
+        _, cvar = var_cvar(outcome_payout, self.probability, pricing.q)
+        return (1.0 - pricing.rate) * expected + pricing.rate * cvar
+
+    @property
+    def tol(self) -> float:
+        return solver_tol(self.result.solver) * self.result.scale
+
+
+def design_on_basis(
+    eventset: EventSet,
+    basis: Basis,
+    scope: Scope,
+    payout: StepPayout,
+    objective: Objective,
+    pricing: Pricing,
+    constraints: Sequence[Constraint] = (),
+) -> list[SolvedOnBasis]:
+    """Build and solve every design problem on ``basis``."""
+    built = build_problems(
+        eventset, scope, payout, objective, pricing, constraints, basis=basis
+    )
+    grouping, probability = numpy_measure(eventset, basis)
+    return [
+        SolvedOnBasis(
+            result,
+            scope.materialise(eventset, result.spec),
+            grouping,
+            probability,
+        )
+        for result in (solve(problem) for problem in built)
+    ]
+
+
+@given(
+    layout=layouts(),
+    basis=st.sampled_from([Basis.ANNUAL, Basis.EVENT]),
+    scope=scopes(),
+    payout=step_payouts(),
+    objective=objectives(),
+    budget=budgets(),
+    q=st.sampled_from([0.5, 0.99]),
+)
+@settings(PROPERTY_SETTINGS, max_examples=30)
+def test_rate_zero_equals_pure_premium_on_annual_and_event_bases(
+    layout: Layout,
+    basis: Basis,
+    scope: Scope,
+    payout: StepPayout,
+    objective: Objective,
+    budget: Budget | None,
+    q: float,
+) -> None:
+    """r = 0: the same theta and premium as PurePremium on every basis."""
+    eventset = make_layout_eventset(layout)
+    constraints = () if budget is None else (budget,)
+    zero = design_on_basis(
+        eventset,
+        basis,
+        scope,
+        payout,
+        objective,
+        CostOfCapitalLoad(0.0, q),
+        constraints,
+    )
+    pure = design_on_basis(
+        eventset, basis, scope, payout, objective, PurePremium(), constraints
+    )
+    for a, b in zip(zero, pure, strict=True):
+        np.testing.assert_array_equal(a.result.theta, b.result.theta)
+        assert a.result.premium == b.result.premium
+
+
+@given(
+    layout=layouts(),
+    basis=st.sampled_from([Basis.ANNUAL, Basis.EVENT]),
+    scope=scopes(),
+    payout=step_payouts(),
+    objective=objectives(),
+    pricing=loaded_pricings(),
+    budget=budgets(),
+)
+@settings(PROPERTY_SETTINGS, max_examples=80)
+def test_loaded_premium_on_annual_and_event_bases(
+    layout: Layout,
+    basis: Basis,
+    scope: Scope,
+    payout: StepPayout,
+    objective: Objective,
+    pricing: CostOfCapitalLoad,
+    budget: Budget | None,
+) -> None:
+    """The loaded premium is priced over the basis's outcomes (years on
+    ``annual``): ``SolveResult.premium`` equals the numpy premium over
+    outcomes, it is at least the pure premium, the budget holds under it,
+    and the objective is no worse than without cover."""
+    eventset = make_layout_eventset(layout)
+    constraints = () if budget is None else (budget,)
+    for s in design_on_basis(
+        eventset, basis, scope, payout, objective, pricing, constraints
+    ):
+        tol = s.tol
+        premium = s.loaded(pricing)
+        assert s.result.premium == pytest.approx(premium, abs=tol)
+        pure = float(s.probability @ (s.grouping @ s.payout))
+        assert premium >= pure - tol
+        expected_loss = float(s.probability @ (s.grouping @ s.problem.loss))
+        if budget is not None:
+            assert premium <= budget.loading * expected_loss + tol
+        loss = s.problem.loss
+        value = basis_objective_value(
+            objective, loss, s.payout, s.grouping, s.probability
+        )
+        no_cover = basis_objective_value(
+            objective, loss, np.zeros_like(loss), s.grouping, s.probability
+        )
+        homogeneity = 2 if isinstance(objective, MSE) else 1
+        objective_tol = solver_tol(s.result.solver) * s.result.scale**homogeneity
+        assert s.result.objective_value == pytest.approx(value, abs=objective_tol)
+        assert value <= no_cover + objective_tol

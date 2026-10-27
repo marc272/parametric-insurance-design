@@ -157,6 +157,7 @@ def test_loaded_premium_is_convex_without_own_constraints() -> None:
 
 
 def test_loaded_premium_aggregates_rows_into_outcomes() -> None:
+    # Real annual measure (MAR-24): years {0, 1}, {2}, {3} and an empty year.
     # Outcome payouts (1 + 1, 1, 4, 0), probability 1/4 each: E = 7/4 and
     # CVaR_0.5 = (4 + 2) / 2 = 3.
     measure = grouped_measure()

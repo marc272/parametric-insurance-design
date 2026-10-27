@@ -99,27 +99,35 @@ def premium_kpi(table: pd.DataFrame, level: KpiLevel, subject_id: str) -> float:
 
 
 def run_kpis(
-    eventset: EventSet, pricing: Pricing, *, individual: bool = True
+    eventset: EventSet,
+    pricing: Pricing,
+    *,
+    individual: bool = True,
+    basis: Basis = Basis.EVENT_CONDITIONAL,
 ) -> pd.DataFrame:
     return kpis(
         eventset,
         Individual() if individual else Portfolio(),
         individual_results() if individual else portfolio_results(),
-        basis=Basis.EVENT_CONDITIONAL,
+        basis=basis,
         beta=0.5,
         run_id="r",
         pricing=pricing,
     )
 
 
+# The toy EventSet has one event in each of its 3 years, all rates 1/3, so the
+# three bases give the same outcomes, each with probability 1/3 (``P``): on
+# ``annual`` an outcome is a year, on ``event`` the "no event" mass is 0.
+@pytest.mark.parametrize("basis", [Basis.EVENT_CONDITIONAL, Basis.ANNUAL, Basis.EVENT])
 @pytest.mark.parametrize(("rate", "q"), [(0.1, 0.5), (0.5, 0.6), (1.0, 0.5)])
 def test_portfolio_premium_is_the_load_on_the_aggregate_payout(
-    crossed_eventset: EventSet, rate: float, q: float
+    crossed_eventset: EventSet, rate: float, q: float, basis: Basis
 ) -> None:
     pay = location_payouts(crossed_eventset)
     # The tails do not coincide: A pays most in ev3, B in ev1.
     assert int(np.argmax(pay["A"])) != int(np.argmax(pay["B"]))
-    table = run_kpis(crossed_eventset, CostOfCapitalLoad(rate=rate, q=q))
+    table = run_kpis(crossed_eventset, CostOfCapitalLoad(rate=rate, q=q), basis=basis)
     problem_a = premium_kpi(table, KpiLevel.PROBLEM, "A")
     problem_b = premium_kpi(table, KpiLevel.PROBLEM, "B")
     portfolio = premium_kpi(table, KpiLevel.PORTFOLIO, "portfolio")
