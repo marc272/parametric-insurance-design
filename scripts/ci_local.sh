@@ -11,7 +11,8 @@
 #   scripts/ci_local.sh --list           # list the jobs
 #
 # Jobs (default: all, in this order):
-#   lint                     ruff check, ruff format --check, pyright, pre-commit
+#   lint                     ruff check, import-boundary negative test,
+#                            ruff format --check, pyright, pre-commit
 #   workspace-3.12           core (coverage >= 85 %), viz + crc, parity tests
 #   workspace-3.13           the same on Python 3.13
 #   core-3.11-highest        core alone on 3.11, newest dependencies
@@ -118,6 +119,7 @@ run_job() {
 job_lint() {
   uv sync --locked
   uv run --locked ruff check
+  uv run --locked scripts/check_import_boundaries.sh
   uv run --locked ruff format --check
   uv run --locked pyright
   uv run --locked pre-commit run --all-files --show-diff-on-failure

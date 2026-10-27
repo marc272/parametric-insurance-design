@@ -36,6 +36,10 @@ jobs:
         run: uv sync --locked
       - name: ruff check
         run: uv run --locked ruff check --output-format=github
+      # ruff check above enforces the package import boundaries (TID251 in the
+      # packages' pyproject.toml, MAR-76); this proves the bans still fire.
+      - name: import boundaries (negative test)
+        run: uv run --locked scripts/check_import_boundaries.sh
       - name: ruff format
         run: uv run --locked ruff format --check
       - name: pyright

@@ -33,6 +33,25 @@ Repository = "https://github.com/marc272/parametric-insurance-design"
 [project.scripts]
 parametric-insurance-design = "parametric_insurance_design.cli:main"
 
+# --- ruff: import boundaries (ADR 0001, AGENTS.md "Hard boundaries") --------
+# This [tool.ruff] table makes ruff use this file, which extends the root
+# config, for every file under packages/core/ (src and tests). TID251 bans any
+# static import, at any scope, of the packages below. The figures command's
+# lazy importlib.import_module of the viz command (cli.py, MAR-110) names the
+# module in a string, which ruff does not see: it is the one sanctioned route
+# from the core to viz. scripts/check_import_boundaries.sh proves the bans
+# fire (MAR-76).
+[tool.ruff]
+extend = "../../pyproject.toml"
+
+[tool.ruff.lint]
+extend-select = ["TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"parametric_insurance_design_viz".msg = "core never imports viz statically; only cli._import_viz reaches it, via importlib (MAR-76, MAR-110)"
+"parametric_insurance_design_crc".msg = "core never imports the AGPL CRC adapter (ADR 0001, MAR-76)"
+"parametric_insurance_design_climada".msg = "core never imports the GPL CLIMADA adapter (ADR 0001, MAR-76)"
+
 [build-system]
 requires = ["uv_build>=0.13.5,<0.14"]
 build-backend = "uv_build"

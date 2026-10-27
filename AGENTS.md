@@ -17,6 +17,8 @@ This repository is built by several worker agents coordinated by an orchestrator
   - `core` and `viz` never import an adapter;
   - the CLIMADA stream never touches CRC/VELO code or data;
   - every package keeps its licence (ADR 0001).
+
+  CI enforces the import rules (MAR-76): `parametric_insurance_design` (core) and `parametric_insurance_design_viz` never import `parametric_insurance_design_crc` or `parametric_insurance_design_climada`; `parametric_insurance_design_climada` never imports `parametric_insurance_design_crc`; core never imports viz, except the lazy `importlib` call in `cli.py`'s `figures` command (MAR-110). The bans are ruff `TID251` (banned-api) in the `[tool.ruff]` table of `packages/core`, `packages/viz` and `packages/climada/pyproject.toml`, applied by `ruff check` in the `lint` job to src, tests and scripts. `scripts/check_import_boundaries.sh`, in the same job, proves they fire.
 - **Current plan and status:** in Linear, at the [Program hub](https://linear.app/marc-prinzing/project/program-hub-1b757250497c). Your issue says why your piece matters. If it doesn't, ask.
 
 ## Sources of truth, in order

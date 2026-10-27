@@ -33,6 +33,22 @@ testpaths = ["tests"]
 addopts = ["-ra", "--import-mode=importlib"]
 strict = true
 
+# --- ruff: import boundaries (AGENTS.md "Hard boundaries") ------------------
+# This [tool.ruff] table makes ruff use this file, which extends the root
+# config, for every file under packages/climada/ (src, tests and scripts).
+# TID251 bans any static import, at any scope, of the package below. This
+# package is not a uv member, but the root `ruff check` (CI job lint, and
+# scripts/ci_local.sh lint) lints it with this config.
+# scripts/check_import_boundaries.sh proves the ban fires (MAR-76).
+[tool.ruff]
+extend = "../../pyproject.toml"
+
+[tool.ruff.lint]
+extend-select = ["TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"parametric_insurance_design_crc".msg = "the CLIMADA stream is CRC-free: never import the CRC adapter (AGENTS.md, MAR-76)"
+
 [build-system]
 requires = ["uv_build>=0.13.5,<0.14"]
 build-backend = "uv_build"
