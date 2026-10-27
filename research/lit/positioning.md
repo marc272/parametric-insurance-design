@@ -14,6 +14,7 @@
   - Fan, Tan & Zhang (2023) already use CVaR and VaR as the design objective, for one regional contract, solved by random search.
   - Steinmann et al. (2023) choose one product, the same for every site, by an RMSE grid search.
   - Gao, Yang & Liu (2026) measure diversification across independent fixed contracts but do not optimise payouts.
+  - The CLIMADA Petals `cat_bonds` module (2026; Bergmüller et al., 2026) gives each subarea of one sovereign issuer its own linear payout. It fits each payout separately by squared error (COBYLA), then sums and caps them. Countries are pooled by a genetic algorithm on an ES-based concentration ratio.
 - *Why it is new:* none of these sources calibrates distinct per-asset payouts jointly against an owner's aggregate tail shortfall.
 - *Why the claim does not rest on the taxonomy cell:* the thesis places its novelty in the "asymmetric measure × tail aggregator" cell of its taxonomy. That cell does not carry a claim on its own:
   - O1 (`notes.md`) shows that CVaR_β((L−π)⁺) = CVaR_β(L−π) whenever the β-quantile of L−π is non-negative.
