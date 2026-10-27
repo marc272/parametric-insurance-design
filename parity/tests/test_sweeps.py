@@ -177,6 +177,58 @@ def test_cli_rejects_bad_sweep_arguments() -> None:
         rdp.main(["--sweep", "gamma"])
 
 
+@pytest.mark.parametrize("jobs", ["0", "-2", "two"])
+def test_cli_rejects_bad_jobs(jobs: str) -> None:
+    with pytest.raises(SystemExit):
+        rdp.main(["--jobs", jobs])
+
+
+class _Stop(Exception):
+    """Raised by a stub to end :func:`rdp.main` once the call is seen."""
+
+
+def test_cli_passes_jobs_to_the_sweeps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict[str, Any] = {}
+
+    def run_parity_sweeps(*args: object, **kwargs: object) -> None:
+        seen.update(parameters=args[3], jobs=kwargs["jobs"])
+        raise _Stop
+
+    monkeypatch.setattr(rdp, "load_input", lambda config: None)
+    monkeypatch.setattr(rdp, "run_defaults", lambda config, store, data: ())
+    monkeypatch.setattr(rdp, "run_parity_sweeps", run_parity_sweeps)
+    store = ["--store", str(tmp_path / "store")]
+    with pytest.raises(_Stop):
+        rdp.main([*store, "--sweep", "alpha", "--jobs", "8"])
+    assert seen == {"parameters": ("alpha",), "jobs": 8}
+    with pytest.raises(_Stop):
+        rdp.main(store)
+    assert seen == {"parameters": rdp.ALL_SWEEPS, "jobs": 1}  # serial default
+
+
+def test_run_parity_sweeps_passes_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, Any] = {}
+
+    class Outcome:
+        sweeps = ("result",)
+
+    def run_sweeps(config: object, **kwargs: object) -> Outcome:
+        seen.update(kwargs)
+        return Outcome()
+
+    monkeypatch.setattr(rdp, "run_sweeps", run_sweeps)
+    store: Any = None
+    data: Any = None
+    config = load_config(rdp.CONFIG)
+    assert rdp.run_parity_sweeps(config, store, data, ("alpha",), jobs=3) == ("result",)
+    assert seen["jobs"] == 3
+    assert seen["baseline"] is False
+    assert seen["parameters"] == ("alpha",)
+    assert rdp.run_parity_sweeps(config, store, data, (), jobs=3) == ()
+
+
 # -- verdicts ----------------------------------------------------------------
 
 
