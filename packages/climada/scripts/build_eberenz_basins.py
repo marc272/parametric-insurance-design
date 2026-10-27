@@ -104,7 +104,7 @@ def parse_sid(sid: str) -> tuple[int, int, float, float]:
 
 
 def _track_basins(row: np.ndarray) -> list[str]:
-    """The non-empty basin codes of one storm, in track order."""
+    """Return the non-empty basin codes of one storm, in track order."""
     return [b.decode() if isinstance(b, bytes) else str(b) for b in row if b]
 
 
@@ -183,7 +183,9 @@ def build_lookup(calibration: pd.DataFrame, ibtracs: xr.Dataset) -> pd.DataFrame
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Write the lookup; return the exit code."""
-    parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
+    parser = argparse.ArgumentParser(
+        description="Build the basin lookup of the Eberenz et al. (2021) events."
+    )
     parser.add_argument("--ibtracs", type=Path, required=True)
     parser.add_argument("--out", type=Path, default=_OUT)
     args = parser.parse_args(argv)

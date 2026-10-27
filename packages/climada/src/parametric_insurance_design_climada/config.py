@@ -52,7 +52,6 @@ from parametric_insurance_design_climada.cat_in_circle import (
 )
 from parametric_insurance_design_climada.iris import load_manifest
 from parametric_insurance_design_climada.vulnerability import (
-    DEFAULT_BASINS,
     DEFAULT_N_DRAWS,
     EBERENZ_SCALE,
     EBERENZ_V_THRESH,
@@ -306,15 +305,13 @@ class EberenzEdrPriorConfig(_Model):
     kind: Literal["eberenz2021_edr"] = "eberenz2021_edr"
     region: Literal["NA1", "NA2", "NI", "OC", "SI", "WP1", "WP2", "WP3", "WP4"] = "NA2"
     wind_only: bool = Field(default=True, strict=True)
-    basins: (
-        tuple[Literal["NA", "SA", "EP", "WP", "NI", "SI", "SP"], ...] | None
-    ) = Field(default=DEFAULT_BASINS, min_length=1)
+    basins: tuple[Literal["NA", "SA", "EP", "WP", "NI", "SI", "SP"], ...] | None = (
+        Field(default=("NA",), min_length=1)  # vulnerability.DEFAULT_BASINS
+    )
 
     @field_validator("basins")
     @classmethod
-    def _distinct_basins(
-        cls, value: tuple[str, ...] | None
-    ) -> tuple[str, ...] | None:
+    def _distinct_basins(cls, value: tuple[str, ...] | None) -> tuple[str, ...] | None:
         if value is not None and len(set(value)) != len(value):
             raise ValueError("basins lists a code twice")
         return value

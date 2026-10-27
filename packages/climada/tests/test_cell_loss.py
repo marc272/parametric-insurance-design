@@ -359,9 +359,14 @@ def test_florida_configs_load(name: str, index_kind: str) -> None:
     assert config.vulnerability.n_draws == 10
     assert config.vulnerability.prior.kind == "eberenz2021_edr"
     assert config.vulnerability.prior.wind_only is True
+    assert config.vulnerability.prior.basins == ("NA",)  # MAR-132
     notes = " ".join(config.scenario_notes)
     for text in ("LitPop", "CC BY 4.0", "TIGER/Line", "IRIS", "reference_year 2018"):
         assert text in notes
+    # MAR-132 (MAR-118 Q2): Monroe County stays, with its LitPop gap stated.
+    assert "Monroe County" in notes
+    assert "81.604 deg W" in notes
+    assert "Key West" in notes
 
 
 def test_florida_configs_differ_only_in_index_and_output() -> None:
