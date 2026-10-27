@@ -288,9 +288,11 @@ class ResultStore:
         as it did when it compared against :meth:`run_ids`.
         """
         try:
-            return self.has_run(run_id)
+            stem = run_file_stem(run_id)
         except StoreError:
             return False
+        # os.path on a str: a third of the cost of Path.is_file per run.
+        return os.path.isfile(os.path.join(self._root, MANIFESTS_DIR, f"{stem}.json"))
 
     def run_ids(self) -> tuple[str, ...]:
         """Return the ids of every committed run, sorted.
@@ -442,7 +444,10 @@ class ResultStore:
                     f"committed run {run_id} has no {table!r} file ({path}); "
                     "the store is damaged"
                 )
-            part = pq.read_table(path)
+            # ParquetFile.read: half the time of pq.read_table, which goes
+            # through the dataset API, for the same table (MAR-128).
+            with pq.ParquetFile(path) as handle:
+                part = handle.read()
             if not part.schema.equals(arrow_schema):
                 raise RecordSchemaError(
                     f"{path} has schema {part.schema}, expected {arrow_schema}",
