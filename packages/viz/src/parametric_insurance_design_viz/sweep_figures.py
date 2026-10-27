@@ -51,13 +51,19 @@ Figure                                        Thesis
   ``Pi(C) = CVaR(cluster, C) - CVaR(portfolio)`` of clustering against the
   portfolio scope's weighted-CVaR baseline and ``K`` locations, the net
   advantage ``Delta(C; tau) = (K - C) tau - Pi(C)`` for each transaction
-  cost ``tau`` per contract (:data:`THESIS_TRANSACTION_COSTS`; not part of
-  the config, as in the thesis), and the break-even cost
-  ``tau*(C) = Pi(C) / (K - C)`` for ``C < K``.
+  cost ``tau`` per contract, and the break-even cost
+  ``tau*(C) = Pi(C) / (K - C)`` for ``C < K``. The costs are a figure option,
+  not part of the config (as in the thesis): ``FigureContext.transaction_costs``,
+  the ``figures`` command's ``--transaction-costs`` (MAR-120), by default
+  :data:`THESIS_TRANSACTION_COSTS`.
 
 The thesis notebook's figure arguments that are not in the config (the
-weighted-CVaR objective as the focus, the excluded combinations, the
+weighted-CVaR objective as the focus, the excluded combinations, the default
 transaction costs) are the module constants below.
+
+The runs of a sweep are read in bulk, one store read per table for all its
+points (:meth:`~parametric_insurance_design_viz.reader.ResultReader.runs`,
+MAR-120).
 
 No silent failures
 ------------------
@@ -72,6 +78,11 @@ No silent failures
 * A figure that does not apply (no individual scope for the premium
   reallocation, no weighted-CVaR objective) is a ``SkippedFigure`` with
   ``failed=False``. Without sweeps there are no sweep figures.
+* A figure that needs sweep points missing from the store
+  (``FigureContext.missing_sweeps``, when the command skips missing points,
+  MAR-120) is not drawn: a ``SkippedFigure`` with ``missing=True`` counts the
+  missing points and names the first few. Figures whose points are all in
+  the store are drawn as usual.
 * A run that lacks a KPI row the figure needs raises
   :class:`MissingKpiError`.
 
@@ -593,12 +604,21 @@ class SweepSeries:
     points : tuple of (SweepRun, RunResult)
         The sweep points of this scope x objective with their runs, in sweep
         order; empty if the parameter does not apply to it.
+    missing : tuple of SweepRun, default ()
+        Its sweep points that are not in the store (MAR-120), in sweep order;
+        not in ``points``.
     """
 
     parameter: str
     scope: str
     baseline: RunResult
     points: tuple[tuple[SweepRun, RunResult], ...] = ()
+    missing: tuple[SweepRun, ...] = ()
+
+    @property
+    def swept(self) -> bool:
+        """Whether the parameter applies: the series has sweep points."""
+        return bool(self.points or self.missing)
 
     @property
     def scope_kind(self) -> str:
@@ -1434,7 +1454,8 @@ def net_advantage(
     benchmark : RunResult
         The portfolio scope's baseline run of the same objective.
     transaction_costs : sequence of float, default :data:`THESIS_TRANSACTION_COSTS`
-        Costs per contract, loss units.
+        Costs per contract, loss units; the ``figures`` command passes
+        ``FigureContext.transaction_costs`` (MAR-120).
     labels : AxisLabels, optional
         Units.
     figsize : (float, float), default (8, 8)
@@ -1634,32 +1655,28 @@ def breakeven_cost(
 # --------------------------------------------------------------------------
 
 
-class _Runs:
-    """Read sweep runs once per figure set (several figures share them)."""
-
-    def __init__(self, context: FigureContext) -> None:
-        self._context = context
-        self._cache: dict[str, RunResult] = {}
-
-    def get(self, run_id: str) -> RunResult:
-        if run_id not in self._cache:
-            self._cache[run_id] = self._context.reader.run(run_id)
-        return self._cache[run_id]
-
-
 def _series(
-    context: FigureContext, runs: _Runs, parameter: str
+    context: FigureContext, parameter: str
 ) -> list[tuple[ScopeRuns, SweepSeries]]:
-    """Every single run of the config with its points of one sweep."""
+    """Every single run of the config with its points of one sweep.
+
+    The runs of the sweep's points are read in bulk, one store read per
+    table (MAR-120). Points in ``context.missing_sweeps`` are not read; each
+    series lists them as ``missing``.
+    """
+    absent = {p.run_id for p in context.missing_sweeps}
+    mine = [p for p in context.sweeps if p.parameter == parameter]
+    present = [p.run_id for p in mine if p.run_id not in absent]
+    unique = tuple(dict.fromkeys(present))
+    runs = dict(zip(unique, context.reader.runs(unique), strict=True))
     points: dict[int, list[SweepRun]] = {}
-    for point in context.sweeps:
-        if point.parameter == parameter:
-            points.setdefault(point.single, []).append(point)
+    for point in mine:
+        points.setdefault(point.single, []).append(point)
     out: list[tuple[ScopeRuns, SweepSeries]] = []
     n_singles = len(context.config.single_runs())
     for single in range(n_singles):
         scope, baseline = context.scope_of(single)
-        mine = points.get(single, [])
+        these = points.get(single, [])
         out.append(
             (
                 scope,
@@ -1667,11 +1684,39 @@ def _series(
                     parameter=parameter,
                     scope=scope.key,
                     baseline=baseline,
-                    points=tuple((p, runs.get(p.run_id)) for p in mine),
+                    points=tuple(
+                        (p, runs[p.run_id]) for p in these if p.run_id not in absent
+                    ),
+                    missing=tuple(p for p in these if p.run_id in absent),
                 ),
             )
         )
     return out
+
+
+def _missing_points(name: str, series: Sequence[SweepSeries]) -> SkippedFigure | None:
+    """Skip a figure whose sweep points are not all in the store (MAR-120)."""
+    from parametric_insurance_design_viz.command import SkippedFigure
+
+    missing = [(s, p) for s in series for p in s.missing]
+    if not missing:
+        return None
+    total = sum(len(s.points) + len(s.missing) for s in series)
+    examples = "; ".join(
+        f"{p.parameter}={p.value!r} {s.scope} x {s.objective} run {p.run_id}"
+        for s, p in missing[:3]
+    )
+    parameters = " ".join(
+        f"--parameter {x}" for x in dict.fromkeys(p.parameter for _, p in missing)
+    )
+    return SkippedFigure(
+        name,
+        f"{len(missing)} of its {total} sweep points are not in the result "
+        f"store, e.g. {examples}; run them first (parametric-insurance-design "
+        f"sweep CONFIG {parameters})",
+        failed=False,
+        missing=True,
+    )
 
 
 def _failed_points(name: str, series: Sequence[SweepSeries]) -> list[SkippedFigure]:
@@ -1765,7 +1810,7 @@ def _payout_sweeps(
     context: FigureContext, rows: Sequence[tuple[ScopeRuns, SweepSeries]]
 ) -> Iterator[FigureOutput | SkippedFigure]:
     for scope, s in rows:
-        if s.objective != FOCUS_OBJECTIVE or not s.points:
+        if s.objective != FOCUS_OBJECTIVE or not s.swept:
             continue
         # a failed baseline has no entities: its skip names the scope only
         entity = s.baseline.entity_order()[0] if s.baseline.complete else None
@@ -1779,6 +1824,10 @@ def _payout_sweeps(
         )
         if failed is not None:
             yield failed
+            continue
+        missing = _missing_points(name, [s])
+        if missing is not None:
+            yield missing
             continue
         yield payout_sweep(
             s,
@@ -1800,10 +1849,14 @@ def _sensitivity_figure(
     series = [
         s for _, s in rows if (s.scope_kind, s.objective) not in SENSITIVITY_EXCLUDED
     ]
-    flat = [s.baseline for s in series if not s.points]
+    flat = [s.baseline for s in series if not s.swept]
     failed = _baseline_failed(name, flat)
     if failed is not None:
         yield failed
+        return
+    missing = _missing_points(name, series)
+    if missing is not None:
+        yield missing
         return
     values = sorted(
         {float(p.value) for p in context.sweeps if p.parameter == parameter}
@@ -1820,9 +1873,13 @@ def _tradeoff_figures(
     for scope, s in rows:
         if (s.scope_kind, s.objective) != ("portfolio", FOCUS_OBJECTIVE):
             continue
-        if not s.points:
+        if not s.swept:
             continue
         name = f"tradeoff_{scope.key}_{s.parameter}"
+        missing = _missing_points(name, [s])
+        if missing is not None:
+            yield missing
+            continue
         if all(not r.complete for _, r in s.points):
             yield _all_failed(name, s)
             continue
@@ -1848,7 +1905,7 @@ def _cluster_figures(
 
     portfolio = _focus(context.scopes, "portfolio")
     for scope, s in rows:
-        if (s.scope_kind, s.objective) != ("cluster", FOCUS_OBJECTIVE) or not s.points:
+        if (s.scope_kind, s.objective) != ("cluster", FOCUS_OBJECTIVE) or not s.swept:
             continue
         names = (f"net_advantage_{scope.key}", f"breakeven_cost_{scope.key}")
         if not portfolio:
@@ -1867,12 +1924,33 @@ def _cluster_figures(
         if failed is not None:
             yield from (SkippedFigure(n, failed.reason, failed=True) for n in names)
             continue
-        if all(not r.complete for _, r in s.points):
-            yield from (_all_failed(n, s) for n in names)
-            continue
-        yield net_advantage(s, benchmark, labels=context.labels, name=names[0])
-        yield from _failed_points(names[0], [s])
         k = _n_locations(benchmark)
+        all_failed = bool(s.points) and all(not r.complete for _, r in s.points)
+        missing = _missing_points(names[0], [s])
+        if missing is not None:
+            yield missing
+        elif all_failed:
+            yield _all_failed(names[0], s)
+        else:
+            yield net_advantage(
+                s,
+                benchmark,
+                transaction_costs=context.transaction_costs,
+                labels=context.labels,
+                name=names[0],
+            )
+            yield from _failed_points(names[0], [s])
+        # the break-even figure needs only the points below K
+        missing_below = tuple(p for p in s.missing if int(p.value) < k)
+        missing = _missing_points(
+            names[1], [SweepSeries(s.parameter, s.scope, s.baseline, (), missing_below)]
+        )
+        if missing is not None:
+            yield missing
+            continue
+        if all_failed:
+            yield _all_failed(names[1], s)
+            continue
         below = [(p, r) for p, r in s.points if int(p.value) < k and r.complete]
         if not below:
             yield SkippedFigure(
@@ -1914,8 +1992,8 @@ def sweep_figures(context: FigureContext) -> Iterator[FigureOutput | SkippedFigu
     order = [s.parameter for s in context.config.sweeps if s.parameter in swept]
     order += [p for p in swept if p not in order]
     for parameter in order:
-        # a fresh cache per sweep bounds the memory to one sweep's runs
-        rows = _series(context, _Runs(context), parameter)
+        # one sweep's runs at a time bounds the memory
+        rows = _series(context, parameter)
         if parameter in PAYOUT_SWEEP_PARAMETERS:
             yield from _payout_sweeps(context, rows)
         yield from _sensitivity_figure(context, parameter, rows)

@@ -40,6 +40,12 @@ No silent failures
   :class:`~parametric_insurance_design_viz.errors.MissingRunError` before
   anything is drawn. That includes every sweep point passed in ``sweeps``:
   the message names the missing points.
+* With ``skip_missing_sweeps=True`` (MAR-120; the command's
+  ``--skip-missing-sweeps``) missing sweep points are not an error: the
+  sweep figures that need them are each reported as a :class:`SkippedFigure`
+  with ``missing=True`` (and the command exits with status 1), and
+  :attr:`FigureReport.missing_sweeps` lists the points. The single runs must
+  still be in the store.
 * A scope with a failed run draws none of its figures; each is reported as a
   :class:`SkippedFigure` with ``failed=True``, and the command exits with
   status 1.
@@ -50,6 +56,7 @@ No silent failures
 from __future__ import annotations
 
 import logging
+import math
 from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
@@ -65,6 +72,7 @@ from parametric_insurance_design_viz import style
 from parametric_insurance_design_viz.errors import (
     InconsistentRunsError,
     MissingRunError,
+    VizError,
 )
 from parametric_insurance_design_viz.figure_data import (
     DEFAULT_DPI,
@@ -84,7 +92,10 @@ from parametric_insurance_design_viz.reader import (
     check_eventset,
     entity_events,
 )
-from parametric_insurance_design_viz.sweep_figures import sweep_figures
+from parametric_insurance_design_viz.sweep_figures import (
+    THESIS_TRANSACTION_COSTS,
+    sweep_figures,
+)
 
 __all__ = [
     "FIGURE_SETS",
@@ -112,12 +123,17 @@ class SkippedFigure:
     reason : str
         Why it was not drawn.
     failed : bool
-        True if a run it needs failed; False if it does not apply.
+        True if a run it needs failed; False if it does not apply or, with
+        ``missing``, is not drawn because runs it needs are missing.
+    missing : bool, default False
+        True if sweep points it needs are not in the store and
+        :func:`write_figures` was asked to skip them (MAR-120).
     """
 
     name: str
     reason: str
     failed: bool
+    missing: bool = False
 
 
 @dataclass(frozen=True, eq=False)
@@ -208,6 +224,15 @@ class FigureContext:
         read yet; figure sets read the ones they draw.
     eventset : EventSet or None, default None
         The runs' prepared EventSet, e.g. for location values (MAR-112).
+    missing_sweeps : tuple of SweepRun, default ()
+        The points of ``sweeps`` that are not in the store (MAR-120); only
+        non-empty when :func:`write_figures` skips missing sweep points.
+        Figure sets skip the figures that need them (``SkippedFigure`` with
+        ``missing=True``).
+    transaction_costs : tuple of float, default the thesis values
+        Transaction costs per contract, loss units, of the cluster
+        net-advantage figure (MAR-120;
+        :data:`~parametric_insurance_design_viz.sweep_figures.THESIS_TRANSACTION_COSTS`).
     """
 
     config: ExperimentConfig
@@ -216,6 +241,8 @@ class FigureContext:
     labels: AxisLabels
     sweeps: tuple[SweepRun, ...] = ()
     eventset: EventSet | None = None
+    missing_sweeps: tuple[SweepRun, ...] = ()
+    transaction_costs: tuple[float, ...] = THESIS_TRANSACTION_COSTS
 
     def scope_of(self, single: int) -> tuple[ScopeRuns, RunResult]:
         """Return the scope and the run of a single run, by its position.
@@ -264,16 +291,19 @@ class FigureReport:
         Figures written, in order.
     skipped : tuple of SkippedFigure
         Figures not drawn, in order.
+    missing_sweeps : tuple of SweepRun, default ()
+        Sweep points not in the store, skipped (MAR-120).
     """
 
     out_dir: Path
     written: tuple[WrittenFigure, ...]
     skipped: tuple[SkippedFigure, ...]
+    missing_sweeps: tuple[SweepRun, ...] = ()
 
     @property
     def ok(self) -> bool:
-        """True if no figure was skipped because a run failed."""
-        return not any(s.failed for s in self.skipped)
+        """True if no figure was skipped because a run failed or is missing."""
+        return not any(s.failed or s.missing for s in self.skipped)
 
 
 def payout_figures(context: FigureContext) -> list[FigureOutput | SkippedFigure]:
@@ -358,17 +388,26 @@ def _labels(eventset: EventSet | None) -> AxisLabels:
 
 
 def _check_sweeps(
-    config: ExperimentConfig, reader: ResultReader, sweeps: Sequence[SweepRun]
-) -> None:
+    config: ExperimentConfig,
+    reader: ResultReader,
+    sweeps: Sequence[SweepRun],
+    *,
+    skip_missing: bool = False,
+) -> tuple[SweepRun, ...]:
     """Check that every sweep point names a single run and is in the store.
+
+    Returns
+    -------
+    tuple of SweepRun
+        With ``skip_missing``, the points not in the store; else ``()``.
 
     Raises
     ------
     InconsistentRunsError
         If a point's ``single`` is not a position in ``config.single_runs()``.
     MissingRunError
-        If points are not in the store; the message counts them per sweep
-        and names the first few.
+        Unless ``skip_missing``: if points are not in the store; the message
+        counts them per sweep and names the first few.
     """
     n_singles = len(config.single_runs())
     bad = [p for p in sweeps if not 0 <= p.single < n_singles]
@@ -379,7 +418,9 @@ def _check_sweeps(
         )
     missing = [p for p in sweeps if not reader.store.has_run(p.run_id)]
     if not missing:
-        return
+        return ()
+    if skip_missing:
+        return tuple(missing)
     per_sweep = Counter(p.parameter for p in missing)
     totals = Counter(p.parameter for p in sweeps)
     counts = ", ".join(f"{k} {n}/{totals[k]}" for k, n in per_sweep.items())
@@ -391,8 +432,28 @@ def _check_sweeps(
         f"{len(missing)} of {len(sweeps)} sweep points are not in the result "
         f"store {reader.store.root} ({counts}), e.g. {examples}; figures read "
         "the store and never re-run an optimisation, so run the sweeps first "
-        "(parametric-insurance-design sweep CONFIG)"
+        "(parametric-insurance-design sweep CONFIG), or skip the figures "
+        "that need them (--skip-missing-sweeps)"
     )
+
+
+def _check_costs(costs: Sequence[float]) -> tuple[float, ...]:
+    """Validate the transaction costs: non-empty, finite, >= 0, distinct.
+
+    Raises
+    ------
+    VizError
+        If they are not.
+    """
+    values = tuple(float(c) for c in costs)
+    if not values:
+        raise VizError("the net-advantage figure needs at least one transaction cost")
+    bad = [c for c in values if not math.isfinite(c) or c < 0]
+    if bad:
+        raise VizError(f"transaction costs must be finite and >= 0, got {bad}")
+    if len(set(values)) != len(values):
+        raise VizError(f"transaction costs repeat: {list(values)}")
+    return values
 
 
 def write_figures(
@@ -405,6 +466,8 @@ def write_figures(
     sweeps: Sequence[SweepRun] = (),
     figure_sets: Sequence[FigureSet] = FIGURE_SETS,
     dpi: int = DEFAULT_DPI,
+    skip_missing_sweeps: bool = False,
+    transaction_costs: Sequence[float] = THESIS_TRANSACTION_COSTS,
 ) -> FigureReport:
     """Draw the figure set of a config from its result store.
 
@@ -424,11 +487,20 @@ def write_figures(
         run's manifest. Without it the figures show no event data.
     sweeps : sequence of SweepRun, default ()
         Every point of the config's sweeps (MAR-112), for the sweep figures.
-        Each must be in the store.
+        Each must be in the store, unless ``skip_missing_sweeps``.
     figure_sets : sequence of FigureSet, default :data:`FIGURE_SETS`
         Figure builders to run.
     dpi : int, default :data:`~.figure_data.DEFAULT_DPI`
         Image resolution.
+    skip_missing_sweeps : bool, default False
+        If True, sweep points that are not in the store are not an error:
+        the figures that need them are skipped with ``missing=True``
+        (MAR-120), so the rest can be drawn before every sweep has run.
+    transaction_costs : sequence of float, default the thesis values
+        Transaction costs per contract, loss units, of the cluster
+        net-advantage figure (MAR-120). Default
+        :data:`~parametric_insurance_design_viz.sweep_figures.THESIS_TRANSACTION_COSTS`,
+        the thesis' 25k to 125k.
 
     Returns
     -------
@@ -441,10 +513,14 @@ def write_figures(
         If ``run_ids`` does not match the config's single runs, or a sweep
         point names no single run of the config.
     MissingRunError
-        If a run, or a sweep point's run, is not in the store.
+        If a run, or (unless ``skip_missing_sweeps``) a sweep point's run, is
+        not in the store.
     EventSetMismatchError
         If ``eventset`` is not the runs' prepared EventSet.
+    VizError
+        If the transaction costs are empty, negative, not finite or repeat.
     """
+    costs = _check_costs(transaction_costs)
     singles = config.single_runs()
     ids = tuple(run_ids)
     if len(ids) != len(singles):
@@ -455,7 +531,14 @@ def write_figures(
     reader = ResultReader(store)
     results = reader.runs(ids)
     points = tuple(sweeps)
-    _check_sweeps(config, reader, points)
+    missing = _check_sweeps(config, reader, points, skip_missing=skip_missing_sweeps)
+    if missing:
+        _log.warning(
+            "%d of %d sweep points are not in the result store; the figures "
+            "that need them are skipped",
+            len(missing),
+            len(points),
+        )
     n_objectives = len(config.objectives)
     eventset_hash = eventset.content_hash() if eventset is not None else None
     scopes: list[ScopeRuns] = []
@@ -479,6 +562,8 @@ def write_figures(
         labels=_labels(eventset),
         sweeps=points,
         eventset=eventset,
+        missing_sweeps=missing,
+        transaction_costs=costs,
     )
     directory = Path(out_dir)
     written: list[WrittenFigure] = []
@@ -486,7 +571,7 @@ def write_figures(
     for figure_set in figure_sets:
         for item in figure_set(context):
             if isinstance(item, SkippedFigure):
-                level = logging.WARNING if item.failed else logging.INFO
+                level = logging.WARNING if item.failed or item.missing else logging.INFO
                 _log.log(level, "figure %s skipped: %s", item.name, item.reason)
                 skipped.append(item)
                 continue
@@ -494,5 +579,8 @@ def write_figures(
             _log.info("figure %s written to %s", item.name, files.image)
             written.append(files)
     return FigureReport(
-        out_dir=directory, written=tuple(written), skipped=tuple(skipped)
+        out_dir=directory,
+        written=tuple(written),
+        skipped=tuple(skipped),
+        missing_sweeps=missing,
     )

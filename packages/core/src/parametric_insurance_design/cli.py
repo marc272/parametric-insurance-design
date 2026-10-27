@@ -26,10 +26,16 @@ Commands
     figure-data CSVs, into ``DIR`` (default ``<output.directory>/figures``).
     It reads the EventSet to compute every ``run_id`` and the prepared
     EventSet of the event overlays, and never solves: a run missing from the
-    store is an error. The figures live in the optional package
-    ``parametric-insurance-design-viz``, imported only by this command; if it
-    is not installed, the command fails with :class:`VizNotInstalledError`
-    (exit code 3). Accepts ``--policy``, ``-v`` and ``-q``.
+    store is an error. ``--skip-missing-sweeps`` (MAR-120) draws the figures
+    before every sweep has run: the sweep figures whose points are missing
+    are skipped and listed as ``MISSING`` (exit code 1); the single runs
+    must still be in the store. ``--transaction-costs TAU,...`` sets the
+    costs per contract of the cluster net-advantage figure (default: the
+    thesis' 25000,50000,75000,100000,125000). The figures live in the
+    optional package ``parametric-insurance-design-viz``, imported only by
+    this command; if it is not installed, the command fails with
+    :class:`VizNotInstalledError` (exit code 3). Accepts ``--policy``, ``-v``
+    and ``-q``.
 
 Common options of ``run`` and ``sweep``:
 
@@ -62,12 +68,14 @@ Code  Meaning
 1     The command completed, but at least one run has a failed design
       problem or was not evaluated. The failures are recorded in the store
       and listed in the summary. For ``figures``: a figure was skipped
-      because a run it needs failed.
+      because a run it needs failed or, with ``--skip-missing-sweeps``,
+      because sweep points it needs are not in the store.
 2     Usage error (bad arguments).
 3     The library refused the input: an invalid config, an EventSet that
       cannot be read or does not match its checksum, or a result-store
       problem. Nothing is written for the run that raised. For ``figures``
-      also: a run missing from the store, or the viz package not installed.
+      also: a run missing from the store (a sweep point too, unless
+      ``--skip-missing-sweeps``), or the viz package not installed.
 4     Internal error (an unexpected exception, i.e. a bug). The traceback is
       logged.
 130   Interrupted (Ctrl-C).
@@ -79,6 +87,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import logging
+import math
 import sys
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
@@ -310,6 +319,26 @@ def build_parser() -> argparse.ArgumentParser:
         default="default",
         help="solver policy the runs were computed with (default: %(default)s)",
     )
+    figures.add_argument(
+        "--skip-missing-sweeps",
+        action="store_true",
+        help=(
+            "draw the figures before every sweep point is in the store: skip "
+            "the sweep figures whose points are missing and list them (exit "
+            "code 1); without it a missing point is an error (exit code 3)"
+        ),
+    )
+    figures.add_argument(
+        "--transaction-costs",
+        type=_costs,
+        default=None,
+        metavar="TAU,...",
+        help=(
+            "comma-separated transaction costs per contract (loss units) of "
+            "the cluster net-advantage figure (default: the thesis' "
+            "25000,50000,75000,100000,125000)"
+        ),
+    )
     figures_verbosity = figures.add_mutually_exclusive_group()
     figures_verbosity.add_argument(
         "-v", "--verbose", action="store_true", help="log at DEBUG level"
@@ -319,6 +348,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     figures.set_defaults(handler=_figures)
     return parser
+
+
+def _costs(text: str) -> tuple[float, ...]:
+    """Parse ``--transaction-costs``: distinct finite numbers >= 0, comma-separated."""
+    try:
+        values = tuple(float(t) for t in text.split(","))
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"not a comma-separated list of numbers: {text!r}"
+        ) from None
+    if not all(math.isfinite(v) and v >= 0 for v in values):
+        raise argparse.ArgumentTypeError(
+            f"transaction costs must be finite and >= 0: {text!r}"
+        )
+    if len(set(values)) != len(values):
+        raise argparse.ArgumentTypeError(f"transaction costs repeat: {text!r}")
+    return values
 
 
 def _positive_int(text: str) -> int:
@@ -643,6 +689,11 @@ def _figures(config: ExperimentConfig, args: argparse.Namespace) -> ExitCode:
     out_dir: Path = (
         args.out if args.out is not None else config.output.directory / "figures"
     )
+    options: dict[str, object] = {}
+    if args.skip_missing_sweeps:
+        options["skip_missing_sweeps"] = True
+    if args.transaction_costs is not None:
+        options["transaction_costs"] = args.transaction_costs
     report = viz.write_figures(
         config,
         run_ids,
@@ -650,20 +701,35 @@ def _figures(config: ExperimentConfig, args: argparse.Namespace) -> ExitCode:
         out_dir=out_dir,
         eventset=prepare_eventset(config, data.eventset),
         sweeps=sweeps,
+        **options,
     )
     _out(f"figures {config.name!r} from {config.output.directory} into {out_dir}:")
     if sweeps:
-        _out(f"  read {len(sweeps)} sweep points of {len(config.sweeps)} sweeps")
+        n_missing = len(report.missing_sweeps)
+        _out(
+            f"  read {len(sweeps) - n_missing} sweep points of "
+            f"{len(config.sweeps)} sweeps"
+            + (f"; {n_missing} not in the store, skipped" if n_missing else "")
+        )
     for written in report.written:
         tables = ", ".join(p.name for p in written.tables.values())
         _out(f"  wrote   {written.image.name}  ({tables})")
     for skipped in report.skipped:
-        how = "FAILED" if skipped.failed else "skipped"
+        how = (
+            "MISSING" if skipped.missing else "FAILED" if skipped.failed else "skipped"
+        )
         _out(f"  {how:<8}{skipped.name}: {skipped.reason}")
     n_failed = sum(s.failed for s in report.skipped)
+    n_missing_figures = sum(s.missing for s in report.skipped)
     _out(
         f"{len(report.written)} figures written, {len(report.skipped)} skipped "
-        f"({n_failed} because a run failed)"
+        f"({n_failed} because a run failed"
+        + (
+            f", {n_missing_figures} because sweep points are missing"
+            if n_missing_figures
+            else ""
+        )
+        + ")"
     )
     return ExitCode.OK if report.ok else ExitCode.RUNS_FAILED
 

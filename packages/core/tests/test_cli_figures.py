@@ -286,3 +286,91 @@ def test_missing_sweep_points_name_the_sweep_command(
         assert main(["figures", str(path)]) == ExitCode.INPUT_ERROR
     assert "2 of 2 sweep points are not in the result store" in caplog.text
     assert "parametric-insurance-design sweep CONFIG" in caplog.text
+    assert "--skip-missing-sweeps" in caplog.text
+
+
+# -- unrun sweeps and transaction costs (MAR-120) -------------------------------
+
+
+@pytest.mark.usefixtures("viz")
+def test_skip_missing_sweeps_draws_the_rest_and_exits_1(
+    tmp_path: Path, toy_eventset: EventSet, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sweeps = [{"parameter": "alpha", "values": [0.3]}]
+    path = toy_config(tmp_path, toy_eventset, sweeps=sweeps)
+    assert main(["run", str(path), "-q"]) == ExitCode.OK  # no sweep point
+    capsys.readouterr()
+    args = ["figures", str(path), "-q", "--skip-missing-sweeps"]
+    assert main(args) == ExitCode.RUNS_FAILED
+    out = capsys.readouterr().out
+    assert "read 0 sweep points of 1 sweeps; 2 not in the store, skipped" in out
+    for name in (
+        "payout_sweep_individual_a_alpha",
+        "payout_sweep_portfolio_a_alpha",
+        "sensitivity_alpha",
+        "tradeoff_portfolio_alpha",
+    ):
+        assert f"MISSING {name}: " in out
+    assert "sweep CONFIG --parameter alpha" in out
+    assert "(0 because a run failed, 4 because sweep points are missing)" in out
+    figures = tmp_path / "results" / "figures"
+    assert (figures / "payout_grid_portfolio.png").is_file()
+    assert (figures / "premium_reallocation.png").is_file()
+    assert not (figures / "sensitivity_alpha.png").exists()
+    # once the sweep has run, the same command draws them and exits 0
+    assert main(["sweep", str(path), "-q", "--no-baseline"]) == ExitCode.OK
+    capsys.readouterr()
+    assert main(args) == ExitCode.OK
+    assert (figures / "sensitivity_alpha.png").is_file()
+    assert "MISSING" not in capsys.readouterr().out
+
+
+@pytest.mark.usefixtures("viz")
+def test_transaction_costs_option(
+    tmp_path: Path, toy_eventset: EventSet, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cluster = {
+        "kind": "cluster",
+        "n_clusters": 1,
+        "strategy": {"kind": "thesis_ward", "beta_tail": 0.5},
+    }
+    path = toy_config(
+        tmp_path,
+        toy_eventset,
+        scopes=[{"kind": "portfolio"}, cluster],
+        sweeps=[{"parameter": "n_clusters", "values": [1, 2]}],
+    )
+    assert main(["sweep", str(path), "-q"]) == ExitCode.OK
+    figures = tmp_path / "results" / "figures"
+    assert main(["figures", str(path), "-q"]) == ExitCode.OK
+    net = pd.read_csv(figures / "net_advantage_cluster.csv")
+    # the thesis' costs by default
+    assert sorted(set(net["transaction_cost"])) == [
+        25_000.0,
+        50_000.0,
+        75_000.0,
+        100_000.0,
+        125_000.0,
+    ]
+    args = ["figures", str(path), "-q", "--transaction-costs", "7.5,0,2"]
+    assert main(args) == ExitCode.OK
+    net = pd.read_csv(figures / "net_advantage_cluster.csv")
+    assert sorted(set(net["transaction_cost"])) == [0.0, 2.0, 7.5]
+    capsys.readouterr()
+
+
+@pytest.mark.parametrize("costs", ["", "1,x", "-5", "nan", "inf", "1,1"])
+def test_bad_transaction_costs_are_usage_errors(
+    costs: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["figures", "x.yaml", "--transaction-costs", costs]) == ExitCode.USAGE
+    assert "--transaction-costs" in capsys.readouterr().err
+
+
+def test_figures_help_names_the_mar120_options(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(["figures", "--help"]) == ExitCode.OK
+    out = capsys.readouterr().out
+    assert "--skip-missing-sweeps" in out
+    assert "--transaction-costs TAU,..." in out
