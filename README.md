@@ -64,7 +64,7 @@ The licence boundary is the package boundary ([ADR 0001](docs/adr/0001-name-and-
 | `packages/crc` | AGPL-3.0-or-later, because it imports the AGPL-licensed CRC SDK | [`packages/crc/LICENSE`](packages/crc/LICENSE) |
 | `packages/climada` | GPL-3.0-or-later, because it imports GPLv3 CLIMADA | [`packages/climada/LICENSE`](packages/climada/LICENSE) |
 
-The core and viz packages never import an adapter, so they stay under the permissive licence. Data comes with its own terms, recorded in [`docs/data-sources.md`](docs/data-sources.md). The only data committed are small fixtures (the CC BY 4.0 parity fixture and the CC0 thesis results in `parity/golden/`).
+The core and viz packages never import an adapter, so they stay under the permissive licence. Data comes with its own terms, recorded in [`docs/data-sources.md`](docs/data-sources.md). The only data committed are small fixtures: the CC BY 4.0 parity fixture, the CC0 thesis results in `parity/golden/`, and the CC BY 4.0 Florida tables of the paper portfolio in `research/data/` (D2).
 
 ## Thesis code
 
