@@ -39,15 +39,21 @@ What is recorded
       optimisation results: payouts) and its output (the KPI rows).
 
 Outputs (``parity/golden/simulation_sweeps/``)
-    ``results.csv.gz``
+    Each golden table is split into one gzipped file per sweep, and for the
+    ``n_assets`` sweep per asset count (``<table>_noise_value.csv.gz``,
+    ``<table>_n_assets_<n>.csv.gz``), so that no file exceeds the
+    repository's 500 kB limit; the harness reads them all
+    (``harness.load_simulation_golden``).
+
+    ``simulation_results_*.csv.gz``
         The thesis payouts, as ``full_optimization_results.csv`` (payouts and
         breakpoints as numpy prints them), ``Source`` set to the sweep tag,
         plus ``Noise_Value`` (``noise_value_sweep`` only), ``N_Assets`` and
         ``Location_IDs`` (``n_assets_sweep`` only) and ``Subset_Index``.
-    ``kpis.csv.gz``
+    ``simulation_kpis_*.csv.gz``
         The thesis KPI rows, as ``benchmarking_kpis.csv``, with the same
         extra columns.
-    ``objectives.csv``
+    ``simulation_objectives_*.csv.gz``
         One golden objective per design problem, from the KPI rows above by
         the formulas of ``derive_golden_objectives.py`` (all at
         ``BENCHMARK_BETA`` = beta = 0.95): ``Derivation``
@@ -96,7 +102,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Final, cast
+from typing import Any, Final, NoReturn, cast
 
 import numpy as np
 import pandas as pd
@@ -104,9 +110,10 @@ import yaml
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 OUT_DIR: Final[Path] = REPO_ROOT / "parity" / "golden" / "simulation_sweeps"
-RESULTS: Final[str] = "results.csv.gz"
-KPIS: Final[str] = "kpis.csv.gz"
-OBJECTIVES: Final[str] = "objectives.csv"
+RESULTS: Final[str] = "simulation_results"
+KPIS: Final[str] = "simulation_kpis"
+OBJECTIVES: Final[str] = "simulation_objectives"
+"""File name prefixes of the golden tables: ``<prefix>_<shard>.csv.gz``."""
 THESIS_OUTPUT: Final[str] = "thesis_output.csv"
 PROVENANCE: Final[str] = "provenance.json"
 
@@ -187,7 +194,7 @@ def gz_content_sha256(path: Path) -> str:
 # --------------------------------------------------------------------------
 
 
-def _stub(name: str, **attrs: Any) -> ModuleType:
+def _stub(name: str, **attrs: object) -> ModuleType:
     module = ModuleType(name)
     module.__dict__.update(attrs)
     sys.modules[name] = module
@@ -206,7 +213,7 @@ def _load(name: str, path: Path) -> ModuleType:
     return module
 
 
-def _unavailable(*_args: Any, **_kwargs: Any) -> Any:
+def _unavailable(*_args: object, **_kwargs: object) -> NoReturn:
     raise RuntimeError("thesis plotting is not available in the parity script")
 
 
@@ -289,7 +296,9 @@ def load_thesis(repo: Path) -> Thesis:
         matplotlib.__path__ = []
         _stub("matplotlib.pyplot", subplots=_unavailable, rc_context=_unavailable)
         _stub("matplotlib.lines", Line2D=_unavailable)
-    sensitivity = _load("src.utils.sensitivity_analysis", utils / "sensitivity_analysis.py")
+    sensitivity = _load(
+        "src.utils.sensitivity_analysis", utils / "sensitivity_analysis.py"
+    )
 
     namespace: dict[str, Any] = {
         "experiment_config": experiment_config,
@@ -297,10 +306,12 @@ def load_thesis(repo: Path) -> Thesis:
         "optimization_config": optimization_config,
         "sweeps_config": sweeps_config,
     }
-    imports = "\n".join(line for line in cells[0].splitlines() if "__future__" not in line)
-    exec("from __future__ import annotations\n" + imports, namespace)  # noqa: S102
+    imports = "\n".join(
+        line for line in cells[0].splitlines() if "__future__" not in line
+    )
+    exec("from __future__ import annotations\n" + imports, namespace)
     for cell in cells[1:]:
-        exec(cell, namespace)  # noqa: S102
+        exec(cell, namespace)
 
     commit = subprocess.run(
         ["git", "-C", str(repo), "rev-parse", "HEAD"],
@@ -360,28 +371,28 @@ class Recorder:
 @contextmanager
 def recording(thesis: Thesis, recorder: Recorder) -> Iterator[Callable[..., Any]]:
     """Wrap the thesis functions; yield the recording ``calibrate_payout_function``."""
-    module = thesis.sensitivity
+    module: Any = thesis.sensitivity
     build, kpis = module._build_sim_df, module.calculate_benchmarking_kpis
     calibrate = thesis.namespace["calibrate_payout_function"]
 
-    def build_sim_df(**kwargs: Any) -> pd.DataFrame:
-        recorder.noise_value = float(kwargs["noise_level"])
-        recorder.assets = tuple(kwargs["asset_list"])
+    def build_sim_df(**kwargs: object) -> pd.DataFrame:
+        recorder.noise_value = float(cast(float, kwargs["noise_level"]))
+        recorder.assets = tuple(cast(Sequence[str], kwargs["asset_list"]))
         return build(**kwargs)
 
-    def calculate_benchmarking_kpis(**kwargs: Any) -> pd.DataFrame:
+    def calculate_benchmarking_kpis(**kwargs: object) -> pd.DataFrame:
         out = kpis(**kwargs)
         recorder.evaluations.append(
             Evaluation(
                 recorder.noise_value,
                 recorder.assets,
-                kwargs["optimization_results"].copy(),
+                cast(pd.DataFrame, kwargs["optimization_results"]).copy(),
                 out.copy(),
             )
         )
         return out
 
-    def calibrate_payout_function(**kwargs: Any) -> Any:
+    def calibrate_payout_function(**kwargs: object) -> object:
         try:
             return calibrate(**kwargs)
         except Exception as exc:
@@ -477,7 +488,7 @@ def _subset_indices(evaluations: Sequence[Evaluation]) -> list[int]:
 
 
 def _extras(parameter: str, e: Evaluation, index: int) -> dict[str, Any]:
-    """The extra key columns of one evaluation's rows."""
+    """Return the extra key columns of one evaluation's rows."""
     if parameter == "noise_value":
         return {
             "Noise_Value": e.noise_value,
@@ -493,8 +504,8 @@ def _extras(parameter: str, e: Evaluation, index: int) -> dict[str, Any]:
     }
 
 
-def _array_text(value: Any) -> Any:
-    """A payout or breakpoint cell as the thesis CSV prints it (numpy ``str``)."""
+def _array_text(value: object) -> object:
+    """Return a payout or breakpoint cell as the thesis CSV prints it."""
     if isinstance(value, np.ndarray):
         return str(value)
     if isinstance(value, list | tuple):
@@ -531,6 +542,28 @@ def golden_tables(
         pd.concat(results, ignore_index=True),
         pd.concat(kpis, ignore_index=True),
     )
+
+
+def shards(frame: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """Split a golden table into the files it is written to.
+
+    One shard per sweep, and the ``n_assets`` sweep one per asset count
+    (``n_assets_<n>``), so that no file exceeds the repository's 500 kB
+    limit. Rows keep their order within a shard.
+    """
+    out: dict[str, pd.DataFrame] = {}
+    source = frame["Source"].to_numpy()
+    noise = pd.DataFrame(frame.loc[source == SWEEPS["noise_value"]])
+    if len(noise):
+        out["noise_value"] = noise.reset_index(drop=True)
+    assets = pd.DataFrame(frame.loc[source == SWEEPS["n_assets"]])
+    counts = assets["N_Assets"].to_numpy()
+    for n in sorted({int(v) for v in counts}):
+        part = pd.DataFrame(assets.loc[counts == n])
+        out[f"n_assets_{n}"] = part.reset_index(drop=True)
+    if sum(len(p) for p in out.values()) != len(frame):
+        raise ValueError("a golden row belongs to no shard")
+    return out
 
 
 def objective_rows(kpis: pd.DataFrame, benchmark_beta: float) -> pd.DataFrame:
@@ -585,9 +618,9 @@ def objective_rows(kpis: pd.DataFrame, benchmark_beta: float) -> pd.DataFrame:
 
 
 def thesis_output_rows(parameter: str, output: pd.DataFrame) -> pd.DataFrame:
-    """The Portfolio rows the thesis returned for a figure, in a common shape."""
+    """Return the Portfolio rows the thesis returned for a figure."""
     column = "Noise_Value" if parameter == "noise_value" else "N_Assets"
-    frame = output[output["Asset"] == "Portfolio"].copy()
+    frame = pd.DataFrame(output[output["Asset"] == "Portfolio"])
     kpis = [
         "CVaR_Uncovered",
         "VaR_Uncovered",
@@ -621,7 +654,7 @@ _TD = re.compile(r"<td>(.*?)</td>", re.S)
 
 
 def notebook_figure(thesis: Thesis, parameter: str) -> pd.DataFrame:
-    """The figure data the notebook stored for a sensitivity cell.
+    """Return the figure data the notebook stored for a sensitivity cell.
 
     Parameters
     ----------
@@ -727,7 +760,8 @@ def figure_check(
 
 
 def _versions() -> dict[str, str]:
-    import cvxpy
+    from importlib.metadata import PackageNotFoundError, version
+
     import scipy
 
     out = {
@@ -736,14 +770,11 @@ def _versions() -> dict[str, str]:
         "numpy": np.__version__,
         "pandas": pd.__version__,
         "scipy": scipy.__version__,
-        "cvxpy": cvxpy.__version__,
     }
-    for name in ("clarabel", "osqp", "scs"):
+    for name in ("cvxpy", "clarabel", "osqp", "scs"):
         try:
-            from importlib.metadata import version
-
             out[name] = version(name)
-        except Exception:  # noqa: BLE001 - optional solver, recorded as absent
+        except PackageNotFoundError:
             out[name] = "not installed"
     return out
 
@@ -801,7 +832,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parameters = tuple(args.sweep or SWEEPS)
 
     thesis = load_thesis(Path(args.thesis_repo))
-    raw = pd.read_csv(thesis.repo / "data" / "output" / "climada_transformed_loss_data.csv")
+    raw = pd.read_csv(
+        thesis.repo / "data" / "output" / "climada_transformed_loss_data.csv"
+    )
     beta = float(thesis.global_settings["BENCHMARK_BETA"])
 
     results, kpis, outputs = [], [], []
@@ -853,12 +886,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     kpis_frame = pd.concat(kpis, ignore_index=True)
     objectives_frame = objective_rows(kpis_frame, beta)
     out_dir.mkdir(parents=True, exist_ok=True)
-    files = {
-        RESULTS: results_frame,
-        KPIS: kpis_frame,
-        OBJECTIVES: objectives_frame,
-        THESIS_OUTPUT: pd.concat(outputs, ignore_index=True),
-    }
+    files: dict[str, pd.DataFrame] = {}
+    for prefix, frame in (
+        (RESULTS, results_frame),
+        (KPIS, kpis_frame),
+        (OBJECTIVES, objectives_frame),
+    ):
+        for shard, part in shards(frame).items():
+            files[f"{prefix}_{shard}.csv.gz"] = part
+    files[THESIS_OUTPUT] = pd.concat(outputs, ignore_index=True)
+    for stale in sorted(out_dir.glob("simulation_*.csv.gz")):
+        if stale.name not in files:  # a shard of an earlier layout
+            stale.unlink()
     for name, frame in files.items():
         # mtime=0 keeps the gzip bytes deterministic.
         compression = {"method": "gzip", "mtime": 0} if name.endswith(".gz") else None
@@ -866,7 +905,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     outputs_meta = {}
     for name, frame in files.items():
         path = out_dir / name
-        meta = {"rows": len(frame), "columns": len(frame.columns), "sha256": sha256_file(path)}
+        meta = {
+            "rows": len(frame),
+            "columns": len(frame.columns),
+            "sha256": sha256_file(path),
+        }
         if name.endswith(".gz"):
             meta["content_sha256"] = gz_content_sha256(path)
         outputs_meta[name] = meta
@@ -899,7 +942,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     print(f"wrote {out_dir}")
     if failed_check:
-        print("the regenerated thesis output differs from the notebook figure", file=sys.stderr)
+        print(
+            "the regenerated thesis output differs from the notebook figure",
+            file=sys.stderr,
+        )
         return 1
     return 0
 

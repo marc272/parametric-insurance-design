@@ -27,6 +27,16 @@ Golden tables
         ``Derivation`` and ``KPI_Source`` say how each value was obtained
         (``golden/golden_objectives.csv``, MAR-68, is such a table).
 
+    Simulation sweeps (MAR-70)
+        ``golden/simulation_sweeps/`` holds the thesis noise-level and
+        asset-count sweep results, which the thesis kept in memory only,
+        regenerated with the thesis code (``scripts/derive_simulation_sweeps.py``):
+        tables of the same columns plus the optional key columns
+        :data:`EXTRA_PARAMETER_COLUMNS` (``Noise_Value``, ``N_Assets``) and
+        :data:`LOCATIONS_COLUMN` (``Location_IDs``, the asset subset as a
+        Python list literal). :func:`load_simulation_golden` reads them and
+        :meth:`Golden.merge` joins them with the thesis tables.
+
     Checksums
         :func:`load_golden` records the SHA256 of every file as read and, for
         gzipped files, of the decompressed content too: ``parity/manifest.json``
@@ -40,8 +50,17 @@ Matching rules
     parameters (:data:`PARAMETER_COLUMNS`): a golden value must be present
     and equal within ``Tolerances.parameter_rtol``; an empty golden value
     means the store run must not have the parameter. ``fixed_parameters``
-    adds conditions every matching run must meet (e.g. ``noise_level``, to
-    tell a noise sweep's runs apart).
+    adds conditions every matching run must meet.
+
+    The optional key columns work the same way where the golden row sets
+    them: ``noise_level`` and ``n_assets`` must equal the run's, and the
+    ``Location_IDs`` subset must equal the run's prepared locations (its
+    manifest's ``prepared_eventset.location_ids``, in order). Where a golden
+    row leaves one empty (every row of the thesis tables), the run must
+    have the value given in ``baseline_parameters`` (e.g. ``noise_level``
+    0.3 and ``n_assets`` 9, the thesis config's), or any value if none is
+    given. ``run_ids`` restricts the store runs considered at all (e.g. to
+    the points of the sweeps compared).
 
     The ``source`` tag is **not** required to agree by default: the runner's
     cache keeps the tag a run was first written with (MAR-64), so the
@@ -96,13 +115,16 @@ from parametric_insurance_design.records import KpiLevel, KpiName, Split
 
 __all__ = [
     "APPROACHES",
+    "EXTRA_PARAMETER_COLUMNS",
     "GOLDEN_DIR",
     "KPIS_FILE",
     "KPI_COLUMNS",
+    "LOCATIONS_COLUMN",
     "METHODS",
     "PARAMETER_COLUMNS",
     "PORTFOLIO_SUBJECT",
     "RESULTS_FILE",
+    "SIMULATION_DIR",
     "Finding",
     "FindingKind",
     "Golden",
@@ -119,6 +141,7 @@ __all__ = [
     "content_sha256",
     "file_sha256",
     "load_golden",
+    "load_simulation_golden",
     "parse_array",
     "parse_assets",
 ]
@@ -133,6 +156,18 @@ OBJECTIVES_FILE: Final[str] = "golden_objectives.csv"
 """The golden objective table derived for MAR-68 (in :data:`GOLDEN_DIR`)."""
 MANIFEST: Final[Path] = PARITY_DIR / "manifest.json"
 """The parity manifest: SHA256 of the decompressed golden CSVs (MAR-9)."""
+SIMULATION_DIR: Final[Path] = GOLDEN_DIR / "simulation_sweeps"
+"""The regenerated thesis simulation-sweep tables (MAR-70)."""
+SIMULATION_TABLES: Final[tuple[str, str, str]] = (
+    "simulation_results",
+    "simulation_kpis",
+    "simulation_objectives",
+)
+"""File name prefixes of the simulation tables (results, KPIs, objectives).
+
+Each table is split into shards ``<prefix>_<shard>.csv.gz``, one per sweep
+and, for ``n_assets``, per asset count, to stay under the 500 kB file limit;
+every shard has the three tables."""
 
 APPROACHES: Final[Mapping[str, str]] = {
     "individual_optimization": "individual",
@@ -156,6 +191,22 @@ PARAMETER_COLUMNS: Final[Mapping[str, str]] = {
     "N_Clusters": "n_clusters",
 }
 """Thesis parameter column to ``runs.parameters`` key (sweep names, MAR-64)."""
+
+EXTRA_PARAMETER_COLUMNS: Final[Mapping[str, str]] = {
+    "Noise_Value": "noise_level",
+    "N_Assets": "n_assets",
+}
+"""Optional key columns (simulation sweeps, MAR-70) to ``runs.parameters`` key.
+
+Unlike :data:`PARAMETER_COLUMNS`, an empty or absent value does not require
+the run to lack the parameter (every run has both): it stands for the
+baseline value (:func:`compare`, ``baseline_parameters``)."""
+
+LOCATIONS_COLUMN: Final[str] = "Location_IDs"
+"""Optional key column: the asset subset of an ``n_assets`` sweep record."""
+
+LOCATIONS_KEY: Final[str] = "locations"
+"""Name of the subset in :meth:`RecordKey.parameter_text`."""
 
 KPI_COLUMNS: Final[Mapping[str, KpiName]] = {
     "CVaR_Uncovered": KpiName.CVAR_UNCOVERED,
@@ -401,12 +452,19 @@ class RecordKey:
     parameters : tuple of (str, float or None)
         ``runs.parameters`` names (:data:`PARAMETER_COLUMNS` order) and the
         golden values, None where the thesis left the column empty.
+    extras : tuple of (str, float), default ()
+        The optional key parameters the row sets
+        (:data:`EXTRA_PARAMETER_COLUMNS` order); unset ones are left out.
+    locations : tuple of str or None, default None
+        The asset subset (:data:`LOCATIONS_COLUMN`), or None if unset.
     """
 
     approach: str
     method: str
     source: str
     parameters: tuple[tuple[str, float | None], ...]
+    extras: tuple[tuple[str, float], ...] = ()
+    locations: tuple[str, ...] | None = None
 
     @classmethod
     def from_row(cls, row: Mapping[str, Any]) -> RecordKey:
@@ -442,7 +500,15 @@ class RecordKey:
         parameters = tuple(
             (name, _number(row[column])) for column, name in PARAMETER_COLUMNS.items()
         )
-        return cls(approach, method, source, parameters)
+        extras = tuple(
+            (name, value)
+            for column, name in EXTRA_PARAMETER_COLUMNS.items()
+            if (value := _number(row.get(column))) is not None
+        )
+        locations = parse_assets(row.get(LOCATIONS_COLUMN))
+        if locations is not None and not locations:
+            raise GoldenFormatError(f"{LOCATIONS_COLUMN} must list at least one asset")
+        return cls(approach, method, source, parameters, extras, locations)
 
     def sort_key(self) -> tuple[object, ...]:
         """Return a total order: unset parameters (None) sort before set ones."""
@@ -451,6 +517,8 @@ class RecordKey:
             self.approach,
             self.method,
             tuple((n, v is not None, v or 0.0) for n, v in self.parameters),
+            self.extras,
+            () if self.locations is None else self.locations,
         )
 
     @property
@@ -469,12 +537,19 @@ class RecordKey:
         return (self.source, self.approach, self.method)
 
     def parameter_text(self) -> str:
-        """Set parameters as ``name=value`` pairs, e.g. ``alpha=0.9, n_bins=15``."""
-        return ", ".join(
+        """Set parameters as ``name=value`` pairs, e.g. ``alpha=0.9, n_bins=15``.
+
+        The optional key parameters follow where set, then the subset as
+        ``locations=A1+A4``; a thesis-table key reads as before (MAR-70).
+        """
+        items = [
             f"{name}={_format_number(value)}"
-            for name, value in self.parameters
+            for name, value in (*self.parameters, *self.extras)
             if value is not None
-        )
+        ]
+        if self.locations is not None:
+            items.append(f"{LOCATIONS_KEY}={'+'.join(self.locations)}")
+        return ", ".join(items)
 
     def label(self) -> str:
         """``approach/method/source/parameters``: the key as one string."""
@@ -551,6 +626,49 @@ class Golden:
         found.update(k.key for k in self.kpis)
         found.update(o.key for o in self.objectives or ())
         return tuple(sorted(found, key=RecordKey.sort_key))
+
+    def merge(self, other: Golden) -> Golden:
+        """Return both golden data sets as one (e.g. thesis and simulation tables).
+
+        Parameters
+        ----------
+        other : Golden
+            Tables with records of other keys.
+
+        Returns
+        -------
+        Golden
+            The rows of both; the objective table is None only if both lack
+            one; the file and content checksums of both.
+
+        Raises
+        ------
+        GoldenFormatError
+            If a record key, with its entity, subject or problem, is in both,
+            or the two read files of the same name.
+        """
+        clash = set(self.files) & set(other.files)
+        if clash:
+            raise GoldenFormatError(
+                f"both golden sets read files named {sorted(clash)}"
+            )
+        payouts = (*self.payouts, *other.payouts)
+        kpis = (*self.kpis, *other.kpis)
+        _check_unique(((p.key, p.entity_id) for p in payouts), "merged results")
+        _check_unique(((k.key, k.subject) for k in kpis), "merged KPIs")
+        objectives: tuple[GoldenObjective, ...] | None = None
+        if self.objectives is not None or other.objectives is not None:
+            objectives = (*(self.objectives or ()), *(other.objectives or ()))
+            _check_unique(
+                ((o.key, o.problem_id) for o in objectives), "merged objectives"
+            )
+        return Golden(
+            payouts=payouts,
+            kpis=kpis,
+            objectives=objectives,
+            files={**self.files, **other.files},
+            content_sha256={**self.content_sha256, **other.content_sha256},
+        )
 
 
 def _read_table(path: Path, columns: Sequence[str]) -> pd.DataFrame:
@@ -684,6 +802,53 @@ def load_golden(
     )
 
 
+def load_simulation_golden(directory: str | Path = SIMULATION_DIR) -> Golden:
+    """Read the regenerated thesis simulation-sweep tables (MAR-70).
+
+    Parameters
+    ----------
+    directory : str or pathlib.Path, default ``golden/simulation_sweeps``
+        Holds the shards of the tables :data:`SIMULATION_TABLES`.
+
+    Returns
+    -------
+    Golden
+        All shards merged, with the noise level, asset count and subset in
+        their record keys.
+
+    Raises
+    ------
+    GoldenFormatError
+        If there is no shard, a shard lacks one of its three tables, or as
+        for :func:`load_golden`.
+    """
+    root = Path(directory)
+    results, kpis, objectives = SIMULATION_TABLES
+    names = sorted(
+        p.name.removeprefix(f"{results}_").removesuffix(".csv.gz")
+        for p in root.glob(f"{results}_*.csv.gz")
+    )
+    if not names:
+        raise GoldenFormatError(f"no {results}_*.csv.gz in {root}")
+    found = {p.name for p in root.glob("simulation_*.csv.gz")}
+    expected = {f"{t}_{n}.csv.gz" for t in SIMULATION_TABLES for n in names}
+    if found != expected:
+        raise GoldenFormatError(
+            f"{root}: the shards do not pair up: missing "
+            f"{sorted(expected - found)}, unexpected {sorted(found - expected)}"
+        )
+    merged: Golden | None = None
+    for name in names:
+        part = load_golden(
+            root / f"{results}_{name}.csv.gz",
+            root / f"{kpis}_{name}.csv.gz",
+            root / f"{objectives}_{name}.csv.gz",
+        )
+        merged = part if merged is None else merged.merge(part)
+    assert merged is not None
+    return merged
+
+
 # --------------------------------------------------------------------------
 # Result store side
 # --------------------------------------------------------------------------
@@ -727,6 +892,7 @@ class _StoreRun:
     objective: str
     parameters: dict[str, Any]
     config_hash: str = ""
+    locations: tuple[str, ...] | None = None
     problems: dict[str, _Problem] = field(default_factory=dict)
     members: dict[str, tuple[str, ...]] = field(default_factory=dict)
     entity_problem: dict[str, str] = field(default_factory=dict)
@@ -756,11 +922,21 @@ def _optional_str(value: object) -> str | None:
 
 
 def _load_store(
-    store: ResultStore, *, basis: str, evaluation_beta: float
+    store: ResultStore,
+    *,
+    basis: str,
+    evaluation_beta: float,
+    run_ids: frozenset[str] | None = None,
+    locations: bool = False,
 ) -> dict[str, _StoreRun]:
-    """Index the committed runs of a store by run id."""
+    """Index the committed runs of a store by run id.
+
+    ``run_ids`` restricts the runs read; with ``locations`` each run's
+    prepared location ids are read from its manifest.
+    """
+    wanted = None if run_ids is None else sorted(run_ids)
     runs: dict[str, _StoreRun] = {}
-    for row in _records(store.read("runs")):
+    for row in _records(store.read("runs", run_ids=wanted)):
         run_id = str(row["run_id"])
         params = json.loads(str(row["parameters"]))
         if not isinstance(params, dict):
@@ -782,7 +958,7 @@ def _load_store(
         )
 
     members: dict[tuple[str, str], list[str]] = defaultdict(list)
-    for row in _records(store.read("entities")):
+    for row in _records(store.read("entities", run_ids=wanted)):
         run = runs[str(row["run_id"])]
         entity_id = str(row["entity_id"])
         problem_id = str(row["problem_id"])
@@ -791,14 +967,14 @@ def _load_store(
                 f"run {run.run_id}: entity {entity_id} is in several problems"
             )
         members[(run.run_id, entity_id)].append(str(row["location_id"]))
-    for (run_id, entity_id), locations in members.items():
-        runs[run_id].members[entity_id] = tuple(locations)
+    for (run_id, entity_id), member_ids in members.items():
+        runs[run_id].members[entity_id] = tuple(member_ids)
 
     levels: dict[tuple[str, str], list[tuple[int, float, float, float]]] = defaultdict(
         list
     )
     payout_problem: dict[tuple[str, str], str] = {}
-    for row in _records(store.read("payouts")):
+    for row in _records(store.read("payouts", run_ids=wanted)):
         index = (str(row["run_id"]), str(row["entity_id"]))
         problem_id = str(row["problem_id"])
         if payout_problem.setdefault(index, problem_id) != problem_id:
@@ -818,7 +994,7 @@ def _load_store(
 
     tail = {k.value for k in TAIL_KPIS}
     wanted_levels = {KpiLevel.ENTITY.value, KpiLevel.PORTFOLIO.value}
-    for row in _records(store.read("kpis")):
+    for row in _records(store.read("kpis", run_ids=wanted)):
         level = str(row["level"])
         kpi = str(row["kpi"])
         beta = _optional_float(row["beta"])
@@ -843,6 +1019,15 @@ def _load_store(
             )
         value = _optional_float(row["value"])
         run.kpis[index] = math.nan if value is None else value
+    if locations:
+        for run in runs.values():
+            prepared = store.manifest(run.run_id).get("prepared_eventset") or {}
+            ids = prepared.get("location_ids")
+            if not isinstance(ids, list):
+                raise HarnessError(
+                    f"run {run.run_id}: its manifest has no prepared location ids"
+                )
+            run.locations = tuple(str(i) for i in ids)
     return runs
 
 
@@ -862,6 +1047,7 @@ def _matches(
     fixed: Mapping[str, object],
     strict_source: bool,
     rel_tol: float,
+    baseline: Mapping[str, object] | None = None,
 ) -> bool:
     if run.scope != key.scope or run.objective != key.objective:
         return False
@@ -875,6 +1061,17 @@ def _matches(
             value, run.parameters[name], rel_tol
         ):
             return False
+    extras = dict(key.extras)
+    for name in EXTRA_PARAMETER_COLUMNS.values():
+        want = extras.get(name, (baseline or {}).get(name))
+        if want is None:
+            continue
+        if name not in run.parameters or not _same_value(
+            want, run.parameters[name], rel_tol
+        ):
+            return False
+    if key.locations is not None and run.locations != key.locations:
+        return False
     return all(
         name in run.parameters and _same_value(value, run.parameters[name], rel_tol)
         for name, value in fixed.items()
@@ -1035,6 +1232,12 @@ class ParityResult:
         One row per golden record compared: the key columns, ``run_id``,
         ``config_hash`` and ``run_source`` of the matched store run (empty
         if none or several match), ``problems`` and ``failed`` (counts).
+    baseline_parameters : mapping of str to object
+        The values a run must have for an optional key parameter a golden
+        record leaves empty (MAR-70).
+    restricted : bool
+        Whether only some of the store's runs were considered (``run_ids``);
+        ``n_store_runs`` counts those.
     """
 
     kpis: pd.DataFrame
@@ -1055,6 +1258,8 @@ class ParityResult:
     sources: tuple[str, ...] | None
     golden_content: Mapping[str, str] = field(default_factory=dict)
     matched_runs: pd.DataFrame = field(default_factory=pd.DataFrame)
+    baseline_parameters: Mapping[str, object] = field(default_factory=dict)
+    restricted: bool = False
 
     @property
     def ok(self) -> bool:
@@ -1384,6 +1589,8 @@ def compare(
     sources: Iterable[str] | None = None,
     basis: Basis | str = Basis.EVENT_CONDITIONAL,
     evaluation_beta: float = 0.95,
+    baseline_parameters: Mapping[str, object] | None = None,
+    run_ids: Iterable[str] | None = None,
 ) -> ParityResult:
     """Compare a result store with the golden tables (module docstring).
 
@@ -1407,6 +1614,14 @@ def compare(
         KPI basis to compare (the thesis evaluated event-conditionally).
     evaluation_beta : float, default 0.95
         ``beta`` of the VaR and CVaR KPIs (thesis ``BENCHMARK_BETA``).
+    baseline_parameters : mapping, optional
+        For each optional key parameter (:data:`EXTRA_PARAMETER_COLUMNS`:
+        ``noise_level``, ``n_assets``), the value a run must have when a
+        golden record leaves it empty, e.g. ``{"noise_level": 0.3,
+        "n_assets": 9}``. Without it, such a record matches any value.
+    run_ids : iterable of str, optional
+        Consider only these store runs (each must be committed). Default:
+        every committed run.
 
     Returns
     -------
@@ -1418,11 +1633,31 @@ def compare(
     HarnessError
         If the store holds data the harness cannot read unambiguously (e.g.
         two KPI rows for one subject), or a golden cluster has no members.
+    StoreError
+        If a run of ``run_ids`` is not in the store.
     """
     tol = Tolerances() if tolerances is None else tolerances
     fixed = dict(fixed_parameters or {})
+    baseline = dict(baseline_parameters or {})
+    unknown = sorted(set(baseline) - set(EXTRA_PARAMETER_COLUMNS.values()))
+    if unknown:
+        raise HarnessError(
+            f"baseline_parameters names no optional key parameter: {unknown}"
+        )
     basis_value = Basis(basis).value
-    runs = _load_store(store, basis=basis_value, evaluation_beta=evaluation_beta)
+    restrict = None if run_ids is None else frozenset(run_ids)
+    wanted = None if sources is None else frozenset(sources)
+    keys = [k for k in golden.keys() if wanted is None or k.source in wanted]
+    runs = _load_store(
+        store,
+        basis=basis_value,
+        evaluation_beta=evaluation_beta,
+        run_ids=restrict,
+        locations=any(k.locations is not None for k in keys),
+    )
+    by_kind: dict[tuple[str, str], list[_StoreRun]] = defaultdict(list)
+    for run in runs.values():
+        by_kind[(run.scope, run.objective)].append(run)
 
     payouts_by_key: dict[RecordKey, list[GoldenPayout]] = defaultdict(list)
     for p in golden.payouts:
@@ -1434,21 +1669,19 @@ def compare(
     for o in golden.objectives or ():
         objectives_by_key[o.key].append(o)
 
-    wanted = None if sources is None else frozenset(sources)
-    keys = [k for k in golden.keys() if wanted is None or k.source in wanted]
-
     out = _Collector()
     matched: set[str] = set()
     for key in keys:
         candidates = sorted(
-            run_id
-            for run_id, run in runs.items()
+            run.run_id
+            for run in by_kind[(key.scope, key.objective)]
             if _matches(
                 key,
                 run,
                 fixed=fixed,
                 strict_source=strict_source,
                 rel_tol=tol.parameter_rtol,
+                baseline=baseline,
             )
         )
         matched.update(candidates)
@@ -1589,4 +1822,6 @@ def compare(
                 "candidates",
             ),
         ),
+        baseline_parameters=baseline,
+        restricted=restrict is not None,
     )

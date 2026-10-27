@@ -69,6 +69,7 @@ from harness import (
     GOLDEN_DIR,
     KPIS_FILE,
     MANIFEST,
+    PORTFOLIO_SUBJECT,
     RESULTS_FILE,
     Finding,
     FindingKind,
@@ -77,6 +78,7 @@ from harness import (
     check_manifest,
     compare,
     load_golden,
+    load_simulation_golden,
 )
 
 from parametric_insurance_design.experiment.store import ResultStore
@@ -87,6 +89,7 @@ __all__ = [
     "ExplanationsError",
     "explanation_for",
     "explanation_key_for",
+    "joint_entity_kpi",
     "load_explanations",
     "main",
     "overview",
@@ -247,6 +250,24 @@ def _count(rows: Sequence[Row], *statuses: str) -> int:
     return sum(r["status"] in statuses for r in rows)
 
 
+INDIVIDUAL_APPROACH: Final[str] = "individual_optimization"
+
+GATED_KPIS: Final[str] = "KPI values: gated"
+"""Overview row of the KPIs the gate judges (MAR-18 criteria, 2026-10-27)."""
+UNGATED_KPIS: Final[str] = "KPI values: reported, not gated"
+"""Overview row of the entity-level KPIs of joint scopes (MAR-18 answer 4)."""
+
+
+def joint_entity_kpi(approach: str, subject: str) -> bool:
+    """Whether a KPI is entity level in a joint (cluster or portfolio) scope.
+
+    By the owner's MAR-18 criteria (2026-10-27, answer 4) such KPIs are
+    reported, not gated, at non-unique optima, when the thesis-payout check
+    backs them (the evidence rule of ``run_default_parity.py`` checks that).
+    """
+    return approach != INDIVIDUAL_APPROACH and subject != PORTFOLIO_SUBJECT
+
+
 def overview(result: ParityResult) -> pd.DataFrame:
     """Return one row per comparison: counts and the largest error.
 
@@ -262,25 +283,31 @@ def overview(result: ParityResult) -> pd.DataFrame:
         ``mismatch``, ``not_compared``, ``max_error`` and ``rule``. For payout
         vectors, ``match`` counts the vectors compared, ``mismatch`` those
         with another shape or other bin edges, and ``max_error`` is the
-        largest level difference over the largest golden level.
+        largest level difference over the largest golden level. The KPI
+        values are split after their total row into :data:`GATED_KPIS`
+        (portfolio level, and entity level in the individual scope) and
+        :data:`UNGATED_KPIS` (entity level in the joint scopes,
+        :func:`joint_entity_kpi`).
     """
     tol = result.tolerances
+    kpi_rule = f"relative error <= {tol.kpi_rtol:g} (atol {tol.kpi_atol:g})"
+    kpi_rows = _rows(result.kpis)
+    ungated = [r for r in kpi_rows if joint_entity_kpi(r["approach"], r["subject"])]
+    gated = [r for r in kpi_rows if not joint_entity_kpi(r["approach"], r["subject"])]
     out: list[Row] = []
     for name, frame, rule in (
-        (
-            "KPI values",
-            result.kpis,
-            f"relative error <= {tol.kpi_rtol:g} (atol {tol.kpi_atol:g})",
-        ),
+        ("KPI values", kpi_rows, kpi_rule),
+        (GATED_KPIS, gated, kpi_rule),
+        (UNGATED_KPIS, ungated, kpi_rule + ", reported only"),
         (
             "Objective values",
-            result.objectives,
+            _rows(result.objectives),
             f"relative error <= {tol.objective_rtol:g} (atol {tol.objective_atol:g})"
             if result.objectives_available
             else "not in the golden data",
         ),
     ):
-        rows = _rows(frame)
+        rows = frame
         compared = [r for r in rows if r["status"] != "missing"]
         out.append(
             {
@@ -455,6 +482,16 @@ def _setup(
         matching += ", and " + ", ".join(
             f"`{k}` = {json.dumps(v)}" for k, v in fixed.items()
         )
+    baseline = result.baseline_parameters
+    matching += (
+        ". A record of a simulation sweep also names its `noise_level`, or its "
+        "`n_assets` and asset subset (`locations`, the run's prepared "
+        "locations), which the run must have"
+    )
+    if baseline:
+        matching += "; a record that names neither needs the baseline " + ", ".join(
+            f"`{k}` = {json.dumps(v)}" for k, v in baseline.items()
+        )
     matching += ". " + (
         "The `source` tag must agree."
         if result.strict_source
@@ -465,7 +502,8 @@ def _setup(
         "## Setup",
         "",
         f"- Result store: `{result.store_root}`, {result.n_store_runs} committed "
-        f"runs, {result.n_store_runs - len(result.unmatched_runs)} of them matched "
+        + ("runs of the sweeps compared" if result.restricted else "runs")
+        + f", {result.n_store_runs - len(result.unmatched_runs)} of them matched "
         "by a golden record.",
         "- Golden files (SHA256 of the files as read):",
         *(f"  - `{name}`: `{digest}`" for name, digest in result.golden_files.items()),
@@ -514,6 +552,19 @@ def _overview_md(result: ParityResult, explanations: Mapping[str, str]) -> str:
         "No findings."
         if n == 0
         else f"{n} findings, {explained} of them explained, {n - explained} not yet."
+    )
+    ungated = sum(
+        f.kind is FindingKind.KPI and joint_entity_kpi(f.key.approach, f.subject)
+        for f in result.findings
+    )
+    verdict += (
+        f" {ungated} of the findings are entity-level KPIs in a joint scope "
+        f"(*{UNGATED_KPIS}*): by the owner's MAR-18 criteria (2026-10-27, answer "
+        "4) they are reported, not gated, where the thesis-payout check backs "
+        "them (an explanation that claims an alternative optimum must have that "
+        "verdict for its record); the gate judges objectives, portfolio-level "
+        "KPIs, the entity-level KPIs of the individual scope (*"
+        f"{GATED_KPIS}*), payout bin edges and cluster assignments."
     )
     header = (
         "Comparison",
@@ -901,6 +952,7 @@ def render(
     manifest: str | Path | None = MANIFEST,
     setup_notes: Sequence[str] = (),
     compact: bool = False,
+    sections: Sequence[str] = (),
 ) -> str:
     """Render the parity report as Markdown.
 
@@ -925,6 +977,9 @@ def render(
         The compact form (module docstring): findings grouped by record with
         explanation labels, an *Explanations* section, and only the
         objective values that do not match.
+    sections : sequence of str, optional
+        Markdown sections placed after the summary by comparison group (e.g.
+        the index of the per-sweep reports, MAR-70).
 
     Returns
     -------
@@ -949,6 +1004,7 @@ def render(
         _setup(result, manifest, setup_notes),
         _overview_md(result, explanations),
         _summary_md(result, explanations),
+        *(s.strip() for s in sections if s.strip()),
         _matched_runs_md(result),
         _objectives_md(result, compact),
         *(
@@ -978,6 +1034,7 @@ def write_report(
     manifest: str | Path | None = MANIFEST,
     setup_notes: Sequence[str] = (),
     compact: bool = False,
+    sections: Sequence[str] = (),
 ) -> Path:
     """Render the report and write it to ``path``.
 
@@ -1001,6 +1058,8 @@ def write_report(
         As for :func:`render`.
     compact : bool, default False
         As for :func:`render`.
+    sections : sequence of str, optional
+        As for :func:`render`.
 
     Returns
     -------
@@ -1008,6 +1067,7 @@ def write_report(
         The file written.
     """
     out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(
         render(
             result,
@@ -1018,6 +1078,7 @@ def write_report(
             manifest=manifest,
             setup_notes=setup_notes,
             compact=compact,
+            sections=sections,
         ),
         encoding="utf-8",
     )
@@ -1099,6 +1160,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--strict-source", action="store_true", help="require runs.source to agree"
     )
+    parser.add_argument(
+        "--simulation-golden",
+        metavar="DIR",
+        help="also read the regenerated simulation-sweep tables in DIR "
+        "(golden/simulation_sweeps, MAR-70)",
+    )
+    parser.add_argument(
+        "--baseline",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="value of noise_level or n_assets a run must have when a golden "
+        "record leaves it empty (JSON value; MAR-70)",
+    )
     parser.add_argument("--notes", help="text placed under the report title")
     parser.add_argument(
         "--notes-file", help="file whose text is placed under the report title"
@@ -1140,6 +1215,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error(f"--store {store_dir} is not a directory")
     try:
         fixed = _fixed(args.fixed)
+        baseline = _fixed(args.baseline)
     except ValueError as exc:
         parser.error(str(exc))
     notes = args.notes
@@ -1149,6 +1225,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     appendices = [_read_text(parser, path) for path in args.appendix]
     golden = load_golden(args.results, args.kpis, args.objectives)
+    if args.simulation_golden:
+        golden = golden.merge(load_simulation_golden(args.simulation_golden))
     explanations = load_explanations(args.explanations) if args.explanations else {}
     result = compare(
         golden,
@@ -1156,6 +1234,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         fixed_parameters=fixed,
         strict_source=args.strict_source,
         sources=args.sources,
+        baseline_parameters=baseline,
     )
     out = write_report(
         result,

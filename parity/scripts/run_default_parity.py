@@ -46,12 +46,13 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, TypeVar, cast
 
 import numpy as np
 import pandas as pd
@@ -92,6 +93,7 @@ from parametric_insurance_design.experiment.sweeps import (  # noqa: E402
 )
 from parametric_insurance_design.interfaces import Sample  # noqa: E402
 from parametric_insurance_design.problem import BuiltProblem, build_problems  # noqa: E402
+from parametric_insurance_design.records import KpiLevel, KpiName  # noqa: E402
 from parametric_insurance_design.solve import (  # noqa: E402
     DEFAULT_POLICY,
     THESIS_POLICY,
@@ -123,10 +125,18 @@ OPTIMISATION_SWEEPS: Final[tuple[str, ...]] = (
     "n_bins",
     "n_clusters",
 )
-"""The optimisation-parameter sweeps (MAR-69), the default of ``--sweep``.
-
-The simulation sweeps ``noise_level`` and ``n_assets`` are MAR-70: pass them
-with ``--sweep``."""
+"""The optimisation-parameter sweeps (MAR-69), compared in ``REPORT.md``."""
+SIMULATION_SWEEPS: Final[tuple[str, ...]] = ("noise_level", "n_assets")
+"""The simulation sweeps (MAR-70), each compared in its own report under
+:data:`REPORTS_DIR`, so that no file exceeds the repository's 500 kB limit."""
+ALL_SWEEPS: Final[tuple[str, ...]] = (*OPTIMISATION_SWEEPS, *SIMULATION_SWEEPS)
+"""The default of ``--sweep``: every sweep of the thesis config."""
+REPORTS_DIR: Final[Path] = PARITY_DIR / "reports"
+"""Where the per-sweep reports of the simulation sweeps go."""
+ANALYSIS_DIR: Final[Path] = PARITY_DIR / "analysis"
+"""Where their analysis appendices go (``<source>.md``)."""
+MAIN_GROUP: Final[str] = "main"
+"""Name of the report group of ``REPORT.md``."""
 DETAIL_RUNS: Final[frozenset[tuple[str, str]]] = frozenset(
     {("portfolio", "weighted_cvar")}
 )
@@ -658,6 +668,7 @@ def _relative(value: float, reference: float) -> float:
 
 
 _APPROACH = {v: k for k, v in harness.APPROACHES.items()}
+_T = TypeVar("_T")
 _METHOD = {v: k for k, v in harness.METHODS.items()}
 
 
@@ -675,12 +686,23 @@ def _loading(single: ExperimentConfig) -> float:
 
 
 class _Builder:
-    """Build a run's design problems as the runner does, cached by config."""
+    """Build a run's design problems as the runner does, cached by config.
 
-    def __init__(self, data: RunInput) -> None:
+    The caches keep the most recent ``size`` prepared EventSets and built
+    runs: the simulation sweeps have about 1,700 configs on 180 prepared
+    EventSets (MAR-70), too many to keep every built problem in memory.
+    """
+
+    def __init__(self, data: RunInput, size: int = 16) -> None:
         self.data = data
+        self.size = size
         self.prepared: dict[str, EventSet] = {}
         self.built: dict[str, tuple[BuiltProblem, ...]] = {}
+
+    def _keep(self, cache: dict[str, _T], key: str, value: _T) -> None:
+        cache[key] = value
+        while len(cache) > self.size:
+            cache.pop(next(iter(cache)))
 
     def __call__(
         self, chash: str, single: ExperimentConfig
@@ -694,9 +716,11 @@ class _Builder:
             sort_keys=True,
         )
         if data_key not in self.prepared:
-            self.prepared[data_key] = prepare_eventset(single, self.data.eventset)
+            self._keep(
+                self.prepared, data_key, prepare_eventset(single, self.data.eventset)
+            )
         prepared = self.prepared[data_key]
-        self.built[chash] = tuple(
+        built = tuple(
             build_problems(
                 prepared,
                 components.scopes[0],
@@ -708,7 +732,8 @@ class _Builder:
                 sample=Sample.full(prepared),
             )
         )
-        return self.built[chash]
+        self._keep(self.built, chash, built)
+        return built
 
 
 def _store_theta(
@@ -860,6 +885,7 @@ def thesis_payout_checks(
     *,
     sources: Sequence[str] = (SOURCE,),
     sweeps: Sequence[str] = (),
+    result: harness.ParityResult | None = None,
 ) -> list[PayoutCheck]:
     """Evaluate each golden thesis payout under our problem.
 
@@ -887,6 +913,10 @@ def thesis_payout_checks(
     sweeps : sequence of str, default ()
         Sweep parameters whose points may be in the store (to find the
         config of a matched run).
+    result : harness.ParityResult, optional
+        The comparison whose matched runs are checked (e.g. restricted to
+        some runs, MAR-70). Default: ``harness.compare`` of ``golden`` and
+        ``store`` over ``sources``.
 
     Returns
     -------
@@ -900,7 +930,8 @@ def thesis_payout_checks(
     ValueError
         If a run uses loaded pricing (the check assumes a pure premium).
     """
-    result = harness.compare(golden, store, sources=sources)
+    if result is None:
+        result = harness.compare(golden, store, sources=sources)
     configs = point_configs(config, sweeps)
     keys = {
         (k.source, k.approach, k.method, k.parameter_text()): k for k in golden.keys()
@@ -995,13 +1026,22 @@ class ExtraRun:
     run_id: str = ""
     bound_violation: float | None = None
     budget: float | None = None
+    cause: str = ""
 
     def sort_key(self) -> tuple[object, ...]:
-        """Source, scope, objective, then the parameter values as numbers."""
-        values = tuple(
-            float(item.split("=", 1)[1]) for item in self.parameters.split(", ")
-        )
-        return (self.source, self.scope, self.objective, values)
+        """Source, scope, objective, then the parameter values as numbers.
+
+        A non-numeric value (the ``locations`` subset) sorts as text after
+        the numbers.
+        """
+        values: list[tuple[int, float, str]] = []
+        for item in self.parameters.split(", "):
+            text = item.split("=", 1)[1]
+            try:
+                values.append((0, float(text), ""))
+            except ValueError:
+                values.append((1, 0.0, text))
+        return (self.source, self.scope, self.objective, tuple(values))
 
 
 def _number_text(value: float) -> str:
@@ -1009,18 +1049,47 @@ def _number_text(value: float) -> str:
     return str(int(value)) if value == int(value) else repr(value)
 
 
-def _parameter_text(parameters: Mapping[str, Any]) -> str:
-    """``name=value`` of the golden parameters a run has, in golden order."""
+def _parameter_text(
+    parameters: Mapping[str, Any],
+    *,
+    baseline: Mapping[str, object] | None = None,
+    locations: Sequence[str] | None = None,
+) -> str:
+    """``name=value`` of the golden parameters a run has, in golden order.
+
+    As :meth:`harness.RecordKey.parameter_text`: the optional key parameters
+    follow where they differ from ``baseline``, and the subset where
+    ``n_assets`` does.
+    """
     names = harness.PARAMETER_COLUMNS.values()
-    return ", ".join(
+    items = [
         f"{n}={_number_text(float(parameters[n]))}"
         for n in names
         if parameters.get(n) is not None
-    )
+    ]
+    differs = {
+        n
+        for n in harness.EXTRA_PARAMETER_COLUMNS.values()
+        if baseline is not None
+        and parameters.get(n) is not None
+        and parameters.get(n) != baseline.get(n)
+    }
+    items += [
+        f"{n}={_number_text(float(parameters[n]))}"
+        for n in harness.EXTRA_PARAMETER_COLUMNS.values()
+        if n in differs
+    ]
+    if "n_assets" in differs and locations is not None:
+        items.append(f"{harness.LOCATIONS_KEY}={'+'.join(locations)}")
+    return ", ".join(items)
 
 
 def extra_runs(
-    golden: harness.Golden, store: ResultStore, result: harness.ParityResult
+    golden: harness.Golden,
+    store: ResultStore,
+    result: harness.ParityResult,
+    *,
+    thesis_failures: Mapping[tuple[str, ...], str] | None = None,
 ) -> list[ExtraRun]:
     """List what we solved beyond the golden records of a comparison.
 
@@ -1031,16 +1100,26 @@ def extra_runs(
     store : ResultStore
         The parity runs.
     result : harness.ParityResult
-        :func:`harness.compare` of the two.
+        :func:`harness.compare` of the two (only its runs are read).
+    thesis_failures : mapping, optional
+        :func:`thesis_failures`: the exceptions the thesis rerun recorded,
+        by (source, approach, method, parameters); they give the cause.
 
     Returns
     -------
     list of ExtraRun
         Unmatched store runs, then matched runs with design problems that
-        have neither a golden objective nor a golden payout, in report order.
+        have neither a golden objective nor a golden payout, in report order,
+        each with its cause (:func:`extra_cause`).
     """
-    runs = store.read("runs")
+    run_ids = sorted(
+        {str(r) for r in result.unmatched_runs["run_id"]}
+        | {str(r) for r in result.matched_runs["run_id"] if r}
+    )
+    runs = store.read("runs", run_ids=run_ids)
     by_run = {str(k): g for k, g in runs.groupby("run_id", sort=True)}
+    baseline = dict(result.baseline_parameters)
+    failures = dict(thesis_failures or {})
 
     def problems(run_id: str, wanted: set[str] | None) -> tuple[tuple[str, ...], ...]:
         frame = by_run[run_id]
@@ -1056,12 +1135,19 @@ def extra_runs(
         run_id = str(row["run_id"])
         first = by_run[run_id].iloc[0]
         ids, statuses = problems(run_id, None)
+        params = json.loads(str(row["parameters"]))
+        locations = None
+        if baseline and params.get("n_assets") != baseline.get("n_assets"):
+            prepared = store.manifest(run_id).get("prepared_eventset") or {}
+            locations = prepared.get("location_ids")
         extras.append(
             ExtraRun(
                 source=str(row["source"]),
                 scope=str(row["scope"]),
                 objective=str(row["objective"]),
-                parameters=_parameter_text(json.loads(str(row["parameters"]))),
+                parameters=_parameter_text(
+                    params, baseline=baseline or None, locations=locations
+                ),
                 config_hash=str(first["config_hash"]),
                 problems=ids,
                 statuses=statuses,
@@ -1096,7 +1182,49 @@ def extra_runs(
                 run_id=str(row["run_id"]),
             )
         )
-    return sorted(extras, key=ExtraRun.sort_key)
+    return sorted(
+        (replace(e, cause=extra_cause(e, failures)) for e in extras),
+        key=ExtraRun.sort_key,
+    )
+
+
+CAUSE_CLARABEL: Final[str] = (
+    "thesis MSE solve failed: OSQP at cvxpy's default accuracy gave no accepted "
+    "solution (ours too: our fallback, Clarabel, solved it), and the thesis's "
+    "fallback `solve(solver=CLARABEL, max_iters=20000)` raises (Clarabel has no "
+    "`max_iters`), which its `_solve` swallows"
+)
+"""Cause of an extra MSE problem that our policy solved with its fallback."""
+
+
+def extra_cause(extra: ExtraRun, failures: Mapping[tuple[str, ...], str]) -> str:
+    """Why the thesis has no golden record for an extra run's problems.
+
+    Parameters
+    ----------
+    extra : ExtraRun
+        From :func:`extra_runs`.
+    failures : mapping
+        :func:`thesis_failures`.
+
+    Returns
+    -------
+    str
+        The exception the thesis rerun recorded at these parameters; for an
+        MSE problem our policy solved with its Clarabel fallback,
+        :data:`CAUSE_CLARABEL`; otherwise ``"not recorded"``.
+    """
+    key = (extra.source, _APPROACH[extra.scope], _METHOD[extra.objective])
+    recorded = failures.get((*key, extra.parameters))
+    if recorded is not None:
+        return f"thesis rerun raised {recorded} (its `_calibrate_objectives` skips it)"
+    if (
+        extra.objective == "mse"
+        and extra.statuses
+        and all(s.startswith("CLARABEL ") for s in extra.statuses)
+    ):
+        return CAUSE_CLARABEL
+    return "not recorded"
 
 
 def evaluate_extras(
@@ -1505,27 +1633,34 @@ def render_analysis(
         ]
         for entity, theirs, ours, rel in _ratio_diffs(c):
             lines.append(_row(entity, f"{theirs:.10g}", f"{ours:.10g}", f"{rel:.2e}"))
-    lines += ["", "### Extra runs, no golden", ""]
+    lines += ["", "### Extra runs, no golden: not compared", ""]
     if not extras:
         lines.append("None.")
     else:
+        causes = defaultdict(int)
+        for e in extras:
+            causes[e.cause] += 1
         lines += [
-            "Design problems we solved for which the golden tables hold neither "
-            "a payout nor an objective: the thesis solves failed there and the "
-            "thesis dropped them without a record (MAR-65). They are not "
-            "compared, so they are not findings. *Whole run*: no golden record "
-            "at these parameters (the run is also listed under *Store runs "
-            "without a golden record*); otherwise the golden record lacks these "
-            "problems. *Our status*: solver and status, with the number of "
-            "problems. With nothing to compare, the last two columns say how "
-            "well our solutions meet our own constraints (numpy, as above; the "
-            "largest over the problems listed). Observation: these are exactly "
-            "the MSE problems where OSQP at cvxpy's default accuracy returns no "
-            "accepted solution and `THESIS_POLICY` falls back to Clarabel. The "
-            "thesis's fallback, `solve(solver=CLARABEL, max_iters=20000)`, "
+            "Design problems of our runs for which the golden tables hold "
+            "neither a payout nor an objective, because the thesis has no "
+            "result there: its solve or build failed and the thesis dropped it "
+            "without a record (MAR-65). By the owner's MAR-18 criteria "
+            "(2026-10-27, answer 8) they are accepted as **not compared**, "
+            "listed here with their cause, and are not findings. *Whole run*: "
+            "no golden record at these parameters (the run is also counted under "
+            "*Store runs without a golden record*); otherwise the golden record "
+            "lacks these problems. *Our status*: solver and status, with the "
+            "number of problems (`None failed`: our build failed too). With "
+            "nothing to compare, the bound and budget columns say how well our "
+            "solutions meet our own constraints (numpy, as above; the largest "
+            "over the problems listed). *Cause*: the exception the thesis rerun "
+            "recorded at these parameters (simulation sweeps, "
+            "`golden/simulation_sweeps/provenance.json`), or, for an MSE problem "
+            "that our policy solved only with its Clarabel fallback, the "
+            "thesis's broken fallback: `solve(solver=CLARABEL, max_iters=20000)` "
             "raises with the workspace's cvxpy 1.9.3 (`TypeError: Clarabel: "
-            "unrecognized "
-            "solver setting 'max_iters'`), and its `_solve` swallows that.",
+            "unrecognized solver setting 'max_iters'`), and its `_solve` "
+            "swallows that.",
             "",
             _row(
                 "Source",
@@ -1538,9 +1673,11 @@ def render_analysis(
                 "Our status",
                 "Our bound viol. (USD)",
                 "Our budget",
+                "Cause",
             ),
-            "|" + "---|" * 10,
+            "|" + "---|" * 11,
         ]
+        labels = {cause: f"C{i}" for i, cause in enumerate(sorted(causes), start=1)}
         for e in extras:
             statuses = sorted(set(e.statuses))
             lines.append(
@@ -1555,9 +1692,273 @@ def render_analysis(
                     ", ".join(f"{s} ({e.statuses.count(s)})" for s in statuses),
                     "" if e.bound_violation is None else f"{e.bound_violation:.2g}",
                     "" if e.budget is None else f"{e.budget:.2e}",
+                    labels[e.cause] if len(causes) > 1 else e.cause,
                 )
             )
+        if len(causes) > 1:
+            lines += [""] + [
+                f"- **{labels[c]}** ({causes[c]} runs): {c}." for c in sorted(causes)
+            ]
     return "\n".join(lines) + "\n"
+
+
+# --------------------------------------------------------------------------
+# MSE under the default policy (informational, MAR-70)
+# --------------------------------------------------------------------------
+
+
+ACCURATE_KPIS: Final[tuple[tuple[str, KpiName], ...]] = (
+    ("E_Uncovered", KpiName.EXPECTED_UNCOVERED),
+    ("CVaR_Uncovered", KpiName.CVAR_UNCOVERED),
+)
+"""Portfolio KPIs shown next to each other for the MSE records."""
+
+ACCURATE_DETAIL_LIMIT: Final[int] = 200
+"""Above this many MSE records, the section shows a summary per scope only."""
+
+
+@dataclass(frozen=True)
+class AccurateMse:
+    """One MSE record under both policies, next to the thesis (informational).
+
+    ``objective_*`` are summed over the record's checked design problems (one
+    per asset in the individual scope, the joint problem otherwise): the
+    thesis payout and our ``THESIS_POLICY`` solution evaluated with numpy,
+    and the ``DEFAULT_POLICY`` (OSQP at 1e-8) solver objective. ``kpis``
+    maps a thesis KPI column to (golden, ``THESIS_POLICY``, ``DEFAULT_POLICY``)
+    portfolio values.
+    """
+
+    source: str
+    scope: str
+    parameters: str
+    problems: int
+    objective_thesis: float
+    objective_ours: float
+    objective_accurate: float
+    kpis: Mapping[str, tuple[float, float, float]]
+    config_hash: str
+    accurate_run_id: str
+
+    @property
+    def thesis_vs_accurate(self) -> float:
+        """(thesis - accurate) / accurate objective."""
+        return _relative(self.objective_thesis, self.objective_accurate)
+
+    @property
+    def ours_vs_accurate(self) -> float:
+        """(ours under ``THESIS_POLICY`` - accurate) / accurate objective."""
+        return _relative(self.objective_ours, self.objective_accurate)
+
+
+def accurate_mse(
+    checks: Sequence[PayoutCheck],
+    result: harness.ParityResult,
+    config: ExperimentConfig,
+    data: RunInput,
+    reference_store: ResultStore,
+    *,
+    sweeps: Sequence[str] = (),
+    policy: SolverPolicy = DEFAULT_POLICY,
+) -> list[AccurateMse]:
+    """Solve every checked MSE record with the accurate policy (informational).
+
+    Each MSE record's run config is solved again with ``policy`` into
+    ``reference_store`` (cached; it is the at-loading reference run of
+    :func:`mse_references` where that one exists). Not gated: the gate runs
+    ``THESIS_POLICY`` (MAR-98); this shows how far its MSE results, and the
+    thesis's, are from accurate optima (owner's MAR-18 answer 5).
+
+    Parameters
+    ----------
+    checks : sequence of PayoutCheck
+        The thesis-payout checks of one report.
+    result : harness.ParityResult
+        That report's comparison (for the golden and our KPIs).
+    config : ExperimentConfig
+        The thesis config.
+    data : RunInput
+        The EventSet as loaded.
+    reference_store : ResultStore
+        The store of the accurate runs.
+    sweeps : sequence of str, default ()
+        As for :func:`thesis_payout_checks`.
+    policy : SolverPolicy, default DEFAULT_POLICY
+        The accurate policy.
+
+    Returns
+    -------
+    list of AccurateMse
+        One per MSE record with checked problems, in check order.
+
+    Raises
+    ------
+    RuntimeError
+        If an accurate run fails.
+    """
+    configs = point_configs(config, sweeps)
+    records: dict[tuple[str, str, str], list[PayoutCheck]] = defaultdict(list)
+    for c in checks:
+        if c.objective == "mse":
+            records[(c.source, c.parameters, c.config_hash)].append(c)
+    kpi_index: dict[tuple[str, str, str, str], tuple[float, float]] = {}
+    for r in result.kpis.to_dict("records"):
+        if r["subject"] == harness.PORTFOLIO_SUBJECT:
+            kpi_index[(r["source"], r["approach"], r["parameters"], r["kpi"])] = (
+                float(r["golden"]),
+                float(r["ours"]),
+            )
+    out: list[AccurateMse] = []
+    for (source, parameters, chash), items in records.items():
+        outcome = run_single(
+            configs[chash],
+            data,
+            reference_store,
+            source="parity_reference",
+            policy=policy,
+        )
+        if not outcome.ok:
+            raise RuntimeError(
+                f"accurate run {outcome.run_id} failed: {outcome.failed}"
+            )
+        runs = reference_store.read("runs", run_ids=[outcome.run_id])
+        solved = {
+            str(r["problem_id"]): float(r["objective_value"])
+            for r in runs.to_dict("records")
+        }
+        accurate = harness._load_store(
+            reference_store,
+            basis=result.basis,
+            evaluation_beta=result.evaluation_beta,
+            run_ids=frozenset({outcome.run_id}),
+        )[outcome.run_id]
+        approach = _APPROACH[items[0].scope]
+        nan2 = (math.nan, math.nan)
+        kpis = {
+            column: (
+                kpi_index.get((source, approach, parameters, column), nan2)[0],
+                kpi_index.get((source, approach, parameters, column), nan2)[1],
+                accurate.kpis.get((KpiLevel.PORTFOLIO.value, "", kpi.value), math.nan),
+            )
+            for column, kpi in ACCURATE_KPIS
+        }
+        out.append(
+            AccurateMse(
+                source=source,
+                scope=items[0].scope,
+                parameters=parameters,
+                problems=len(items),
+                objective_thesis=sum(c.thesis.objective for c in items),
+                objective_ours=sum(c.ours.objective for c in items),
+                objective_accurate=sum(solved[c.problem_id] for c in items),
+                kpis=kpis,
+                config_hash=chash,
+                accurate_run_id=outcome.run_id,
+            )
+        )
+    return out
+
+
+def _worst(values: Sequence[float]) -> str:
+    """Return the largest absolute value in short scientific form, or ""."""
+    finite = [abs(v) for v in values if not math.isnan(v)]
+    return f"{max(finite):.2e}" if finite else ""
+
+
+def render_accurate(rows: Sequence[AccurateMse]) -> str:
+    """Render the MSE records under both policies (informational section)."""
+    lines = [
+        "### MSE under the default policy (informational, not gated)",
+        "",
+        "Owner's MAR-18 answer 5 (2026-10-27): the gate compares with the thesis "
+        "under `THESIS_POLICY` (OSQP at cvxpy's default accuracy for MSE, "
+        "MAR-98); this section shows the accurate optimum of the same design "
+        "problems (`DEFAULT_POLICY`, OSQP at 1e-8; runs in the reference store, "
+        "the at-loading reference runs above where those exist) next to it. "
+        "*Objective*: summed over the record's checked design problems; thesis "
+        "payout and ours (`THESIS_POLICY`) evaluated with numpy, the accurate "
+        "one as its solver reports it; *vs. accurate*: (value - accurate) / "
+        "accurate. A value below the accurate optimum spends more than the "
+        "budget or breaks a payout bound (appendix above). *KPIs*: the "
+        "portfolio's E[U] and CVaR_0.95: golden (thesis), ours under "
+        "`THESIS_POLICY`, ours under `DEFAULT_POLICY`. Nothing here is a "
+        "finding.",
+        "",
+    ]
+    if not rows:
+        lines.append("No MSE record was checked.")
+        return "\n".join(lines)
+    if len(rows) > ACCURATE_DETAIL_LIMIT:
+        groups: dict[tuple[str, str], list[AccurateMse]] = defaultdict(list)
+        for r in rows:
+            groups[(r.source, r.scope)].append(r)
+        lines += [
+            f"{len(rows)} MSE records; per scope the largest deviations (the "
+            "full table would exceed the report size limit).",
+            "",
+            _row(
+                "Source",
+                "Scope",
+                "Records",
+                "Max \\|thesis vs. accurate\\|",
+                "Max \\|ours vs. accurate\\|",
+                *(
+                    f"Max \\|{c}: thesis policy vs. accurate\\|"
+                    for c, _ in ACCURATE_KPIS
+                ),
+            ),
+            "|" + "---|" * (5 + len(ACCURATE_KPIS)),
+        ]
+        for (source, scope), items in groups.items():
+            lines.append(
+                _row(
+                    source,
+                    scope,
+                    len(items),
+                    _worst([r.thesis_vs_accurate for r in items]),
+                    _worst([r.ours_vs_accurate for r in items]),
+                    *(
+                        _worst([_relative(r.kpis[c][1], r.kpis[c][2]) for r in items])
+                        for c, _ in ACCURATE_KPIS
+                    ),
+                )
+            )
+        return "\n".join(lines)
+    lines += [
+        _row(
+            "Source",
+            "Scope",
+            "Parameters",
+            "Problems",
+            "Objective: thesis",
+            "Objective: ours",
+            "Objective: accurate",
+            "Thesis vs. accurate",
+            "Ours vs. accurate",
+            *(
+                f"{c}: {who}"
+                for c, _ in ACCURATE_KPIS
+                for who in ("golden", "ours", "accurate")
+            ),
+        ),
+        "|" + "---|" * (9 + 3 * len(ACCURATE_KPIS)),
+    ]
+    for r in rows:
+        lines.append(
+            _row(
+                r.source,
+                r.scope,
+                r.parameters,
+                r.problems,
+                f"{r.objective_thesis:.10g}",
+                f"{r.objective_ours:.10g}",
+                f"{r.objective_accurate:.10g}",
+                f"{r.thesis_vs_accurate:.2e}",
+                f"{r.ours_vs_accurate:.2e}",
+                *(f"{v:.8g}" for c, _ in ACCURATE_KPIS for v in r.kpis[c]),
+            )
+        )
+    return "\n".join(lines)
 
 
 # --------------------------------------------------------------------------
@@ -1627,6 +2028,412 @@ NOTES_SWEEPS: Final[str] = (
 )
 
 
+NOTES_SIMULATION: Final[Mapping[str, str]] = {
+    "noise_value_sweep": (
+        "This report covers the thesis noise-level sweep (golden `Source` "
+        "`noise_value_sweep`, MAR-70): eta from 0 to 1 at the thesis "
+        "defaults otherwise, every scope x objective. The thesis kept these "
+        "results in memory only, so the golden tables are regenerated by "
+        "running the thesis code on its event-loss table "
+        "(`golden/simulation_sweeps/`, written by "
+        "`scripts/derive_simulation_sweeps.py`). The noise layer is re-applied "
+        "per value with a fresh generator from seed 42, as the thesis' "
+        "`_build_sim_df` does. Written by `uv run python "
+        "parity/scripts/run_default_parity.py`; `REPORT.md` holds the baseline, "
+        "the optimisation sweeps and the index of these reports."
+    ),
+    "n_assets_sweep": (
+        "This report covers the thesis asset-count sweep (golden `Source` "
+        "`n_assets_sweep`, MAR-70): 1 to 9 assets, at most 25 subsets per "
+        "size drawn as the thesis' `_build_kpi_df_n_assets` draws them, every "
+        "scope x objective. The thesis figure shows averages over the subsets; "
+        "the golden tables hold each subset's results, regenerated by running "
+        "the thesis code (`golden/simulation_sweeps/`, written by "
+        "`scripts/derive_simulation_sweeps.py`), and a record names its subset "
+        "(`locations`). Written by `uv run python "
+        "parity/scripts/run_default_parity.py`; `REPORT.md` holds the baseline, "
+        "the optimisation sweeps and the index of these reports."
+    ),
+}
+"""The notes under the title of each simulation-sweep report."""
+
+
+def baseline_parameters(config: ExperimentConfig, data: RunInput) -> dict[str, object]:
+    """Return the baseline values of the optional key parameters.
+
+    A golden record that names no ``noise_level`` or ``n_assets`` (every
+    thesis-table record) matches only runs at the config's noise level and
+    on its whole portfolio.
+    """
+    locations = config.portfolio.location_ids
+    return {
+        "noise_level": None if config.noise is None else config.noise.level,
+        "n_assets": data.eventset.n_locations if locations is None else len(locations),
+    }
+
+
+def load_provenance(directory: Path) -> dict[str, Any]:
+    """Read the provenance of the simulation-sweep golden tables ({} if absent)."""
+    path = directory / "provenance.json"
+    if not path.is_file():
+        return {}
+    return cast(dict[str, Any], json.loads(path.read_text(encoding="utf-8")))
+
+
+_METHOD_PARAMETERS: Final[Mapping[str, tuple[str, ...]]] = {
+    "pure_basis_risk_minimization": ("budget_loading", "n_bins"),
+    "pure_uncovered_loss_minimization": ("budget_loading", "n_bins"),
+    "weighted_cvar_minimization": ("alpha", "beta", "budget_loading", "n_bins"),
+}
+"""The thesis parameters of each method (``optimization_config.yaml``)."""
+
+
+def thesis_failures(
+    provenance: Mapping[str, Any], baseline: Mapping[str, object]
+) -> dict[tuple[str, ...], str]:
+    """Return the exceptions the thesis rerun recorded, by golden record key.
+
+    Parameters
+    ----------
+    provenance : mapping
+        :func:`load_provenance`.
+    baseline : mapping
+        :func:`baseline_parameters`.
+
+    Returns
+    -------
+    dict
+        (source, approach, method, parameter text) to ``"<type>: <message>"``.
+    """
+    out: dict[tuple[str, ...], str] = {}
+    inputs = provenance.get("settings", {}).get("experiment_inputs", {})
+    for entry in provenance.get("sweeps", {}).values():
+        for f in entry["failures"]:
+            approach, method = str(f["approach"]), str(f["method"])
+            params: dict[str, Any] = {p: inputs[p] for p in _METHOD_PARAMETERS[method]}
+            if approach == harness.CLUSTER_APPROACH:
+                params["n_clusters"] = inputs["n_clusters"]
+            params["noise_level"] = f["noise_value"]
+            params["n_assets"] = len(f["location_ids"])
+            text = _parameter_text(
+                params, baseline=baseline, locations=f["location_ids"]
+            )
+            out[(str(entry["source"]), approach, method, text)] = (
+                f"`{f['error_type']}: {f['message']}`"
+            )
+    return out
+
+
+@dataclass(frozen=True)
+class ReportGroup:
+    """One report file: the golden sources it compares and the runs it reads."""
+
+    name: str
+    sources: tuple[str, ...]
+    sweeps: tuple[str, ...]
+    out: Path
+    analysis: Path
+    run_ids: frozenset[str]
+    sweep_results: tuple[SweepResult, ...]
+
+
+def report_groups(
+    outcomes: Sequence[RunOutcome],
+    sweeps: Sequence[SweepResult],
+    *,
+    out: Path,
+    analysis: Path,
+    reports_dir: Path,
+    analysis_dir: Path,
+) -> list[ReportGroup]:
+    """Split the parity runs into reports (MAR-70).
+
+    ``REPORT.md`` (:data:`MAIN_GROUP`) compares the baseline and the
+    optimisation sweeps on their runs; each simulation sweep gets
+    ``<reports_dir>/<source>.md`` on the runs of its points, with its
+    analysis in ``<analysis_dir>/<source>.md``.
+    """
+    optimisation = [s for s in sweeps if s.parameter not in SIMULATION_SWEEPS]
+    groups = [
+        ReportGroup(
+            name=MAIN_GROUP,
+            sources=sweep_sources([s.parameter for s in optimisation]),
+            sweeps=tuple(s.parameter for s in optimisation),
+            out=out,
+            analysis=analysis,
+            run_ids=frozenset(
+                {o.run_id for o in outcomes}
+                | {p.outcome.run_id for s in optimisation for p in s.points}
+            ),
+            sweep_results=tuple(optimisation),
+        )
+    ]
+    for s in sweeps:
+        if s.parameter in SIMULATION_SWEEPS:
+            groups.append(
+                ReportGroup(
+                    name=s.source,
+                    sources=(s.source,),
+                    sweeps=(s.parameter,),
+                    out=reports_dir / f"{s.source}.md",
+                    analysis=analysis_dir / f"{s.source}.md",
+                    run_ids=frozenset(p.outcome.run_id for p in s.points),
+                    sweep_results=(s,),
+                )
+            )
+    return groups
+
+
+@dataclass(frozen=True)
+class GroupSummary:
+    """What one report found, for the index and the exit status."""
+
+    name: str
+    out: Path
+    findings: int
+    unexplained: int
+    unsupported: tuple[str, ...]
+    bugs: int
+    overview: tuple[Mapping[str, Any], ...]
+    records: int
+    records_matched: int
+    verdicts: Mapping[str, int]
+    failed_on_both_sides: frozenset[str]
+    extras: int
+    points: int
+    failed_points: int
+
+
+def _simulation_note(provenance: Mapping[str, Any], source: str) -> str:
+    """Return the setup line on how a simulation sweep's golden tables were made."""
+    entry = next(
+        (e for e in provenance.get("sweeps", {}).values() if e["source"] == source),
+        None,
+    )
+    if entry is None:
+        return ""
+    check = entry["figure_check"]
+    versions = provenance.get("versions", {})
+    subsets = entry.get("subsets")
+    subset_text = (
+        ""
+        if subsets is None
+        else f" The thesis drew {subsets['n_subsets']} subsets, "
+        + (
+            "the same as `sweeps.n_assets_subsets` draws, in the same order."
+            if subsets["equal_to_n_assets_subsets"]
+            else "NOT the subsets `sweeps.n_assets_subsets` draws."
+        )
+    )
+    return (
+        f"Golden `{source}`: regenerated with the thesis code (thesis commit "
+        f"`{provenance.get('thesis_commit', '')[:12]}`, cvxpy "
+        f"{versions.get('cvxpy', '?')}, clarabel {versions.get('clarabel', '?')}, "
+        f"osqp {versions.get('osqp', '?')}; `golden/simulation_sweeps/provenance."
+        f"json`): {entry['datasets']} datasets, {len(entry['failures'])} "
+        "scope x objective solves that raised (the thesis skips them; listed "
+        "under *Extra runs* where we ran them). Figure check: the regenerated "
+        f"thesis output reproduces the {check['figure_rows']} values of the "
+        f"notebook's sensitivity figure ({check['kpi']} of the portfolio) within "
+        f"{check['max_rel_deviation']:.1e} relative, "
+        f"{len(check['beyond_print_rounding'])} of them beyond the print's "
+        "rounding (5e-7): the thesis ran an older cvxpy and Clarabel, and LP "
+        "degeneracy moves this KPI where it is not the objective." + subset_text
+    )
+
+
+def write_group(
+    group: ReportGroup,
+    *,
+    config: ExperimentConfig,
+    data: RunInput,
+    store: ResultStore,
+    reference_store: ResultStore,
+    golden: harness.Golden,
+    explanations: Mapping[str, str],
+    failures: Mapping[tuple[str, ...], str],
+    noise: NoiseCheck,
+    summaries: Sequence[GroupSummary] = (),
+    adapter: str = "",
+    provenance: Mapping[str, Any] | None = None,
+) -> GroupSummary:
+    """Compare one report group, write its analysis and report, summarise it.
+
+    Parameters
+    ----------
+    group : ReportGroup
+        From :func:`report_groups`.
+    config, data : ExperimentConfig, RunInput
+        The thesis config and EventSet.
+    store, reference_store : ResultStore
+        The parity runs and the accurate MSE runs.
+    golden : harness.Golden
+        The golden tables (with the simulation tables where needed).
+    explanations : mapping of str to str
+        From ``explanations.yaml``.
+    failures : mapping
+        :func:`thesis_failures`.
+    noise : NoiseCheck
+        For the setup section.
+    summaries : sequence of GroupSummary, default ()
+        The simulation reports written so far, indexed in ``REPORT.md``.
+    adapter : str, default ""
+        The adapter section appended to ``REPORT.md``; empty to omit.
+    provenance : mapping, optional
+        :func:`load_provenance` (default: read it from the golden directory).
+
+    Returns
+    -------
+    GroupSummary
+        Its counts.
+    """
+    if provenance is None:
+        provenance = load_provenance(harness.SIMULATION_DIR)
+    result = harness.compare(
+        golden,
+        store,
+        sources=group.sources,
+        baseline_parameters=baseline_parameters(config, data),
+        run_ids=group.run_ids,
+    )
+    checks = thesis_payout_checks(
+        config,
+        data,
+        golden,
+        store,
+        sources=group.sources,
+        sweeps=group.sweeps,
+        result=result,
+    )
+    checks = mse_references(checks, config, data, reference_store, sweeps=group.sweeps)
+    accurate = accurate_mse(
+        checks, result, config, data, reference_store, sweeps=group.sweeps
+    )
+    extras = evaluate_extras(
+        extra_runs(golden, store, result, thesis_failures=failures),
+        config,
+        data,
+        store,
+        sweeps=group.sweeps,
+    )
+    unsupported = unsupported_explanations(result.findings, checks, explanations)
+    text = render_analysis(checks, findings=result.findings, extras=extras)
+    text += "\n" + render_accurate(accurate) + "\n"
+    group.analysis.parent.mkdir(parents=True, exist_ok=True)
+    group.analysis.write_text(text, encoding="utf-8")
+    main = group.name == MAIN_GROUP
+    appendices = [text]
+    if main and adapter:
+        appendices.append(Path(adapter).read_text(encoding="utf-8"))
+    notes = (
+        (NOTES_SWEEPS if group.sweeps else NOTES)
+        if main
+        else NOTES_SIMULATION[group.name]
+    )
+    setup = setup_notes(config, data, noise, sweeps=group.sweep_results)
+    if not main:
+        setup.append(_simulation_note(provenance, group.name))
+    report.write_report(
+        result,
+        group.out,
+        explanations=explanations,
+        notes=notes,
+        appendices=appendices,
+        setup_notes=setup,
+        compact=True,
+        sections=[render_index(summaries, group.out)] if main and summaries else [],
+    )
+    unexplained = sum(
+        report.explanation_for(f, explanations) is None for f in result.findings
+    )
+    matched = result.matched_runs
+    return GroupSummary(
+        name=group.name,
+        out=group.out,
+        findings=len(result.findings),
+        unexplained=unexplained,
+        unsupported=tuple(unsupported),
+        bugs=sum(c.verdict == "potential porting bug" for c in checks),
+        overview=tuple(report.overview(result).to_dict("records")),
+        records=len(matched),
+        records_matched=sum(int(c) == 1 for c in matched["candidates"]),
+        verdicts={v: sum(c.verdict == v for c in checks) for v in VERDICTS},
+        failed_on_both_sides=frozenset(
+            e.run_id for e in extras if e.cause.startswith("thesis rerun raised")
+        ),
+        extras=len(extras),
+        points=sum(len(s.points) for s in group.sweep_results),
+        failed_points=sum(len(s.failed) for s in group.sweep_results),
+    )
+
+
+def render_index(summaries: Sequence[GroupSummary], main_out: Path) -> str:
+    """Render the section of ``REPORT.md`` that indexes the simulation reports."""
+    lines = [
+        "## Simulation sweeps (MAR-70)",
+        "",
+        "The noise-level and asset-count sweeps are compared in reports of "
+        "their own, with the same rules, explanations file and evidence check, "
+        "so that each file stays under the repository's 500 kB limit. Their "
+        "golden tables are regenerated with the thesis code "
+        "(`golden/simulation_sweeps/`): the thesis computed these sweeps in "
+        "memory only. *Records*: golden records with one matched run / all. "
+        "*KPIs* and *Objectives*: matching / compared. *Thesis-payout check*: "
+        "design problems with the verdict alternative optimum / OSQP accuracy "
+        "/ infeasible / potential porting bug. *Not compared*: extra runs of "
+        "ours with no golden record (appendix of each report), of them failed "
+        "on both sides: our run failed and the thesis rerun raised there too.",
+        "",
+        _row(
+            "Report",
+            "Points (failed)",
+            "Records",
+            "Findings (unexplained)",
+            "KPIs: gated",
+            "KPIs: reported, not gated",
+            "Objectives",
+            "Payout vectors (other shape)",
+            "Cluster assignments",
+            "Thesis-payout check",
+            "Not compared (failed on both sides)",
+        ),
+        "|" + "---|" * 11,
+    ]
+
+    def counts(s: GroupSummary, name: str, kind: str = "kpi") -> str:
+        row = next(r for r in s.overview if r["comparison"] == name)
+        if kind == "payout":
+            return f"{row['match']} ({row['mismatch']})"
+        return f"{row['match']} / {row['compared']}"
+
+    for s in summaries:
+        link = os.path.relpath(s.out, main_out.parent)
+        lines.append(
+            _row(
+                f"[`{link}`]({link})",
+                f"{s.points} ({s.failed_points})",
+                f"{s.records_matched} / {s.records}",
+                f"{s.findings} ({s.unexplained})",
+                counts(s, report.GATED_KPIS),
+                counts(s, report.UNGATED_KPIS),
+                counts(s, "Objective values"),
+                counts(s, "Payout vectors", "payout"),
+                counts(s, "Cluster assignments"),
+                " / ".join(str(s.verdicts[v]) for v in VERDICTS),
+                f"{s.extras} ({len(s.failed_on_both_sides)})",
+            )
+        )
+    total = sum(s.findings for s in summaries)
+    unexplained = sum(s.unexplained for s in summaries)
+    lines += [
+        "",
+        f"Over the simulation-sweep reports: {total} findings, "
+        f"{total - unexplained} of them explained, {unexplained} not yet; "
+        f"{sum(s.bugs for s in summaries)} potential porting bugs.",
+    ]
+    return "\n".join(lines)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the default parity runs and write the report.
 
@@ -1665,12 +2472,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         "directory name with -reference appended)",
     )
     parser.add_argument(
+        "--reports-dir",
+        default=str(REPORTS_DIR),
+        help="directory of the per-sweep reports of the simulation sweeps "
+        "(default: parity/reports)",
+    )
+    parser.add_argument(
+        "--analysis-dir",
+        default=str(ANALYSIS_DIR),
+        help="directory of the simulation sweeps' analysis appendices "
+        "(default: parity/analysis)",
+    )
+    parser.add_argument(
+        "--simulation-golden",
+        default=str(harness.SIMULATION_DIR),
+        help="the regenerated thesis simulation-sweep tables (MAR-70)",
+    )
+    parser.add_argument(
         "--sweep",
         action="append",
         dest="sweeps",
         metavar="PARAM",
-        help="sweep to run and compare (repeatable; default: "
-        f"{', '.join(OPTIMISATION_SWEEPS)})",
+        help="sweep to run and compare (repeatable; default: every sweep, "
+        f"{', '.join(ALL_SWEEPS)})",
     )
     parser.add_argument(
         "--no-sweeps", action="store_true", help="run and compare the baseline only"
@@ -1680,7 +2504,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.no_sweeps and args.sweeps:
         parser.error("--sweep and --no-sweeps exclude each other")
     parameters: tuple[str, ...] = (
-        () if args.no_sweeps else tuple(args.sweeps or OPTIMISATION_SWEEPS)
+        () if args.no_sweeps else tuple(args.sweeps or ALL_SWEEPS)
     )
     unknown = sorted(set(parameters) - set(SWEEP_SOURCES))
     if unknown:
@@ -1690,73 +2514,69 @@ def main(argv: Sequence[str] | None = None) -> int:
     store = ResultStore(Path(args.store) if args.store else config.output.directory)
     data = load_input(config)
     outcomes = run_defaults(config, store, data)
-    failed = [o for o in outcomes if not o.ok]
     sweeps = run_parity_sweeps(config, store, data, parameters)
-    failed += [p.outcome for s in sweeps for p in s.failed]
-    if failed:
-        print(f"{len(failed)} runs have a failed design problem", file=sys.stderr)
     noise = noise_check(config, data)
     golden = harness.load_golden(objectives=args.objectives)
-    sources = sweep_sources(parameters)
-    result = harness.compare(golden, store, sources=sources)
-    checks = thesis_payout_checks(
-        config, data, golden, store, sources=sources, sweeps=parameters
-    )
+    if any(p in SIMULATION_SWEEPS for p in parameters):
+        golden = golden.merge(harness.load_simulation_golden(args.simulation_golden))
+    provenance = load_provenance(Path(args.simulation_golden))
+    failures = thesis_failures(provenance, baseline_parameters(config, data))
     reference_store = ResultStore(
         Path(args.reference_store)
         if args.reference_store
         else store.root.with_name(store.root.name + "-reference")
     )
-    checks = mse_references(checks, config, data, reference_store, sweeps=parameters)
-    bugs = [c for c in checks if c.verdict == "potential porting bug"]
-    if bugs:
-        print(f"{len(bugs)} potential porting bugs (see the appendix)", file=sys.stderr)
-    unsupported = unsupported_explanations(
-        result.findings, checks, report.load_explanations(args.explanations)
+    explanations = report.load_explanations(args.explanations)
+    shown = ResultStore(_display(store.root))  # a relative path in the report
+    groups = report_groups(
+        outcomes,
+        sweeps,
+        out=Path(args.out),
+        analysis=Path(args.analysis),
+        reports_dir=Path(args.reports_dir),
+        analysis_dir=Path(args.analysis_dir),
     )
-    for line in unsupported:
-        print(f"explanation without evidence: {line}", file=sys.stderr)
-    analysis = Path(args.analysis)
-    analysis.parent.mkdir(parents=True, exist_ok=True)
-    analysis.write_text(
-        render_analysis(
-            checks,
-            findings=result.findings,
-            extras=evaluate_extras(
-                extra_runs(golden, store, result),
-                config,
-                data,
-                store,
-                sweeps=parameters,
-            ),
-        ),
-        encoding="utf-8",
-    )
-    report_args = [
-        "--store",
-        _display(store.root),
-        "--objectives",
-        args.objectives,
-        "--explanations",
-        args.explanations,
-        *(arg for source in sources for arg in ("--source", source)),
-        "--out",
-        args.out,
-        "--notes",
-        NOTES_SWEEPS if parameters else NOTES,
-        "--appendix",
-        str(analysis),
-        "--compact",
+    summaries: list[GroupSummary] = []
+    # The simulation sweeps first: the main report indexes them.
+    for group in sorted(groups, key=lambda g: g.name == MAIN_GROUP):
+        summaries.append(
+            write_group(
+                group,
+                config=config,
+                data=data,
+                store=shown,
+                reference_store=reference_store,
+                golden=golden,
+                explanations=explanations,
+                failures=failures,
+                noise=noise,
+                summaries=summaries,
+                adapter=args.adapter,
+                provenance=provenance,
+            )
+        )
+    accepted = {r for s in summaries for r in s.failed_on_both_sides}
+    failed = [o for o in outcomes if not o.ok]
+    failed += [
+        p.outcome for s in sweeps for p in s.failed if p.outcome.run_id not in accepted
     ]
-    if args.adapter:
-        report_args += ["--appendix", args.adapter]
-    for note in setup_notes(config, data, noise, sweeps=sweeps):
-        report_args += ["--setup-note", note]
-    if args.check:
-        report_args.append("--check")
-    code = report.main(report_args)
-    if args.check and unsupported:
-        code = 1
+    if failed:
+        print(
+            f"{len(failed)} runs have a failed design problem that the thesis solved",
+            file=sys.stderr,
+        )
+    code = 0
+    for s in summaries:
+        for line in s.unsupported:
+            print(f"explanation without evidence: {line}", file=sys.stderr)
+        if s.bugs:
+            print(
+                f"{s.out}: {s.bugs} potential porting bugs (see the appendix)",
+                file=sys.stderr,
+            )
+        print(f"wrote {s.out}: {s.findings} findings, {s.unexplained} unexplained")
+        if args.check and (s.unexplained or s.unsupported):
+            code = 1
     return 1 if failed else code
 
 
