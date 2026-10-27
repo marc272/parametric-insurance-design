@@ -20,6 +20,9 @@ Figure                                   Thesis
                                          (portfolio), 5.4 (cluster)
 ``normalised_payout_<scope>_<entity>``   Figure 5.2 (individual, A1), A.1
                                          (portfolio, A1), A.2 (cluster, C1)
+``kpi_heatmap_<kpi>``                    Notebook heatmaps (MAR-111)
+``performance_overview``                 Figure 5.5 (MAR-111)
+``exceedance_<scope>``                   Figure 5.6 (portfolio; MAR-111)
 =======================================  ====================================
 
 ``<scope>`` is the scope name, with ``_2``, ``_3``, ... appended when a
@@ -61,6 +64,7 @@ from parametric_insurance_design_viz.figure_data import (
     WrittenFigure,
     write_figure,
 )
+from parametric_insurance_design_viz.kpi_figures import kpi_figures
 from parametric_insurance_design_viz.payout_functions import (
     AxisLabels,
     normalised_payout,
@@ -241,7 +245,7 @@ def payout_figures(context: FigureContext) -> list[FigureOutput | SkippedFigure]
     return out
 
 
-FIGURE_SETS: Final[tuple[FigureSet, ...]] = (payout_figures,)
+FIGURE_SETS: Final[tuple[FigureSet, ...]] = (payout_figures, kpi_figures)
 """Figure builders of the ``figures`` command, in order (append-only)."""
 
 
