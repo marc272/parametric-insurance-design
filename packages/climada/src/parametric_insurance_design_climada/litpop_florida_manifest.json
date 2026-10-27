@@ -1,0 +1,32 @@
+{
+  "portfolio": "Florida's 67 counties from LitPop (D2, SPEC §6.6; MAR-113)",
+  "licence": "CC-BY-4.0",
+  "attribution": "Asset values: CLIMADA data API, dataset LitPop_150arcsec_USA v3 (uuid 678e9551-32ca-40f3-9881-9bd38412c1cd), CC BY 4.0; Eberenz, S., Stocker, D., Röösli, T. and Bresch, D. N. (2020), Asset exposure data for global physical risk assessment, Earth Syst. Sci. Data 12, 817-833, https://doi.org/10.5194/essd-12-817-2020; archive https://doi.org/10.3929/ethz-b-000331316. County boundaries: U.S. Census Bureau, 2025 TIGER/Line Shapefiles, County and Equivalent Entities.",
+  "litpop": {
+    "name": "LitPop_150arcsec_USA.hdf5",
+    "url": "https://data.iac.ethz.ch/climada/678e9551-32ca-40f3-9881-9bd38412c1cd/LitPop_150arcsec_USA.hdf5",
+    "dataset": "LitPop_150arcsec_USA",
+    "version": "v3",
+    "uuid": "678e9551-32ca-40f3-9881-9bd38412c1cd",
+    "record": "https://climada.ethz.ch/data-api/v2/dataset/678e9551-32ca-40f3-9881-9bd38412c1cd/",
+    "licence": "CC-BY-4.0",
+    "size": 51228208,
+    "md5": "9f019394e1736e67c6fd5572875a2fa1",
+    "sha256": "16eee0b8ffbe200e86881a4f759b7cd0d8924e91ec60d27907c5a2f9a4242c49"
+  },
+  "boundaries": {
+    "name": "tl_2025_us_county.zip",
+    "url": "https://www2.census.gov/geo/tiger/TIGER2025/COUNTY/tl_2025_us_county.zip",
+    "dataset": "TIGER/Line Shapefile, Current, Nation, U.S., County and Equivalent Entities",
+    "version": "TIGER2025 (metadata dated 2025-09-18; server Last-Modified 2025-09-23)",
+    "record": "https://meta.geo.census.gov/data/existing/decennial/GEO/GPMB/TIGERline/Current_19115/tl_2025_us_county.shp.iso.xml",
+    "licence": "Not copyrighted (U.S. Census Bureau); free to use with acknowledgement of the U.S. Census Bureau as the source. See docs/data-sources.md.",
+    "member": "tl_2025_us_county.shp",
+    "size": 83989800,
+    "md5": "026de3fea9492009a0ab9d2b526ea9c5",
+    "sha256": "9c6e9d9076abce2670d1de255de3710c35ecca00a7005d88e012dec52d95f763"
+  },
+  "state_fips": "12",
+  "expected_units": 67,
+  "region_margin_deg": 0.5
+}
