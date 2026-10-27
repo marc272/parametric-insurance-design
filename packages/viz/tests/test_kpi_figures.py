@@ -452,7 +452,11 @@ def test_exceedance_data(toy_grid: dict, tmp_path: Path) -> None:
 
 def test_exceedance_adds_the_var_point(beta95: Variant) -> None:
     runs = variant_grid(beta95)["individual"]
-    main = exceedance_curves(runs, scope_key="individual").data[""]
+    output = exceedance_curves(runs, scope_key="individual")
+    # the individual scope's dotted line, in the curves and the legend
+    legend = output.figure.legends[0].get_lines()
+    assert [line.get_linestyle() for line in legend] == [":", ":"]
+    main = output.data[""]
     added = where(main, main["source"] == "kpis")
     assert list(added["return_period"]) == [20.0, 20.0]
     for run in runs:

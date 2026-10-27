@@ -1090,7 +1090,13 @@ def exceedance_curves(
         fig.tight_layout()
         objectives = [str(f["objective"].iloc[0]) for f in frames]
         handles = [  # lines without markers, as the thesis legend
-            Line2D([0], [0], color=style.objective_color(o), linewidth=1.5)
+            Line2D(
+                [0],
+                [0],
+                color=style.objective_color(o),
+                linestyle=cast(Any, linestyle.linestyle),
+                linewidth=1.5,
+            )
             for o in objectives
         ]
         fig.legend(
