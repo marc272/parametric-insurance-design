@@ -37,6 +37,14 @@ pyarrow = ">=15"
 pydantic = ">=2.7"
 pyyaml = ">=6.0.1"
 scipy = ">=1.15"
+# Used directly by this package (portfolio_litpop.py) and its figure scripts
+# (scripts/florida_exposure_summary.py, plot_vulnerability_spread.py), so
+# declared rather than left transitive through CLIMADA (MAR-119). The floors
+# hold the versions the lock already resolved. matplotlib-base, not
+# matplotlib: the scripts render with Agg and need no GUI backend.
+geopandas = ">=1.0"
+matplotlib-base = ">=3.8"
+shapely = ">=2.0"
 # Test tools.
 pytest = ">=9"
 pytest-cov = ">=7"
