@@ -1282,6 +1282,9 @@ def evaluate_extras(
         objective = single.to_components().objectives[0]
         theta, solved = _store_theta(store, extra.run_id)
         evaluations = []
+        if not any(p in solved for p in extra.problems):
+            out.append(extra)  # nothing solved (e.g. a build failure): no data
+            continue
         for problem in builder(extra.config_hash, single):
             if problem.spec.problem_id not in extra.problems:
                 continue
@@ -2250,8 +2253,23 @@ def _simulation_note(provenance: Mapping[str, Any], source: str) -> str:
         f"notebook's sensitivity figure ({check['kpi']} of the portfolio) within "
         f"{check['max_rel_deviation']:.1e} relative, "
         f"{len(check['beyond_print_rounding'])} of them beyond the print's "
-        "rounding (5e-7): the thesis ran an older cvxpy and Clarabel, and LP "
-        "degeneracy moves this KPI where it is not the objective." + subset_text
+        "rounding (5e-7)"
+        + (
+            " ("
+            + ", ".join(
+                sorted(
+                    {
+                        f"{b['key'][0]} / {b['key'][1]}"
+                        for b in check["beyond_print_rounding"]
+                    }
+                )
+            )
+            + "; the thesis ran an older cvxpy and Clarabel, which can pick "
+            "another optimum where this KPI is not the objective)."
+            if check["beyond_print_rounding"]
+            else "."
+        )
+        + subset_text
     )
 
 
@@ -2355,6 +2373,7 @@ def write_group(
         setup_notes=setup,
         compact=True,
         sections=[render_index(summaries, group.out)] if main and summaries else [],
+        matched_findings_only=group.name == "n_assets_sweep",
     )
     unexplained = sum(
         report.explanation_for(f, explanations) is None for f in result.findings

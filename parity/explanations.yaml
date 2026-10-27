@@ -116,6 +116,42 @@ P-94e0b4437b: >-
 ? "kpi/individual_optimization/pure_uncovered_loss_minimization/budget_loading_sweep/*"
 : *individual
 
+# Simulation sweeps (MAR-70), MSE: the numbers are those of the two reports
+# under parity/reports/ and their appendices (the MAR-69 text below cites the
+# budget-loading sweep). Only KPIs have findings there; every objective is
+# within tolerance.
+? "kpi/*/pure_basis_risk_minimization/noise_value_sweep/*"
+: >-
+  OSQP accuracy (MSE), noise-level sweep. By owner decision (MAR-98) the gate
+  solves the MSE problems as the thesis did, with OSQP at cvxpy's default
+  accuracy, and the thesis rerun did the same. These findings are all in
+  the cluster scope at eta 0.4 to 1. There the objectives of the thesis
+  payout and of ours agree within 2.6e-7 relative, but the two inaccurate
+  solutions split the payout differently, which moves KPIs much more than
+  the objective, because an MSE optimum is flat in the payouts: a cluster's
+  E[U] by up to 2.4e-2 relative, its VaR by up to 0.39, the portfolio's
+  E[payout]/E[loss] by up to 1.5e-4. Against the accurate optimum of our
+  problem (DEFAULT_POLICY, OSQP at 1e-8) at the loading each payout
+  actually spends (appendix, "MSE against accurate optima", 7 records), the
+  thesis payout is within 1.6e-6 and ours within 1.5e-6, so both are optimal
+  for our problem up to the solver's accuracy (verdict "OSQP accuracy").
+? "kpi/*/pure_basis_risk_minimization/n_assets_sweep/*"
+: >-
+  OSQP accuracy (MSE), asset-count sweep. By owner decision (MAR-98) the gate
+  solves the MSE problems as the thesis did, with OSQP at cvxpy's default
+  accuracy, and the thesis rerun did the same. These findings are in the
+  cluster and portfolio scopes. There the objectives of the thesis payout
+  and of ours agree within 1.1e-6 relative, but the two inaccurate solutions
+  split the payout differently, which moves KPIs much more than the
+  objective, because an MSE optimum is flat in the payouts: an entity's E[U]
+  by up to 0.27 relative, its CVaR by up to 1.6e-2, its VaR where the golden
+  value is 0 (an infinite relative error), and at the portfolio level E[U]
+  and E[payout]/E[loss] by up to 1.1e-4. Against the accurate optimum of our
+  problem (DEFAULT_POLICY, OSQP at 1e-8) at the loading each payout
+  actually spends (appendix, "MSE against accurate optima", 32 records), the
+  thesis payout is within 7.3e-5 and ours within 7.2e-5, so both are optimal
+  for our problem up to the solver's accuracy (verdict "OSQP accuracy").
+
 # MSE (pure basis risk) in the sweeps: OSQP at cvxpy's default accuracy.
 ? "kpi/*/pure_basis_risk_minimization/*_sweep/*"
 : &osqp >-

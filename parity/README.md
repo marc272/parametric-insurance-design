@@ -51,7 +51,7 @@ To regenerate them, from the repository root:
 uv run python parity/scripts/run_default_parity.py --check
 ```
 
-The first run takes about RUNTIME_FIRST (the sweep points about 22 minutes, the thesis-payout checks and the accurate MSE runs the rest); later runs reuse the cached runs and take about RUNTIME_CACHED. `--sweep PARAM` (repeatable) chooses the sweeps, by default all seven, and `--no-sweeps` runs and reports the baseline only.
+The first run takes about 50 minutes (the 1,860 runs of the baseline and the sweep points about 22, the thesis-payout checks and the accurate MSE reference runs the rest); later runs reuse the cached runs and take about 4 minutes, mostly the thesis-payout checks of the 1,419 asset-count records. `--sweep PARAM` (repeatable) chooses the sweeps, by default all seven, and `--no-sweeps` runs and reports the baseline only.
 
 To run the parity sweeps by hand, without the reports, use the CLI (MAR-66) with the thesis policy; `-p` (repeatable) chooses the sweeps, by default all:
 
@@ -101,6 +101,25 @@ The report holds no timestamp, so the same store gives the same text.
 
 **Evidence rule (MAR-69).** The sweeps have hundreds of findings, explained by a few globs. A text that starts with `Alternative optimum` claims that every checked design problem of the finding's record has that verdict in the appendix; one that starts with `OSQP accuracy` allows `alternative optimum` or `OSQP accuracy`. `run_default_parity.py --check` fails while a finding's record lacks that evidence (`unsupported_explanations`), so a broad glob cannot explain a gap the thesis-payout check does not support. A potential porting bug is never explained by a glob: it is listed on its own in the appendix.
 
+### The simulation sweeps
+
+The thesis computed its noise-level and asset-count sensitivity results in memory only (`_build_kpi_df_noise` and `_build_kpi_df_n_assets` in `src/utils/sensitivity_analysis.py`); `benchmarking_kpis.csv` has no rows for them, and the asset-count figure shows means over asset subsets. `scripts/derive_simulation_sweeps.py` regenerates them from a thesis checkout (read-only):
+
+```bash
+uv run python parity/scripts/derive_simulation_sweeps.py \
+    --thesis-repo ../parametric-insurance-framework --overwrite   # about 15 minutes
+```
+
+It executes the notebook cells that define the thesis optimisers and wrappers, loads `sensitivity_analysis.py` with empty stand-ins for its plotting imports, and calls the thesis' `_build_kpi_df_for_param` as the notebook's sensitivity cells do (`asset="Portfolio"`, `max_combos_per_n=25`), but for every scope × objective (the cells excluded four from the figures). It wraps three thesis functions to record what they see without changing it: `_build_sim_df` (noise level and subset), `calibrate_payout_function` (every exception, which `_calibrate_objectives` swallows) and `calculate_benchmarking_kpis` (the payouts it gets and the KPI rows it returns, per subset). Objectives follow from the KPI rows by the formulas above (`Derivation` `a_thesis_rerun_kpis`).
+
+Checks recorded in `golden/simulation_sweeps/provenance.json`:
+
+- **Figure check.** The notebook stores both figures' data (CVaR of the portfolio's uncovered loss, 7 significant digits). The regenerated thesis output reproduces all 43 values of the asset-count figure within 4.7e-7 (the print's rounding) and the 55 of the noise figure within 4.1e-6; the two noise values beyond the rounding are the individual scope at η 0.9 and 1.0, where the portfolio CVaR is not an objective and the workspace's newer cvxpy and Clarabel pick another optimum.
+- **Subsets.** The thesis drew the same 169 subsets as `sweeps.n_assets_subsets`, in the same order.
+- **Thesis failures.** 102 scope × objective solves raised in the thesis, all in the cluster scope with `n_clusters` 3: on one asset (27) scipy's `linkage` raises (`The number of observations cannot be determined on an empty distance matrix.`), on two assets (75) `fcluster(maxclust=3)` gives two clusters and the empty third makes `np.column_stack` raise (`need at least one array to concatenate`). Our runner fails at the same 102 points (`InputMismatchError`). These points have no golden record; the reports list them under *Extra runs* as not compared, with the thesis exception, and `run_default_parity.py` does not count them as failures. Capping `n_clusters` at the subset size would be a method change (MAR-70 kept the failures).
+
+The golden tables have the columns of the thesis tables plus `Noise_Value` (noise sweep), `N_Assets` and `Location_IDs` (asset-count sweep) and `Subset_Index`. A record names its noise level or its subset in the finding path (`…/noise_level=0.4/…`, `…/n_assets=3, locations=A1+A4+A7/…`).
+
 ### The adapter check
 
 The last section of `REPORT.md` checks that the CLIMADA adapter (`packages/climada`, MAR-73) regenerates the thesis input, the fixture under `tests/data/thesis_eventset/` (MAR-20). The adapter runs in its own pixi env, so `run_default_parity.py` doesn't rebuild the event set: it appends the committed `analysis/adapter.md` (option `--adapter`). To rewrite that file, with the merged IRIS catalogue in `data/iris/` (`pixi run iris`), from `packages/climada`:
@@ -134,14 +153,14 @@ uv run python parity/scripts/derive_golden_objectives.py \
 
 ### Markers
 
-- `parity` is the fast subset, run on every pull request. It includes the golden objective table re-derived from the golden KPIs, the golden checksums against the manifest, the runner's noise draws, the committed report having no unexplained finding, no potential porting bug and staying under the file-size limit, the sweep points covering every golden sweep record, and the verdict and evidence rules on hand-made cases.
-- `parity_full` covers the slow tests, which solve the runs: about 30 s for the baseline and 10 minutes for the sweeps. They are skipped unless selected with `-m parity_full` or `PARITY_FULL=1`:
+- `parity` is the fast subset, run on every pull request. It includes the golden objective table re-derived from the golden KPIs, the golden checksums against the manifest, the runner's noise draws, the committed reports having no unexplained finding, no potential porting bug and staying under the file-size limit, the sweep points covering every golden sweep record, the verdict and evidence rules on hand-made cases, and (`test_simulation_sweeps.py`) the simulation golden tables loading, pairing up per shard and matching their provenance, the optional key columns and baseline parameters on hand-made stores, and the extra-run causes.
+- `parity_full` covers the slow tests, which solve the runs: about 30 s for the baseline, 10 minutes for the optimisation sweeps and about 40 minutes for the simulation sweeps. They are skipped unless selected with `-m parity_full` or `PARITY_FULL=1`:
 
 ```bash
 uv run --locked pytest parity/tests -m parity_full
 ```
 
-`test_default_runs.py` regenerates the baseline report (`--no-sweeps`) from fresh runs and requires its findings to be the committed report's `single_run` findings. It also requires every baseline thesis payout to be an alternative optimum of our problem. `test_sweeps.py` regenerates the whole report from fresh runs and requires the same findings and overview counts as the committed one, every explanation backed by its evidence, and no potential porting bug.
+`test_default_runs.py` regenerates the baseline report (`--no-sweeps`) from fresh runs and requires its findings to be the committed report's `single_run` findings. It also requires every baseline thesis payout to be an alternative optimum of our problem. `test_sweeps.py` regenerates `REPORT.md` with the optimisation sweeps from fresh runs and requires the same findings and overview counts as the committed one, every explanation backed by its evidence, and no potential porting bug. `test_simulation_sweeps.py` does the same for the two simulation-sweep reports.
 
 ## The event set
 

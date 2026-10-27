@@ -641,7 +641,7 @@ def _summary_md(result: ParityResult, explanations: Mapping[str, str]) -> str:
     )
 
 
-def _matched_runs_md(result: ParityResult) -> str:
+def _matched_runs_md(result: ParityResult, findings_only: bool = False) -> str:
     lines = [
         "## Matched runs",
         "",
@@ -654,6 +654,30 @@ def _matched_runs_md(result: ParityResult) -> str:
     if not rows:
         lines.append("No golden records were compared.")
         return "\n".join(lines)
+    if findings_only:
+        cited = {(f.key.label(), f.key.parameter_text()) for f in result.findings}
+        listed = [
+            r
+            for r in rows
+            if int(r["candidates"]) != 1
+            or int(r["failed"])
+            or (
+                "/".join((r["approach"], r["method"], r["source"], r["parameters"])),
+                r["parameters"],
+            )
+            in cited
+        ]
+        lines += [
+            f"Only the {len(listed)} of {len(rows)} records with a finding, a "
+            "failed problem or not exactly one matched run are listed (the "
+            "full table would exceed the file-size limit); the sweep manifest "
+            "named in the setup (in the result store) lists the `config_hash` and "
+            "`run_id` of every sweep point.",
+            "",
+        ]
+        rows = listed
+        if not rows:
+            return "\n".join(lines)
     table = [
         (
             f"{r['approach']} / {r['method']} / {r['source']}",
@@ -953,6 +977,7 @@ def render(
     setup_notes: Sequence[str] = (),
     compact: bool = False,
     sections: Sequence[str] = (),
+    matched_findings_only: bool = False,
 ) -> str:
     """Render the parity report as Markdown.
 
@@ -980,6 +1005,10 @@ def render(
     sections : sequence of str, optional
         Markdown sections placed after the summary by comparison group (e.g.
         the index of the per-sweep reports, MAR-70).
+    matched_findings_only : bool, default False
+        List only the matched runs of records with a finding, a failed
+        problem or not exactly one match (the asset-count sweep has 1,521
+        records, MAR-70).
 
     Returns
     -------
@@ -1005,7 +1034,7 @@ def render(
         _overview_md(result, explanations),
         _summary_md(result, explanations),
         *(s.strip() for s in sections if s.strip()),
-        _matched_runs_md(result),
+        _matched_runs_md(result, matched_findings_only),
         _objectives_md(result, compact),
         *(
             (
@@ -1035,6 +1064,7 @@ def write_report(
     setup_notes: Sequence[str] = (),
     compact: bool = False,
     sections: Sequence[str] = (),
+    matched_findings_only: bool = False,
 ) -> Path:
     """Render the report and write it to ``path``.
 
@@ -1060,6 +1090,8 @@ def write_report(
         As for :func:`render`.
     sections : sequence of str, optional
         As for :func:`render`.
+    matched_findings_only : bool, default False
+        As for :func:`render`.
 
     Returns
     -------
@@ -1079,6 +1111,7 @@ def write_report(
             setup_notes=setup_notes,
             compact=compact,
             sections=sections,
+            matched_findings_only=matched_findings_only,
         ),
         encoding="utf-8",
     )
