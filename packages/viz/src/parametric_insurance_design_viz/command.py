@@ -2,16 +2,20 @@
 
 Owner: MAR-110. The core command ``parametric-insurance-design figures
 CONFIG`` (``parametric_insurance_design.cli``) imports this module lazily,
-works out the ``run_id`` of every single run of the config and its prepared
-EventSet, and calls :func:`write_figures`. Everything here reads the result
-store; nothing solves.
+works out the ``run_id`` of every single run of the config, of every point
+of its sweeps (:class:`SweepRun`, MAR-112) and its prepared EventSet, and
+calls :func:`write_figures`. Everything here reads the result store; nothing
+solves.
 
 Figure sets
 -----------
 :data:`FIGURE_SETS` lists the figure builders, in order. Each takes the
 :class:`FigureContext` and returns figures and skipped figures. MAR-110
 registers the payout figures; MAR-21's later sub-issues (MAR-111, MAR-112)
-append their builders to the tuple (append-only, ADR 0002 §10).
+append their builders to the tuple (append-only, ADR 0002 §10). MAR-112
+appends :func:`~parametric_insurance_design_viz.sweep_figures.sweep_figures`
+(sweep plots, premium reallocation, tail-vs-total trade-off, cluster net
+advantage and break-even; see that module for its figure names).
 
 =======================================  ====================================
 Figure                                   Thesis
@@ -31,7 +35,8 @@ No silent failures
 ------------------
 * A run that is not in the store raises
   :class:`~parametric_insurance_design_viz.errors.MissingRunError` before
-  anything is drawn.
+  anything is drawn. That includes every sweep point passed in ``sweeps``:
+  the message names the missing points.
 * A scope with a failed run draws none of its figures; each is reported as a
   :class:`SkippedFigure` with ``failed=True``, and the command exits with
   status 1.
@@ -43,7 +48,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -54,7 +59,10 @@ from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.experiment.config import ExperimentConfig
 from parametric_insurance_design.experiment.store import ResultStore
 from parametric_insurance_design_viz import style
-from parametric_insurance_design_viz.errors import InconsistentRunsError
+from parametric_insurance_design_viz.errors import (
+    InconsistentRunsError,
+    MissingRunError,
+)
 from parametric_insurance_design_viz.figure_data import (
     DEFAULT_DPI,
     FigureOutput,
@@ -72,6 +80,7 @@ from parametric_insurance_design_viz.reader import (
     check_eventset,
     entity_events,
 )
+from parametric_insurance_design_viz.sweep_figures import sweep_figures
 
 __all__ = [
     "FIGURE_SETS",
@@ -80,6 +89,7 @@ __all__ = [
     "FigureSet",
     "ScopeRuns",
     "SkippedFigure",
+    "SweepRun",
     "payout_figures",
     "write_figures",
 ]
@@ -140,6 +150,40 @@ class ScopeRuns:
         )
 
 
+@dataclass(frozen=True)
+class SweepRun:
+    """One point of a configured sweep: which run holds it (MAR-112).
+
+    The ``figures`` command computes these from the config's sweeps
+    (``experiment.sweeps.sweep_points`` and ``runner.run_key``, as the dry
+    run of ``sweep`` does); viz never imports the sweeps module.
+
+    Parameters
+    ----------
+    parameter : str
+        The swept parameter, e.g. ``"alpha"``.
+    value : int or float
+        Its value at this point; for ``n_assets`` the subset size.
+    run_id : str
+        The point's run.
+    single : int
+        Position in ``config.single_runs()`` of the baseline run the point
+        varies (its scope x objective).
+    subset_index : int or None, default None
+        ``n_assets`` only: the subset's position among the subsets of its
+        size.
+    location_ids : tuple of str or None, default None
+        ``n_assets`` only: the subset.
+    """
+
+    parameter: str
+    value: int | float
+    run_id: str
+    single: int
+    subset_index: int | None = None
+    location_ids: tuple[str, ...] | None = None
+
+
 @dataclass(frozen=True, eq=False)
 class FigureContext:
     """Everything a figure set reads.
@@ -154,16 +198,54 @@ class FigureContext:
         The single runs, grouped by configured scope, in config order.
     labels : AxisLabels
         Axis labels with the EventSet's units.
+    sweeps : tuple of SweepRun, default ()
+        Every point of the config's sweeps, in config order (MAR-112). The
+        runs are in the store (checked by :func:`write_figures`) but not
+        read yet; figure sets read the ones they draw.
+    eventset : EventSet or None, default None
+        The runs' prepared EventSet, e.g. for location values (MAR-112).
     """
 
     config: ExperimentConfig
     reader: ResultReader
     scopes: tuple[ScopeRuns, ...]
     labels: AxisLabels
+    sweeps: tuple[SweepRun, ...] = ()
+    eventset: EventSet | None = None
+
+    def scope_of(self, single: int) -> tuple[ScopeRuns, RunResult]:
+        """Return the scope and the run of a single run, by its position.
+
+        Parameters
+        ----------
+        single : int
+            Position in ``config.single_runs()``.
+
+        Returns
+        -------
+        tuple
+            ``(scope runs, run)``.
+
+        Raises
+        ------
+        InconsistentRunsError
+            If there is no single run at that position.
+        """
+        n_objectives = len(self.config.objectives)
+        scope, objective = divmod(single, n_objectives)
+        if not 0 <= single < len(self.scopes) * n_objectives:
+            raise InconsistentRunsError(
+                f"config {self.config.name!r} has no single run {single}"
+            )
+        runs = self.scopes[scope]
+        return runs, runs.runs[objective]
 
 
-FigureSet = Callable[[FigureContext], Sequence[FigureOutput | SkippedFigure]]
-"""A figure builder: the figures (or skipped figures) of a context."""
+FigureSet = Callable[[FigureContext], Iterable[FigureOutput | SkippedFigure]]
+"""A figure builder: the figures (or skipped figures) of a context.
+
+A list, or a generator that draws one figure at a time (MAR-112), so each
+is written and closed before the next is drawn."""
 
 
 @dataclass(frozen=True)
@@ -241,7 +323,7 @@ def payout_figures(context: FigureContext) -> list[FigureOutput | SkippedFigure]
     return out
 
 
-FIGURE_SETS: Final[tuple[FigureSet, ...]] = (payout_figures,)
+FIGURE_SETS: Final[tuple[FigureSet, ...]] = (payout_figures, sweep_figures)
 """Figure builders of the ``figures`` command, in order (append-only)."""
 
 
@@ -267,6 +349,44 @@ def _labels(eventset: EventSet | None) -> AxisLabels:
     return AxisLabels(index_unit=metadata.index.unit, payout_unit=metadata.loss.unit)
 
 
+def _check_sweeps(
+    config: ExperimentConfig, reader: ResultReader, sweeps: Sequence[SweepRun]
+) -> None:
+    """Check that every sweep point names a single run and is in the store.
+
+    Raises
+    ------
+    InconsistentRunsError
+        If a point's ``single`` is not a position in ``config.single_runs()``.
+    MissingRunError
+        If points are not in the store; the message counts them per sweep
+        and names the first few.
+    """
+    n_singles = len(config.single_runs())
+    bad = [p for p in sweeps if not 0 <= p.single < n_singles]
+    if bad:
+        raise InconsistentRunsError(
+            f"config {config.name!r} has {n_singles} single runs; sweep points "
+            f"name single runs {sorted({p.single for p in bad})}"
+        )
+    missing = [p for p in sweeps if not reader.store.has_run(p.run_id)]
+    if not missing:
+        return
+    per_sweep = Counter(p.parameter for p in missing)
+    totals = Counter(p.parameter for p in sweeps)
+    counts = ", ".join(f"{k} {n}/{totals[k]}" for k, n in per_sweep.items())
+    examples = "; ".join(
+        f"{p.parameter}={p.value!r} (single run {p.single}) {p.run_id}"
+        for p in missing[:5]
+    )
+    raise MissingRunError(
+        f"{len(missing)} of {len(sweeps)} sweep points are not in the result "
+        f"store {reader.store.root} ({counts}), e.g. {examples}; figures read "
+        "the store and never re-run an optimisation, so run the sweeps first "
+        "(parametric-insurance-design sweep CONFIG)"
+    )
+
+
 def write_figures(
     config: ExperimentConfig,
     run_ids: Sequence[str],
@@ -274,6 +394,7 @@ def write_figures(
     store: ResultStore,
     out_dir: str | Path,
     eventset: EventSet | None = None,
+    sweeps: Sequence[SweepRun] = (),
     figure_sets: Sequence[FigureSet] = FIGURE_SETS,
     dpi: int = DEFAULT_DPI,
 ) -> FigureReport:
@@ -293,6 +414,9 @@ def write_figures(
         The prepared EventSet of the runs (location subset, noise and
         threshold applied), for the event overlays. It must match every
         run's manifest. Without it the figures show no event data.
+    sweeps : sequence of SweepRun, default ()
+        Every point of the config's sweeps (MAR-112), for the sweep figures.
+        Each must be in the store.
     figure_sets : sequence of FigureSet, default :data:`FIGURE_SETS`
         Figure builders to run.
     dpi : int, default :data:`~.figure_data.DEFAULT_DPI`
@@ -306,9 +430,10 @@ def write_figures(
     Raises
     ------
     InconsistentRunsError
-        If ``run_ids`` does not match the config's single runs.
+        If ``run_ids`` does not match the config's single runs, or a sweep
+        point names no single run of the config.
     MissingRunError
-        If a run is not in the store.
+        If a run, or a sweep point's run, is not in the store.
     EventSetMismatchError
         If ``eventset`` is not the runs' prepared EventSet.
     """
@@ -321,6 +446,8 @@ def write_figures(
         )
     reader = ResultReader(store)
     results = reader.runs(ids)
+    points = tuple(sweeps)
+    _check_sweeps(config, reader, points)
     n_objectives = len(config.objectives)
     eventset_hash = eventset.content_hash() if eventset is not None else None
     scopes: list[ScopeRuns] = []
@@ -338,7 +465,12 @@ def write_figures(
                 )
         scopes.append(ScopeRuns(key=key, runs=runs, events=events))
     context = FigureContext(
-        config=config, reader=reader, scopes=tuple(scopes), labels=_labels(eventset)
+        config=config,
+        reader=reader,
+        scopes=tuple(scopes),
+        labels=_labels(eventset),
+        sweeps=points,
+        eventset=eventset,
     )
     directory = Path(out_dir)
     written: list[WrittenFigure] = []
