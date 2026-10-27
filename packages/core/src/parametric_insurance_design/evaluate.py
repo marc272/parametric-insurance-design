@@ -37,10 +37,16 @@ over the rows ``e`` of an outcome)
       ``p``, null if either has zero variance [``Correlation``].
     * ``expected_loss = E[L]`` and ``expected_payout = E[pi]``.
     * ``premium`` (only if a pricing is given): ``pricing.premium_value`` of
-      each design problem's payout at ``level = "problem"``, and the sum over
-      design problems at ``level = "portfolio"``, which is the total premium
-      the run pays. Pricing is a design-problem component (ADR 0002), so no
-      entity-level premium is reported.
+      each design problem's payout at ``level = "problem"``, and of the
+      portfolio payout (the sum over every entity's payout) at ``level =
+      "portfolio"``: the premium of the run's whole cover bought by one owner
+      (MAR-27). For the pure premium that is the sum of the problem
+      premiums. A loaded pricing (``CostOfCapitalLoad``) is sub-additive, so
+      the portfolio premium can be less than that sum: the tails of
+      separately designed covers diversify when one writer holds them all.
+      The sum of the ``problem`` rows is the price of buying each cover
+      separately. Pricing is a design-problem component (ADR 0002), so no
+      entity-level premium is reported. See ``docs/methodology/pricing.md``.
 
     On the ``event_conditional`` basis every row is an outcome with
     probability ``rate / sum(rate)``, so these are exactly the thesis
@@ -500,7 +506,8 @@ def kpis(
         ``name`` and ``fold`` go into ``eval_split`` and ``fold``.
     pricing : Pricing, optional
         If given, adds the ``premium`` KPI at the problem and portfolio
-        levels.
+        levels. The portfolio premium is the pricing of the aggregate payout,
+        not the sum of the problem premiums (module docstring).
 
     Returns
     -------
@@ -554,11 +561,18 @@ def kpis(
         )
 
     premiums: dict[str, float] = {}
+    portfolio_premium = math.nan
     if pricing is not None:
         premiums = {
             pid: float(pricing.premium_value(payout, measure))
             for pid, payout in ev.problem_payouts
         }
+        # Portfolio: the pricing applied to the aggregate payout (MAR-27).
+        portfolio_premium = next(
+            float(pricing.premium_value(s.payout, measure))
+            for s in ev.subjects
+            if s.level is KpiLevel.PORTFOLIO
+        )
     for subject in ev.subjects:
         for kpi, value in _subject_kpis(subject, measure, p, level_beta).items():
             add(subject, kpi, value)
@@ -567,7 +581,7 @@ def kpis(
         if subject.level is KpiLevel.PROBLEM:
             add(subject, KpiName.PREMIUM, premiums[subject.problem_id])
         elif subject.level is KpiLevel.PORTFOLIO:
-            add(subject, KpiName.PREMIUM, math.fsum(premiums.values()))
+            add(subject, KpiName.PREMIUM, portfolio_premium)
     return KPIS.from_rows(rows)
 
 
