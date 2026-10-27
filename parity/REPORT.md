@@ -8,17 +8,77 @@ This report covers the thesis baseline, the golden `single_run` records (MAR-68)
 
 ## Setup
 
-- Result store: `results/thesis`, 213 committed runs, 204 of them matched by a golden record.
+- Result store: `results/thesis`, 213 committed runs of the sweeps compared, 204 of them matched by a golden record.
 - Golden files (SHA256 of the files as read):
   - `full_optimization_results.csv.gz`: `e252ff2d45134f0f5e6c5c6d31581f95b2bceec64b3512aa6726753eed1d80cf`
   - `benchmarking_kpis.csv.gz`: `ae279c6639bcb92e72cfcd89e380ebb3e586da2259e3c66bddd3179335b8f3c4`
   - `golden_objectives.csv`: `a39e8f0391b0548c230052baed1c5a01dfb322230c8551f3fa25ae2cb77b0a96`
+  - `simulation_results_n_assets_1.csv.gz`: `92eb45e6b28e8642369ea5c2c2e83b95e29d892500b18dac4b975826f84e4cc8`
+  - `simulation_kpis_n_assets_1.csv.gz`: `9fc14f6bf2c1e609a8449398578e29b67a6c781201f5a7fb8f6c7165c12a1e95`
+  - `simulation_objectives_n_assets_1.csv.gz`: `78178b8734a16bf4defc874ed2961a998aa9cfb4858dc5b5da08cf89ae74094d`
+  - `simulation_results_n_assets_2.csv.gz`: `0b16ecda9477e7ef837711fc0e5b921fc50ff8ba7c0fae55d3e07c413fcab4be`
+  - `simulation_kpis_n_assets_2.csv.gz`: `bb24ef75922e11a2a76c778ee9827dde62977bda2aed637a217e09d98a768a31`
+  - `simulation_objectives_n_assets_2.csv.gz`: `dc0159dd74b9c6fdbc5c16b8ec76b88a7f4f48ca3e81405d64514eff5aa062a7`
+  - `simulation_results_n_assets_3.csv.gz`: `2c37dc469256bcf6a711405f3838315d457ccfc0bf141ceb555240676158016e`
+  - `simulation_kpis_n_assets_3.csv.gz`: `35d4c891b1d95024423fef0d9205b3b34e1c0d0dc8c39c55104ae8048fb3b2cc`
+  - `simulation_objectives_n_assets_3.csv.gz`: `49b1ec75be4fc487ea60e1e435b820d5b020cea29c15b70a1b365e60c36742a3`
+  - `simulation_results_n_assets_4.csv.gz`: `fe1aac86de87242beaddb106d2a3893b653b85794edf24e4ece7b39a9f630df9`
+  - `simulation_kpis_n_assets_4.csv.gz`: `675b8a033c757e4b49f5f01987ba04c9f939a9efcea1f2a9ebcf81ce9b7a8fc2`
+  - `simulation_objectives_n_assets_4.csv.gz`: `2cdfd27a9681d638d053a47b772cd8c0b421ea503d28e17f234a5250e8efa671`
+  - `simulation_results_n_assets_5.csv.gz`: `257d2b8e4b50ad6e02b40a582c80ed24539feef1cc44e68036d0ef307db639a0`
+  - `simulation_kpis_n_assets_5.csv.gz`: `4b892842da5ed77e879766d9addaeccc4cbe046a9bc9e3c4fa21f9a1f72404f8`
+  - `simulation_objectives_n_assets_5.csv.gz`: `f3f2fcaafa93be89b030f84a19d0c596a4fab703a65b54e80bef3871bfc33791`
+  - `simulation_results_n_assets_6.csv.gz`: `8593a480b35bca15004f508c34cb19c20450bc83186dba4fda3e3a799c14405e`
+  - `simulation_kpis_n_assets_6.csv.gz`: `4ae495b7f6925134ac39a8dbf40a278129bc55c986352a28e45cf4461261d350`
+  - `simulation_objectives_n_assets_6.csv.gz`: `bfaa838dc2ec5e55fc0a33f8fea53f5f19a35cf2849fe116a665529f0f99802e`
+  - `simulation_results_n_assets_7.csv.gz`: `1de84687c1d9759fa26315d20eebbaf696946f31d93e4c8190ba7bdcf9848580`
+  - `simulation_kpis_n_assets_7.csv.gz`: `72e611cd8b96d4a736fb9720d8d9a81c21f0425136a9f8e123801087f74c6f0e`
+  - `simulation_objectives_n_assets_7.csv.gz`: `a4fd0521409c8945d4cb59d385b192c6c38bb7d12d1d141bc4286344d83840ed`
+  - `simulation_results_n_assets_8.csv.gz`: `7cc700d48eb7f62a32ee30c8b6a40877ad9b78bd00dd78455dad136ff4804256`
+  - `simulation_kpis_n_assets_8.csv.gz`: `c2d07f7cb729e16fa0e05e7faf8ac5a23abb7eaae02f2924bdacabc504def620`
+  - `simulation_objectives_n_assets_8.csv.gz`: `7c8a98dfa9852b2add2fb0da8886a4ce2431994ea247c245ae9eeb9786b12c7e`
+  - `simulation_results_n_assets_9.csv.gz`: `6fd3f1f92e52d319e56c2d58367ca1a5672cdf83aae4263e9c9fe18925b77939`
+  - `simulation_kpis_n_assets_9.csv.gz`: `b6f60991e58384395931bcd3438cbc486b03a65140d8509c63eb06be47ee5df1`
+  - `simulation_objectives_n_assets_9.csv.gz`: `956271e34147cea99edb75a9353d08a4ead686f2bcc10c942e05cdb34ca43d70`
+  - `simulation_results_noise_value.csv.gz`: `8df2c0d65353e5c1775a7e5494c42845f618614314c608e24452cf37edd58db4`
+  - `simulation_kpis_noise_value.csv.gz`: `91135a9f87fcfa555ce47e265b32427726b8935736b6e26331051517f60ec8b2`
+  - `simulation_objectives_noise_value.csv.gz`: `2b7226b0d06430f4ef07965e20c1e08cb7a30e1b1f4067609c4d87a64a3269fc`
 - Golden content (SHA256 of the decompressed CSV):
   - `full_optimization_results.csv`: `98fe6556ae7b0cc9e5c48e1633ad24860cc8518047617ff2e0bbb18ae114fd31` (matches `manifest.json`)
   - `benchmarking_kpis.csv`: `6e2b9d515a3812e35391233926afb4aa118ac797a19ad99d823bd40a3ac669d6` (matches `manifest.json`)
   - `golden_objectives.csv`: `a39e8f0391b0548c230052baed1c5a01dfb322230c8551f3fa25ae2cb77b0a96` (not in `manifest.json`)
+  - `simulation_results_n_assets_1.csv`: `0585d42cc5ff44298e14fac0b1fe296cc659135f2767509223e3ce1e6103d069` (not in `manifest.json`)
+  - `simulation_kpis_n_assets_1.csv`: `f970437d9c524f14ec618f6048e7dff6a6c20416d50bc8ab97dea75754ea415c` (not in `manifest.json`)
+  - `simulation_objectives_n_assets_1.csv`: `b5fc50e9603076d28c179063dd1f34e4263ddb9daa63cce9b644347bd1af7fd3` (not in `manifest.json`)
+  - `simulation_results_n_assets_2.csv`: `dd998cab362bbe07fc8d1968a40b436020640c76ebffe959100ac20ceab181b3` (not in `manifest.json`)
+  - `simulation_kpis_n_assets_2.csv`: `2aea8bdd286e62ee261cee95815d472a07072d141075e06da3f36c970644a1f6` (not in `manifest.json`)
+  - `simulation_objectives_n_assets_2.csv`: `81767dfac18fc436347ed53b0252ab7e2eb903fa980643c33f085b7389f84ac9` (not in `manifest.json`)
+  - `simulation_results_n_assets_3.csv`: `6683b4bed67b2aa21ce830adfe6dd270ae115aaa97a10790f151af0352bf0413` (not in `manifest.json`)
+  - `simulation_kpis_n_assets_3.csv`: `41e65468e0e7290b9b7f2d9dc7212c6d4ee13e6481fd549aae4f7d9d19daa234` (not in `manifest.json`)
+  - `simulation_objectives_n_assets_3.csv`: `ab1b3889d4c0deeff663b5f3917b528d01dac4ef0d529eb761527169bdd3d86a` (not in `manifest.json`)
+  - `simulation_results_n_assets_4.csv`: `aa33c3a77bc56b3282dbace4da188727c7cd9b827fdd1f002dfc8bcf6d09f302` (not in `manifest.json`)
+  - `simulation_kpis_n_assets_4.csv`: `0f69ef9247b72b331fa65d97b14d9a3615f6e1cd1ce8d8c4f3ae0fe293ee74aa` (not in `manifest.json`)
+  - `simulation_objectives_n_assets_4.csv`: `cea008a04c7f1ead0dd65f3caabd4dc3bfdf5f47a405778c67ed35427a84abc9` (not in `manifest.json`)
+  - `simulation_results_n_assets_5.csv`: `bb309f3cef3963851243c23fd8cac1a110393d6416342c6936a15d2308615138` (not in `manifest.json`)
+  - `simulation_kpis_n_assets_5.csv`: `3910acc9c2772a0fa31a2224f4305c6cfa32c5c1a36703599c19132536b56539` (not in `manifest.json`)
+  - `simulation_objectives_n_assets_5.csv`: `6ed97df33493c3c46a0761dda1ac828f8fc775db1fbfeeb1cdc827fd9567f302` (not in `manifest.json`)
+  - `simulation_results_n_assets_6.csv`: `9a4fe74359788b3d4931488b704ec268836137a70e8ced3f5ebca6e634efe1b8` (not in `manifest.json`)
+  - `simulation_kpis_n_assets_6.csv`: `f1505d1b7c0f7861ad1a3c3d4a9d87b59a5d0ad98176c598bcd9ccd86197d75b` (not in `manifest.json`)
+  - `simulation_objectives_n_assets_6.csv`: `6f7cd634bd54650d8f8b7b485e2127e0f50452ad52c9c885acde1b2073e4f4f1` (not in `manifest.json`)
+  - `simulation_results_n_assets_7.csv`: `87762d4fac1561302d21d65b32a0598f0b767be7ab12422526767906679fc458` (not in `manifest.json`)
+  - `simulation_kpis_n_assets_7.csv`: `bc02f8b28faeb93234cabe4c49dabe814dfa357c6159fbad1128852f31cc74db` (not in `manifest.json`)
+  - `simulation_objectives_n_assets_7.csv`: `182b423941f52760c2bbc9bd6e870be133ff5071f78771e71d9a5fefbd2508ce` (not in `manifest.json`)
+  - `simulation_results_n_assets_8.csv`: `3e0cf38eeb12cdb9dd7b429313a4ad5d8fa699832eecae464cff5166d18954ac` (not in `manifest.json`)
+  - `simulation_kpis_n_assets_8.csv`: `9fd87ae319d3accf98f63badd030349a722a6623b6509527b03e298c1169b1f8` (not in `manifest.json`)
+  - `simulation_objectives_n_assets_8.csv`: `72c9b855d578451b74b52233b95b83326a3c972dae565678a626807ddc9e51a0` (not in `manifest.json`)
+  - `simulation_results_n_assets_9.csv`: `349834f9e00f2de259affdb1d6ef03d32d51da4902ab36d3ec0c54afe085a454` (not in `manifest.json`)
+  - `simulation_kpis_n_assets_9.csv`: `caf22bde9da8696f65626df7ab04eb20761e59705d8fec6917f71bb80a69f201` (not in `manifest.json`)
+  - `simulation_objectives_n_assets_9.csv`: `a7ef8c029b29f2b858d446e283876b38a4796a34abd6e3360bf7dc88ef789f9c` (not in `manifest.json`)
+  - `simulation_results_noise_value.csv`: `829fd001461931d70e3fa308a3e1ad154064a236bd852e16f4af016be714921e` (not in `manifest.json`)
+  - `simulation_kpis_noise_value.csv`: `86a394859b6ec64ab4f7dbfbd8e9b861008a5f03cebecb2ff6a52dc6b6fb2ef1` (not in `manifest.json`)
+  - `simulation_objectives_noise_value.csv`: `15b63e5e817e25863e70d42137e0781caa9832b3e8918307c6cc2c32acadf821` (not in `manifest.json`)
 - Golden records compared: alpha_sweep, beta_sweep, budget_loading_sweep, n_bins_sweep, n_clusters_sweep, single_run.
-- Matching: a golden record (approach, method, source, parameters) matches the store run with the mapped scope and objective whose `runs.parameters` hold the same `alpha`, `beta`, `budget_loading`, `n_bins` and `n_clusters` (an empty golden value: the run has no such parameter; relative tolerance 1e-09). The `source` tag need not agree: the runner's cache keeps the tag a run was first written with.
+- Matching: a golden record (approach, method, source, parameters) matches the store run with the mapped scope and objective whose `runs.parameters` hold the same `alpha`, `beta`, `budget_loading`, `n_bins` and `n_clusters` (an empty golden value: the run has no such parameter; relative tolerance 1e-09). A record of a simulation sweep also names its `noise_level`, or its `n_assets` and asset subset (`locations`, the run's prepared locations), which the run must have; a record that names neither needs the baseline `noise_level` = 0.3, `n_assets` = 9. The `source` tag need not agree: the runner's cache keeps the tag a run was first written with.
 - KPIs: basis `event_conditional`, eval split `full`, fold 0, VaR and CVaR at beta 0.95. A KPI matches if |ours - golden| <= 0.0001 |golden| + 0; both undefined is a match.
 - Objective values: |ours - golden| <= 0.0001 |golden| + 0.
 - Payout vectors: the largest absolute difference of the levels is reported, not asserted (LP optima can be non-unique). Bin edges must agree within 1e-06.
@@ -35,11 +95,13 @@ This report covers the thesis baseline, the golden `single_run` records (MAR-68)
 
 ## Overview
 
-720 findings, 720 of them explained, 0 not yet.
+720 findings, 720 of them explained, 0 not yet. 639 of the findings are entity-level KPIs in a joint scope (*KPI values: reported, not gated*): by the owner's MAR-18 criteria (2026-10-27, answer 4) they are reported, not gated, where the thesis-payout check backs them (an explanation that claims an alternative optimum must have that verdict for its record); the gate judges objectives, portfolio-level KPIs, the entity-level KPIs of the individual scope (*KPI values: gated*), payout bin edges and cluster assignments.
 
 | Comparison | Golden | Compared | Match | Mismatch | Not compared | Largest rel. error | Rule |
 |---|---|---|---|---|---|---|---|
 | KPI values | 10656 | 10656 | 9944 | 712 | 0 | inf | relative error <= 0.0001 (atol 0) |
+| KPI values: gated | 4932 | 4932 | 4859 | 73 | 0 | inf | relative error <= 0.0001 (atol 0) |
+| KPI values: reported, not gated | 5724 | 5724 | 5085 | 639 | 0 | inf | relative error <= 0.0001 (atol 0), reported only |
 | Objective values | 759 | 759 | 751 | 8 | 0 | inf | relative error <= 0.0001 (atol 0) |
 | Payout vectors | 1551 | 1551 | 1551 | 0 | 0 | 6.85e+03 | levels: largest difference reported, not asserted; bin edges within 1e-06 |
 | Cluster assignments | 93 | 93 | 93 | 0 | 0 |  | cluster id to members, exactly |
@@ -88,6 +150,17 @@ For payout vectors, *Match* counts the vectors compared, *Mismatch* those with a
 | single_run | integrated_portfolio_optimization | pure_basis_risk_minimization | 1 / 1 | 60 / 60 / 60 | 1.53e-11 | 9 / 9 | 1.34e-02 | 2.97e-09 |  | 4.03e-16 | 0 | 0 |
 | single_run | integrated_portfolio_optimization | pure_uncovered_loss_minimization | 1 / 1 | 60 / 60 / 60 | 2.46e-06 | 9 / 9 | 2.72e+01 | 1.52e-06 |  | 1.31e-14 | 0 | 0 |
 | single_run | integrated_portfolio_optimization | weighted_cvar_minimization | 1 / 1 | 50 / 60 / 60 | 7.33e-04 | 9 / 9 | 3.24e+04 | 1.94e-03 |  | 1.15e-09 | 10 | 0 |
+
+## Simulation sweeps (MAR-70)
+
+The noise-level and asset-count sweeps are compared in reports of their own, with the same rules, explanations file and evidence check, so that each file stays under the repository's 500 kB limit. Their golden tables are regenerated with the thesis code (`golden/simulation_sweeps/`): the thesis computed these sweeps in memory only. *Records*: golden records with one matched run / all. *KPIs* and *Objectives*: matching / compared. *Thesis-payout check*: design problems with the verdict alternative optimum / OSQP accuracy / infeasible / potential porting bug. *Not compared*: extra runs of ours with no golden record (appendix of each report), of them failed on both sides: our run failed and the thesis rerun raised there too.
+
+| Report | Points (failed) | Records | Findings (unexplained) | KPIs: gated | KPIs: reported, not gated | Objectives | Payout vectors (other shape) | Cluster assignments | Thesis-payout check | Not compared (failed on both sides) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| [`reports/n_assets_sweep.md`](reports/n_assets_sweep.md) | 1521 (102) | 1419 / 1419 | 145 (0) | 22281 / 22284 | 20918 / 21060 | 3207 / 3207 | 5805 (0) | 405 / 405 | 3175 / 32 / 0 / 0 | 102 (102) |
+| [`reports/noise_value_sweep.md`](reports/noise_value_sweep.md) | 99 (0) | 99 / 99 | 37 (0) | 2373 / 2376 | 2342 / 2376 | 363 / 363 | 693 (0) | 33 / 33 | 356 / 7 / 0 / 0 | 0 (0) |
+
+Over the simulation-sweep reports: 182 findings, 182 of them explained, 0 not yet; 0 potential porting bugs.
 
 ## Matched runs
 
@@ -1752,24 +1825,82 @@ In the cluster and portfolio scopes the objective depends on the payouts only th
 | A8 | 0.9699075658 | 0.9699081282 | 5.80e-07 |
 | A9 | 0.8546350946 | 0.8546351715 | 9.00e-08 |
 
-### Extra runs, no golden
+### Extra runs, no golden: not compared
 
-Design problems we solved for which the golden tables hold neither a payout nor an objective: the thesis solves failed there and the thesis dropped them without a record (MAR-65). They are not compared, so they are not findings. *Whole run*: no golden record at these parameters (the run is also listed under *Store runs without a golden record*); otherwise the golden record lacks these problems. *Our status*: solver and status, with the number of problems. With nothing to compare, the last two columns say how well our solutions meet our own constraints (numpy, as above; the largest over the problems listed). Observation: these are exactly the MSE problems where OSQP at cvxpy's default accuracy returns no accepted solution and `THESIS_POLICY` falls back to Clarabel. The thesis's fallback, `solve(solver=CLARABEL, max_iters=20000)`, raises with the workspace's cvxpy 1.9.3 (`TypeError: Clarabel: unrecognized solver setting 'max_iters'`), and its `_solve` swallows that.
+Design problems of our runs for which the golden tables hold neither a payout nor an objective, because the thesis has no result there: its solve or build failed and the thesis dropped it without a record (MAR-65). By the owner's MAR-18 criteria (2026-10-27, answer 8) they are accepted as **not compared**, listed here with their cause, and are not findings. *Whole run*: no golden record at these parameters (the run is also counted under *Store runs without a golden record*); otherwise the golden record lacks these problems. *Our status*: solver and status, with the number of problems (`None failed`: our build failed too). With nothing to compare, the bound and budget columns say how well our solutions meet our own constraints (numpy, as above; the largest over the problems listed). *Cause*: the exception the thesis rerun recorded at these parameters (simulation sweeps, `golden/simulation_sweeps/provenance.json`), or, for an MSE problem that our policy solved only with its Clarabel fallback, the thesis's broken fallback: `solve(solver=CLARABEL, max_iters=20000)` raises with the workspace's cvxpy 1.9.3 (`TypeError: Clarabel: unrecognized solver setting 'max_iters'`), and its `_solve` swallows that.
 
-| Source | Scope | Objective | Parameters | config_hash | Whole run | Problems | Our status | Our bound viol. (USD) | Our budget |
-|---|---|---|---|---|---|---|---|---|---|
-| budget_loading_sweep | cluster | mse | budget_loading=0.5, n_bins=15, n_clusters=3 | `sha256:ec0df963f119…` | yes | portfolio | CLARABEL optimal (1) | 0 | -9.99e-09 |
-| budget_loading_sweep | cluster | mse | budget_loading=0.6, n_bins=15, n_clusters=3 | `sha256:bd7e83278aa3…` | yes | portfolio | CLARABEL optimal (1) | 0 | -4.00e-09 |
-| budget_loading_sweep | cluster | mse | budget_loading=0.7, n_bins=15, n_clusters=3 | `sha256:d1ced2f9977f…` | yes | portfolio | CLARABEL optimal (1) | 0 | -1.97e-08 |
-| budget_loading_sweep | cluster | mse | budget_loading=0.8, n_bins=15, n_clusters=3 | `sha256:87f1fd2be739…` | yes | portfolio | CLARABEL optimal (1) | 0 | -1.01e-08 |
-| budget_loading_sweep | cluster | mse | budget_loading=0.9, n_bins=15, n_clusters=3 | `sha256:cdf0f8e9cc4e…` | yes | portfolio | CLARABEL optimal (1) | 0 | -3.61e-08 |
-| budget_loading_sweep | individual | mse | budget_loading=0.5, n_bins=15 | `sha256:b55e6ed05359…` | no | A2, A3, A4, A5, A6, A7, A8, A9 | CLARABEL optimal (8) | 0 | -2.78e-08 |
-| budget_loading_sweep | individual | mse | budget_loading=0.6, n_bins=15 | `sha256:ff4ab21a8e00…` | no | A2, A3, A4, A5, A6, A7, A8, A9 | CLARABEL optimal (8) | 0 | -4.16e-09 |
-| budget_loading_sweep | individual | mse | budget_loading=0.7, n_bins=15 | `sha256:f804fd09f540…` | no | A2, A3, A4, A5, A6, A7, A8, A9 | CLARABEL optimal (8) | 0 | -1.01e-08 |
-| budget_loading_sweep | individual | mse | budget_loading=0.8, n_bins=15 | `sha256:c37611ddff26…` | yes | A1, A2, A3, A4, A5, A6, A7, A8, A9 | CLARABEL optimal (9) | 0 | -1.12e-08 |
-| budget_loading_sweep | individual | mse | budget_loading=0.9, n_bins=15 | `sha256:63e29212ce41…` | yes | A1, A2, A3, A4, A5, A6, A7, A8, A9 | CLARABEL optimal (9) | 0 | -2.59e-08 |
-| budget_loading_sweep | portfolio | mse | budget_loading=0.5, n_bins=15 | `sha256:72dd4972f82c…` | yes | portfolio | CLARABEL optimal (1) | 0 | -4.42e-10 |
-| budget_loading_sweep | portfolio | mse | budget_loading=0.6, n_bins=15 | `sha256:24941d1790fc…` | yes | portfolio | CLARABEL optimal (1) | 0 | -1.13e-09 |
+| Source | Scope | Objective | Parameters | config_hash | Whole run | Problems | Our status | Our bound viol. (USD) | Our budget | Cause |
+|---|---|---|---|---|---|---|---|---|---|---|
+| budget_loading_sweep | cluster | mse | budget_loading=0.5, n_bins=15, n_clusters=3 | `sha256:ec0df963f119…` | yes | portfolio | CLARABEL optimal (1) | 0 | -9.99e-09 | thesis MSE solve failed: OSQP at cvxpy's default accuracy gave no accepted solution (ours too: our fallback, Clarabel, solved it), and the thesis's fallback `solve(solver=CLARABEL, max_iters=20000)` raises (Clarabel has no `max_iters`), which its `_solve` swallows |
+| budget_loading_sweep | cluster | mse | budget_loading=0.6, n_bins=15, n_clusters=3 | `sha256:bd7e83278aa3…` | yes | portfolio | CLARABEL optimal (1) | 0 | -4.00e-09 | thesis MSE solve failed: OSQP at cvxpy's default accuracy gave no accepted solution (ours too: our fallback, Clarabel, solved it), and the thesis's fallback `solve(solver=CLARABEL, max_iters=20000)` raises (Clarabel has no `max_iters`), which its `_solve` swallows |
+| budget_loading_sweep | cluster | mse | budget_loading=0.7, n_bins=15, n_clusters=3 | `sha256:d1ced2f9977f…` | yes | portfolio | CLARABEL optimal (1) | 0 | -1.97e-08 | thesis MSE solve failed: OSQP at cvxpy's default accuracy gave no accepted solution (ours too: our fallback, Clarabel, solved it), and the thesis's fallback `solve(solver=CLARABEL, max_iters=20000)` raises (Clarabel has no `max_iters`), which its `_solve` swallows |
+| budget_loading_sweep | cluster | mse | budget_loading=0.8, n_bins=15, n_clusters=3 | `sha256:87f1fd2be739…` | yes | portfolio | CLARABEL optimal (1) | 0 | -1.01e-08 | thesis MSE solve failed: OSQP at cvxpy's default accuracy gave no accepted solution (ours too: our fallback, Clarabel, solved it), and the thesis's fallback `solve(solver=CLARABEL, max_iters=20000)` raises (Clarabel has no `max_iters`), which its `_solve` swallows |
+| budget_loading_sweep | cluster | mse | budget_loading=0.9, n_bins=15, n_clusters=3 | `sha256:cdf0f8e9cc4e…` | yes | portfolio | CLARABEL optimal (1) | 0 | -3.61e-08 | thesis MSE solve failed: OSQP at cvxpy's default accuracy gave no accepted solution (ours too: our fallback, Clarabel, solved it), and the thesis's fallback `solve(solver=CLARABEL, max_iters=20000)` raises (Clarabel has no `max_iters`), which its `_solve` swallows |
+| budget_loading_sweep | individual | mse | budget_loading=0.5, n_bins=15 | `sha256:b55e6ed05359…` | no | A2, A3, A4, A5, A6, A7, A8, A9 | CLARABEL optimal (8) | 0 | -2.78e-08 | thesis MSE solve failed: OSQP at cvxpy's default accuracy gave no accepted solution (ours too: our fallback, Clarabel, solved it), and the thesis's fallback `solve(solver=CLARABEL, max_iters=20000)` raises (Clarabel has no `max_iters`), which its `_solve` swallows |
+| budget_loading_sweep | individual | mse | budget_loading=0.6, n_bins=15 | `sha256:ff4ab21a8e00…` | no | A2, A3, A4, A5, A6, A7, A8, A9 | CLARABEL optimal (8) | 0 | -4.16e-09 | thesis MSE solve failed: OSQP at cvxpy's default accuracy gave no accepted solution (ours too: our fallback, Clarabel, solved it), and the thesis's fallback `solve(solver=CLARABEL, max_iters=20000)` raises (Clarabel has no `max_iters`), which its `_solve` swallows |
+| budget_loading_sweep | individual | mse | budget_loading=0.7, n_bins=15 | `sha256:f804fd09f540…` | no | A2, A3, A4, A5, A6, A7, A8, A9 | CLARABEL optimal (8) | 0 | -1.01e-08 | thesis MSE solve failed: OSQP at cvxpy's default accuracy gave no accepted solution (ours too: our fallback, Clarabel, solved it), and the thesis's fallback `solve(solver=CLARABEL, max_iters=20000)` raises (Clarabel has no `max_iters`), which its `_solve` swallows |
+| budget_loading_sweep | individual | mse | budget_loading=0.8, n_bins=15 | `sha256:c37611ddff26…` | yes | A1, A2, A3, A4, A5, A6, A7, A8, A9 | CLARABEL optimal (9) | 0 | -1.12e-08 | thesis MSE solve failed: OSQP at cvxpy's default accuracy gave no accepted solution (ours too: our fallback, Clarabel, solved it), and the thesis's fallback `solve(solver=CLARABEL, max_iters=20000)` raises (Clarabel has no `max_iters`), which its `_solve` swallows |
+| budget_loading_sweep | individual | mse | budget_loading=0.9, n_bins=15 | `sha256:63e29212ce41…` | yes | A1, A2, A3, A4, A5, A6, A7, A8, A9 | CLARABEL optimal (9) | 0 | -2.59e-08 | thesis MSE solve failed: OSQP at cvxpy's default accuracy gave no accepted solution (ours too: our fallback, Clarabel, solved it), and the thesis's fallback `solve(solver=CLARABEL, max_iters=20000)` raises (Clarabel has no `max_iters`), which its `_solve` swallows |
+| budget_loading_sweep | portfolio | mse | budget_loading=0.5, n_bins=15 | `sha256:72dd4972f82c…` | yes | portfolio | CLARABEL optimal (1) | 0 | -4.42e-10 | thesis MSE solve failed: OSQP at cvxpy's default accuracy gave no accepted solution (ours too: our fallback, Clarabel, solved it), and the thesis's fallback `solve(solver=CLARABEL, max_iters=20000)` raises (Clarabel has no `max_iters`), which its `_solve` swallows |
+| budget_loading_sweep | portfolio | mse | budget_loading=0.6, n_bins=15 | `sha256:24941d1790fc…` | yes | portfolio | CLARABEL optimal (1) | 0 | -1.13e-09 | thesis MSE solve failed: OSQP at cvxpy's default accuracy gave no accepted solution (ours too: our fallback, Clarabel, solved it), and the thesis's fallback `solve(solver=CLARABEL, max_iters=20000)` raises (Clarabel has no `max_iters`), which its `_solve` swallows |
+
+### MSE under the default policy (informational, not gated)
+
+Owner's MAR-18 answer 5 (2026-10-27): the gate compares with the thesis under `THESIS_POLICY` (OSQP at cvxpy's default accuracy for MSE, MAR-98); this section shows the accurate optimum of the same design problems (`DEFAULT_POLICY`, OSQP at 1e-8; runs in the reference store, the at-loading reference runs above where those exist) next to it. *Objective*: summed over the record's checked design problems; thesis payout and ours (`THESIS_POLICY`) evaluated with numpy, the accurate one as its solver reports it; *vs. accurate*: (value - accurate) / accurate. A value below the accurate optimum spends more than the budget or breaks a payout bound (appendix above). *KPIs*: the portfolio's E[U] and CVaR_0.95: golden (thesis), ours under `THESIS_POLICY`, ours under `DEFAULT_POLICY`. Nothing here is a finding.
+
+| Source | Scope | Parameters | Problems | Objective: thesis | Objective: ours | Objective: accurate | Thesis vs. accurate | Ours vs. accurate | E_Uncovered: golden | E_Uncovered: ours | E_Uncovered: accurate | CVaR_Uncovered: golden | CVaR_Uncovered: ours | CVaR_Uncovered: accurate |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| budget_loading_sweep | cluster | budget_loading=1, n_bins=15, n_clusters=3 | 1 | 6.761577559e+11 | 6.761577559e+11 | 6.7615459e+11 | 4.68e-06 | 4.68e-06 | 102104.25 | 102104.25 | 103106.47 | 1712598.6 | 1712598.6 | 1728687.5 |
+| budget_loading_sweep | cluster | budget_loading=1.1, n_bins=15, n_clusters=3 | 1 | 6.761581831e+11 | 6.761581831e+11 | 6.7615459e+11 | 5.31e-06 | 5.31e-06 | 35537.598 | 35537.598 | 103105.95 | 687548.63 | 687548.63 | 1728685.9 |
+| budget_loading_sweep | cluster | budget_loading=1.2, n_bins=15, n_clusters=3 | 1 | 6.761581831e+11 | 6.761581831e+11 | 6.7615459e+11 | 5.31e-06 | 5.31e-06 | 7699.6938 | 7699.6938 | 103105.95 | 153941.48 | 153941.48 | 1728685.9 |
+| budget_loading_sweep | cluster | budget_loading=1.3, n_bins=15, n_clusters=3 | 1 | 6.761581831e+11 | 6.761581831e+11 | 6.7615459e+11 | 5.31e-06 | 5.31e-06 | 452.73101 | 452.73101 | 103105.95 | 9054.6202 | 9054.6202 | 1728685.9 |
+| budget_loading_sweep | cluster | budget_loading=1.4, n_bins=15, n_clusters=3 | 1 | 6.761581831e+11 | 6.761581831e+11 | 6.7615459e+11 | 5.31e-06 | 5.31e-06 | 0 | 0 | 103105.95 | 0 | 0 | 1728685.9 |
+| budget_loading_sweep | cluster | budget_loading=1.5, n_bins=15, n_clusters=3 | 1 | 6.761581831e+11 | 6.761581831e+11 | 6.7615459e+11 | 5.31e-06 | 5.31e-06 | 0 | 0 | 103105.95 | 0 | 0 | 1728685.9 |
+| budget_loading_sweep | individual | budget_loading=0.5, n_bins=15 | 1 | 8.063964545e+11 | 8.064279222e+11 | 8.090547227e+11 | -3.29e-03 | -3.25e-03 | 1030697.1 | 1030697.1 | 1034498.4 | 11073929 | 11073929 | 7694809.2 |
+| budget_loading_sweep | individual | budget_loading=0.6, n_bins=15 | 1 | 5.898635387e+11 | 5.898834639e+11 | 5.916340637e+11 | -2.99e-03 | -2.96e-03 | 824557.75 | 824557.75 | 832387.43 | 10166369 | 10166368 | 5953596.8 |
+| budget_loading_sweep | individual | budget_loading=0.7, n_bins=15 | 1 | 4.431228665e+11 | 4.431331434e+11 | 4.441996726e+11 | -2.42e-03 | -2.40e-03 | 618548.7 | 618548.7 | 633020.4 | 7644614.8 | 7644614.8 | 4402997.5 |
+| budget_loading_sweep | individual | budget_loading=1, n_bins=15 | 9 | 6.915742849e+11 | 6.915742849e+11 | 6.91574273e+11 | 1.73e-08 | 1.73e-08 | 95435.919 | 95435.919 | 94997.449 | 1642563.7 | 1642563.7 | 1659692.6 |
+| budget_loading_sweep | individual | budget_loading=1.1, n_bins=15 | 9 | 6.915742865e+11 | 6.915742865e+11 | 6.91574273e+11 | 1.96e-08 | 1.96e-08 | 32029.987 | 32029.987 | 94997.245 | 637560.22 | 637560.22 | 1659691.7 |
+| budget_loading_sweep | individual | budget_loading=1.2, n_bins=15 | 9 | 6.915742865e+11 | 6.915742865e+11 | 6.91574273e+11 | 1.96e-08 | 1.96e-08 | 8204.1627 | 8204.1626 | 94997.245 | 164083.25 | 164083.25 | 1659691.7 |
+| budget_loading_sweep | individual | budget_loading=1.3, n_bins=15 | 9 | 6.915742865e+11 | 6.915742865e+11 | 6.91574273e+11 | 1.96e-08 | 1.96e-08 | 993.21454 | 993.56698 | 94997.245 | 19864.291 | 19871.34 | 1659691.7 |
+| budget_loading_sweep | individual | budget_loading=1.4, n_bins=15 | 9 | 6.915742865e+11 | 6.915742865e+11 | 6.91574273e+11 | 1.96e-08 | 1.96e-08 | 13.746737 | 13.746626 | 94997.245 | 274.93474 | 274.93252 | 1659691.7 |
+| budget_loading_sweep | individual | budget_loading=1.5, n_bins=15 | 9 | 6.915742865e+11 | 6.915742865e+11 | 6.91574273e+11 | 1.96e-08 | 1.96e-08 | 0.0027507483 | 0.0027878946 | 94997.245 | 0.055014965 | 0.055757893 | 1659691.7 |
+| budget_loading_sweep | portfolio | budget_loading=0.7, n_bins=15 | 1 | 1.769796575e+12 | 1.779981666e+12 | 2.047598546e+12 | -1.36e-01 | -1.31e-01 | 618418.28 | 618418.28 | 633246.89 | 5941205 | 5941205 | 4232073.7 |
+| budget_loading_sweep | portfolio | budget_loading=0.8, n_bins=15 | 1 | 1.050762713e+12 | 1.056502101e+12 | 1.171746568e+12 | -1.03e-01 | -9.84e-02 | 412671.71 | 412671.71 | 436998.98 | 5542312.1 | 5542312.1 | 3070813.1 |
+| budget_loading_sweep | portfolio | budget_loading=0.9, n_bins=15 | 1 | 7.164371473e+11 | 7.168512618e+11 | 7.2612802e+11 | -1.33e-02 | -1.28e-02 | 222200.16 | 222200.16 | 248760.82 | 3194880.8 | 3194880.8 | 2138320.6 |
+| budget_loading_sweep | portfolio | budget_loading=1, n_bins=15 | 1 | 6.064242367e+11 | 6.064242367e+11 | 6.063693319e+11 | 9.05e-05 | 9.05e-05 | 85660.227 | 85660.227 | 87440.392 | 1496948.9 | 1496948.9 | 1486164.6 |
+| budget_loading_sweep | portfolio | budget_loading=1.1, n_bins=15 | 1 | 6.064187496e+11 | 6.064187496e+11 | 6.063690995e+11 | 8.19e-05 | 8.19e-05 | 22854.038 | 22854.038 | 87255.942 | 452235.15 | 452235.15 | 1485580.5 |
+| budget_loading_sweep | portfolio | budget_loading=1.2, n_bins=15 | 1 | 6.064202326e+11 | 6.064202325e+11 | 6.063690993e+11 | 8.43e-05 | 8.43e-05 | 2845.5299 | 2845.53 | 87255.943 | 56910.598 | 56910.6 | 1485580.5 |
+| budget_loading_sweep | portfolio | budget_loading=1.3, n_bins=15 | 1 | 6.064197087e+11 | 6.064197087e+11 | 6.063690995e+11 | 8.35e-05 | 8.35e-05 | 0 | 0 | 87255.942 | 0 | 0 | 1485580.5 |
+| budget_loading_sweep | portfolio | budget_loading=1.4, n_bins=15 | 1 | 6.064192961e+11 | 6.064192961e+11 | 6.063690993e+11 | 8.28e-05 | 8.28e-05 | 0 | 0 | 87255.944 | 0 | 0 | 1485580.5 |
+| budget_loading_sweep | portfolio | budget_loading=1.5, n_bins=15 | 1 | 6.064194851e+11 | 6.064194851e+11 | 6.063690993e+11 | 8.31e-05 | 8.31e-05 | 0 | 0 | 87255.943 | 0 | 0 | 1485580.5 |
+| n_bins_sweep | cluster | budget_loading=1, n_bins=5, n_clusters=3 | 1 | 1.829185213e+12 | 1.829185213e+12 | 1.829185213e+12 | 2.78e-11 | 2.67e-16 | 226921.08 | 226921.08 | 229249.03 | 3644353.2 | 3644353.2 | 3680583 |
+| n_bins_sweep | cluster | budget_loading=1, n_bins=10, n_clusters=3 | 1 | 8.53377699e+11 | 8.53377699e+11 | 8.533725984e+11 | 5.98e-06 | 5.98e-06 | 131665.84 | 131665.84 | 133155.74 | 2152900.4 | 2152900.4 | 2161314.6 |
+| n_bins_sweep | cluster | budget_loading=1, n_bins=15, n_clusters=3 | 1 | 6.761577559e+11 | 6.761577559e+11 | 6.7615459e+11 | 4.68e-06 | 4.68e-06 | 102104.25 | 102104.25 | 103106.47 | 1712598.6 | 1712598.6 | 1728687.5 |
+| n_bins_sweep | cluster | budget_loading=1, n_bins=20, n_clusters=3 | 1 | 6.302443235e+11 | 6.302440974e+11 | 6.302373881e+11 | 1.10e-05 | 1.06e-05 | 93004.581 | 93004.581 | 93981.408 | 1577326.2 | 1577326.2 | 1583059.9 |
+| n_bins_sweep | cluster | budget_loading=1, n_bins=25, n_clusters=3 | 1 | 6.193309015e+11 | 6.193309015e+11 | 6.193264315e+11 | 7.22e-06 | 7.22e-06 | 90283.39 | 90283.39 | 91699.851 | 1554676.3 | 1554676.3 | 1570853.5 |
+| n_bins_sweep | individual | budget_loading=1, n_bins=5 | 9 | 1.311490647e+12 | 1.311490647e+12 | 1.311490647e+12 | 0.00e+00 | 0.00e+00 | 212803.49 | 212803.49 | 217759.77 | 3320951.5 | 3320951.5 | 3522210.2 |
+| n_bins_sweep | individual | budget_loading=1, n_bins=10 | 9 | 7.812604547e+11 | 7.812604547e+11 | 7.812604547e+11 | 1.56e-16 | 0.00e+00 | 120493.54 | 120493.54 | 118434.02 | 2091978.8 | 2091978.8 | 2000999.8 |
+| n_bins_sweep | individual | budget_loading=1, n_bins=15 | 9 | 6.915742849e+11 | 6.915742849e+11 | 6.91574273e+11 | 1.73e-08 | 1.73e-08 | 95435.919 | 95435.919 | 94997.449 | 1642563.7 | 1642563.7 | 1659692.6 |
+| n_bins_sweep | individual | budget_loading=1, n_bins=20 | 9 | 6.586396359e+11 | 6.586396359e+11 | 6.586395035e+11 | 2.01e-07 | 2.01e-07 | 88403.869 | 88403.869 | 88360.455 | 1571736.1 | 1571736.1 | 1561508.7 |
+| n_bins_sweep | individual | budget_loading=1, n_bins=25 | 9 | 6.443797991e+11 | 6.44379799e+11 | 6.44379607e+11 | 2.98e-07 | 2.98e-07 | 86147.536 | 86147.536 | 85790.253 | 1535828.5 | 1535828.6 | 1516498.4 |
+| n_bins_sweep | portfolio | budget_loading=1, n_bins=5 | 1 | 1.264422233e+12 | 1.264374148e+12 | 1.264359709e+12 | 4.95e-05 | 1.14e-05 | 177199.68 | 177199.68 | 181875.79 | 2795770 | 2795770 | 2851713 |
+| n_bins_sweep | portfolio | budget_loading=1, n_bins=10 | 1 | 6.827415273e+11 | 6.827413259e+11 | 6.826468461e+11 | 1.39e-04 | 1.38e-04 | 102881.59 | 102881.59 | 105248.17 | 1740460.7 | 1740460.7 | 1734072.7 |
+| n_bins_sweep | portfolio | budget_loading=1, n_bins=15 | 1 | 6.064242367e+11 | 6.064242367e+11 | 6.063693319e+11 | 9.05e-05 | 9.05e-05 | 85660.227 | 85660.227 | 87440.392 | 1496948.9 | 1496948.9 | 1486164.6 |
+| n_bins_sweep | portfolio | budget_loading=1, n_bins=20 | 1 | 5.87006208e+11 | 5.87006208e+11 | 5.869683897e+11 | 6.44e-05 | 6.44e-05 | 81849.783 | 81849.783 | 83898.638 | 1440919.1 | 1440919.1 | 1439162.8 |
+| n_bins_sweep | portfolio | budget_loading=1, n_bins=25 | 1 | 5.814663921e+11 | 5.814663921e+11 | 5.814368673e+11 | 5.08e-05 | 5.08e-05 | 79209.059 | 79209.059 | 81494.479 | 1406752.1 | 1406752.1 | 1413271.3 |
+| n_clusters_sweep | cluster | budget_loading=1, n_bins=15, n_clusters=1 | 1 | 9.205234002e+11 | 9.205234002e+11 | 9.205233557e+11 | 4.83e-08 | 4.83e-08 | 141454.41 | 141454.41 | 142081.49 | 2234439.3 | 2234439.3 | 2242036.7 |
+| n_clusters_sweep | cluster | budget_loading=1, n_bins=15, n_clusters=2 | 1 | 7.171414201e+11 | 7.171414201e+11 | 7.171394046e+11 | 2.81e-06 | 2.81e-06 | 111448.66 | 111448.66 | 111951.93 | 1794370.9 | 1794370.9 | 1822459.6 |
+| n_clusters_sweep | cluster | budget_loading=1, n_bins=15, n_clusters=3 | 1 | 6.761577559e+11 | 6.761577559e+11 | 6.7615459e+11 | 4.68e-06 | 4.68e-06 | 102104.25 | 102104.25 | 103106.47 | 1712598.6 | 1712598.6 | 1728687.5 |
+| n_clusters_sweep | cluster | budget_loading=1, n_bins=15, n_clusters=4 | 1 | 6.690925318e+11 | 6.69092378e+11 | 6.690988193e+11 | -9.40e-06 | -9.63e-06 | 100945.84 | 100945.84 | 102281.26 | 1693019.5 | 1693019.5 | 1702012.2 |
+| n_clusters_sweep | cluster | budget_loading=1, n_bins=15, n_clusters=5 | 1 | 6.455656144e+11 | 6.455656144e+11 | 6.455482417e+11 | 2.69e-05 | 2.69e-05 | 96542.122 | 96542.122 | 98021.242 | 1643299.9 | 1643299.9 | 1641052.5 |
+| n_clusters_sweep | cluster | budget_loading=1, n_bins=15, n_clusters=6 | 1 | 6.318806409e+11 | 6.31879847e+11 | 6.318604306e+11 | 3.20e-05 | 3.07e-05 | 92183.84 | 92183.84 | 93606.693 | 1567840.2 | 1567840.2 | 1577243.5 |
+| n_clusters_sweep | cluster | budget_loading=1, n_bins=15, n_clusters=7 | 1 | 6.241582703e+11 | 6.241582702e+11 | 6.24141799e+11 | 2.64e-05 | 2.64e-05 | 90887.1 | 90887.1 | 92199.872 | 1548859.7 | 1548859.7 | 1550616.3 |
+| n_clusters_sweep | cluster | budget_loading=1, n_bins=15, n_clusters=8 | 1 | 6.180637384e+11 | 6.180637384e+11 | 6.180339036e+11 | 4.83e-05 | 4.83e-05 | 90518.876 | 90518.876 | 92201.727 | 1561816 | 1561816 | 1549739.4 |
+| n_clusters_sweep | cluster | budget_loading=1, n_bins=15, n_clusters=9 | 1 | 6.064242367e+11 | 6.064242367e+11 | 6.063693319e+11 | 9.05e-05 | 9.05e-05 | 85660.227 | 85660.227 | 87440.392 | 1496948.9 | 1496948.9 | 1486164.6 |
+| single_run | cluster | budget_loading=1, n_bins=15, n_clusters=3 | 1 | 6.761577559e+11 | 6.761577559e+11 | 6.7615459e+11 | 4.68e-06 | 4.68e-06 | 102104.25 | 102104.25 | 103106.47 | 1712598.6 | 1712598.6 | 1728687.5 |
+| single_run | individual | budget_loading=1, n_bins=15 | 9 | 6.915742849e+11 | 6.915742849e+11 | 6.91574273e+11 | 1.73e-08 | 1.73e-08 | 95435.919 | 95435.919 | 94997.449 | 1642563.7 | 1642563.7 | 1659692.6 |
+| single_run | portfolio | budget_loading=1, n_bins=15 | 1 | 6.064242367e+11 | 6.064242367e+11 | 6.063693319e+11 | 9.05e-05 | 9.05e-05 | 85660.227 | 85660.227 | 87440.392 | 1496948.9 | 1496948.9 | 1486164.6 |
 
 ## Adapter: the CLIMADA pipeline regenerates the thesis event-loss table
 

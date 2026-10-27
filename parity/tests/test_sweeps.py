@@ -78,7 +78,7 @@ OVERVIEW = (
 def test_committed_report_covers_the_optimisation_sweeps() -> None:
     text = REPORT.read_text(encoding="utf-8")
     assert "- Golden records compared: " + ", ".join(sorted(SOURCES)) + "." in text
-    assert re.search(r"\n720 findings, 720 of them explained, 0 not yet\.\n", text)
+    assert re.search(r"\n720 findings, 720 of them explained, 0 not yet\. ", text)
     for line in OVERVIEW:
         assert line in text
     assert report.PENDING not in text
@@ -372,6 +372,11 @@ def test_sweeps_reproduce_the_committed_report(tmp_path: Path) -> None:
         str(out),
         "--analysis",
         str(analysis),
+        "--reports-dir",
+        str(tmp_path / "reports"),
+        "--analysis-dir",
+        str(tmp_path / "analyses"),
+        *(arg for p in rdp.OPTIMISATION_SWEEPS for arg in ("--sweep", p)),
         "--check",
     ]
     # Every run solved, every finding explained, every explanation backed by

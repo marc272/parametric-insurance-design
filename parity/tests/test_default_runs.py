@@ -195,7 +195,7 @@ def test_parity_policy_is_the_thesis_policy() -> None:
 
 def test_committed_report_explains_every_finding() -> None:
     text = REPORT.read_text(encoding="utf-8")
-    match = re.search(r"\n(\d+) findings, (\d+) of them explained, 0 not yet\.\n", text)
+    match = re.search(r"\n(\d+) findings, (\d+) of them explained, 0 not yet\. ", text)
     assert match is not None, "the committed report has unexplained findings"
     assert re.search(r"\n- Golden records compared: [a-z_, ]*single_run\.\n", text)
     assert "## Appendix: the thesis payouts under our design problems" in text
