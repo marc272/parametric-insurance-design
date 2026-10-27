@@ -21,6 +21,11 @@ on the working directory. Example: ``packages/climada/configs/thesis.yaml``.
 
 The defaults reproduce the thesis ``engine.py``, except where
 :class:`WindConfig` says otherwise.
+
+The track catalogue is IRIS by default. ``tracks: {kind: storm}`` selects
+STORM (D7, MAR-32): ``catalogue`` is then the directory of the ten STORM
+1,000-year files of the basin (see :mod:`.storm`), and ``hazard_release`` and
+``licence`` must be given.
 """
 
 from __future__ import annotations
@@ -63,11 +68,14 @@ __all__ = [
     "EmanuelVHalfDrawsConfig",
     "ImpactFunctionConfig",
     "IndexConfig",
+    "IrisTracksConfig",
     "LocationsConfig",
     "LossConfig",
     "NoVulnerabilityDrawsConfig",
     "PipelineConfig",
     "PipelineConfigError",
+    "StormTracksConfig",
+    "TracksConfig",
     "UniformPriorConfig",
     "VHalfPriorConfig",
     "VulnerabilityConfig",
@@ -451,6 +459,47 @@ class CellLossConfig(_Model):
 LossConfig = Annotated[CentroidLossConfig | CellLossConfig, Field(discriminator="kind")]
 
 
+class IrisTracksConfig(_Model):
+    """IRIS tracks (the default): ``catalogue`` is an IRIS text catalogue.
+
+    Read by :func:`.tracks.read_iris_catalogue`.
+
+    Attributes
+    ----------
+    kind : {"iris"}
+        The track source.
+    """
+
+    kind: Literal["iris"] = "iris"
+
+
+class StormTracksConfig(_Model):
+    """STORM tracks (D7, MAR-32): ``catalogue`` is a directory of STORM files.
+
+    Read by :func:`.storm.read_storm_catalogue`, which rebuilds the simulation
+    year as ``1000 * file index + year in file`` and converts the 10-minute
+    wind to 1-minute (÷ 0.88). ``n_years`` must equal 1,000 times the number
+    of files. The pipeline then requires ``hazard_release`` (the STORM files
+    have no pinned manifest yet) and an explicit ``licence``.
+
+    Attributes
+    ----------
+    kind : {"storm"}
+        The track source.
+    basin : {"EP", "NA", "NI", "SI", "SP", "WP"}
+        STORM basin of the files; default ``NA``.
+    """
+
+    kind: Literal["storm"]
+    basin: Literal["EP", "NA", "NI", "SI", "SP", "WP"] = "NA"
+
+
+#: The ``tracks`` section of a pipeline config, selected by ``kind``.
+TracksConfig = Annotated[
+    IrisTracksConfig | StormTracksConfig, Field(discriminator="kind")
+]
+
+
 def iris_licence() -> str:
     """Return the licence identifier of IRIS-derived data.
 
@@ -470,7 +519,10 @@ class PipelineConfig(_Model):
     Attributes
     ----------
     catalogue : pathlib.Path
-        IRIS track catalogue (text), e.g. the merged 10,000-year file.
+        IRIS track catalogue (text), e.g. the merged 10,000-year file; with
+        ``tracks: {kind: storm}``, the directory of the STORM files.
+    tracks : IrisTracksConfig or StormTracksConfig
+        The track source, selected by ``kind``. Default: IRIS.
     n_years : int
         Simulated years the catalogue covers; every event gets the rate
         ``1 / n_years``. Catalogue years must lie in ``[0, n_years)``.
@@ -510,12 +562,14 @@ class PipelineConfig(_Model):
         Licence of the data, written into the EventSet's ``licence``.
         Default: the IRIS licence applied by owner decision, ``CC-BY-4.0``
         (MAR-94; ``licence_applied`` in ``iris_manifest.json``). A build that
-        adds sources with stricter terms must say so here.
+        adds sources with stricter terms must say so here. Required with
+        STORM tracks.
     output : pathlib.Path
         EventSet directory to write.
     """
 
     catalogue: Path
+    tracks: TracksConfig = IrisTracksConfig()
     n_years: int = Field(gt=0, strict=True)
     locations: LocationsConfig
     proximity_km: float = Field(default=500.0, gt=0, allow_inf_nan=False)
@@ -531,6 +585,21 @@ class PipelineConfig(_Model):
     scenario_notes: tuple[Annotated[str, Field(min_length=1)], ...] = ()
     licence: str = Field(default_factory=iris_licence, min_length=1)
     output: Path
+
+    @model_validator(mode="after")
+    def _storm_states_its_terms(self) -> PipelineConfig:
+        if isinstance(self.tracks, StormTracksConfig):
+            missing = [
+                key
+                for key in ("hazard_release", "licence")
+                if key not in self.model_fields_set
+            ]
+            if missing:
+                raise ValueError(
+                    f"STORM tracks need {' and '.join(missing)} in the config: "
+                    "the IRIS defaults do not describe STORM"
+                )
+        return self
 
     @model_validator(mode="after")
     def _circle_within_proximity(self) -> PipelineConfig:
