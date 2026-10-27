@@ -82,7 +82,7 @@ The unit counts are standard administrative facts and are to be confirmed from t
 
 ### Publication constraints
 
-- **Licence of the results.** Data derived from a source keeps its terms (`docs/data-sources.md`). IRIS plus LitPop gives a **CC BY 4.0** EventSet, to be recorded in its `metadata.json`. CC BY allows publishing the EventSet, figures and tables with attribution. (IRIS is CC0 in `docs/data-sources.md`, read from the figshare item records, while the D7 note cites CC BY 4.0 from the collection's DataCite record. The combined result is CC BY 4.0 either way.)
+- **Licence of the results.** Data derived from a source keeps its terms (`docs/data-sources.md`). IRIS plus LitPop gives a **CC BY 4.0** EventSet, to be recorded in its `metadata.json`. CC BY allows publishing the EventSet, figures and tables with attribution. (IRIS's records differ: the figshare item records of the downloaded files say CC0 1.0, the collection's DataCite record says CC BY 4.0. Both records are listed in `docs/data-sources.md`, and IRIS-derived data is treated as CC BY 4.0 by owner decision, MAR-94, 2026-10-27. The combined result is CC BY 4.0 either way.)
 - **Attribution.** Cite Eberenz et al. (2020) and the ETH dataset DOI (the API's `key_reference` asks for both), plus "CLIMADA data API, dataset `LitPop_150arcsec_<ISO3>` v3".
 - **Anonymisation.** Not needed: no private data and no named company.
 - **Framing.** The "owner" is a modelling construct (a government whose contingent liability is proxied by modelled asset losses), not a real policy. The paper should say so next to the setup of every number (publication rule, AGENTS.md).
