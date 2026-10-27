@@ -161,6 +161,27 @@ Example configs:
 
 `scripts/plot_vulnerability_spread.py` draws the loss spread per asset from the centroid-wind build: `docs/methodology/figures/vulnerability_loss_spread.png`.
 
+## Loss per cell (MAR-114, D2)
+
+For a location that aggregates gridded cells, such as a Florida county made of LitPop cells (MAR-113), the loss can be the sum of the impacts on its cells instead of the impact at its centroid:
+
+```yaml
+loss:
+  kind: cells                     # default: {kind: centroid}, the thesis loss
+  cells: ../../../data/litpop-florida/locations/cells.parquet
+  unit: USD (LitPop reference_year 2018)   # written to metadata loss.unit (default "USD")
+scenario_notes:                   # optional sentences appended to the scenario text
+  - "Value unit: ..."
+```
+
+- **The index is unchanged:** wind at the location's `lat`/`lon` (index a) or the cat-in-a-circle around it (index b).
+- **Wind is computed at every cell centre** and the loss of a location is the sum of its cells' impacts. The cells file needs `lat`, `lon`, `value` and `location_id`; rows with a null `location_id` belong to no location and are counted in the build record. Every other `location_id` must be a location, every location needs a cell, and each location's cells must sum to its `value`.
+- **Vulnerability draws apply to the cells**, with one `v_half` per (storm, draw) shared by every cell of every location (MAR-25), and the same generator stream as the centroid loss.
+- **The proximity filter still tests the locations.** The build refuses a config where `wind.max_dist_eye_km` plus the farthest cell from its location exceeds `proximity_km`, because a removed storm could then have wind at a cell.
+- **Centroid builds are unchanged**, content hash included; the build record gains a `loss` object, and `source_checksums` the cells file, only in cells mode.
+
+Configs: `configs/florida_counties.yaml` (index a) and `configs/florida_counties_cat_in_circle.yaml` (index b, 50 km), the paper's main EventSets. `scripts/florida_exposure_summary.py` draws the exposure summary (map, Monroe County cells, value distribution, tail dependence of annual county losses) with its figure data; outputs and checksums are in `research/data/d2-florida-eventset/`.
+
 ## Rules
 
 - It never imports `parametric_insurance_design_crc`, and the env does not contain it: the CLIMADA stream is CRC-free. A smoke test checks this.

@@ -1,0 +1,28 @@
+{
+  "eventset_content_hash": "sha256:d8698f7d2985409f5a5024101d7ba839d42a127a29d5456e5871ecaaa3385131",
+  "q": 0.99,
+  "n_outcomes": 100000,
+  "n_draws": 10,
+  "tail_dependence_offdiagonal": {
+    "min": 0.006999999999999993,
+    "median": 0.15099999999999988,
+    "max": 0.9189999999999993
+  },
+  "counties_with_zero_quantile": [],
+  "portfolio_expected_annual_loss": 14442789275.737514,
+  "monroe": {
+    "value": 764604190.3058065,
+    "value_rank": 54,
+    "n_cells": 138,
+    "n_cells_positive": 63,
+    "cells_lon_range": [
+      -81.60416667,
+      -80.3125
+    ],
+    "cells_lat_range": [
+      24.60416667,
+      25.77083333
+    ],
+    "expected_annual_loss": 1697569.1687470877
+  }
+}

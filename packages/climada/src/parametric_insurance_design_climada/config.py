@@ -16,6 +16,7 @@ on the working directory. Example: ``packages/climada/configs/thesis.yaml``.
     impact_function: {kind: emanuel_usa, impf_id: 1}
     index: {kind: centroid_wind}   # or: {kind: cat_in_circle, radius_km: 50}
     vulnerability: {kind: none}    # or: {kind: emanuel_v_half, seed: 20261025}
+    loss: {kind: centroid}         # or: {kind: cells, cells: cells.parquet}
     output: ../../../data/eventsets/thesis-iris
 
 The defaults reproduce the thesis ``engine.py``, except where
@@ -54,12 +55,15 @@ from parametric_insurance_design_climada.vulnerability import (
 
 __all__ = [
     "CatInCircleIndexConfig",
+    "CellLossConfig",
+    "CentroidLossConfig",
     "CentroidWindIndexConfig",
     "EberenzEdrPriorConfig",
     "EmanuelVHalfDrawsConfig",
     "ImpactFunctionConfig",
     "IndexConfig",
     "LocationsConfig",
+    "LossConfig",
     "NoVulnerabilityDrawsConfig",
     "PipelineConfig",
     "PipelineConfigError",
@@ -394,6 +398,57 @@ VulnerabilityConfig = Annotated[
 ]
 
 
+class CentroidLossConfig(_Model):
+    """Loss at the location's own centroid (the thesis loss; the default).
+
+    The impact of the storm on the location's whole ``value``, placed at its
+    ``lat``/``lon``, the same centroid as index (a).
+
+    Attributes
+    ----------
+    kind : {"centroid"}
+        The loss kind.
+    unit : str
+        ``loss.unit`` written to the EventSet metadata (currency stays USD).
+    """
+
+    kind: Literal["centroid"] = "centroid"
+    unit: str = Field(default="USD", min_length=1)
+
+
+class CellLossConfig(_Model):
+    """Loss summed over each location's gridded cells (MAR-114, D2).
+
+    For an aggregated location, such as a county made of LitPop cells
+    (MAR-113), the loss of the unit is the sum of the CLIMADA impacts on its
+    cells (SPEC §6.6: "the modelled LitPop asset loss in its territory"). The
+    index stays at the location's ``lat``/``lon``.
+
+    Attributes
+    ----------
+    kind : {"cells"}
+        The loss kind.
+    cells : pathlib.Path
+        Parquet table of cells with the columns ``lat``, ``lon``, ``value``
+        and ``location_id`` (e.g. the ``cells.parquet`` that
+        ``portfolio_litpop`` writes). Rows with a null ``location_id`` belong
+        to no location and are left out (counted in the build record); every
+        other ``location_id`` must be a location, every location must have a
+        cell, and each location's cell values must sum to its ``value``.
+    unit : str
+        ``loss.unit`` written to the EventSet metadata (currency stays USD),
+        e.g. ``"USD (LitPop reference_year 2018)"``.
+    """
+
+    kind: Literal["cells"]
+    cells: Path
+    unit: str = Field(default="USD", min_length=1)
+
+
+#: The ``loss`` section of a pipeline config, selected by ``kind``.
+LossConfig = Annotated[CentroidLossConfig | CellLossConfig, Field(discriminator="kind")]
+
+
 class PipelineConfig(_Model):
     """One EventSet build.
 
@@ -421,6 +476,10 @@ class PipelineConfig(_Model):
     vulnerability : NoVulnerabilityDrawsConfig or EmanuelVHalfDrawsConfig
         Loss draws, selected by ``kind``. Default: none (one row per storm,
         ``draw_id`` 0).
+    loss : CentroidLossConfig or CellLossConfig
+        Where the loss is computed, selected by ``kind``. Default: at the
+        location's centroid (``centroid``, the thesis); ``cells`` sums the
+        impacts of each location's cells.
     hazard_release : str or None
         Release text for the EventSet's ``hazard.release``. If None, the
         catalogue must be the pinned IRIS merged file (checked by SHA256),
@@ -429,6 +488,9 @@ class PipelineConfig(_Model):
         ``scenario_id`` of every event row.
     scenario : str or None
         Scenario description in the metadata. If None, one is generated.
+    scenario_notes : tuple of str
+        Sentences appended to the scenario description, e.g. a value-unit
+        caveat or the data attribution. Default: none.
     licence : str
         Licence of the data, written as the parity fixture does (the IRIS
         licence record is open under MAR-94).
@@ -445,9 +507,11 @@ class PipelineConfig(_Model):
     impact_function: ImpactFunctionConfig = ImpactFunctionConfig()
     index: IndexConfig = CentroidWindIndexConfig()
     vulnerability: VulnerabilityConfig = NoVulnerabilityDrawsConfig()
+    loss: LossConfig = CentroidLossConfig()
     hazard_release: str | None = Field(default=None, min_length=1)
     scenario_id: str = Field(default="iris-present-climate", min_length=1)
     scenario: str | None = Field(default=None, min_length=1)
+    scenario_notes: tuple[Annotated[str, Field(min_length=1)], ...] = ()
     licence: str = Field(default="CC0-1.0", min_length=1)
     output: Path
 
@@ -572,13 +636,16 @@ def parse_config(
             if (value := getattr(config.locations, key)) is not None
         }
     )
-    return config.model_copy(
-        update={
-            "catalogue": _resolve(base, config.catalogue),
-            "output": _resolve(base, config.output),
-            "locations": locations,
-        }
-    )
+    update: dict[str, Any] = {
+        "catalogue": _resolve(base, config.catalogue),
+        "output": _resolve(base, config.output),
+        "locations": locations,
+    }
+    if isinstance(config.loss, CellLossConfig):
+        update["loss"] = config.loss.model_copy(
+            update={"cells": _resolve(base, config.loss.cells)}
+        )
+    return config.model_copy(update=update)
 
 
 def load_config(path: str | Path) -> PipelineConfig:
