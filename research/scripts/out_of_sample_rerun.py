@@ -17,13 +17,14 @@ parity policy). Every run keeps its config hash and ``run_id``.
 
 It writes small CSV summaries of the **portfolio-level** KPIs (``level =
 "portfolio"``: the sum over every location and every payout of a run) to
-``research/data/out-of-sample-rerun/``:
+``research/data/out-of-sample-rerun/``. Their ``problem_id`` is ``"*"`` in
+the individual scope and ``"portfolio"`` in the others (one design problem):
 
 * ``full.csv``: the in-sample KPIs of the ``full`` runs (every ``n_bins``);
 * ``holdout_gap.csv``: ``splits.kpi_gap`` of the holdout runs (train, test,
   gap = test - train) per scope, objective and ``n_bins``;
 * ``kfold_gap.csv``: the same per fold of the 5-fold runs (``n_bins`` 15);
-* ``summary.json``: inputs, package version, timings, run counts.
+* ``summary.json``: inputs, package version, solver policy, run counts.
 
 Run from the repository root::
 
@@ -51,7 +52,6 @@ from parametric_insurance_design.experiment.config import (
 from parametric_insurance_design.experiment.runner import load_input
 from parametric_insurance_design.experiment.store import ResultStore
 from parametric_insurance_design.experiment.sweeps import run_sweeps
-from parametric_insurance_design.records import ALL_PROBLEMS
 from parametric_insurance_design.splits import kpi_gap
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
@@ -103,8 +103,9 @@ def run_table(store: ResultStore, run_ids: set[str]) -> pd.DataFrame:
 
 def portfolio(frame: pd.DataFrame) -> pd.DataFrame:
     """Keep the portfolio-level rows (the whole run)."""
-    keep = (frame["level"] == "portfolio") & (frame["problem_id"] == ALL_PROBLEMS)
-    return frame.loc[keep].drop(columns=["level", "problem_id", "subject_id"])
+    return frame.loc[frame["level"] == "portfolio"].drop(
+        columns=["level", "problem_id", "subject_id"]
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -175,7 +176,6 @@ def main(argv: list[str] | None = None) -> int:
         },
         "samples": SAMPLES,
         "runs": {s: len(ids) for s, ids in run_ids.items()},
-        "seconds": {s: round(t, 1) for s, t in timings.items()},
         "jobs": args.jobs,
     }
     (args.out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
