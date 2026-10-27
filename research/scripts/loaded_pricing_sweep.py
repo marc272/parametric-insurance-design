@@ -3,18 +3,21 @@
 Runs every scope x objective of ``parity/configs/thesis.yaml`` (its sweeps
 are ignored) once per pricing: the pure premium and ``CostOfCapitalLoad`` at
 ``rate`` in {0, 0.06, 0.10} x ``q`` in {0.99, 0.995}. Only ``pricing``
-changes; everything else (EventSet, noise, basis ``event_conditional``,
-in-sample evaluation, budget ``kappa = 1``) is the thesis config.
+changes, and ``basis`` with ``--basis``; everything else (EventSet, noise,
+in-sample evaluation, budget ``kappa = 1``) is the thesis config, whose basis
+is ``event_conditional``.
 
 Writes ``research/data/mar27-loaded-pricing/headline.csv`` (portfolio-level
 KPIs, one row per run, with its config hash and run id) and
-``problem_premiums.csv`` (premium and budget use per design problem). The
-result store goes to ``--store`` (default ``results/mar27-loaded-pricing``,
-git-ignored).
+``problem_premiums.csv`` (premium and budget use per design problem); with
+``--basis annual`` (or ``event``), ``headline_annual.csv`` and
+``problem_premiums_annual.csv``. The result store goes to ``--store``
+(default ``results/mar27-loaded-pricing``, git-ignored).
 
 Usage::
 
     uv run python research/scripts/loaded_pricing_sweep.py [--store DIR]
+        [--basis event_conditional|annual|event]
 """
 
 from __future__ import annotations
@@ -60,11 +63,12 @@ KPIS = (
 
 
 def with_pricing(
-    config: ExperimentConfig, pricing: dict[str, object]
+    config: ExperimentConfig, pricing: dict[str, object], basis: str
 ) -> ExperimentConfig:
-    """Return the config with another ``pricing`` block, re-validated."""
+    """Return the config with another ``pricing`` and ``basis``, re-validated."""
     data = to_dict(config)
     data["pricing"] = pricing
+    data["basis"] = basis
     return parse_config(data)
 
 
@@ -81,14 +85,20 @@ def main() -> None:
     parser.add_argument(
         "--store", type=Path, default=REPO / "results" / "mar27-loaded-pricing"
     )
+    parser.add_argument(
+        "--basis",
+        default="event_conditional",
+        choices=("event_conditional", "annual", "event"),
+    )
     args = parser.parse_args()
+    suffix = "" if args.basis == "event_conditional" else f"_{args.basis}"
     store = ResultStore(args.store)
     base = load_config(THESIS)
     data = load_input(base)
     headline: list[dict[str, object]] = []
     problems: list[pd.DataFrame] = []
     for pricing in PRICINGS:
-        config = with_pricing(base, pricing)
+        config = with_pricing(base, pricing, args.basis)
         start = time.perf_counter()
         outcomes = run_config(config, store=store, data=data)
         seconds = time.perf_counter() - start
@@ -132,10 +142,10 @@ def main() -> None:
             problems.append(wide)
     OUT.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(headline).to_csv(
-        OUT / "headline.csv", index=False, float_format="%.10g"
+        OUT / f"headline{suffix}.csv", index=False, float_format="%.10g"
     )
     pd.concat(problems).to_csv(
-        OUT / "problem_premiums.csv", index=False, float_format="%.10g"
+        OUT / f"problem_premiums{suffix}.csv", index=False, float_format="%.10g"
     )
     print(f"wrote {OUT}")
 

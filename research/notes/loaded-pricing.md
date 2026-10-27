@@ -2,20 +2,20 @@
 
 - Issue: [MAR-27](https://linear.app/marc-prinzing/issue/MAR-27/f-11-cost-of-capital-loaded-pricing) (F-11, SPEC §6.4, thesis issue M4). Written by a worker agent on 2026-10-28.
 - Status: **observations only.** No interpretation. That belongs to checkpoint C1 (MAR-29).
-- Method: `docs/methodology/pricing.md`. Script: `research/scripts/loaded_pricing_sweep.py`. Tables: `research/data/mar27-loaded-pricing/headline.csv` (portfolio-level KPIs, one row per run, with config hash and run id) and `problem_premiums.csv` (premium and budget use per design problem).
+- Method: `docs/methodology/pricing.md`. Script: `research/scripts/loaded_pricing_sweep.py`. Tables in `research/data/mar27-loaded-pricing/`: `headline.csv` (portfolio-level KPIs, one row per run, with config hash and run id) and `problem_premiums.csv` (premium and budget use per design problem) for the thesis basis, `event_conditional`; `headline_annual.csv` and `problem_premiums_annual.csv` for the annual basis (MAR-24, section at the end).
 
 ## Setup
 
 - Config: `parity/configs/thesis.yaml`, its baseline only (every scope × objective, no sweeps). The only change is the `pricing` block. Everything else is the thesis setup:
   - EventSet `parity/tests/data/thesis_eventset` (checksum `sha256:404b0c3a…294df`): 9 Miami assets, heteroscedastic noise 0.3 with 13 copies, threshold 20 m/s, 13,897 rows after preparation;
-  - basis `event_conditional`: the annual basis (MAR-24) isn't merged yet;
+  - basis `event_conditional` (the thesis basis); the same runs on the `annual` basis are in the last section;
   - sample `full`: calibration and KPIs on the same rows (**in sample**);
   - step payout with 15 bins on [20, 70] m/s;
   - weighted CVaR with α = 0.9 and β = 0.95;
   - budget κ = 1, so Premium ≤ E[L];
   - KPI β = 0.95.
 - Pricings: `pure`, and `cost_of_capital` with r ∈ {0, 0.06, 0.10} × q ∈ {0.99, 0.995}. That is 7 configs × 9 runs = 63 runs.
-- Code: branch `marcprinzing/mar-27-f-11-cost-of-capital-loaded-pricing` with `origin/main` at 9031143 (MAR-22) merged in, default solver policy. The tables were solved twice, once before and once after the merge, from an empty store each time; both runs gave byte-identical CSVs. The loaded runs take about 35–45 s per 9 runs, against 22–29 s for pure ones.
+- Code: branch `marcprinzing/mar-27-f-11-cost-of-capital-loaded-pricing` with `origin/main` at a4eba20 (MAR-22 and MAR-24) merged in, default solver policy. The `event_conditional` tables were solved three times, each from an empty store: before the merges, after the MAR-22 merge, and after the MAR-24 merge. All three gave byte-identical CSVs. The loaded runs take about 35–45 s per 9 runs, against 22–29 s for pure ones.
 - Portfolio E[L] = 2.0614 M. Without cover, the portfolio loss has CVaR_0.95(L) = 24.37 M (VaR 12.33 M), CVaR_0.99(L) = 45.89 M and CVaR_0.995(L) = 55.09 M.
 
 The `premium` column is the portfolio premium under the run's own pricing: the pricing applied to the aggregate payout (`docs/methodology/pricing.md`, "Portfolio premium"). "Σ problem premiums" is the sum of the per-problem premiums, each of which its own budget constrains.
@@ -96,6 +96,86 @@ This is the relative difference of the portfolio CVaR_0.95(U) of the weighted-CV
 
 ## Caveats
 
-- In sample, on the `event_conditional` basis. Its outcomes are events, not years, so q = 0.99 is the worst 1 % of *events*. On the annual basis (MAR-24) the payout tail, and so the load, will differ.
+- In sample. On `event_conditional` the outcomes are events, not years, so q = 0.99 is the worst 1 % of *events*. On `annual` it is the worst 1 % of (year, copy) slots, about 90 % of which have no storm (last section).
 - One budget, κ = 1. Under loading, how the results depend on κ (e.g. a κ sweep against the effective pure-premium budget) was not run.
 - No confidence intervals (MAR-23). No out-of-sample split: the thesis config uses the full sample. The MAR-22 splits are on `main` now but this baseline doesn't use them.
+
+## The same runs on the annual basis (MAR-24)
+
+`--basis annual`: the same 7 pricings × 9 runs with `basis: annual`. An outcome is a (year, copy) slot: 13,131 outcomes, with the empty slots pooled into one, and about 90 % of the probability mass in slots without a storm (`research/notes/annual-basis-rerun.md`). The budget, premium and KPIs are all per year.
+
+- Portfolio annual E[L] = 220,363. Without cover, the annual portfolio loss has CVaR_0.95(L) = 4.404 M (VaR 26,716), CVaR_0.99(L) = 17.33 M and CVaR_0.995(L) = 25.54 M.
+- The money columns below are in thousands, except CVaR_0.95(U) and RMSE, which are in millions. Full hashes are in `headline_annual.csv`. The r = 0 rows are left out because they equal the `pure` rows (observation A1).
+
+| pricing | scope | objective | E[π]/E[L] | premium (k) | Σ problem premiums (k) | E[U] (k) | CVaR_0.95(U) (M) | RMSE (M) | config hash |
+|---|---|---|---|---|---|---|---|---|---|
+| pure | individual | mse | 1.000 | 220.26 | 220.26 | 10.30 | 0.206 | 0.267 | `e2cbcc3abdd5` |
+| pure | individual | expected_uncovered | 1.000 | 220.36 | 220.36 | 10.20 | 0.204 | 0.268 | `31be2d0fb3c6` |
+| pure | individual | weighted_cvar | 1.000 | 220.36 | 220.36 | 10.20 | 0.204 | 0.268 | `a3dc154343eb` |
+| pure | cluster | mse | 1.000 | 220.36 | 220.36 | 11.15 | 0.223 | 0.269 | `eeab1ad2dd5a` |
+| pure | cluster | expected_uncovered | 1.000 | 220.36 | 220.36 | 10.91 | 0.218 | 0.271 | `ea1a85a748e7` |
+| pure | cluster | weighted_cvar | 1.000 | 220.36 | 220.36 | 10.91 | 0.218 | 0.271 | `ee90c0b2301f` |
+| pure | portfolio | mse | 1.000 | 220.36 | 220.36 | 9.38 | 0.188 | 0.255 | `6d7951e65dc7` |
+| pure | portfolio | expected_uncovered | 1.000 | 220.36 | 220.36 | 9.16 | 0.183 | 0.257 | `9cf92ce6c1e7` |
+| pure | portfolio | weighted_cvar | 1.000 | 220.36 | 220.36 | 9.16 | 0.183 | 0.257 | `fce1b208d097` |
+| coc r=0.06 q=0.99 | individual | mse | 0.144 | 220.36 | 220.36 | 188.62 | 3.770 | 1.600 | `6ba9131394c6` |
+| coc r=0.06 q=0.99 | individual | expected_uncovered | 0.297 | 220.11 | 220.36 | 158.89 | 3.178 | 1.929 | `cb90dd74d4ee` |
+| coc r=0.06 q=0.99 | individual | weighted_cvar | 0.297 | 220.11 | 220.36 | 158.89 | 3.178 | 1.929 | `edda3a43275d` |
+| coc r=0.06 q=0.99 | cluster | mse | 0.144 | 220.36 | 220.36 | 188.63 | 3.770 | 1.594 | `8e5340095ce4` |
+| coc r=0.06 q=0.99 | cluster | expected_uncovered | 0.298 | 220.36 | 220.36 | 158.61 | 3.172 | 1.929 | `6b2b4fd06fa0` |
+| coc r=0.06 q=0.99 | cluster | weighted_cvar | 0.298 | 220.36 | 220.36 | 158.61 | 3.172 | 1.929 | `e23433832ef0` |
+| coc r=0.06 q=0.99 | portfolio | mse | 0.144 | 220.36 | 220.36 | 188.64 | 3.770 | 1.594 | `afec8a9c02a6` |
+| coc r=0.06 q=0.99 | portfolio | expected_uncovered | 0.294 | 220.36 | 220.36 | 158.16 | 3.163 | 1.928 | `32bed034b6e4` |
+| coc r=0.06 q=0.99 | portfolio | weighted_cvar | 0.294 | 220.36 | 220.36 | 158.16 | 3.163 | 1.928 | `0a6338ccd73f` |
+| coc r=0.06 q=0.995 | individual | mse | 0.080 | 220.09 | 220.36 | 202.83 | 4.054 | 1.815 | `de6a73b4076f` |
+| coc r=0.06 q=0.995 | individual | expected_uncovered | 0.290 | 219.88 | 220.36 | 160.23 | 3.205 | 1.936 | `b0bee2a96b47` |
+| coc r=0.06 q=0.995 | individual | weighted_cvar | 0.290 | 219.88 | 220.36 | 160.23 | 3.205 | 1.936 | `809022e45b84` |
+| coc r=0.06 q=0.995 | cluster | mse | 0.088 | 220.36 | 220.36 | 200.89 | 4.015 | 1.811 | `ca57a2942d61` |
+| coc r=0.06 q=0.995 | cluster | expected_uncovered | 0.290 | 220.36 | 220.36 | 159.95 | 3.199 | 1.935 | `9ed3fa93f06a` |
+| coc r=0.06 q=0.995 | cluster | weighted_cvar | 0.290 | 220.36 | 220.36 | 159.95 | 3.199 | 1.935 | `5c89aa55b009` |
+| coc r=0.06 q=0.995 | portfolio | mse | 0.089 | 220.36 | 220.36 | 200.69 | 4.011 | 1.811 | `4cd77edbf19b` |
+| coc r=0.06 q=0.995 | portfolio | expected_uncovered | 0.288 | 220.36 | 220.36 | 159.43 | 3.189 | 1.933 | `6c4963019d1f` |
+| coc r=0.06 q=0.995 | portfolio | weighted_cvar | 0.288 | 220.36 | 220.36 | 159.43 | 3.189 | 1.933 | `11cdb24d2b9d` |
+| coc r=0.1 q=0.99 | individual | mse | 0.092 | 220.36 | 220.36 | 200.15 | 4.000 | 1.764 | `5fa3115c4443` |
+| coc r=0.1 q=0.99 | individual | expected_uncovered | 0.226 | 220.27 | 220.36 | 174.74 | 3.495 | 2.005 | `3f36b1ab701c` |
+| coc r=0.1 q=0.99 | individual | weighted_cvar | 0.226 | 220.27 | 220.36 | 174.74 | 3.495 | 2.005 | `cd2a1ee5de08` |
+| coc r=0.1 q=0.99 | cluster | mse | 0.092 | 220.36 | 220.36 | 200.15 | 4.000 | 1.760 | `5002a1c43d88` |
+| coc r=0.1 q=0.99 | cluster | expected_uncovered | 0.227 | 220.36 | 220.36 | 174.39 | 3.488 | 2.004 | `02617a8449b7` |
+| coc r=0.1 q=0.99 | cluster | weighted_cvar | 0.227 | 220.36 | 220.36 | 174.39 | 3.488 | 2.004 | `9300a23d2ea7` |
+| coc r=0.1 q=0.99 | portfolio | mse | 0.092 | 220.36 | 220.36 | 200.15 | 4.000 | 1.760 | `3fda3d16469c` |
+| coc r=0.1 q=0.99 | portfolio | expected_uncovered | 0.226 | 220.36 | 220.36 | 174.07 | 3.481 | 2.003 | `bf1d876c4dd5` |
+| coc r=0.1 q=0.99 | portfolio | weighted_cvar | 0.226 | 220.36 | 220.36 | 174.07 | 3.481 | 2.003 | `42e11c9af3ac` |
+| coc r=0.1 q=0.995 | individual | mse | 0.048 | 220.36 | 220.36 | 209.82 | 4.193 | 1.927 | `3063aad33b27` |
+| coc r=0.1 q=0.995 | individual | expected_uncovered | 0.217 | 220.19 | 220.36 | 176.02 | 3.520 | 2.010 | `0244704c04fd` |
+| coc r=0.1 q=0.995 | individual | weighted_cvar | 0.217 | 220.19 | 220.36 | 176.02 | 3.520 | 2.010 | `845d43dba33f` |
+| coc r=0.1 q=0.995 | cluster | mse | 0.048 | 220.36 | 220.36 | 209.82 | 4.194 | 1.924 | `e0d2345c8514` |
+| coc r=0.1 q=0.995 | cluster | expected_uncovered | 0.220 | 220.36 | 220.36 | 175.64 | 3.513 | 2.010 | `f317d96ba157` |
+| coc r=0.1 q=0.995 | cluster | weighted_cvar | 0.220 | 220.36 | 220.36 | 175.64 | 3.513 | 2.010 | `e6199dd20a85` |
+| coc r=0.1 q=0.995 | portfolio | mse | 0.048 | 220.36 | 220.36 | 209.82 | 4.194 | 1.924 | `4c0fde3f156a` |
+| coc r=0.1 q=0.995 | portfolio | expected_uncovered | 0.219 | 220.36 | 220.36 | 175.20 | 3.504 | 2.008 | `8c63022a1297` |
+| coc r=0.1 q=0.995 | portfolio | weighted_cvar | 0.219 | 220.36 | 220.36 | 175.20 | 3.504 | 2.008 | `c0fc82875be9` |
+
+Weighted CVaR against MSE and against E[U], on the annual CVaR_0.95(U) (negative: the weighted-CVaR design is lower):
+
+| pricing | individual: vs MSE / vs E[U] | cluster | portfolio |
+|---|---|---|---|
+| pure | −0.9 % / 0.0 % | −2.1 % / 0.0 % | −2.4 % / 0.0 % |
+| coc r=0.06 q=0.99 | −15.7 % / 0.0 % | −15.9 % / 0.0 % | −16.1 % / 0.0 % |
+| coc r=0.06 q=0.995 | −20.9 % / 0.0 % | −20.3 % / 0.0 % | −20.5 % / 0.0 % |
+| coc r=0.10 q=0.99 | −12.6 % / 0.0 % | −12.8 % / 0.0 % | −13.0 % / 0.0 % |
+| coc r=0.10 q=0.995 | −16.0 % / 0.0 % | −16.2 % / 0.0 % | −16.4 % / 0.0 % |
+
+### Observations on the annual basis
+
+- A1. **r = 0 equals pure.** For both q, every KPI in `headline_annual.csv` equals the `pure` run's.
+- A2. **The budget binds.**
+  - Under every load, every design problem uses its whole budget: [0.99998, 1.0000000] of κ·E[L].
+  - Under pure pricing the individual-scope MSE problems use 0.9966–1.0000007 of it, and all other problems use all of it.
+- A3. **Expected payout under a load.** E[π] is 0.08–0.30 of E[L] at r = 0.06 and 0.05–0.23 at r = 0.10. On `event_conditional` the same loads gave 0.40–0.70.
+- A4. **E[U] and weighted CVaR coincide.** In every scope and pricing on this basis, the E[U] and weighted-CVaR designs have the same KPIs to the precision shown. Their config hashes differ.
+- A5. **Tail KPI.**
+  - Under pure pricing, the weighted-CVaR (= E[U]) design has a lower annual CVaR_0.95(U) than MSE by 0.9–2.4 %.
+  - Under the loads, it is lower by 12.6–20.9 %.
+  - CVaR_0.95(U) is 0.18–0.22 M under pure pricing and 3.16–4.19 M under the loads; no cover gives 4.40 M.
+- A6. **q matters for every objective.** All three objectives' designs change between q = 0.99 and q = 0.995, unlike the E[U] and weighted-CVaR designs on `event_conditional` (observation 6). At q = 0.995 the expected payout is lower and CVaR_0.95(U) higher than at q = 0.99, for each r.
+- A7. **Portfolio premium against the sum of problem premiums.** The load on the aggregate payout is up to 0.22 % below the sum of the problem premiums (individual scope, r = 0.06, q = 0.995: 219.88 k against 220.36 k).
