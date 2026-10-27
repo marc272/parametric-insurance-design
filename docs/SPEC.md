@@ -97,7 +97,7 @@ New repository (D1). The old repository is tagged `thesis-v1` and archived read-
 parametric-insurance-design/
 ├── packages/
 │   ├── core/            # parametric-insurance-design: numpy, scipy, pandas, pyarrow, cvxpy, pydantic. NO hazard libraries
-│   ├── viz/             # parametric-insurance-design-viz: matplotlib figures, reading only the result store
+│   ├── viz/             # parametric-insurance-design-viz: matplotlib figures, reading the result store and the runs' content-hashed input EventSets; never solving or re-optimising (C6)
 │   ├── crc/             # parametric-insurance-design-crc: CRC/VELO adapter (py>=3.12)
 │   └── climada/         # parametric-insurance-design-climada: tracks → CLIMADA → EventSet (own pixi env, NOT a uv member)
 ├── research/            # paper: configs, run scripts, figure scripts, manuscript
