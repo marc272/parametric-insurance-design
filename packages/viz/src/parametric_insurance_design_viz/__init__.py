@@ -7,8 +7,11 @@ nor the core's solver or problem builder.
 
 Modules: :mod:`.style` (fonts, palette, labels), :mod:`.reader` (result-store
 reader), :mod:`.figure_data` (image plus figure-data CSVs),
-:mod:`.payout_functions` (payout figures), :mod:`.command` (the figure set of
-``parametric-insurance-design figures``) and :mod:`.errors`.
+:mod:`.payout_functions` (payout figures), :mod:`.kpi_figures` (KPI
+heatmaps, performance overview, exceedance curves), :mod:`.sweep_figures`
+(sweep plots, premium reallocation, trade-off and cluster figures),
+:mod:`.command` (the figure set of ``parametric-insurance-design figures``) and
+:mod:`.errors`.
 """
 
 from importlib.metadata import version

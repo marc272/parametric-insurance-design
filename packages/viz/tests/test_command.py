@@ -160,7 +160,7 @@ def test_figure_sets_are_extensible(toy: Fixture, tmp_path: Path) -> None:
     (context,) = seen
     assert [s.key for s in context.scopes] == ["individual", "cluster", "portfolio"]
     assert [len(s.runs) for s in context.scopes] == [3, 3, 3]
-    assert FIGURE_SETS[0] is payout_figures  # later sub-issues append (MAR-112)
+    assert FIGURE_SETS[0] is payout_figures  # later sets append (ADR 0002)
 
 
 def test_scope_keys_number_repeated_kinds(toy: Fixture) -> None:

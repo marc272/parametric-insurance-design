@@ -188,7 +188,7 @@ def test_figures_writes_the_payout_figures(
         assert (figures / f"{name}.png").is_file()
         assert (figures / f"{name}.csv").is_file()
         assert f"wrote   {name}.png" in out
-    assert "5 figures written, 0 skipped" in out  # and premium_reallocation (MAR-112)
+    assert "0 skipped" in out  # the other figure sets are tested in viz
 
 
 @pytest.mark.usefixtures("viz")
@@ -232,9 +232,15 @@ def test_figures_of_a_failed_run_exit_1(
     assert main(["figures", str(path), "-q"]) == ExitCode.RUNS_FAILED
     out = capsys.readouterr().out
     assert "FAILED  payout_grid_cluster" in out
-    assert "(2 because a run failed)" in out
-    written = sorted(p.name for p in (tmp_path / "results" / "figures").glob("*.png"))
-    assert written == ["normalised_payout_portfolio_a.png", "payout_grid_portfolio.png"]
+    assert "because a run failed)" in out
+    written = {p.name for p in (tmp_path / "results" / "figures").glob("*.png")}
+    # the portfolio figures of every set are drawn, no figure of the cluster scope
+    assert {
+        "exceedance_portfolio.png",
+        "normalised_payout_portfolio_a.png",
+        "payout_grid_portfolio.png",
+    } <= written
+    assert not any("cluster" in name for name in written)
     manifest = json.loads(
         next((tmp_path / "results" / "manifests").glob("*.json")).read_text()
     )
