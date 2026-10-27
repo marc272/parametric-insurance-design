@@ -5,7 +5,12 @@ Two checks:
 * **Static:** no viz module imports the solver, the problem builder, the
   run executor or the sweeps (which call them), cvxpy, or an adapter
   (ADR 0001). Importing core's ``__init__`` loads every core module, so a
-  ``sys.modules`` check cannot tell; the source is parsed instead.
+  ``sys.modules`` check cannot tell; the source is parsed instead. Any
+  dynamic import (``importlib.import_module``, ``__import__``, or a name
+  bound by ``from importlib import import_module [as alias]``) is rejected,
+  as viz has no reason for one. The alias logic is a copy of the core's
+  MAR-122 finder (``packages/core/tests/test_import_boundaries.py``): test
+  modules cannot import each other under ``--import-mode=importlib``.
 * **Runtime:** drawing the whole figure set with the solver and the builder
   replaced by functions that fail proves that neither is called.
 """
@@ -42,6 +47,8 @@ FORBIDDEN_NAMES = {  # `from <package> import <name>` forms
     "parametric_insurance_design.experiment": {"runner", "sweeps"},
 }
 FORBIDDEN_ATTRIBUTES = {"problem", "solve", "runner", "sweeps", "build_problems"}
+IMPORT_FUNCTIONS = frozenset({"import_module", "__import__"})
+"""Function names of the dynamic-import routes, called as ``x.<name>(...)``."""
 
 
 def viz_sources() -> list[Path]:
@@ -55,9 +62,29 @@ def forbidden(module: str) -> bool:
     return any(module == m or module.startswith(f"{m}.") for m in FORBIDDEN_MODULES)
 
 
+def import_aliases(tree: ast.AST) -> set[str]:
+    """Bare names that call an import function.
+
+    The builtin ``__import__``, plus every ``from importlib import
+    import_module [as alias]`` (or ``builtins`` / ``__import__``) binding.
+    """
+    aliases = {"__import__"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module in {
+            "importlib",
+            "builtins",
+        }:
+            aliases |= {
+                a.asname or a.name for a in node.names if a.name in IMPORT_FUNCTIONS
+            }
+    return aliases
+
+
 def violations(source: str) -> list[str]:
     found: list[str] = []
-    for node in ast.walk(ast.parse(source)):
+    tree = ast.parse(source)
+    aliases = import_aliases(tree)
+    for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             found += [a.name for a in node.names if forbidden(a.name)]
         elif isinstance(node, ast.ImportFrom) and node.module:
@@ -75,8 +102,8 @@ def violations(source: str) -> list[str]:
         elif isinstance(node, ast.Call):
             func = node.func
             target = func.attr if isinstance(func, ast.Attribute) else ""
-            if target in {"import_module", "__import__"} or (
-                isinstance(func, ast.Name) and func.id == "__import__"
+            if target in IMPORT_FUNCTIONS or (
+                isinstance(func, ast.Name) and func.id in aliases
             ):
                 found.append("dynamic import")
     return found
@@ -98,10 +125,29 @@ def test_no_viz_module_imports_the_solver_or_builder(path: Path) -> None:
         "import parametric_insurance_design_crc",
         "import parametric_insurance_design as pid\npid.solve.solve(x)",
         "importlib.import_module('parametric_insurance_design.solve')",
+        "__import__('cvxpy')",
+        "from importlib import import_module\n"
+        "import_module('parametric_insurance_design.solve')",
+        "from importlib import import_module as load\nload(NAME)",
+        "from builtins import __import__ as imp\nimp('cvxpy')",
+        "def f():\n    from importlib import import_module\n    import_module('x')",
     ],
 )
 def test_the_check_catches_forbidden_imports(source: str) -> None:
     assert violations(source)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import json",
+        "from importlib.resources import files\nfiles('parametric_insurance_design')",
+        "from importlib.metadata import version\nversion('matplotlib')",
+        "from parametric_insurance_design.experiment.store import ResultStore",
+    ],
+)
+def test_the_check_accepts_other_imports(source: str) -> None:
+    assert violations(source) == []
 
 
 def test_figures_never_solve(
