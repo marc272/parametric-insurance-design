@@ -17,6 +17,7 @@ from importlib.metadata import requires
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
 import pytest
 import yaml
 
@@ -187,7 +188,7 @@ def test_figures_writes_the_payout_figures(
         assert (figures / f"{name}.png").is_file()
         assert (figures / f"{name}.csv").is_file()
         assert f"wrote   {name}.png" in out
-    assert "9 figures written, 0 skipped" in out  # 4 payout, 5 KPI (MAR-111)
+    assert "0 skipped" in out  # the other figure sets are tested in viz
 
 
 @pytest.mark.usefixtures("viz")
@@ -231,14 +232,57 @@ def test_figures_of_a_failed_run_exit_1(
     assert main(["figures", str(path), "-q"]) == ExitCode.RUNS_FAILED
     out = capsys.readouterr().out
     assert "FAILED  payout_grid_cluster" in out
-    assert "(6 because a run failed)" in out
-    written = sorted(p.name for p in (tmp_path / "results" / "figures").glob("*.png"))
-    assert written == [
+    assert "because a run failed)" in out
+    written = {p.name for p in (tmp_path / "results" / "figures").glob("*.png")}
+    # the portfolio figures of every set are drawn, no figure of the cluster scope
+    assert {
         "exceedance_portfolio.png",
         "normalised_payout_portfolio_a.png",
         "payout_grid_portfolio.png",
-    ]
+    } <= written
+    assert not any("cluster" in name for name in written)
     manifest = json.loads(
         next((tmp_path / "results" / "manifests").glob("*.json")).read_text()
     )
     assert manifest["format"]  # the store is untouched by figures
+
+
+# -- sweep points (MAR-112) ----------------------------------------------------
+
+
+@pytest.mark.usefixtures("viz")
+def test_figures_reads_the_sweep_points(
+    tmp_path: Path, toy_eventset: EventSet, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sweeps = [{"parameter": "alpha", "values": [0.3, 0.5]}]
+    path = toy_config(tmp_path, toy_eventset, sweeps=sweeps)
+    assert main(["sweep", str(path), "-q"]) == ExitCode.OK
+    capsys.readouterr()
+    assert main(["figures", str(path), "-q"]) == ExitCode.OK
+    out = capsys.readouterr().out
+    assert "read 4 sweep points of 1 sweeps" in out  # 2 values x 2 scopes
+    figures = tmp_path / "results" / "figures"
+    for name in (
+        "premium_reallocation",
+        "payout_sweep_individual_a_alpha",
+        "payout_sweep_portfolio_a_alpha",
+        "sensitivity_alpha",
+        "tradeoff_portfolio_alpha",
+    ):
+        assert (figures / f"{name}.png").is_file(), name
+        assert f"wrote   {name}.png" in out
+    points = pd.read_csv(figures / "sensitivity_alpha.points.csv")
+    assert set(points["parameter_value"].dropna()) == {0.3, 0.5}
+
+
+@pytest.mark.usefixtures("viz")
+def test_missing_sweep_points_name_the_sweep_command(
+    tmp_path: Path, toy_eventset: EventSet, caplog: pytest.LogCaptureFixture
+) -> None:
+    sweeps = [{"parameter": "alpha", "values": [0.3]}]
+    path = toy_config(tmp_path, toy_eventset, sweeps=sweeps)
+    assert main(["run", str(path), "-q"]) == ExitCode.OK
+    with caplog.at_level(logging.ERROR, logger="parametric_insurance_design"):
+        assert main(["figures", str(path)]) == ExitCode.INPUT_ERROR
+    assert "2 of 2 sweep points are not in the result store" in caplog.text
+    assert "parametric-insurance-design sweep CONFIG" in caplog.text

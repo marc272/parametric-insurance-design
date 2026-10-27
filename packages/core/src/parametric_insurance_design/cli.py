@@ -561,6 +561,53 @@ def _import_viz() -> ModuleType:
         ) from exc
 
 
+def _sweep_runs(
+    viz: ModuleType, config: ExperimentConfig, data: RunInput, policy: SolverPolicy
+) -> list[object]:
+    """Every point of the config's sweeps as a viz ``SweepRun`` (MAR-112).
+
+    The ``run_id`` of a point is computed as ``sweep`` (and its dry run)
+    does, so no sweep manifest is needed. ``sweep_points`` lists the points
+    value-major, then the single runs the parameter applies to in
+    ``single_runs()`` order; that order names each point's baseline run.
+
+    Raises
+    ------
+    ConfigError
+        If a point does not match the scope x objective of its baseline run
+        (a broken invariant of ``sweep_points``).
+    """
+    singles = config.single_runs()
+    out: list[object] = []
+    for spec in config.sweeps:
+        applies = [i for i, s in enumerate(singles) if s.applies(spec.parameter)]
+        points = sweep_points(config, spec, location_ids=data.eventset.location_ids)
+        for number, point in enumerate(points):
+            single = applies[number % len(applies)]
+            base = singles[single]
+            if (point.scope, point.objective) != (
+                base.scopes[0].kind,
+                base.objectives[0].kind,
+            ):
+                raise ConfigError(  # pragma: no cover - sweep_points invariant
+                    f"sweep {spec.parameter} point {number} ({point.scope} x "
+                    f"{point.objective}) does not follow single run {single}"
+                )
+            out.append(
+                viz.SweepRun(
+                    parameter=spec.parameter,
+                    value=point.value,
+                    run_id=run_key(
+                        config_hash(point.config), data.checksum, policy=policy
+                    ),
+                    single=single,
+                    subset_index=point.subset_index,
+                    location_ids=point.location_ids,
+                )
+            )
+    return out
+
+
 def _figures(config: ExperimentConfig, args: argparse.Namespace) -> ExitCode:
     """``figures``: draw the config's figures from its result store."""
     viz = _import_viz()
@@ -570,6 +617,7 @@ def _figures(config: ExperimentConfig, args: argparse.Namespace) -> ExitCode:
         run_key(config_hash(single), data.checksum, policy=policy)
         for single in config.single_runs()
     ]
+    sweeps = _sweep_runs(viz, config, data, policy)
     out_dir: Path = (
         args.out if args.out is not None else config.output.directory / "figures"
     )
@@ -579,8 +627,11 @@ def _figures(config: ExperimentConfig, args: argparse.Namespace) -> ExitCode:
         store=ResultStore(config.output.directory),
         out_dir=out_dir,
         eventset=prepare_eventset(config, data.eventset),
+        sweeps=sweeps,
     )
     _out(f"figures {config.name!r} from {config.output.directory} into {out_dir}:")
+    if sweeps:
+        _out(f"  read {len(sweeps)} sweep points of {len(config.sweeps)} sweeps")
     for written in report.written:
         tables = ", ".join(p.name for p in written.tables.values())
         _out(f"  wrote   {written.image.name}  ({tables})")

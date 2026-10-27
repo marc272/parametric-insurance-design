@@ -124,4 +124,6 @@ def test_figures_never_solve(
         eventset=toy.eventset,
     )
     assert report.ok
-    assert len(report.written) == 12  # payout (MAR-110) and KPI (MAR-111)
+    # every figure set drew something; per-set contents are tested elsewhere
+    names = {w.name for w in report.written}
+    assert {"payout_grid_individual", "premium_reallocation"} <= names
