@@ -34,6 +34,12 @@ files are the cost; compacting a finished sweep is a possible follow-up.
 
 The store assumes a single writer per run. Two processes writing the same
 ``run_id`` at the same time are not coordinated.
+
+Reads keep no state between calls (MAR-128): another process may commit runs
+while this one reads, e.g. a ``sweep`` writing while ``figures`` reads, and
+every call sees the store as it is on disk. A read of given runs checks only
+those runs' manifest files, one ``stat`` each, instead of listing the
+``manifests`` directory.
 """
 
 from __future__ import annotations
@@ -262,6 +268,19 @@ class ResultStore:
         """
         return self._manifest_path(run_id).is_file()
 
+    def _is_committed(self, run_id: str) -> bool:
+        """Like :meth:`has_run`, but False for a malformed ``run_id``.
+
+        :meth:`read` reports malformed ids among the runs not in the store,
+        as it did when it compared against :meth:`run_ids`.
+        """
+        try:
+            stem = run_file_stem(run_id)
+        except StoreError:
+            return False
+        # os.path on a str: a third of the cost of Path.is_file per run.
+        return os.path.isfile(os.path.join(self._root, MANIFESTS_DIR, f"{stem}.json"))
+
     def run_ids(self) -> tuple[str, ...]:
         """Return the ids of every committed run, sorted.
 
@@ -360,12 +379,14 @@ class ResultStore:
         if table not in TABLES:
             raise StoreError(f"unknown table {table!r} (tables: {', '.join(TABLES)})")
         schema = TABLES[table]
-        committed = self.run_ids()
         if run_ids is None:
-            wanted = committed
+            wanted = self.run_ids()
         else:
+            # Check only the requested runs (MAR-128): one stat per run, no
+            # listing and no cache, so runs that another process commits
+            # between two reads are seen.
             wanted = tuple(sorted(set(run_ids)))
-            missing = sorted(set(wanted) - set(committed))
+            missing = [r for r in wanted if not self._is_committed(r)]
             if missing:
                 raise StoreError(f"runs not in the store {self._root}: {missing}")
         parts: list[pa.Table] = []
@@ -377,7 +398,10 @@ class ResultStore:
                     f"committed run {run_id} has no {table!r} file ({path}); "
                     "the store is damaged"
                 )
-            part = pq.read_table(path)
+            # ParquetFile.read: half the time of pq.read_table, which goes
+            # through the dataset API, for the same table (MAR-128).
+            with pq.ParquetFile(path) as handle:
+                part = handle.read()
             if not part.schema.equals(arrow_schema):
                 raise RecordSchemaError(
                     f"{path} has schema {part.schema}, expected {arrow_schema}",
