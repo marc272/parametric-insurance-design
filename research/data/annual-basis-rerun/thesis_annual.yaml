@@ -1,0 +1,65 @@
+# MAR-24: parity/configs/thesis.yaml with `basis: annual`, the beta sweep
+# only, and its own name, description and output directory (results/, not
+# committed), none of which enter the config hash. Every other field is the
+# thesis config's. Run from the repository root:
+#   uv run parametric-insurance-design sweep \
+#       research/data/annual-basis-rerun/thesis_annual.yaml -p beta
+schema_version: 1
+name: thesis-annual
+description: The thesis experiment (parity/configs/thesis.yaml) on the annual basis, for
+  the MAR-24 rerun (research/notes/annual-basis-rerun.md).
+eventset:
+  path: ../../../parity/tests/data/thesis_eventset
+  checksum: sha256:404b0c3a3aefa38965ad3ace2747d308685a67e3b218cb835d45a9ab375294df
+portfolio:
+  location_ids: [A1, A2, A3, A4, A5, A6, A7, A8, A9]
+noise:
+  kind: heteroscedastic
+  level: 0.3
+  n_copies: 13
+  seed: 42
+  bounds: [20.0, 70.0]
+threshold:
+  value: 20.0
+  column: index
+basis: annual
+sample:
+  kind: full
+payout:
+  kind: step
+  attachment: 20.0
+  limit: 70.0
+  n_bins: 15
+  breakpoints: null
+scopes:
+- kind: individual
+  index: null
+- kind: cluster
+  n_clusters: 3
+  strategy:
+    kind: thesis_ward
+    beta_tail: 0.9
+    linkage: ward
+  index: null
+- kind: portfolio
+  index: null
+objectives:
+- kind: mse
+- kind: expected_uncovered
+- kind: weighted_cvar
+  alpha: 0.9
+  beta: 0.95
+pricing:
+  kind: pure
+constraints:
+- kind: budget
+  loading: 1.0
+evaluation:
+  beta: 0.95
+sweeps:
+- parameter: beta
+  values: [0.9, 0.91, 0.92, 0.93, 0.94, 0.95, 0.96, 0.97, 0.98, 0.99]
+  max_combinations: null
+  seed: null
+output:
+  directory: ../../../results/mar24-thesis-annual

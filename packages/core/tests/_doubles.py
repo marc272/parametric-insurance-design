@@ -8,9 +8,10 @@ does not match ``test_*.py``.
 
 The context is built by the real :func:`~parametric_insurance_design.problem.
 build_context` (MAR-14) with ``scale = 1``, so that the hand-computed numbers
-are the scaled ones. The payout structures and the grouped measure stay
-doubles, so that these unit tests depend neither on the real ``StepPayout``
-(MAR-11) bin semantics nor on the annual measure (MAR-24, not built yet).
+are the scaled ones. The payout structures stay doubles, so that these unit
+tests do not depend on the real ``StepPayout`` (MAR-11) bin semantics. The
+grouped measure is a real annual :class:`OutcomeMeasure` with hand-set
+outcomes (MAR-24).
 
 Reference data (event-conditional, one row per outcome)::
 
@@ -116,28 +117,19 @@ class Step(PayoutStructure):
         )
 
 
-@dataclass(frozen=True, eq=False)
-class GroupedMeasure(OutcomeMeasure):
-    """Rows summed into outcomes with a 0/1 matrix (stands in for MAR-24)."""
-
-    def aggregate_expression(self, expression: cp.Expression) -> cp.Expression:
-        assert tuple(expression.shape) == (self.n_rows,)
-        groups = np.zeros((self.n_outcomes, self.n_rows))
-        groups[self.outcome_of_row, np.arange(self.n_rows)] = 1.0
-        return groups @ expression
-
-
 def event_measure() -> OutcomeMeasure:
     """The event-conditional measure of the reference rows, probability ``PROB``."""
     return OutcomeMeasure.per_row(Basis.EVENT_CONDITIONAL, PROB)
 
 
-def grouped_measure() -> GroupedMeasure:
-    """Annual-style measure: years {0, 1}, {2}, {3} and a year without rows.
+def grouped_measure() -> OutcomeMeasure:
+    """Annual measure: years {0, 1}, {2}, {3} and a year without rows.
 
-    Each year has probability 1/4, so ``E[L] = (2 + 4 + 10 + 0) / 4 = 4``.
+    Each year has probability 1/4, so ``E[L] = (2 + 4 + 10 + 0) / 4 = 4``. A
+    real :class:`OutcomeMeasure`, so ``aggregate_expression`` is the grouped
+    case built in MAR-24 (it replaced MAR-87's ``GroupedMeasure`` double).
     """
-    return GroupedMeasure(
+    return OutcomeMeasure(
         basis=Basis.ANNUAL,
         outcome_of_row=np.array([0, 0, 1, 2]),
         probability=np.full(4, 0.25),
