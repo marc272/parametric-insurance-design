@@ -2,7 +2,9 @@
 # from LitPop (MAR-113), IRIS North Atlantic 10,000 years, index (a) wind at
 # each county's value-weighted centroid, and vulnerability uncertainty in the
 # loss (MAR-25: Emanuel v_half drawn from Eberenz et al. 2021, region NA2,
-# wind-only events, the MAR-103 default). A county's loss is the sum of the
+# wind-only North Atlantic events, the MAR-103 and MAR-132 defaults). Monroe
+# County's LitPop gap (Key West and the Lower Keys have no cell) is stated in
+# the scenario notes (MAR-132). A county's loss is the sum of the
 # impacts on its LitPop cells (loss: cells), not the impact at its centroid.
 # The cat-in-a-circle variant is configs/florida_counties_cat_in_circle.yaml.
 #
@@ -43,6 +45,7 @@ vulnerability:
     kind: eberenz2021_edr
     region: NA2
     wind_only: true
+    basins: [NA]   # MAR-132 default: North Atlantic events only (17 NA2 events)
 loss:
   kind: cells
   cells: ../../../data/litpop-florida/locations/cells.parquet
@@ -52,5 +55,6 @@ scenario_notes:
   - "Value unit: USD (LitPop reference_year 2018); produced capital scaled from 2014 constant USD by CLIMADA, see research/notes/d2-florida-litpop-locations.md."
   - "Locations: Florida's 67 counties (location_id = county GEOID), each the sum of its LitPop cells and located at the cells' value-weighted centroid; the State of Florida is the single risk owner (D2, SPEC §6.6)."
   - "Attribution: asset values from the CLIMADA data API, dataset LitPop_150arcsec_USA v3 (uuid 678e9551-32ca-40f3-9881-9bd38412c1cd), CC BY 4.0, Eberenz et al. (2020), Earth Syst. Sci. Data 12, 817-833, doi:10.5194/essd-12-817-2020, archive doi:10.3929/ethz-b-000331316; county boundaries: U.S. Census Bureau, 2025 TIGER/Line Shapefiles; hazard: IRIS (Sparks and Toumi 2024), data descriptor doi:10.1038/s41597-024-03250-y, collection doi:10.6084/m9.figshare.c.6724251.v1."
+  - "Monroe County (the Florida Keys, GEOID 12087) is in the portfolio with a known exposure gap: the LitPop_150arcsec_USA grid has no cell centred west of 81.604 deg W in the Keys, so Key West and the Lower Keys west of it carry no asset value (LitPop's land mask at 150 arcsec leaves them out; they have no cell at all, not a zero-valued one). Monroe's value (0.765e9 USD, 0.016 % of the 4.893e12 USD portfolio) and its losses are therefore understated; the gap is not filled from another source (MAR-132; owner decision on MAR-118)."
 licence: CC-BY-4.0
 output: ../../../data/eventsets/florida-counties-iris-vulnerability

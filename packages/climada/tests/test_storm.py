@@ -456,4 +456,12 @@ def test_storm_config_differs_from_the_iris_reference_only_in_the_hazard() -> No
 def test_no_draws_reference_differs_from_mar_114_only_in_the_draws() -> None:
     base = _load("florida_counties.yaml")
     no_draws = _load("florida_counties_no_draws.yaml")
-    assert {k for k in base if base[k] != no_draws[k]} == {"vulnerability", "output"}
+    assert {k for k in base if base[k] != no_draws[k]} == {
+        "vulnerability",
+        "output",
+        "scenario_notes",
+    }
+    # MAR-132 appended the Monroe County note to the draws builds only; the
+    # no-draws reference (MAR-32) keeps its notes and content hash.
+    assert base["scenario_notes"][:-1] == no_draws["scenario_notes"]
+    assert "Monroe County" in base["scenario_notes"][-1]

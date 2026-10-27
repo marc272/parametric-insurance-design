@@ -1,5 +1,5 @@
 {
-  "issue": "MAR-114 (P-05b, part of MAR-31)",
+  "issue": "MAR-114 (P-05b, part of MAR-31); rebuilt in MAR-132 (basin filter)",
   "licence": "CC-BY-4.0",
   "inputs": {
     "catalogue": {
@@ -18,10 +18,10 @@
   "builds": [
     {
       "eventset_dir": "data/eventsets/florida-counties-iris-vulnerability",
-      "content_hash": "sha256:d8698f7d2985409f5a5024101d7ba839d42a127a29d5456e5871ecaaa3385131",
+      "content_hash": "sha256:cad398875afb467f5d1475e6a47952116391be18f249cc484990436f46a6cbe6",
       "config": {
         "file": "packages/climada/configs/florida_counties.yaml",
-        "sha256": "eb8126a847cbfd8ece6a117be3dd3173bd1fbb3d8cadb5a3ac27eb64044a13a9"
+        "sha256": "09ae66710528a14af95e198e3a82ef91912c7cf59fc5f38481a0f2556c2ed379"
       },
       "files": {
         "events.parquet": {
@@ -33,12 +33,12 @@
           "sha256": "48c1b93451afa16bf3687eeba0374d5e84e15a636fd9f45c993c0792684eb832"
         },
         "metadata.json": {
-          "bytes": 9580,
-          "sha256": "7cb3b108f53849b0bde4208cb7796723ff6aebbc084ac4207c82433018b52b98"
+          "bytes": 10603,
+          "sha256": "108033a3b60e632673f92283e1caf3b039ee366849d161a3ab4120e259e40863"
         },
         "values.parquet": {
           "bytes": 10596423,
-          "sha256": "be7ec8ad53b5f62ae8dac19bc509aa94e5a7cec546e9ea9a0583bf77a11a3cd7"
+          "sha256": "b1548c9d1b288eb7c122114149668ed512624b223ad7367f9e423fd16d23296b"
         }
       },
       "n_rows": 139020,
@@ -49,7 +49,7 @@
       "licence": "CC-BY-4.0",
       "loss_unit": "USD (LitPop reference_year 2018)",
       "rate_sum": 1.3902,
-      "portfolio_expected_annual_loss": 14442789275.737526,
+      "portfolio_expected_annual_loss": 3040588695.544668,
       "rows_with_nonzero_index": 58900,
       "rows_with_nonzero_loss": 49250,
       "nonzero_loss_cells": 659190,
@@ -57,20 +57,20 @@
       "index_unique_values_if_few": null,
       "build": {
         "command": "pixi run --locked build-eventset --config configs/florida_counties.yaml",
-        "pipeline_runtime_s": 629.4,
-        "wall_time_s": 643.41,
-        "max_resident_set_size_bytes": 1714077696,
-        "measured_with": "/usr/bin/time -l around pixi run (includes the python child)",
+        "pipeline_runtime_s": 2779.4,
+        "wall_time_s": 2808.47,
+        "max_resident_set_size_bytes": 1555283968,
+        "measured_with": "/usr/bin/time -l around pixi run (includes the python child); both builds ran at the same time on a machine with load average about 40-50 from other jobs, so the times are not comparable with MAR-114's",
         "machine": "osx-arm64 (owner's Apple-silicon Mac), CLIMADA 6.1.0, Python 3.12, pixi 0.83.0",
         "date": "2026-10-27"
       }
     },
     {
       "eventset_dir": "data/eventsets/florida-counties-iris-cat-in-circle-50km-vulnerability",
-      "content_hash": "sha256:81acd810655dc42edc3eb327f2ad6d4de3a666993c29fdfa80b48ee8b07a2d3e",
+      "content_hash": "sha256:c7d6b76519d88bba4143d999bed81c78a0ff213777528aed3d7cea5ff2dfa67f",
       "config": {
         "file": "packages/climada/configs/florida_counties_cat_in_circle.yaml",
-        "sha256": "ed8742705d7bd9315a8a191ee139e46fac94d213f3fd3789c82ce49ee9296a84"
+        "sha256": "4d6323d1613b92747357548c126947263cce3a06a4eed00a6391a093b0fbe1c0"
       },
       "files": {
         "events.parquet": {
@@ -82,12 +82,12 @@
           "sha256": "48c1b93451afa16bf3687eeba0374d5e84e15a636fd9f45c993c0792684eb832"
         },
         "metadata.json": {
-          "bytes": 10266,
-          "sha256": "ef5f68c50604e73556a92960746e7cce15f3e7067ab8e072eae9c2a7488dc749"
+          "bytes": 11289,
+          "sha256": "ba0a17e840b13066e89f703685719b03ea2a1aa06bd188e51e5a232d89d6b0f3"
         },
         "values.parquet": {
           "bytes": 8635897,
-          "sha256": "e11b111901ec7f8bf211f72a35dcfb4fb984d653ea1e9e4fbbcc2319386126d1"
+          "sha256": "3a2ecee6b82d644d14d742b870fce02afcf02bb209f4861598b3f4d224a041c0"
         }
       },
       "n_rows": 139020,
@@ -98,7 +98,7 @@
       "licence": "CC-BY-4.0",
       "loss_unit": "USD (LitPop reference_year 2018)",
       "rate_sum": 1.3902,
-      "portfolio_expected_annual_loss": 14442789275.737526,
+      "portfolio_expected_annual_loss": 3040588695.544668,
       "rows_with_nonzero_index": 30570,
       "rows_with_nonzero_loss": 49250,
       "nonzero_loss_cells": 659190,
@@ -113,10 +113,10 @@
       ],
       "build": {
         "command": "pixi run --locked build-eventset --config configs/florida_counties_cat_in_circle.yaml",
-        "pipeline_runtime_s": 681.0,
-        "wall_time_s": 694.17,
-        "max_resident_set_size_bytes": 1454997504,
-        "measured_with": "/usr/bin/time -l around pixi run (includes the python child)",
+        "pipeline_runtime_s": 2811.9,
+        "wall_time_s": 2833.08,
+        "max_resident_set_size_bytes": 1381351424,
+        "measured_with": "/usr/bin/time -l around pixi run (includes the python child); both builds ran at the same time on a machine with load average about 40-50 from other jobs, so the times are not comparable with MAR-114's",
         "machine": "osx-arm64 (owner's Apple-silicon Mac), CLIMADA 6.1.0, Python 3.12, pixi 0.83.0",
         "date": "2026-10-27"
       }

@@ -149,16 +149,21 @@ vulnerability:
   prior:
     kind: eberenz2021_edr  # default: event-wise calibrated v_half, Eberenz et al. (2021)
     region: NA2            # default: USA and Canada
-    wind_only: true        # default (MAR-103): the 19 NA2 events without surge/rain/
-                           # flood/slide/other damage; false keeps all 43 (sensitivity)
+    wind_only: true        # default (MAR-103): drop events with surge/rain/flood/
+                           # slide/other damage; false keeps them (sensitivity)
+    basins: [NA]           # default (MAR-132): North Atlantic genesis basin only;
+                           # null keeps every basin (sensitivity)
   # or: prior: {kind: uniform, low: 60, high: 110, source: "..."}
 ```
+
+With both defaults the NA2 prior has 17 events (`v_half` 58.6–232.4 m/s). `basins: null` gives the 19 wind-only events of the MAR-103 prior, including the East Pacific storms Iwa (1982, 25.8 m/s) and Iselle (2014, 37.0 m/s) that hit Hawaii. `wind_only: false` with `basins: null` gives all 43 events, the published distribution.
 
 The hook works as follows:
 
 - **One `v_half` per storm and draw**, shared by all locations of the storm. Storms and draws are independent.
 - **`v_thresh` and `scale` stay fixed**, at the values in `impact_function`. The Eberenz prior requires 25.7 m/s and 1, the values its calibration held fixed.
-- **The default prior is CLIMADA's own data**, `climada/data/system/tc_impf_cal_v01_EDR.csv` (SHA256 pinned), restricted to the wind-only events (MAR-103 decision: the index and the loss are wind only). A draw at `u ~ U(0, 1)` is the quantile `u` of those events' `v_half`. With `wind_only: false` it equals `ImpfSetTropCyclone.calibrated_regional_vhalf("EDR", q=u)["NA2"]`.
+- **The default prior is CLIMADA's own data**, `climada/data/system/tc_impf_cal_v01_EDR.csv` (SHA256 pinned), restricted to the wind-only events (MAR-103 decision: the index and the loss are wind only) of the North Atlantic basin (MAR-132 decision: NA2 is defined by the affected country and also holds East Pacific storms). A draw at `u ~ U(0, 1)` is the quantile `u` of those events' `v_half`. With `wind_only: false` and `basins: null` it equals `ImpfSetTropCyclone.calibrated_regional_vhalf("EDR", q=u)["NA2"]`.
+- **The basin of each calibration event comes from a pinned lookup**, `src/parametric_insurance_design_climada/eberenz2021_edr_basins.csv` (SHA256 pinned in `vulnerability.EBERENZ_BASINS_SHA256`): the IBTrACS v04r01 genesis basin (`basin` at the first observation) of all 376 storm IDs in the calibration file. The calibration file has no basin column, and an IBTrACS ID encodes the genesis date and position, not the basin. Ten IDs from the older IBTrACS the calibration used are not in v04r01; they are matched by genesis date (± 3 days) and the nearest track (≤ 5°), and the match is recorded in the file. `scripts/build_eberenz_basins.py --ibtracs <IBTrACS.ALL.v04r01.nc>` rebuilds it; the file's header records the IBTrACS file's SHA256. A region event without a known basin raises `UnknownBasinError`; nothing is dropped silently.
 - **The loss is computed as `ImpactCalc` does:** on the base function's intensity grid with linear interpolation, `value · paa · mdd`. With the base `v_half` it reproduces the pipeline's loss.
 - **The draws don't depend on `batch_size`.** The generator is consumed event-major.
 - **A second transform record, `vulnerability_draws`, describes the draws:** the prior (source, DOI, data file and checksum, every value), `n_draws`, the sampling rule and the seed. The seed is `null` when the caller passes its own `rng` to `build_eventset`.
@@ -167,7 +172,7 @@ Example configs:
 
 - `configs/thesis_vulnerability.yaml`: the thesis index (wind at the asset) with 10 draws;
 - `configs/thesis_cat_in_circle_vulnerability.yaml`: cat-in-a-circle at 50 km with 10 draws, i.e. SPEC §6.3's index (b) plus vulnerability uncertainty;
-- `configs/thesis_vulnerability_all_events.yaml`: the sensitivity run of the first, with all 43 NA2 events (`wind_only: false`).
+- `configs/thesis_vulnerability_all_events.yaml`: the sensitivity run of the first, with all 43 NA2 events (`wind_only: false`, `basins: null`).
 
 `scripts/plot_vulnerability_spread.py` draws the loss spread per asset from the centroid-wind build: `docs/methodology/figures/vulnerability_loss_spread.png`.
 
@@ -190,7 +195,7 @@ scenario_notes:                   # optional sentences appended to the scenario 
 - **The proximity filter still tests the locations.** The build refuses a config where `wind.max_dist_eye_km` plus the farthest cell from its location exceeds `proximity_km`, because a removed storm could then have wind at a cell.
 - **Centroid builds are unchanged**, content hash included; the build record gains a `loss` object, and `source_checksums` the cells file, only in cells mode.
 
-Configs: `configs/florida_counties.yaml` (index a) and `configs/florida_counties_cat_in_circle.yaml` (index b, 50 km), the paper's main EventSets. `scripts/florida_exposure_summary.py` draws the exposure summary (map, Monroe County cells, value distribution, tail dependence of annual county losses) with its figure data; outputs and checksums are in `research/data/d2-florida-eventset/`.
+Configs: `configs/florida_counties.yaml` (index a) and `configs/florida_counties_cat_in_circle.yaml` (index b, 50 km), the paper's main EventSets. Their scenario notes state Monroe County's exposure gap: LitPop has no cell west of 81.604° W in the Keys, so Key West and the Lower Keys carry no value (MAR-132; the county stays in the portfolio). `scripts/florida_exposure_summary.py` draws the exposure summary (map, Monroe County cells, value distribution, tail dependence of annual county losses) with its figure data; outputs and checksums are in `research/data/d2-florida-eventset/`.
 
 ## Rules
 

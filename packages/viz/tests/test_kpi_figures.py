@@ -1,4 +1,9 @@
-"""Tests of the KPI figures (MAR-111): their figure data on small fixture stores."""
+"""Tests of the KPI figures (MAR-111): their figure data on small fixture stores.
+
+Every store here is written by the core runner: the full-sample toy store
+(``conftest``), an annual-basis store (MAR-24), a holdout store and a k-fold
+store (MAR-137). No rows are relabelled.
+"""
 
 from __future__ import annotations
 
@@ -40,6 +45,7 @@ from parametric_insurance_design_viz.kpi_figures import (
     CURVE_COLUMNS,
     KPI_COLUMNS,
     Baseline,
+    KFoldRunsError,
     exceedance_curves,
     kpi_figures,
     kpi_heatmap,
@@ -137,30 +143,32 @@ def beta95(toy: Fixture, tmp_path_factory: pytest.TempPathFactory) -> Variant:
     return variant(toy, tmp_path_factory.mktemp("beta95"), evaluation={"beta": 0.95})
 
 
-def as_holdout(run: RunResult) -> RunResult:
-    """The run's rows relabelled as a train split, plus test rows (values x 2).
+@pytest.fixture(scope="module")
+def holdout_store(toy: Fixture, tmp_path_factory: pytest.TempPathFactory) -> Variant:
+    """A real holdout store (MAR-137): calibrated on years 0-41, tested on 42-59.
 
-    The runner cannot write holdout runs yet (``splits.holdout`` is MAR-22),
-    so the train and test rows are made from the full-sample rows.
+    The runner writes every KPI and curve row twice, on the ``train`` split
+    (in sample) and on the ``test`` split (out of sample).
     """
-
-    def split(table: pd.DataFrame) -> pd.DataFrame:
-        train = table.assign(eval_split="train")
-        test = table.assign(eval_split="test", value=table["value"] * 2)
-        return pd.concat([train, test], ignore_index=True)
-
-    return dataclasses.replace(
-        run, kpis=split(run.kpis), exceedance=split(run.exceedance)
+    return variant(
+        toy,
+        tmp_path_factory.mktemp("holdout"),
+        sample={"kind": "holdout", "train_fraction": 0.7},
     )
 
 
 @pytest.fixture(scope="module")
-def holdout(toy_grid: dict) -> dict[str, tuple[RunResult, ...]]:
-    """Holdout-like runs: KPI and curve rows on the train and the test split."""
-    return {
-        k: tuple(as_holdout(r) for r in toy_grid[k])
-        for k in ("individual", "portfolio")
-    }
+def holdout(holdout_store: Variant) -> dict[str, tuple[RunResult, ...]]:
+    """The holdout store's runs per scope (individual, portfolio)."""
+    return variant_grid(holdout_store)
+
+
+@pytest.fixture(scope="module")
+def kfold(toy: Fixture, tmp_path_factory: pytest.TempPathFactory) -> Variant:
+    """A real k-fold store (k = 2): a run per scope x objective x fold."""
+    return variant(
+        toy, tmp_path_factory.mktemp("kfold"), sample={"kind": "kfold", "k": 2}
+    )
 
 
 @pytest.fixture(scope="module")
@@ -241,16 +249,48 @@ def test_kpi_table_errors(toy_grid: dict, failed: Fixture) -> None:
         kpi_table({"cluster": (cluster,)}, ["cvar_uncovered"])
 
 
+def test_the_holdout_store_is_real(holdout: dict) -> None:
+    for runs in holdout.values():
+        for run in runs:
+            assert run.parameters["sample"] == "holdout"
+            assert set(run.runs["calibration_split"]) == {"train"}
+            assert set(run.kpis["eval_split"]) == {"train", "test"}
+            assert set(run.exceedance["eval_split"]) == {"train", "test"}
+
+
 def test_kpi_table_prefers_the_test_split(holdout: dict) -> None:
     scopes = holdout
-    table = kpi_table(scopes, ["expected_uncovered"])
+    kpis = ["cvar_uncovered", "expected_uncovered"]
+    table = kpi_table(scopes, kpis)
     assert set(table["eval_split"]) == {"test"}
-    run = scopes["portfolio"][0]
-    value = table.loc[table["run_id"] == run.run_id, "value"].iloc[0]
-    assert value == pytest.approx(store_kpi(run, "expected_uncovered", "test"))
-    train = kpi_table(scopes, ["expected_uncovered"], eval_split="train")
+    assert len(table) == 2 * 2 * 2
+    for row in cast(Any, table.itertuples(index=False)):
+        run = next(r for r in scopes[row.scope_key] if r.run_id == row.run_id)
+        assert row.value == pytest.approx(store_kpi(run, row.kpi, "test"))
+    train = kpi_table(scopes, kpis, eval_split="train")
     assert set(train["eval_split"]) == {"train"}
+    for row in cast(Any, train.itertuples(index=False)):
+        run = next(r for r in scopes[row.scope_key] if r.run_id == row.run_id)
+        assert row.value == pytest.approx(store_kpi(run, row.kpi, "train"))
+    # out of sample and in sample are different numbers
     assert not np.allclose(train["value"], table["value"])
+    with pytest.raises(InconsistentRunsError, match="'full' split"):
+        kpi_table(scopes, kpis, eval_split="full")
+
+
+def test_holdout_heatmap_and_curves_read_the_test_split(holdout: dict) -> None:
+    main = kpi_heatmap(holdout, "cvar_uncovered").data[""]
+    assert set(main["eval_split"]) == {"test"}
+    ref = store_kpi(holdout["individual"][0], "cvar_uncovered", "test")
+    assert np.allclose(main["baseline_value"], ref)
+    runs = holdout["portfolio"]
+    curves = exceedance_curves(runs).data[""]
+    assert set(curves["eval_split"]) == {"test"}
+    for run in runs:
+        rows = where(curves, curves["run_id"] == run.run_id)
+        stored = stored_curve(run, split="test")
+        assert np.allclose(rows["return_period"], stored["return_period"])
+        assert np.allclose(rows["value"], stored["value"])
 
 
 def test_runs_must_share_a_split_and_beta(toy_grid: dict, holdout: dict) -> None:
@@ -569,6 +609,103 @@ def test_default_figure_set_includes_the_kpi_figures(
     report = write_figures(toy.config, toy.run_ids, store=toy.store, out_dir=tmp_path)
     names = [w.name for w in report.written]
     assert names[6:12] == [*KPI_NAMES, *(f"exceedance_{s}" for s in SCOPES)]
+
+
+def test_figures_command_on_a_holdout_store(
+    holdout_store: Variant, tmp_path: Path
+) -> None:
+    v = holdout_store
+    report = write_figures(
+        v.config,
+        v.run_ids,
+        store=v.store,
+        out_dir=tmp_path,
+        figure_sets=(kpi_figures,),
+    )
+    assert report.ok
+    assert [w.name for w in report.written] == [
+        *KPI_NAMES,
+        "exceedance_individual",
+        "exceedance_portfolio",
+    ]
+    for w in report.written:
+        main = pd.read_csv(w.tables[""])
+        assert set(main["eval_split"]) == {"test"}, w.name
+    overview = pd.read_csv(tmp_path / "performance_overview.csv")
+    assert set(overview["run_id"]) == set(v.run_ids)
+
+
+# -- k-fold stores: refused (MAR-137) ---------------------------------------------
+
+
+def kfold_runs(v: Variant) -> dict[tuple[str, str, int], RunResult]:
+    """The k-fold store's runs by (scope, objective, fold)."""
+    runs = ResultReader(v.store).runs(v.run_ids)
+    out: dict[tuple[str, str, int], RunResult] = {}
+    for single, run in zip(v.config.single_runs(), runs, strict=True):
+        assert single.sample.kind == "kfold"
+        assert single.sample.fold is not None
+        out[single.scopes[0].kind, single.objectives[0].kind, single.sample.fold] = run
+    return out
+
+
+def test_the_kfold_store_is_real(kfold: Variant) -> None:
+    runs = kfold_runs(kfold)
+    assert len(runs) == 2 * 2 * 2
+    for (scope, objective, fold), run in runs.items():
+        assert (run.scope, run.objective) == (scope, objective)
+        assert run.parameters["sample"] == "kfold"
+        assert (run.parameters["k"], run.parameters["fold"]) == (2, fold)
+        assert set(run.kpis["fold"]) == {fold}
+        assert "test" in set(run.kpis["eval_split"])
+    # the two folds' out-of-sample values differ: one scope x objective has k
+    values = {
+        f: store_kpi(runs["portfolio", "mse", f], "cvar_uncovered", "test")
+        for f in (0, 1)
+    }
+    assert values[0] != pytest.approx(values[1])
+
+
+def test_kfold_runs_are_refused(kfold: Variant, holdout: dict) -> None:
+    runs = kfold_runs(kfold)
+    objectives = ("mse", "weighted_cvar")
+    # one fold per objective, which would pass for a holdout grid
+    fold0 = {
+        s: tuple(runs[s, o, 0] for o in objectives) for s in ("individual", "portfolio")
+    }
+    # every fold of one objective
+    folds = {"portfolio": (runs["portfolio", "mse", 0], runs["portfolio", "mse", 1])}
+    for scopes in (fold0, folds):
+        with pytest.raises(KFoldRunsError, match=r"refuse k-fold runs \(MAR-137\)"):
+            kpi_table(scopes, ["cvar_uncovered"])
+    with pytest.raises(KFoldRunsError, match=r"fold 1 of k=2"):
+        kpi_table(folds, ["cvar_uncovered"], eval_split="test")
+    with pytest.raises(KFoldRunsError):
+        kpi_heatmap(fold0, "cvar_uncovered")
+    with pytest.raises(KFoldRunsError):
+        performance_overview(fold0)
+    with pytest.raises(KFoldRunsError):
+        exceedance_curves(fold0["portfolio"])
+    # one k-fold run among holdout runs is refused as well
+    mixed = {
+        **holdout,
+        "portfolio": (holdout["portfolio"][0], runs["portfolio", "weighted_cvar", 0]),
+    }
+    with pytest.raises(KFoldRunsError, match="portfolio x weighted_cvar, fold 0"):
+        kpi_table(mixed, ["cvar_uncovered"])
+    assert issubclass(KFoldRunsError, InconsistentRunsError)
+
+
+def test_figures_command_refuses_a_kfold_store(kfold: Variant, tmp_path: Path) -> None:
+    with pytest.raises(KFoldRunsError, match=r"k-fold sample \(k=2\)"):
+        write_figures(
+            kfold.config,
+            kfold.run_ids,
+            store=kfold.store,
+            out_dir=tmp_path,
+            figure_sets=(kpi_figures,),
+        )
+    assert not list(tmp_path.iterdir())  # nothing is drawn
 
 
 def test_failed_runs_skip_the_kpi_figures(failed: Fixture, tmp_path: Path) -> None:
