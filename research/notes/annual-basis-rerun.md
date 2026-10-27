@@ -148,6 +148,6 @@ MAR-25 timed one design LP on the thesis portfolio with 1–50 vulnerability dra
 Observations:
 
 9. Without the threshold filter, 4,575 of the 10,000 years hold at least one storm. Per (year, draw) slot the annual basis has 24 % fewer outcomes, and so fewer Rockafellar–Uryasev auxiliaries, than the event-conditional basis (e.g. 45,751 against 60,570 at 10 draws).
-10. The annual basis was faster at 10, 20 and 50 draws (single measurements: 4–37 % less time). At 1 draw the times were equal.
+10. The annual basis was faster at 10, 20 and 50 draws (single measurements: 4–38 % less time). At 1 draw the times were equal.
 11. Every solve was accepted from CLARABEL on both bases, also at 50 draws. For asset A1 at 50 draws the status was `optimal_inaccurate` on both bases, which the policy accepts (thesis rule). No HiGHS fallback happened with these noise draws, unlike MAR-25's vulnerability draws. Whether CLARABEL holds at 50 vulnerability draws on the annual basis needs the MAR-25 EventSet (a CLIMADA build), which this issue didn't rebuild.
 12. The event-conditional times at 1 and 10 draws are close to MAR-25's (0.3 / 6.7 / 10.4 s here, against 0.3 / 6.9 / 11.5 s).
