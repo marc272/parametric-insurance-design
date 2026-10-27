@@ -127,4 +127,27 @@ Observations:
 
 ## Re-timing with draws (MAR-25 note)
 
-See below; filled in from `timing.csv`.
+MAR-25 timed one design LP on the thesis portfolio with 1–50 vulnerability draws on the event-conditional basis (`docs/methodology/vulnerability.md`, "Number of draws and runtime"). At 50 draws CLARABEL didn't return an accepted result, and the policy fell back to HiGHS (96 s for asset A1, 144 s for the portfolio). `timing.py` repeats that setup on both bases:
+
+- no threshold filter;
+- weighted CVaR, α 0.5, β 0.99;
+- 10 bins on [20, 70];
+- pure premium, `Budget(1.0)`;
+- default solver policy;
+- asset A1 alone and the portfolio.
+
+**One difference: the draws are the thesis noise layer, not vulnerability draws.** `noise.add_noise`, heteroscedastic, η 0.3, seed 42, with `n_copies` = draws, on the committed fixture (`sha256:404b0c3a…294df`). It gives the same rows, `draw_id`s and `rate / n` convention as the vulnerability draws. Only the loss values differ, so the LP sizes are the same and the solver behaviour may not be. Times are build + solve wall time, measured once each on the same shared 10-core Mac, load average about 5 at the start.
+
+| Draws | Rows | Outcomes, event-cond. | Outcomes, annual | A1 event-cond., s | A1 annual, s | Portfolio event-cond., s | Portfolio annual, s |
+|---|---|---|---|---|---|---|---|
+| 1 | 6,057 | 6,057 | 4,576 | 0.30 | 0.30 | 0.66 | 0.71 |
+| 10 | 60,570 | 60,570 | 45,751 | 6.67 | 4.33 | 10.44 | 9.30 |
+| 20 | 121,140 | 121,140 | 91,501 | 19.19 | 11.99 | 27.01 | 18.11 |
+| 50 | 302,850 | 302,850 | 228,751 | 66.32 | 63.87 | 102.97 | 81.91 |
+
+Observations:
+
+9. Without the threshold filter, 4,575 of the 10,000 years hold at least one storm. Per (year, draw) slot the annual basis has 24 % fewer outcomes, and so fewer Rockafellar–Uryasev auxiliaries, than the event-conditional basis (e.g. 45,751 against 60,570 at 10 draws).
+10. The annual basis was faster at 10, 20 and 50 draws (single measurements: 4–37 % less time). At 1 draw the times were equal.
+11. Every solve was accepted from CLARABEL on both bases, also at 50 draws. For asset A1 at 50 draws the status was `optimal_inaccurate` on both bases, which the policy accepts (thesis rule). No HiGHS fallback happened with these noise draws, unlike MAR-25's vulnerability draws. Whether CLARABEL holds at 50 vulnerability draws on the annual basis needs the MAR-25 EventSet (a CLIMADA build), which this issue didn't rebuild.
+12. The event-conditional times at 1 and 10 draws are close to MAR-25's (0.3 / 6.7 / 10.4 s here, against 0.3 / 6.9 / 11.5 s).
