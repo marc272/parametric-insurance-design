@@ -737,21 +737,31 @@ def _run_all(
     first: dict[str, int] = {}  # run_id -> index of its first point
     duplicates: list[tuple[int, int]] = []  # (index, index of the first point)
     pending: list[tuple[int, str, bool, Future[tuple[RunTables, dict[str, Any]]]]] = []
+    # An error while planning point k (a pinned checksum, an unreadable
+    # manifest) is raised once the runs before k are written, as serially.
+    planning_error: Exception | None = None
     try:
         for index, single in enumerate(configs):
-            _check_input(single, data)
-            run_id = run_key(config_hash(single), data.checksum, policy=policy)
-            if run_id in first:
-                duplicates.append((index, first[run_id]))
-                continue
-            first[run_id] = index
-            exists = store.has_run(run_id)
-            if exists and not force:
-                cached = RunOutcome.from_manifest(store.manifest(run_id), cached=True)
-                if not (retry_failed and not cached.ok):
-                    _log.info("run %s: cached in %s", run_id, store.root)
-                    outcomes[index] = cached
+            try:
+                _check_input(single, data)
+                run_id = run_key(config_hash(single), data.checksum, policy=policy)
+                if run_id in first:
+                    duplicates.append((index, first[run_id]))
                     continue
+                first[run_id] = index
+                exists = store.has_run(run_id)
+                cached = (
+                    RunOutcome.from_manifest(store.manifest(run_id), cached=True)
+                    if exists and not force
+                    else None
+                )
+            except Exception as exc:
+                planning_error = exc
+                break
+            if cached is not None and not (retry_failed and not cached.ok):
+                _log.info("run %s: cached in %s", run_id, store.root)
+                outcomes[index] = cached
+                continue
             future = workers.executor.submit(
                 _execute_in_worker, single, data.checksum, source, sent_policy
             )
@@ -787,6 +797,8 @@ def _run_all(
         for *_, future in pending:
             future.cancel()
         raise
+    if planning_error is not None:
+        raise planning_error
     for index, earlier in duplicates:
         outcome = outcomes[earlier]
         if outcome is not None:  # else caught by the check below

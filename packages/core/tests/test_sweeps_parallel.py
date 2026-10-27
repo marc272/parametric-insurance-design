@@ -24,6 +24,7 @@ from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.experiment import sweeps as module
 from parametric_insurance_design.experiment.config import (
     ExperimentConfig,
+    config_hash,
     load_config,
     parse_config,
 )
@@ -32,8 +33,13 @@ from parametric_insurance_design.experiment.runner import (
     RunInput,
     load_input,
     policy_fingerprint,
+    run_key,
 )
-from parametric_insurance_design.experiment.store import ResultStore
+from parametric_insurance_design.experiment.store import (
+    MANIFESTS_DIR,
+    ResultStore,
+    StoreError,
+)
 from parametric_insurance_design.experiment.sweeps import (
     SweepsOutcome,
     SweepWorkerError,
@@ -321,6 +327,34 @@ def test_worker_errors_propagate_with_their_type(toy_dir: Path, tmp_path: Path) 
         run_sweeps(config, store=store, baseline=False, jobs=2)
     assert store.run_ids() == ()
     assert read_sweep_manifests(store) == ()
+
+
+def test_a_store_error_leaves_the_earlier_points_as_serially(
+    toy_dir: Path, tmp_path: Path
+) -> None:
+    config = toy_config(toy_dir, tmp_path, **PORTFOLIO_MSE)
+    (base,) = config.single_runs()
+    configs = [base.with_parameter("n_bins", n) for n in (2, 3, 4, 5)]
+    data = load_input(config)
+    run_ids = [run_key(config_hash(c), data.checksum) for c in configs]
+    common: dict[str, Any] = {
+        "source": "n_bins_sweep",
+        "policy": DEFAULT_POLICY,
+        "force": False,
+        "retry_failed": False,
+    }
+    for name, jobs in (("serial", 1), ("parallel", 2)):
+        store = ResultStore(tmp_path / name)
+        module._run_all(configs[2:3], data, store, workers=None, **common)
+        # The cached run of the third point has an unreadable manifest.
+        (store.root / MANIFESTS_DIR / f"{run_ids[2][7:]}.json").write_text("{bad")
+        with (
+            module._workers(jobs, data) as workers,
+            pytest.raises(StoreError, match="not valid JSON"),
+        ):
+            module._run_all(configs, data, store, workers=workers, **common)
+        assert [store.has_run(r) for r in run_ids] == [True, True, True, False]
+        assert store.uncommitted_runs() == ()
 
 
 def test_a_dead_worker_is_a_typed_error(toy_dir: Path, tmp_path: Path) -> None:
