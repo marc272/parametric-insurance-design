@@ -142,8 +142,8 @@ def check_same_intervals(stored: pd.DataFrame, mine: pd.DataFrame) -> None:
     if len(merged) != len(stored) or len(merged) != len(mine):
         raise RuntimeError("stored and in-process KPI rows differ")
     for column in ["value", *CI_COLUMNS]:
-        a = merged[column].to_numpy(dtype=np.float64)
-        b = merged[f"{column}_mine"].to_numpy(dtype=np.float64)
+        a = merged[column].to_numpy(dtype=np.float64, na_value=np.nan)
+        b = merged[f"{column}_mine"].to_numpy(dtype=np.float64, na_value=np.nan)
         if not np.allclose(a, b, rtol=1e-9, atol=0, equal_nan=True):
             raise RuntimeError(f"stored and in-process {column} differ")
 

@@ -44,7 +44,7 @@ CI_COLUMNS = ["ci_low", "ci_high", "ci_level", "n_bootstrap"]
 
 def col(frame: pd.DataFrame, name: str) -> np.ndarray:
     """A column as a float numpy array (typed, for pyright)."""
-    return np.asarray(frame[name].to_numpy(), dtype=np.float64)
+    return np.asarray(frame[name].to_numpy(dtype=np.float64, na_value=np.nan))
 
 
 @pytest.fixture
