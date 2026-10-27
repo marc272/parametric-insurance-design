@@ -151,6 +151,99 @@ def _values(enum: type[StrEnum]) -> frozenset[str]:
     return frozenset(member.value for member in enum)
 
 
+# -- value-type checks (MAR-130) ----------------------------------------------
+#
+# ``_is_kind`` is the reference definition of which Python values a column
+# kind holds. ``_holds_only`` gives the same answer for a whole column, but
+# decides it from the dtype, or from one C-level ``infer_dtype`` pass over an
+# object column, when that already proves every value is of the right type.
+# It only ever *accepts* that way: whenever the shortcut can't prove it, it
+# falls back to ``_is_kind`` on every value, so every rejection is the
+# reference's. The shortcuts are sound because each dtype below only holds
+# values that ``_is_kind`` accepts, and ``infer_dtype`` returns each listed
+# label only if every value passes the ``isinstance`` check of that label.
+
+_MASKED_NUMERIC: Final[tuple[type, ...]] = (
+    pd.Int8Dtype,
+    pd.Int16Dtype,
+    pd.Int32Dtype,
+    pd.Int64Dtype,
+    pd.UInt8Dtype,
+    pd.UInt16Dtype,
+    pd.UInt32Dtype,
+    pd.UInt64Dtype,
+    pd.Float32Dtype,
+    pd.Float64Dtype,
+)
+"""Nullable numeric dtypes: their values are Python ints or floats."""
+
+_INFERRED: Final[dict[str, frozenset[str]]] = {
+    # every value isinstance str
+    "str": frozenset({"string"}),
+    # every value isinstance bool | np.bool_
+    "bool": frozenset({"boolean"}),
+    # every value isinstance int | np.integer (bools excluded), float |
+    # np.floating, or one of the two
+    "int": frozenset({"integer", "floating", "mixed-integer-float"}),
+    "float": frozenset({"integer", "floating", "mixed-integer-float"}),
+}
+"""``infer_dtype`` labels of object columns whose values all pass ``_is_kind``."""
+
+
+def _is_kind(value: object, kind: ColumnKind) -> bool:
+    """Whether one non-null value may be stored in a column of ``kind``.
+
+    The reference definition; timestamps are checked by dtype only.
+    """
+    if kind == "str":
+        return isinstance(value, str)
+    if kind == "bool":
+        return isinstance(value, bool | np.bool_)
+    if isinstance(value, bool | np.bool_):
+        return False
+    return isinstance(value, int | float | np.integer | np.floating)
+
+
+def _dtype_holds_only(dtype: object, kind: ColumnKind) -> bool:
+    """Whether every non-null value of a column of ``dtype`` passes ``_is_kind``."""
+    if kind == "str":
+        return isinstance(dtype, pd.StringDtype) or (
+            isinstance(dtype, pd.ArrowDtype)
+            and (
+                pa.types.is_string(dtype.pyarrow_dtype)
+                or pa.types.is_large_string(dtype.pyarrow_dtype)
+            )
+        )
+    if kind == "bool":
+        return (isinstance(dtype, np.dtype) and dtype.kind == "b") or isinstance(
+            dtype, pd.BooleanDtype
+        )
+    return (isinstance(dtype, np.dtype) and dtype.kind in "iuf") or isinstance(
+        dtype, _MASKED_NUMERIC
+    )
+
+
+def _holds_only(present: pd.Series, kind: ColumnKind) -> bool:
+    """Whether every value of ``present`` (no nulls) fits a column of ``kind``.
+
+    Equal to ``all(_is_kind(v, kind) for v in present)``, and for timestamps
+    to "the dtype is timezone-aware, or there are no values".
+    """
+    if present.empty:
+        return True
+    dtype = present.dtype
+    if kind == "timestamp":
+        return isinstance(dtype, pd.DatetimeTZDtype)
+    if _dtype_holds_only(dtype, kind):
+        return True
+    if isinstance(dtype, np.dtype) and dtype.kind == "O":
+        label = pd.api.types.infer_dtype(present.to_numpy(), skipna=False)
+        if label in _INFERRED[kind]:
+            return True
+    # Not proven by the shortcuts: check value by value.
+    return all(_is_kind(v, kind) for v in present)
+
+
 @dataclass(frozen=True)
 class Column:
     """One column of a record table.
@@ -346,11 +439,12 @@ class TableSchema:
             f"column {col.name!r} must hold {col.kind} values", table=self.name
         )
         present = values.loc[~null_mask]
+        if not _holds_only(present, col.kind):
+            raise fail
         if col.kind == "str":
-            if not all(isinstance(v, str) for v in present):
-                raise fail
             if col.allowed is not None:
-                bad = sorted({v for v in present if v not in col.allowed})
+                # The distinct values, not every row: the same set of values.
+                bad = sorted({v for v in present.unique() if v not in col.allowed})
                 if bad:
                     raise RecordSchemaError(
                         f"column {col.name!r} has values {bad} not in "
@@ -359,22 +453,12 @@ class TableSchema:
                     )
             return values.astype(object).where(~null, None)
         if col.kind == "timestamp":
-            if not isinstance(values.dtype, pd.DatetimeTZDtype) and len(present):
-                raise fail
             return pd.Series(
                 pd.to_datetime(values, utc=True), dtype="datetime64[us, UTC]"
             )
         if col.kind == "bool":
-            if not all(isinstance(v, bool | np.bool_) for v in present):
-                raise fail
             return values.astype("boolean" if col.nullable else bool)
         # int and float
-        if not all(
-            isinstance(v, int | float | np.integer | np.floating)
-            and not isinstance(v, bool | np.bool_)
-            for v in present
-        ):
-            raise fail
         numeric = present.to_numpy(dtype=np.float64)
         if not np.all(np.isfinite(numeric)):
             raise RecordSchemaError(
