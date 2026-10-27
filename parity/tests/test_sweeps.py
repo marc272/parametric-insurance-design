@@ -372,6 +372,11 @@ def test_sweeps_reproduce_the_committed_report(tmp_path: Path) -> None:
         str(out),
         "--analysis",
         str(analysis),
+        "--reports-dir",
+        str(tmp_path / "reports"),
+        "--analysis-dir",
+        str(tmp_path / "analyses"),
+        *(arg for p in rdp.OPTIMISATION_SWEEPS for arg in ("--sweep", p)),
         "--check",
     ]
     # Every run solved, every finding explained, every explanation backed by

@@ -1,4 +1,4 @@
-r"""Run the thesis parity runs and write the parity report (MAR-68, MAR-69).
+r"""Run the thesis parity runs and write the parity reports (MAR-68 to MAR-70).
 
 The thesis baseline (golden ``Source`` ``single_run``) is the thesis config's
 default parameters for 3 scopes x 3 objectives: noise seed 42, eta = 0.3,
@@ -6,7 +6,14 @@ default parameters for 3 scopes x 3 objectives: noise seed 42, eta = 0.3,
 (``parity/configs/thesis.yaml``). The optimisation-parameter sweeps (golden
 ``Source`` ``<param>_sweep``, MAR-69) vary one of ``alpha``, ``beta``,
 ``budget_loading``, ``n_bins`` and ``n_clusters`` at a time
-(:data:`OPTIMISATION_SWEEPS`). This script
+(:data:`OPTIMISATION_SWEEPS`). The simulation sweeps (MAR-70,
+:data:`SIMULATION_SWEEPS`) vary the noise level and the asset subset; their
+golden tables are regenerated from the thesis code
+(``golden/simulation_sweeps/``, ``derive_simulation_sweeps.py``), and each
+gets a report of its own, ``reports/<source>.md``, which ``REPORT.md``
+indexes (:func:`render_index`), so that no file exceeds 500 kB. Every report
+runs steps 3 and 4 below on its own records and runs (:func:`write_group`).
+This script
 
 1. runs the 9 single runs of that config into a result store
    (``runner.run_config``, cached by content hash) with
@@ -23,22 +30,28 @@ default parameters for 3 scopes x 3 objectives: noise seed 42, eta = 0.3,
    a potential porting bug. It also lists what we solved that has no golden
    counterpart (:func:`extra_runs`). The result is written to
    ``analysis/thesis_payouts.md``;
-4. writes ``REPORT.md`` with ``report.py``: golden objectives from
-   ``golden/golden_objectives.csv``, explanations from
+4. writes ``REPORT.md`` with ``report.write_report``: golden objectives
+   from ``golden/golden_objectives.csv``, explanations from
    ``explanations.yaml``, the analysis as an appendix, and the run setup in
    the setup section. The adapter section ``analysis/adapter.md`` (MAR-20),
-   written in the CLIMADA pixi env, follows as a second appendix.
+   written in the CLIMADA pixi env, follows as a second appendix. The
+   analysis ends with the informational MSE comparison under the accurate
+   policy (:func:`accurate_mse`, owner's MAR-18 answer 5).
 
 Run from the repository root::
 
     uv run python parity/scripts/run_default_parity.py
 
-``--sweep PARAM`` (repeatable) chooses the sweeps (default: the
-optimisation sweeps) and ``--no-sweeps`` runs the baseline only; the report
-compares the golden records of ``single_run`` and of the sweeps run.
-``--check`` exits with status 1 if a finding has no explanation (as
-``report.py --check``). The store defaults to the config's
-``output.directory`` (``results/thesis``, not committed).
+``--sweep PARAM`` (repeatable) chooses the sweeps (default: all seven,
+:data:`ALL_SWEEPS`) and ``--no-sweeps`` runs the baseline only; each report
+compares the golden records of its sources on the runs of its points.
+``--check`` exits with status 1 if a finding of any report has no
+explanation (as ``report.py --check``) or an explanation lacks its evidence.
+The exit status is 1 too if a run failed where the thesis did not: a run
+that fails where the thesis rerun raised as well (the cluster scope on one
+or two assets with three clusters) is listed as not compared instead. The
+store defaults to the config's ``output.directory`` (``results/thesis``,
+not committed).
 """
 
 from __future__ import annotations
