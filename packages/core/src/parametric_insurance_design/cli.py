@@ -5,8 +5,8 @@ Owner: MAR-66. A thin front end over
 :mod:`~parametric_insurance_design.experiment.sweeps`. It parses arguments,
 sets up logging, calls the library and turns the outcome into a summary and
 an exit code. Every decision about what runs, what is cached and what is
-written stays in the library. Later commands (``figures``, ``export-site``)
-register here as further subcommands.
+written stays in the library. Later commands (``export-site``) register
+here as further subcommands.
 
 Commands
 --------
@@ -19,8 +19,17 @@ Commands
     (:func:`~parametric_insurance_design.experiment.sweeps.run_sweeps`).
     ``--parameter P`` (repeatable) runs only the sweeps of those parameters,
     ``--no-baseline`` skips the baseline runs.
+``parametric-insurance-design figures CONFIG [--out DIR]``
+    Draw the config's figures from its result store (MAR-110), with their
+    figure-data CSVs, into ``DIR`` (default ``<output.directory>/figures``).
+    It reads the EventSet to compute every ``run_id`` and the prepared
+    EventSet of the event overlays, and never solves: a run missing from the
+    store is an error. The figures live in the optional package
+    ``parametric-insurance-design-viz``, imported only by this command; if it
+    is not installed, the command fails with :class:`VizNotInstalledError`
+    (exit code 3). Accepts ``--policy``, ``-v`` and ``-q``.
 
-Common options:
+Common options of ``run`` and ``sweep``:
 
 ``--dry-run``
     Read the config and the EventSet (to compute the input checksum and so
@@ -50,11 +59,13 @@ Code  Meaning
 0     Every run succeeded (or the dry-run plan was printed).
 1     The command completed, but at least one run has a failed design
       problem or was not evaluated. The failures are recorded in the store
-      and listed in the summary.
+      and listed in the summary. For ``figures``: a figure was skipped
+      because a run it needs failed.
 2     Usage error (bad arguments).
 3     The library refused the input: an invalid config, an EventSet that
       cannot be read or does not match its checksum, or a result-store
-      problem. Nothing is written for the run that raised.
+      problem. Nothing is written for the run that raised. For ``figures``
+      also: a run missing from the store, or the viz package not installed.
 4     Internal error (an unexpected exception, i.e. a bug). The traceback is
       logged.
 130   Interrupted (Ctrl-C).
@@ -64,6 +75,7 @@ Code  Meaning
 from __future__ import annotations
 
 import argparse
+import importlib
 import logging
 import sys
 from collections.abc import Callable, Iterable, Sequence
@@ -71,6 +83,7 @@ from dataclasses import dataclass
 from enum import IntEnum
 from importlib.metadata import version
 from pathlib import Path
+from types import ModuleType
 from typing import Final
 
 from parametric_insurance_design.errors import (
@@ -88,6 +101,7 @@ from parametric_insurance_design.experiment.runner import (
     RunInput,
     RunOutcome,
     load_input,
+    prepare_eventset,
     run_config,
     run_key,
 )
@@ -105,7 +119,15 @@ from parametric_insurance_design.solve import (
     SolverPolicy,
 )
 
-__all__ = ["POLICIES", "ExitCode", "build_parser", "main"]
+__all__ = [
+    "POLICIES",
+    "VIZ_DISTRIBUTION",
+    "VIZ_MODULE",
+    "ExitCode",
+    "VizNotInstalledError",
+    "build_parser",
+    "main",
+]
 
 _log = logging.getLogger(__name__)
 
@@ -120,6 +142,23 @@ POLICIES: Final[dict[str, SolverPolicy]] = {
 
 _LOGGER = "parametric_insurance_design"
 _LOG_FORMAT = "%(levelname)s %(name)s: %(message)s"
+
+VIZ_DISTRIBUTION: Final[str] = "parametric-insurance-design-viz"
+"""Distribution that holds the figures; never a core dependency."""
+
+VIZ_MODULE: Final[str] = "parametric_insurance_design_viz.command"
+"""Module imported lazily by ``figures``; it provides ``write_figures``."""
+
+_VIZ_PACKAGE: Final[str] = VIZ_MODULE.split(".", maxsplit=1)[0]
+
+
+class VizNotInstalledError(ParametricInsuranceDesignError, ImportError):
+    """``figures`` needs the viz package, which cannot be imported.
+
+    The core never depends on the viz package (that would pull matplotlib
+    into every install), so the ``figures`` command imports it only when it
+    runs (:data:`VIZ_MODULE`).
+    """
 
 
 class ExitCode(IntEnum):
@@ -187,7 +226,7 @@ def build_parser() -> argparse.ArgumentParser:
     Returns
     -------
     argparse.ArgumentParser
-        With the subcommands ``run`` and ``sweep``.
+        With the subcommands ``run``, ``sweep`` and ``figures``.
     """
     parser = argparse.ArgumentParser(
         prog=PROG,
@@ -237,6 +276,38 @@ def build_parser() -> argparse.ArgumentParser:
         help="skip the baseline runs",
     )
     sweep.set_defaults(handler=_sweep)
+
+    figures = commands.add_parser(
+        "figures",
+        help="draw a config's figures from its result store",
+        description=(
+            "Draw a config's figures, with their figure-data CSVs, from its "
+            "result store (output.directory). Never solves: run the config "
+            f"first. Needs the {VIZ_DISTRIBUTION} package."
+        ),
+    )
+    figures.add_argument("config", type=Path, help="experiment config (YAML)")
+    figures.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="output directory (default: <output.directory>/figures)",
+    )
+    figures.add_argument(
+        "--policy",
+        choices=tuple(POLICIES),
+        default="default",
+        help="solver policy the runs were computed with (default: %(default)s)",
+    )
+    figures_verbosity = figures.add_mutually_exclusive_group()
+    figures_verbosity.add_argument(
+        "-v", "--verbose", action="store_true", help="log at DEBUG level"
+    )
+    figures_verbosity.add_argument(
+        "-q", "--quiet", action="store_true", help="log warnings and errors only"
+    )
+    figures.set_defaults(handler=_figures)
     return parser
 
 
@@ -462,6 +533,66 @@ def _sweep(config: ExperimentConfig, args: argparse.Namespace) -> ExitCode:
     runs = [*outcome.baseline, *(p.outcome for s in outcome.sweeps for p in s.points)]
     _out(f"{len(runs)} runs: {sum(not r.ok for r in runs)} failed")
     return _exit_for(runs)
+
+
+def _import_viz() -> ModuleType:
+    """Import :data:`VIZ_MODULE` lazily: the core's only route to viz.
+
+    Raises
+    ------
+    VizNotInstalledError
+        If the viz package, or one of its dependencies, cannot be imported.
+    """
+    try:
+        return importlib.import_module(VIZ_MODULE)
+    except ModuleNotFoundError as exc:
+        missing = exc.name or ""
+        if missing == VIZ_MODULE or VIZ_MODULE.startswith(f"{missing}."):
+            raise VizNotInstalledError(
+                f"the figures command needs the {VIZ_DISTRIBUTION} package, "
+                f"which is not installed; install it, e.g. 'pip install "
+                f"{VIZ_DISTRIBUTION}' (in this repository: 'uv sync')",
+                name=_VIZ_PACKAGE,
+            ) from exc
+        raise VizNotInstalledError(
+            f"the {VIZ_DISTRIBUTION} package cannot be imported: its "
+            f"dependency {missing!r} is missing; reinstall {VIZ_DISTRIBUTION}",
+            name=missing or None,
+        ) from exc
+
+
+def _figures(config: ExperimentConfig, args: argparse.Namespace) -> ExitCode:
+    """``figures``: draw the config's figures from its result store."""
+    viz = _import_viz()
+    data = load_input(config)
+    policy = POLICIES[args.policy]
+    run_ids = [
+        run_key(config_hash(single), data.checksum, policy=policy)
+        for single in config.single_runs()
+    ]
+    out_dir: Path = (
+        args.out if args.out is not None else config.output.directory / "figures"
+    )
+    report = viz.write_figures(
+        config,
+        run_ids,
+        store=ResultStore(config.output.directory),
+        out_dir=out_dir,
+        eventset=prepare_eventset(config, data.eventset),
+    )
+    _out(f"figures {config.name!r} from {config.output.directory} into {out_dir}:")
+    for written in report.written:
+        tables = ", ".join(p.name for p in written.tables.values())
+        _out(f"  wrote   {written.image.name}  ({tables})")
+    for skipped in report.skipped:
+        how = "FAILED" if skipped.failed else "skipped"
+        _out(f"  {how:<8}{skipped.name}: {skipped.reason}")
+    n_failed = sum(s.failed for s in report.skipped)
+    _out(
+        f"{len(report.written)} figures written, {len(report.skipped)} skipped "
+        f"({n_failed} because a run failed)"
+    )
+    return ExitCode.OK if report.ok else ExitCode.RUNS_FAILED
 
 
 # --------------------------------------------------------------------------
