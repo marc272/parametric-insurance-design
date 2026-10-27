@@ -45,6 +45,10 @@ Run from the repository root::
 ``--sweep PARAM`` (repeatable) chooses the sweeps (default: all seven,
 :data:`ALL_SWEEPS`) and ``--no-sweeps`` runs the baseline only; each report
 compares the golden records of its sources on the runs of its points.
+``--jobs N`` (default 1) solves the sweep points in ``N`` worker processes
+(``sweeps.run_sweeps(jobs=N)``, MAR-105, MAR-125) with the same store
+contents and so the same reports; the 9 single runs, the thesis-payout
+checks and the reference runs stay serial.
 ``--check`` exits with status 1 if a finding of any report has no
 explanation (as ``report.py --check``) or an explanation lacks its evidence.
 The exit status is 1 too if a run failed where the thesis did not: a run
@@ -212,6 +216,7 @@ def run_parity_sweeps(
     data: RunInput,
     parameters: Sequence[str],
     policy: SolverPolicy = PARITY_POLICY,
+    jobs: int = 1,
 ) -> tuple[SweepResult, ...]:
     """Run the given sweeps of the config (cached) with the parity policy.
 
@@ -230,6 +235,9 @@ def run_parity_sweeps(
         Sweep parameters, e.g. :data:`OPTIMISATION_SWEEPS`. Empty: none.
     policy : SolverPolicy, default PARITY_POLICY
         Solver policy.
+    jobs : int, default 1
+        Worker processes for the sweep points (``sweeps.run_sweeps``). 1 is
+        the serial path; more gives the same store contents and results.
 
     Returns
     -------
@@ -245,6 +253,7 @@ def run_parity_sweeps(
         parameters=parameters,
         baseline=False,
         policy=policy,
+        jobs=jobs,
     )
     return outcome.sweeps
 
@@ -2531,6 +2540,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--no-sweeps", action="store_true", help="run and compare the baseline only"
     )
+    parser.add_argument(
+        "-j",
+        "--jobs",
+        type=_positive_int,
+        default=1,
+        metavar="N",
+        help="solve the sweep points in N worker processes (default: "
+        "%(default)s, serial); the reports are the same",
+    )
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args(argv)
     if args.no_sweeps and args.sweeps:
@@ -2546,7 +2564,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     store = ResultStore(Path(args.store) if args.store else config.output.directory)
     data = load_input(config)
     outcomes = run_defaults(config, store, data)
-    sweeps = run_parity_sweeps(config, store, data, parameters)
+    sweeps = run_parity_sweeps(config, store, data, parameters, jobs=args.jobs)
     noise = noise_check(config, data)
     golden = harness.load_golden(objectives=args.objectives)
     if any(p in SIMULATION_SWEEPS for p in parameters):
@@ -2667,6 +2685,17 @@ def unsupported_explanations(
                     f"but its record's verdicts are {sorted(set(found)) or 'none'}"
                 )
     return out
+
+
+def _positive_int(text: str) -> int:
+    """Parse a positive integer argument (``--jobs``)."""
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not an integer: {text!r}") from None
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"must be at least 1, got {value}")
+    return value
 
 
 def _display(path: Path) -> str:
