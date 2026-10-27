@@ -19,7 +19,10 @@ matrix. For each EventSet it reports:
   explains nothing). For the portfolio the payouts are summed over the
   counties and compared with the portfolio loss in the same way, per row
   ("event") and per (year, draw_id) outcome ("annual": sums over the rows of
-  a year, years without a row are zero, every outcome equally likely);
+  a year, years without a row are zero, every outcome equally likely). As a
+  check on the in-sample fit, the same measure with each half of the years
+  (``[0, n_years // 2)`` and the rest) paid by the levels fitted on the other
+  half (``two_fold_payout``; "2fold");
 * the **trigger frequency** per county: the expected number of rows a year
   with category >= 1 (``sum_k rate_k [I_kj >= 1]``).
 
@@ -213,6 +216,63 @@ def step_payout(
     return fitted, levels
 
 
+def two_fold_payout(
+    index: NDArray[np.float64],
+    loss: NDArray[np.float64],
+    rates: NDArray[np.float64],
+    year: NDArray[np.int64],
+    n_years: int,
+    n_categories: int,
+) -> tuple[NDArray[np.float64], int]:
+    """Return the step payout of each row fitted on the other half of the years.
+
+    The years are split into two blocks, ``[0, n_years // 2)`` and the rest.
+    The rows of each block get the :func:`step_payout` levels fitted on the
+    other block. A category that does not occur at a location in the fitting
+    block pays nothing; such (row, location) pairs are counted.
+
+    Parameters
+    ----------
+    index, loss : numpy.ndarray
+        ``(n_rows, n_locations)`` category index and loss.
+    rates : numpy.ndarray
+        Annual rate of each row.
+    year : numpy.ndarray
+        Simulation year of each row.
+    n_years : int
+        Number of simulated years.
+    n_categories : int
+        Number of categories, including 0.
+
+    Returns
+    -------
+    tuple of numpy.ndarray and int
+        The out-of-block payout per row, ``(n_rows, n_locations)``, and the
+        number of (row, location) pairs whose category was not seen in the
+        fitting block.
+
+    Raises
+    ------
+    ValueError
+        If a block has no rows.
+    """
+    cat = _categories(index, n_categories)
+    rates = _weights(rates)
+    first = np.asarray(year, dtype=np.int64) < n_years // 2
+    if first.all() or not first.any():
+        raise ValueError("both year blocks need rows")
+    out = np.zeros(cat.shape)
+    n_unseen = 0
+    for fit, apply in ((first, ~first), (~first, first)):
+        _, levels = step_payout(index[fit], loss[fit], rates[fit], n_categories)
+        seen = np.zeros((n_categories, cat.shape[1]), dtype=bool)
+        for c in range(n_categories):
+            seen[c] = (cat[fit] == c).any(axis=0)
+        out[apply] = np.take_along_axis(levels, cat[apply], axis=0)
+        n_unseen += int((~np.take_along_axis(seen, cat[apply], axis=0)).sum())
+    return out, n_unseen
+
+
 def unexplained_share(
     target: NDArray[np.float64],
     fitted: NDArray[np.float64],
@@ -340,6 +400,13 @@ def analyse(
     annual_br = float(
         unexplained_share(annual_loss, annual_payout, np.ones(len(annual_loss)))
     )
+    oos, n_unseen = two_fold_payout(
+        index, loss, rates, year, es.metadata.n_years, n_categories
+    )
+    county_br_oos = unexplained_share(loss, oos, rates)
+    portfolio_br_oos = float(
+        unexplained_share(loss.sum(axis=1), oos.sum(axis=1), rates)
+    )
     cat = _categories(index, n_categories)
     trigger = ((cat >= 1) * rates[:, None]).sum(axis=0)
     eal = (loss * rates[:, None]).sum(axis=0)
@@ -377,6 +444,9 @@ def analyse(
             "basis_risk_county_eal_weighted": float(
                 np.nansum(county_br * eal) / eal[np.isfinite(county_br)].sum()
             ),
+            "basis_risk_portfolio_event_2fold": portfolio_br_oos,
+            "basis_risk_county_median_2fold": float(np.nanmedian(county_br_oos)),
+            "n_pairs_unseen_category_2fold": n_unseen,
             "trigger_per_year_county_min": float(trigger.min()),
             "trigger_per_year_county_median": float(np.median(trigger)),
             "trigger_per_year_county_max": float(trigger.max()),
@@ -401,6 +471,7 @@ def analyse(
                 cat0_loss, eal, out=np.full_like(eal, np.nan), where=eal > 0
             ),
             "basis_risk": county_br,
+            "basis_risk_2fold": county_br_oos,
             "trigger_per_year": trigger,
         }
     )
@@ -454,11 +525,12 @@ def plot(
             linewidth=1.5,
             label=f"cat {c}",
         )
-        if c == 0:
-            for xi, s in zip(x, share, strict=True):
-                ax.text(s / 2, xi, f"{s:.1f} %", ha="center", va="center", color=INK)
         left += share
-    ax.set_yticks(x, labels)
+    cat0 = summary["loss_share_cat0"].to_numpy() * 100
+    ax.set_yticks(
+        x,
+        [f"{lab}\ncat 0: {s:.1f} %" for lab, s in zip(labels, cat0, strict=True)],
+    )
     ax.invert_yaxis()
     ax.set_xlim(0, 100)
     ax.set_xlabel("share of total loss (%), by the pair's index category")
@@ -541,6 +613,7 @@ def plot(
     ax.set_yscale("log")
     ax.yaxis.set_major_formatter(FormatStrFormatter("%g"))
     ax.yaxis.set_minor_formatter(NullFormatter())
+    ax.set_yticks([0.02, 0.03, 0.05, 0.1, 0.2])
     ax.set_xticks(x, labels)
     ax.set_ylabel("events a year with category ≥ 1 in the circle")
     ax.set_title("(c) Trigger frequency per county")
@@ -630,8 +703,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     counties = pd.concat(tables, ignore_index=True)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    summary.to_csv(args.out_dir / "summary.csv", index=False, float_format="%.6g")
-    counties.to_csv(args.out_dir / "counties.csv", index=False, float_format="%.6g")
+    summary.to_csv(args.out_dir / "summary.csv", index=False, float_format="%.10g")
+    counties.to_csv(args.out_dir / "counties.csv", index=False, float_format="%.10g")
     plot(summary, counties, args.out_dir / "radius_sensitivity.png", n_years)
     checksums = {
         "eventsets": {

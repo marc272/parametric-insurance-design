@@ -109,6 +109,21 @@ def test_annual_sums() -> None:
         crs.annual_sums(values, np.array([0, 0, 2]), np.array([0, 2, 2]), 3)
 
 
+def test_two_fold_payout_uses_the_other_half_of_the_years() -> None:
+    # Rows 0, 1 in years 0, 1 (first block of 4 years); rows 2, 3 in 2, 3.
+    year = np.array([0, 1, 2, 3])
+    out, n_unseen = crs.two_fold_payout(INDEX, LOSS, RATES, year, 4, 3)
+    # Location 0: the blocks share no category, so every payout is 0.
+    np.testing.assert_allclose(out[:, 0], [0.0, 0.0, 0.0, 0.0])
+    # Location 1: rows 2-3 (categories 2, 0) are paid by rows 0-1's levels
+    # (category 2 pays 4, category 0 unseen); rows 0-1 (categories 1, 2) by
+    # rows 2-3's (category 1 unseen, category 2 pays 6).
+    np.testing.assert_allclose(out[:, 1], [0.0, 6.0, 4.0, 0.0])
+    assert n_unseen == 6
+    with pytest.raises(ValueError, match="both year blocks"):
+        crs.two_fold_payout(INDEX, LOSS, RATES, np.zeros(4, dtype=np.int64), 4, 3)
+
+
 def test_analyse_rejects_a_wind_index(make_config: Callable[..., Any]) -> None:
     es = build_eventset(make_config()).eventset
     with pytest.raises(ValueError, match="cat-in-a-circle"):
