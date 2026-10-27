@@ -85,22 +85,69 @@ raises :class:`~parametric_insurance_design.errors.ConfigError` instead of
 being skipped. Any exception from the runner (an input or configuration
 error, or a bug) propagates, and no manifest is written for that sweep.
 
+Parallel execution (MAR-105)
+----------------------------
+``run_sweeps(..., jobs=N)`` and ``run_sweep(..., jobs=N)`` execute the runs
+in ``N`` worker processes (``concurrent.futures.ProcessPoolExecutor`` with
+the ``spawn`` start method, so no worker inherits the parent's threads or
+locks). ``jobs=1``, the default, is the serial path: :func:`run_single`
+point by point, unchanged. With ``N > 1`` the store, the manifests and the
+returned outcomes are those of the serial path, apart from wall times and
+timestamps:
+
+* **The parent plans and writes, the workers only compute.** For every point
+  the parent computes the ``run_id`` and looks the run up in the store, as
+  :func:`run_single` does (``force``, ``retry_failed``). Each run left to
+  execute goes to a worker, which calls :func:`~.runner.execute` (no store)
+  and returns the tables and the manifest. The parent writes them with
+  ``ResultStore.write_run`` **in point order**, as the results arrive. The
+  store keeps a single writer (it does not coordinate concurrent writers).
+* **Duplicate ``run_id`` values are executed once.** Within one dispatch (the
+  baseline, or one sweep), a later point with the ``run_id`` of an earlier
+  one is not dispatched again: it gets the outcome the serial path would give
+  it, a cache hit of the earlier point's run (or, with ``force``, or with
+  ``retry_failed`` and a failed run, a re-execution, ``cached=False``, which
+  is deterministic and so has the same records). Across dispatches the
+  baseline runs first and the sweeps run one after the other, so a point
+  equal to the baseline or to a point of an earlier sweep is a cache hit, as
+  in the serial path, and keeps its first tag. One pool serves the baseline
+  and every sweep of :func:`run_sweeps`.
+* **Deterministic.** A run is a pure function of its config, the EventSet
+  and the solver policy: every generator is built from a seed in the config
+  (``NoiseConfig.rng()``), never shared between runs, so the results do not
+  depend on which worker runs a point or when. The EventSet is sent to each
+  worker once (the pool initializer), and the worker checks its checksum.
+* **No silent failures.** A run that fails to solve or build is recorded by
+  the worker exactly as by :func:`run_single` (it is the same
+  :func:`~.runner.execute`). An exception raised in a worker (an input or
+  configuration error, or a bug) is re-raised in the parent with its type:
+  the points before it are in the store, as in the serial path, the pending
+  runs are cancelled, the results of later points are discarded, and no
+  manifest is written for that sweep. A worker process that dies (killed,
+  out of memory, a crash in a solver) raises :class:`SweepWorkerError`
+  naming the point; no point is dropped quietly.
+
 Examples
 --------
 >>> config = load_config("parity/configs/thesis.yaml")  # doctest: +SKIP
->>> outcome = run_sweeps(config)  # doctest: +SKIP
+>>> outcome = run_sweeps(config, jobs=4)  # doctest: +SKIP
 >>> sweep_membership(ResultStore(config.output.directory))  # doctest: +SKIP
 """
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import itertools
 import json
 import logging
+import multiprocessing
 import os
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from concurrent.futures import Future, ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -109,7 +156,10 @@ from typing import Any, Final
 import numpy as np
 import pandas as pd
 
-from parametric_insurance_design.errors import ConfigError
+from parametric_insurance_design.errors import (
+    ConfigError,
+    ParametricInsuranceDesignError,
+)
 from parametric_insurance_design.experiment.config import (
     SWEEP_PARAMETERS,
     ExperimentConfig,
@@ -118,15 +168,23 @@ from parametric_insurance_design.experiment.config import (
 )
 from parametric_insurance_design.experiment.runner import (
     PACKAGE,
+    SINGLE_RUN_SOURCE,
+    ChecksumMismatchError,
     RunInput,
     RunOutcome,
+    execute,
     load_input,
     package_versions,
     policy_fingerprint,
     run_config,
+    run_key,
     run_single,
 )
-from parametric_insurance_design.experiment.store import ResultStore, StoreError
+from parametric_insurance_design.experiment.store import (
+    ResultStore,
+    RunTables,
+    StoreError,
+)
 from parametric_insurance_design.solve import DEFAULT_POLICY, SolverPolicy
 
 __all__ = [
@@ -138,6 +196,7 @@ __all__ = [
     "SweepPoint",
     "SweepPointResult",
     "SweepResult",
+    "SweepWorkerError",
     "SweepsOutcome",
     "n_assets_subsets",
     "read_sweep_manifests",
@@ -521,6 +580,240 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     os.replace(tmp, path)
 
 
+# --------------------------------------------------------------------------
+# Parallel execution (MAR-105)
+# --------------------------------------------------------------------------
+
+
+class SweepWorkerError(ParametricInsuranceDesignError, RuntimeError):
+    """A worker process of a parallel sweep died before returning its run.
+
+    Raised by :func:`run_sweep` and :func:`run_sweeps` with ``jobs > 1``
+    when the process pool breaks (a worker was killed, ran out of memory or
+    crashed in native code), or a worker returned another run than it was
+    given. The points before the failed one are in the store; no manifest is
+    written for the sweep. Run it again: the finished points are cache hits.
+    """
+
+
+_worker_data: RunInput | None = None
+"""The :class:`RunInput` of this worker process (set by :func:`_init_worker`)."""
+
+
+def _init_worker(data: RunInput) -> None:
+    """Pool initializer: keep the shared input in the worker process."""
+    global _worker_data
+    _worker_data = data
+
+
+@dataclass(frozen=True)
+class _PolicyFields:
+    """A :class:`SolverPolicy` as picklable values.
+
+    ``SolverPolicy`` stores its options as read-only ``MappingProxyType``
+    objects, which cannot be pickled, so a policy goes to a worker as its
+    class and fields and is rebuilt there (its ``__post_init__`` validates
+    and freezes them again).
+    """
+
+    cls: type[SolverPolicy]
+    fields: dict[str, Any]
+
+    @classmethod
+    def of(cls, policy: SolverPolicy) -> _PolicyFields:
+        """Take a policy apart."""
+        fields = {f.name: getattr(policy, f.name) for f in dataclasses.fields(policy)}
+        fields["solver_options"] = {
+            solver: dict(options) for solver, options in policy.solver_options.items()
+        }
+        return cls(type(policy), fields)
+
+    def policy(self) -> SolverPolicy:
+        """Rebuild the policy."""
+        return self.cls(**self.fields)
+
+
+def _execute_in_worker(
+    config: ExperimentConfig, checksum: str, source: str, policy: _PolicyFields
+) -> tuple[RunTables, dict[str, Any]]:
+    """Execute one run in a worker process, without touching the store."""
+    data = _worker_data
+    if data is None or data.checksum != checksum:
+        raise SweepWorkerError(
+            "worker process has no input or another input than the parent "
+            f"(expected EventSet {checksum})"
+        )
+    return execute(config, data, source=source, policy=policy.policy())
+
+
+@dataclass(frozen=True, eq=False)
+class _Workers:
+    """A process pool bound to the :class:`RunInput` its workers hold."""
+
+    executor: ProcessPoolExecutor
+    data: RunInput
+    jobs: int
+
+
+def _check_jobs(jobs: int) -> int:
+    """Return ``jobs`` if it is a positive int, else raise ConfigError."""
+    if isinstance(jobs, bool) or not isinstance(jobs, int) or jobs < 1:
+        raise ConfigError(f"jobs must be a positive integer, got {jobs!r}")
+    return jobs
+
+
+@contextmanager
+def _workers(jobs: int, data: RunInput) -> Iterator[_Workers | None]:
+    """Yield a pool of ``jobs`` worker processes holding ``data``, or None.
+
+    None for ``jobs == 1`` (the serial path). The pool uses the ``spawn``
+    start method on every platform. On exit, pending runs are cancelled and
+    the pool waits for the running ones.
+    """
+    if _check_jobs(jobs) == 1:
+        yield None
+        return
+    executor = ProcessPoolExecutor(
+        max_workers=jobs,
+        mp_context=multiprocessing.get_context("spawn"),
+        initializer=_init_worker,
+        initargs=(data,),
+    )
+    try:
+        yield _Workers(executor, data, jobs)
+    finally:
+        executor.shutdown(wait=True, cancel_futures=True)
+
+
+def _check_input(config: ExperimentConfig, data: RunInput) -> None:
+    """Refuse a run whose config pins another checksum than ``data`` has.
+
+    The check :func:`run_single` makes before its cache lookup.
+    """
+    expected = config.eventset.checksum
+    if expected is not None and data.checksum != expected:
+        raise ChecksumMismatchError(
+            f"EventSet content hash of {data.path or 'the input'} is "
+            f"{data.checksum}, the config pins eventset.checksum {expected}"
+        )
+
+
+def _run_all(
+    configs: Sequence[ExperimentConfig],
+    data: RunInput,
+    store: ResultStore,
+    *,
+    source: str,
+    policy: SolverPolicy,
+    force: bool,
+    retry_failed: bool,
+    workers: _Workers | None,
+) -> tuple[RunOutcome, ...]:
+    """Run single-run configs in order, serially or on ``workers``.
+
+    Serially, :func:`run_single` per config. On workers, the parallel path of
+    the module docstring: the same outcomes, and the same store contents
+    apart from wall times and timestamps.
+    """
+    if workers is None:
+        return tuple(
+            run_single(
+                single,
+                data,
+                store,
+                source=source,
+                policy=policy,
+                force=force,
+                retry_failed=retry_failed,
+            )
+            for single in configs
+        )
+    if workers.data is not data:  # an internal error: the pool is private
+        raise ValueError("the worker pool holds another RunInput than the sweep")
+    sent_policy = _PolicyFields.of(policy)
+    if policy_fingerprint(sent_policy.policy()) != policy_fingerprint(policy):
+        raise SweepWorkerError(f"cannot send the solver policy {policy!r} to a worker")
+    outcomes: list[RunOutcome | None] = [None] * len(configs)
+    first: dict[str, int] = {}  # run_id -> index of its first point
+    duplicates: list[tuple[int, int]] = []  # (index, index of the first point)
+    pending: list[tuple[int, str, bool, Future[tuple[RunTables, dict[str, Any]]]]] = []
+    # An error while planning point k (a pinned checksum, an unreadable
+    # manifest) is raised once the runs before k are written, as serially.
+    planning_error: Exception | None = None
+    try:
+        for index, single in enumerate(configs):
+            try:
+                _check_input(single, data)
+                run_id = run_key(config_hash(single), data.checksum, policy=policy)
+                if run_id in first:
+                    duplicates.append((index, first[run_id]))
+                    continue
+                first[run_id] = index
+                exists = store.has_run(run_id)
+                cached = (
+                    RunOutcome.from_manifest(store.manifest(run_id), cached=True)
+                    if exists and not force
+                    else None
+                )
+            except Exception as exc:
+                planning_error = exc
+                break
+            if cached is not None and not (retry_failed and not cached.ok):
+                _log.info("run %s: cached in %s", run_id, store.root)
+                outcomes[index] = cached
+                continue
+            future = workers.executor.submit(
+                _execute_in_worker, single, data.checksum, source, sent_policy
+            )
+            pending.append((index, run_id, exists, future))
+        for index, run_id, exists, future in pending:
+            try:
+                tables, manifest = future.result()
+            except BrokenProcessPool as exc:
+                raise SweepWorkerError(
+                    f"a worker process died while running point {index} "
+                    f"(run {run_id}, {configs[index].scopes[0].kind} x "
+                    f"{configs[index].objectives[0].kind}); the points before "
+                    f"it are in {store.root}"
+                ) from exc
+            if manifest.get("run_id") != run_id or tables.run_id != run_id:
+                raise SweepWorkerError(
+                    f"point {index}: a worker returned run "
+                    f"{manifest.get('run_id')}, expected {run_id}"
+                )
+            store.write_run(tables, manifest, overwrite=exists)
+            outcome = RunOutcome.from_manifest(manifest, cached=False)
+            outcomes[index] = outcome
+            _log.info(
+                "run %s: %s x %s, %d problems, %d failed, written to %s",
+                run_id,
+                tables.runs["scope"].iloc[0],
+                tables.runs["objective"].iloc[0],
+                len(outcome.statuses),
+                len(outcome.failed),
+                store.root,
+            )
+    except BaseException:
+        for *_, future in pending:
+            future.cancel()
+        raise
+    if planning_error is not None:
+        raise planning_error
+    for index, earlier in duplicates:
+        outcome = outcomes[earlier]
+        if outcome is not None:  # else caught by the check below
+            # The serial path finds the earlier point's run in the store; it
+            # re-executes it with force, or with retry_failed if it failed.
+            rerun = force or (retry_failed and not outcome.ok)
+            outcomes[index] = dataclasses.replace(outcome, cached=not rerun)
+    done = [o for o in outcomes if o is not None]
+    if len(done) != len(configs):
+        raise SweepWorkerError(
+            f"{len(configs) - len(done)} of {len(configs)} runs have no outcome"
+        )
+    return tuple(done)
+
+
 def run_sweep(
     config: ExperimentConfig,
     sweep: SweepConfig | str,
@@ -530,6 +823,7 @@ def run_sweep(
     policy: SolverPolicy = DEFAULT_POLICY,
     force: bool = False,
     retry_failed: bool = False,
+    jobs: int = 1,
 ) -> SweepResult:
     """Run every point of one sweep and write its manifest.
 
@@ -547,6 +841,10 @@ def run_sweep(
         Solver policy; part of every ``run_id``.
     force, retry_failed : bool, default False
         As for :func:`~.runner.run_single`.
+    jobs : int, default 1
+        Worker processes. 1 runs the points one by one in this process;
+        more runs them in parallel with the same store contents and outcomes
+        (module docstring, "Parallel execution").
 
     Returns
     -------
@@ -556,27 +854,82 @@ def run_sweep(
     Raises
     ------
     ConfigError
-        As for :func:`sweep_points`, and from the runner.
+        As for :func:`sweep_points`, and from the runner; also if ``jobs`` is
+        not a positive integer.
     ChecksumMismatchError, EventSetError, StoreError
         From the runner.
+    SweepWorkerError
+        With ``jobs > 1``, if a worker process dies.
     """
+    with _workers(jobs, data) as workers:
+        return _run_sweep(
+            config,
+            sweep,
+            data,
+            store,
+            policy=policy,
+            force=force,
+            retry_failed=retry_failed,
+            workers=workers,
+        )
+
+
+def _run_sweep(
+    config: ExperimentConfig,
+    sweep: SweepConfig | str,
+    data: RunInput,
+    store: ResultStore,
+    *,
+    policy: SolverPolicy,
+    force: bool,
+    retry_failed: bool,
+    workers: _Workers | None,
+) -> SweepResult:
+    """Run one sweep, serially or on ``workers``; see :func:`run_sweep`."""
     start = time.perf_counter()
     spec = _find_sweep(config, sweep)
     parameter = spec.parameter
     source = SWEEP_SOURCES[parameter]
     points = sweep_points(config, spec, location_ids=data.eventset.location_ids)
-    _log.info("sweep %s: %d points", parameter, len(points))
-    results: list[SweepPointResult] = []
-    for number, point in enumerate(points, start=1):
-        outcome = run_single(
-            point.config,
-            data,
-            store,
-            source=source,
-            policy=policy,
-            force=force,
-            retry_failed=retry_failed,
+    _log.info(
+        "sweep %s: %d points%s",
+        parameter,
+        len(points),
+        "" if workers is None else f" on {workers.jobs} worker processes",
+    )
+    # Serially, each point runs as it is logged; on workers, every point has
+    # run (in parallel) before the points are logged.
+    outcomes: Iterator[RunOutcome] = (
+        (
+            run_single(
+                point.config,
+                data,
+                store,
+                source=source,
+                policy=policy,
+                force=force,
+                retry_failed=retry_failed,
+            )
+            for point in points
         )
+        if workers is None
+        else iter(
+            _run_all(
+                [point.config for point in points],
+                data,
+                store,
+                source=source,
+                policy=policy,
+                force=force,
+                retry_failed=retry_failed,
+                workers=workers,
+            )
+        )
+    )
+    results: list[SweepPointResult] = []
+    for number, (point, outcome) in enumerate(
+        zip(points, outcomes, strict=True), start=1
+    ):
         results.append(SweepPointResult(point, outcome))
         _log.debug(
             "sweep %s: point %d/%d (%s=%r, %s x %s) %s",
@@ -658,6 +1011,7 @@ def run_sweeps(
     policy: SolverPolicy = DEFAULT_POLICY,
     force: bool = False,
     retry_failed: bool = False,
+    jobs: int = 1,
 ) -> SweepsOutcome:
     """Run an experiment's baseline runs, then its sweeps.
 
@@ -680,6 +1034,11 @@ def run_sweeps(
         Solver policy.
     force, retry_failed : bool, default False
         As for :func:`~.runner.run_single`.
+    jobs : int, default 1
+        Worker processes, shared by the baseline and every sweep. 1 is the
+        serial path; more gives the same store contents and outcomes
+        (module docstring, "Parallel execution"). The baseline finishes
+        before the first sweep starts, and each sweep before the next.
 
     Returns
     -------
@@ -691,6 +1050,8 @@ def run_sweeps(
     ConfigError
         If ``parameters`` names a sweep the config does not have, and as for
         :func:`run_sweep`.
+    SweepWorkerError
+        With ``jobs > 1``, if a worker process dies.
     """
     if parameters is not None:
         listed = {s.parameter for s in config.sweeps}
@@ -699,6 +1060,7 @@ def run_sweeps(
             raise ConfigError(
                 f"the config has no sweep of {unknown} (it has {sorted(listed)})"
             )
+    _check_jobs(jobs)
     store = ResultStore(config.output.directory) if store is None else store
     data = load_input(config) if data is None else data
     options: dict[str, Any] = {
@@ -706,12 +1068,25 @@ def run_sweeps(
         "force": force,
         "retry_failed": retry_failed,
     }
-    base = run_config(config, store=store, data=data, **options) if baseline else ()
-    sweeps = tuple(
-        run_sweep(config, spec, data, store, **options)
-        for spec in config.sweeps
-        if parameters is None or spec.parameter in parameters
-    )
+    with _workers(jobs, data) as workers:
+        if not baseline:
+            base: tuple[RunOutcome, ...] = ()
+        elif workers is None:
+            base = run_config(config, store=store, data=data, **options)
+        else:
+            base = _run_all(
+                config.single_runs(),
+                data,
+                store,
+                source=SINGLE_RUN_SOURCE,
+                workers=workers,
+                **options,
+            )
+        sweeps = tuple(
+            _run_sweep(config, spec, data, store, workers=workers, **options)
+            for spec in config.sweeps
+            if parameters is None or spec.parameter in parameters
+        )
     return SweepsOutcome(base, sweeps)
 
 

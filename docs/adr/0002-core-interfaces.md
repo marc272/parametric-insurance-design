@@ -187,8 +187,8 @@ One owner issue per file. Other issues may import a module but never edit it. A 
 | `src/.../experiment/config.py` | MAR-63 | |
 | `src/.../experiment/runner.py` | MAR-64 | |
 | `src/.../experiment/store.py` | MAR-64 | |
-| `src/.../experiment/sweeps.py` | MAR-65 | |
-| `src/.../cli.py` | MAR-66 | |
+| `src/.../experiment/sweeps.py` | MAR-65 → **MAR-105** | *MAR-105:* parallel execution, `run_sweep`/`run_sweeps(..., jobs=N)` (default 1, the serial path), with the typed error `SweepWorkerError` (a dead worker process). Workers only call `runner.execute`; the parent keeps the cache lookups and writes every run in point order, so the store keeps a single writer and `runner.py` and `store.py` are unchanged. Tests in `tests/test_sweeps_parallel.py` |
+| `src/.../cli.py` | MAR-66 | *MAR-105:* the `sweep` subcommand's `--jobs N` option only |
 | `tests/conftest.py`, `tests/_doubles.py`, `tests/test_interfaces.py`, `tests/test_basis.py`, `tests/test_records.py`, `tests/test_walking_skeleton.py` | MAR-61 | Others may use the fixtures and doubles; changes need an amendment. MAR-87 (amendment) added `_doubles.py`: the payout, grouped-measure and context-builder doubles shared by `test_objectives.py`, `test_pricing.py` and `test_constraints.py`, imported with `from ._doubles import ...` (a relative import works under `--import-mode=importlib`). Its context builder calls the real `build_context`. MAR-24 may replace `GroupedMeasure` with the real grouped measure |
 | `tests/test_<module>.py` | The module's owner | E.g. `test_payout.py` belongs to MAR-11 |
 | `tests/test_engine_properties.py` (new) | MAR-15 | Analytical and property tests (SPEC §6.7) through the public API |

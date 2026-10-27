@@ -18,7 +18,9 @@ Commands
     Run the config's baseline runs, then its sweeps
     (:func:`~parametric_insurance_design.experiment.sweeps.run_sweeps`).
     ``--parameter P`` (repeatable) runs only the sweeps of those parameters,
-    ``--no-baseline`` skips the baseline runs.
+    ``--no-baseline`` skips the baseline runs, ``--jobs N`` runs them in
+    ``N`` worker processes (default 1; same store contents, MAR-105). A
+    worker process that dies is an error (exit code 3).
 ``parametric-insurance-design figures CONFIG [--out DIR]``
     Draw the config's figures from its result store (MAR-110), with their
     figure-data CSVs, into ``DIR`` (default ``<output.directory>/figures``).
@@ -275,6 +277,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         help="skip the baseline runs",
     )
+    sweep.add_argument(
+        "-j",
+        "--jobs",
+        type=_positive_int,
+        default=1,
+        metavar="N",
+        help="run in N worker processes (default: %(default)s, serial)",
+    )
     sweep.set_defaults(handler=_sweep)
 
     figures = commands.add_parser(
@@ -309,6 +319,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     figures.set_defaults(handler=_figures)
     return parser
+
+
+def _positive_int(text: str) -> int:
+    """Parse a positive integer argument (``--jobs``)."""
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not an integer: {text!r}") from None
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"must be at least 1, got {value}")
+    return value
 
 
 def _version() -> str:
@@ -516,6 +537,7 @@ def _sweep(config: ExperimentConfig, args: argparse.Namespace) -> ExitCode:
         policy=POLICIES[args.policy],
         force=args.force,
         retry_failed=args.retry_failed,
+        jobs=args.jobs,
     )
     _out(f"sweep {config.name!r} into {config.output.directory}:")
     if outcome.baseline:
