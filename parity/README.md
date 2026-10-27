@@ -63,6 +63,8 @@ To run the parity sweeps by hand, without the reports, use the CLI (MAR-66) with
 uv run parametric-insurance-design sweep parity/configs/thesis.yaml --policy thesis -p noise_level -p n_assets
 ```
 
+`--jobs N` runs the sweep points in `N` worker processes (MAR-105) with the same results: the full grid takes about 15 minutes at `--jobs 8`, against about 65 minutes serially.
+
 It writes the same cached runs into `results/thesis`, so the script then only compares. The cluster scope fails on 1 or 2 assets (102 points, below), so the CLI exits with status 1 for the `n_assets` sweep.
 
 The script:

@@ -67,6 +67,7 @@ Failure handling
 
 from __future__ import annotations
 
+import dataclasses
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -176,6 +177,16 @@ class SolverPolicy:
         If a solver list is empty, repeats a name or names a solver cvxpy
         does not know, or an option key is not a cvxpy solver name. Options
         for a solver outside both lists are allowed and unused.
+
+    Notes
+    -----
+    A policy can be pickled (MAR-124), e.g. to send it to a worker process:
+    it is pickled as its class and fields, with the options as plain dicts,
+    and unpickling calls the class again, so the copy is validated and its
+    options are read-only again. The copy is equal to the original and has
+    the same fingerprint (``experiment.runner.policy_fingerprint``), so the
+    same run ids. :func:`copy.copy` and :func:`copy.deepcopy` work the same
+    way.
     """
 
     lp_solvers: tuple[str, ...] = ("CLARABEL", "HIGHS", "SCS")
@@ -210,6 +221,20 @@ class SolverPolicy:
         frozen = {k: MappingProxyType(dict(v)) for k, v in self.solver_options.items()}
         object.__setattr__(self, "solver_options", MappingProxyType(frozen))
 
+    def __reduce__(self) -> tuple[Any, ...]:
+        """Pickle the policy as its class and fields (class docstring, Notes).
+
+        ``MappingProxyType`` cannot be pickled, so the options go as plain
+        dicts; :func:`_rebuild_policy` freezes them again.
+        """
+        values = {
+            f.name: getattr(self, f.name) for f in dataclasses.fields(self) if f.init
+        }
+        values["solver_options"] = {
+            solver: dict(options) for solver, options in self.solver_options.items()
+        }
+        return (_rebuild_policy, (type(self), values))
+
     @property
     def accepted(self) -> frozenset[SolveStatus]:
         """Statuses that produce a :class:`SolveResult`."""
@@ -231,6 +256,11 @@ class SolverPolicy:
             :attr:`qp_solvers` for a QP, :attr:`lp_solvers` otherwise.
         """
         return self.qp_solvers if is_qp(problem) else self.lp_solvers
+
+
+def _rebuild_policy(cls: type[SolverPolicy], values: dict[str, Any]) -> SolverPolicy:
+    """Unpickle a :class:`SolverPolicy`: call its class with its fields."""
+    return cls(**values)
 
 
 DEFAULT_POLICY: SolverPolicy = SolverPolicy()

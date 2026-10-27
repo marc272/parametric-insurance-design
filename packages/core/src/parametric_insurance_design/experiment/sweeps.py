@@ -143,6 +143,7 @@ import json
 import logging
 import multiprocessing
 import os
+import pickle
 import time
 from collections.abc import Iterator, Mapping, Sequence
 from concurrent.futures import Future, ProcessPoolExecutor
@@ -606,35 +607,8 @@ def _init_worker(data: RunInput) -> None:
     _worker_data = data
 
 
-@dataclass(frozen=True)
-class _PolicyFields:
-    """A :class:`SolverPolicy` as picklable values.
-
-    ``SolverPolicy`` stores its options as read-only ``MappingProxyType``
-    objects, which cannot be pickled, so a policy goes to a worker as its
-    class and fields and is rebuilt there (its ``__post_init__`` validates
-    and freezes them again).
-    """
-
-    cls: type[SolverPolicy]
-    fields: dict[str, Any]
-
-    @classmethod
-    def of(cls, policy: SolverPolicy) -> _PolicyFields:
-        """Take a policy apart."""
-        fields = {f.name: getattr(policy, f.name) for f in dataclasses.fields(policy)}
-        fields["solver_options"] = {
-            solver: dict(options) for solver, options in policy.solver_options.items()
-        }
-        return cls(type(policy), fields)
-
-    def policy(self) -> SolverPolicy:
-        """Rebuild the policy."""
-        return self.cls(**self.fields)
-
-
 def _execute_in_worker(
-    config: ExperimentConfig, checksum: str, source: str, policy: _PolicyFields
+    config: ExperimentConfig, checksum: str, source: str, policy: SolverPolicy
 ) -> tuple[RunTables, dict[str, Any]]:
     """Execute one run in a worker process, without touching the store."""
     data = _worker_data
@@ -643,7 +617,28 @@ def _execute_in_worker(
             "worker process has no input or another input than the parent "
             f"(expected EventSet {checksum})"
         )
-    return execute(config, data, source=source, policy=policy.policy())
+    return execute(config, data, source=source, policy=policy)
+
+
+def _check_policy_survives_pickling(policy: SolverPolicy) -> None:
+    """Refuse a policy that a worker would receive with another fingerprint.
+
+    The policy goes to a worker pickled (``SolverPolicy`` supports it,
+    MAR-124). A subclass that pickles differently would give the worker's
+    runs another run id than the parent computed, so the parent compares the
+    fingerprint of a pickle round trip before it submits a run.
+    """
+    try:
+        received = pickle.loads(pickle.dumps(policy))
+    except Exception as exc:
+        raise SweepWorkerError(
+            f"cannot send the solver policy {policy!r} to a worker: {exc}"
+        ) from exc
+    if policy_fingerprint(received) != policy_fingerprint(policy):
+        raise SweepWorkerError(
+            f"the solver policy {policy!r} changes its fingerprint when sent to "
+            "a worker"
+        )
 
 
 @dataclass(frozen=True, eq=False)
@@ -730,9 +725,7 @@ def _run_all(
         )
     if workers.data is not data:  # an internal error: the pool is private
         raise ValueError("the worker pool holds another RunInput than the sweep")
-    sent_policy = _PolicyFields.of(policy)
-    if policy_fingerprint(sent_policy.policy()) != policy_fingerprint(policy):
-        raise SweepWorkerError(f"cannot send the solver policy {policy!r} to a worker")
+    _check_policy_survives_pickling(policy)
     outcomes: list[RunOutcome | None] = [None] * len(configs)
     first: dict[str, int] = {}  # run_id -> index of its first point
     duplicates: list[tuple[int, int]] = []  # (index, index of the first point)
@@ -763,7 +756,7 @@ def _run_all(
                 outcomes[index] = cached
                 continue
             future = workers.executor.submit(
-                _execute_in_worker, single, data.checksum, source, sent_policy
+                _execute_in_worker, single, data.checksum, source, policy
             )
             pending.append((index, run_id, exists, future))
         for index, run_id, exists, future in pending:
