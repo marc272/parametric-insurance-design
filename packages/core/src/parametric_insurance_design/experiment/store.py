@@ -39,8 +39,7 @@ Reads keep no state between calls (MAR-128): another process may commit runs
 while this one reads, e.g. a ``sweep`` writing while ``figures`` reads, and
 every call sees the store as it is on disk. A read of given runs checks only
 those runs' manifest files, one ``stat`` each, instead of listing the
-``manifests`` directory, and :meth:`ResultStore.read_manifests` reads many
-manifests with one open per file.
+``manifests`` directory.
 """
 
 from __future__ import annotations
@@ -179,18 +178,6 @@ class RunTables:
     def items(self) -> tuple[tuple[TableSchema, pd.DataFrame], ...]:
         """Return ``(schema, table)`` pairs in ``records.TABLES`` order."""
         return tuple((schema, getattr(self, name)) for name, schema in TABLES.items())
-
-
-def _parse_manifest(path: Path, raw: bytes) -> dict[str, Any]:
-    """Decode a manifest file's UTF-8 bytes into a JSON object."""
-    text = raw.decode("utf-8")
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise StoreError(f"manifest {path} is not valid JSON: {exc}") from exc
-    if not isinstance(data, dict):
-        raise StoreError(f"manifest {path} must hold a JSON object")
-    return data
 
 
 def _atomic_write_bytes(path: Path, data: bytes) -> None:
@@ -357,46 +344,13 @@ class ResultStore:
         path = self._manifest_path(run_id)
         if not path.is_file():
             raise StoreError(f"run {run_id} is not in the store {self._root}")
-        return _parse_manifest(path, path.read_bytes())
-
-    def read_manifests(self, run_ids: Iterable[str]) -> dict[str, dict[str, Any]]:
-        """Return the provenance manifests of several committed runs.
-
-        Bulk form of :meth:`manifest` (MAR-128): each manifest file is opened
-        once, without a separate existence check, and every missing run is
-        named in one error.
-
-        Parameters
-        ----------
-        run_ids : iterable of str
-            The runs' ids. A repeated id is read once.
-
-        Returns
-        -------
-        dict
-            ``run_id`` to manifest, in the order of first appearance in
-            ``run_ids``. Each manifest equals :meth:`manifest` of that run.
-
-        Raises
-        ------
-        StoreError
-            If a run is not committed (the message lists every one), a
-            ``run_id`` is malformed, or a manifest is not a valid JSON
-            object.
-        """
-        manifests: dict[str, dict[str, Any]] = {}
-        missing: list[str] = []
-        for run_id in dict.fromkeys(run_ids):
-            path = self._manifest_path(run_id)
-            try:
-                raw = path.read_bytes()
-            except (FileNotFoundError, IsADirectoryError, NotADirectoryError):
-                missing.append(run_id)
-                continue
-            manifests[run_id] = _parse_manifest(path, raw)
-        if missing:
-            raise StoreError(f"runs not in the store {self._root}: {sorted(missing)}")
-        return manifests
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise StoreError(f"manifest {path} is not valid JSON: {exc}") from exc
+        if not isinstance(data, dict):
+            raise StoreError(f"manifest {path} must hold a JSON object")
+        return data
 
     def read(self, table: str, *, run_ids: Iterable[str] | None = None) -> pd.DataFrame:
         """Read one table over committed runs.

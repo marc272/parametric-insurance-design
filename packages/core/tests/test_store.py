@@ -378,7 +378,6 @@ def test_read_of_given_runs_does_not_list_the_manifests(
         RUN_B,
     ]
     assert store.read("kpis", run_ids=[]).equals(KPIS.empty())
-    assert list(store.read_manifests([RUN_B, RUN_A])) == [RUN_B, RUN_A]
 
 
 def test_reads_see_runs_committed_after_earlier_reads(tmp_path: Path) -> None:
@@ -392,13 +391,10 @@ def test_reads_see_runs_committed_after_earlier_reads(tmp_path: Path) -> None:
     assert len(reader.read("runs", run_ids=[RUN_A])) == 2
     with pytest.raises(StoreError, match="not in the store"):
         reader.read("runs", run_ids=[RUN_B])
-    with pytest.raises(StoreError, match="not in the store"):
-        reader.read_manifests([RUN_B])
 
     writer.write_run(make_tables(RUN_B), manifest(RUN_B))
     assert reader.read("runs", run_ids=[RUN_B])["run_id"].unique().tolist() == [RUN_B]
     assert reader.read("runs")["run_id"].unique().tolist() == [RUN_A, RUN_B]
-    assert reader.read_manifests([RUN_B]) == {RUN_B: manifest(RUN_B)}
 
     reader.write_run(make_tables(RUN_C), manifest(RUN_C))
     assert len(reader.read("runs", run_ids=[RUN_C])) == 2
@@ -407,8 +403,6 @@ def test_reads_see_runs_committed_after_earlier_reads(tmp_path: Path) -> None:
     (tmp_path / MANIFESTS_DIR / f"{'b' * 64}.json").unlink()  # uncommitted again
     with pytest.raises(StoreError, match="not in the store"):
         reader.read("runs", run_ids=[RUN_B])
-    with pytest.raises(StoreError, match="not in the store"):
-        reader.read_manifests([RUN_B])
     assert reader.read("runs")["run_id"].unique().tolist() == [RUN_A, RUN_C]
 
 
@@ -428,40 +422,7 @@ def test_read_names_every_unknown_run_like_before(tmp_path: Path) -> None:
     (tmp_path / MANIFESTS_DIR / f"{'b' * 64}.json").mkdir()
     with pytest.raises(StoreError, match="not in the store"):
         store.read("runs", run_ids=[RUN_B])
-    with pytest.raises(StoreError, match="not in the store"):
-        store.read_manifests([RUN_B])
     # An empty or missing store has no runs either.
     empty = ResultStore(tmp_path / "missing")
     with pytest.raises(StoreError, match="not in the store"):
         empty.read("runs", run_ids=[RUN_A])
-    with pytest.raises(StoreError, match="not in the store"):
-        empty.read_manifests([RUN_A])
-    assert empty.read_manifests([]) == {}
-
-
-def test_read_manifests_equals_manifest_one_at_a_time(tmp_path: Path) -> None:
-    store = ResultStore(tmp_path)
-    store.write_run(make_tables(RUN_A), manifest(RUN_A, note="a"))
-    store.write_run(make_tables(RUN_B), manifest(RUN_B, note="b"))
-    manifests = store.read_manifests([RUN_B, RUN_A, RUN_B])
-    assert list(manifests) == [RUN_B, RUN_A]
-    assert manifests == {r: store.manifest(r) for r in (RUN_A, RUN_B)}
-
-
-def test_read_manifests_errors(tmp_path: Path) -> None:
-    store = ResultStore(tmp_path)
-    store.write_run(make_tables(RUN_A), manifest(RUN_A))
-    with pytest.raises(StoreError) as info:
-        store.read_manifests([RUN_C, RUN_A, RUN_B])
-    assert str(info.value) == (
-        f"runs not in the store {tmp_path}: {sorted([RUN_B, RUN_C])}"
-    )
-    with pytest.raises(StoreError, match="sha256:<64 hex>"):
-        store.read_manifests(["not-a-run"])
-    path = tmp_path / MANIFESTS_DIR / f"{'a' * 64}.json"
-    path.write_text("[1, 2]")
-    with pytest.raises(StoreError, match="JSON object"):
-        store.read_manifests([RUN_A])
-    path.write_text("{")
-    with pytest.raises(StoreError, match="not valid JSON"):
-        store.read_manifests([RUN_A])
