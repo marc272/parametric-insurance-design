@@ -187,7 +187,7 @@ def test_figures_writes_the_payout_figures(
         assert (figures / f"{name}.png").is_file()
         assert (figures / f"{name}.csv").is_file()
         assert f"wrote   {name}.png" in out
-    assert "4 figures written, 0 skipped" in out
+    assert "9 figures written, 0 skipped" in out  # 4 payout, 5 KPI (MAR-111)
 
 
 @pytest.mark.usefixtures("viz")
@@ -231,9 +231,13 @@ def test_figures_of_a_failed_run_exit_1(
     assert main(["figures", str(path), "-q"]) == ExitCode.RUNS_FAILED
     out = capsys.readouterr().out
     assert "FAILED  payout_grid_cluster" in out
-    assert "(2 because a run failed)" in out
+    assert "(6 because a run failed)" in out
     written = sorted(p.name for p in (tmp_path / "results" / "figures").glob("*.png"))
-    assert written == ["normalised_payout_portfolio_a.png", "payout_grid_portfolio.png"]
+    assert written == [
+        "exceedance_portfolio.png",
+        "normalised_payout_portfolio_a.png",
+        "payout_grid_portfolio.png",
+    ]
     manifest = json.loads(
         next((tmp_path / "results" / "manifests").glob("*.json")).read_text()
     )
