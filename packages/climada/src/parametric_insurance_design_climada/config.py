@@ -273,12 +273,15 @@ class EberenzEdrPriorConfig(_Model):
         Calibration region; default ``NA2`` (USA and Canada).
     wind_only : bool
         Leave out events whose EM-DAT record lists an associated disaster
-        (surge, rain, flood, slide, other). Default False (all events).
+        (surge, rain, flood, slide, other). Default True, the MAR-103 decision
+        (2026-10-27): the index and the loss are wind only, so the prior uses
+        the 19 wind-only NA2 events. False keeps all events (43 for NA2), the
+        sensitivity option.
     """
 
     kind: Literal["eberenz2021_edr"] = "eberenz2021_edr"
     region: Literal["NA1", "NA2", "NI", "OC", "SI", "WP1", "WP2", "WP3", "WP4"] = "NA2"
-    wind_only: bool = Field(default=False, strict=True)
+    wind_only: bool = Field(default=True, strict=True)
 
 
 class UniformPriorConfig(_Model):
@@ -331,7 +334,8 @@ class EmanuelVHalfDrawsConfig(_Model):
         Seed of the generator the pipeline creates for the draws. Required,
         so that every build is reproducible from its config.
     prior : EberenzEdrPriorConfig or UniformPriorConfig
-        Prior of ``v_half``; default: Eberenz et al. (2021), region ``NA2``.
+        Prior of ``v_half``; default: Eberenz et al. (2021), region ``NA2``,
+        wind-only events.
     """
 
     kind: Literal["emanuel_v_half"]
