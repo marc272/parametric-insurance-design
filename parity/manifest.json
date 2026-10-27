@@ -35,7 +35,7 @@
     "files_sha256": {
       "events.parquet": "bb90cbae344cd0f12cb50635911fef74ea530d341c866cd7e54a2dd7529fca57",
       "locations.parquet": "6d40b87796f2ede91864712a281957ac83e037495941c26efe87c66899638e2a",
-      "metadata.json": "8c2d8f866402139633f0dbad637ef81b631a4b2895dc341097cd283e732911ac",
+      "metadata.json": "02f93401ed5347f3ba0663407363152e0000d6e340d04aaccf07c140ef1c905a",
       "values.parquet": "bca2cb4a4f0e0d8d40357766a39ce6430a0ac2b629e8151708bc75b439889177"
     },
     "dropped_source_columns": {

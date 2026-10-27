@@ -47,7 +47,7 @@ Everything is written to the **git-ignored `data/iris/` at the repository root**
 pixi run iris --archive /path/to/IRIS_event_set.zip
 ```
 
-The pinned URLs, DOIs, version, citation and checksums are in `src/parametric_insurance_design_climada/iris_manifest.json`; the pipeline reads the release and the merged checksum from it. The IRIS licence record conflicts (CC0 on the figshare items, CC BY 4.0 on the collection record); the owner decides under MAR-94, and the EventSet's `licence` is written as the parity fixture does (`CC0-1.0`) until then. See `docs/data-sources.md`.
+The pinned URLs, DOIs, version, citation and checksums are in `src/parametric_insurance_design_climada/iris_manifest.json`; the pipeline reads the release and the merged checksum from it. The IRIS licence records differ (CC0 on the figshare items, CC BY 4.0 on the collection record). Both are listed in the manifest's `licence`; by owner decision (MAR-94, 2026-10-27) IRIS-derived data is treated as CC BY 4.0, the stricter of the two, so the pipeline's `licence` defaults to the manifest's `licence_applied`, `CC-BY-4.0`, as does the parity fixture. See `docs/data-sources.md`.
 
 **No Parquet copy of the catalogue.** pandas parses the 103 MB merged text file in about half a second, and the build itself takes about 30 s, so a typed Parquet copy would add a second artefact to keep in sync for no measurable gain. The reader checks the layout and types instead (`tracks.read_iris_catalogue`).
 

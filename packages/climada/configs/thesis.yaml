@@ -30,6 +30,6 @@ impact_function:
   v_half: 74.7
   scale: 1.0
 scenario_id: iris-present-climate
-# Written as the parity fixture does; the IRIS licence record is open (MAR-94).
-licence: CC0-1.0
+# IRIS-derived data is CC-BY-4.0 by owner decision (MAR-94); also the default.
+licence: CC-BY-4.0
 output: ../../../data/eventsets/thesis-iris

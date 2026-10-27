@@ -72,7 +72,7 @@ description: The thesis experiment (parametric-insurance-framework, configs/*.ya
   globals), migrated by parity/scripts/migrate_thesis_config.py for the parity runs (MAR-68).
 eventset:
   path: ../tests/data/thesis_eventset
-  checksum: sha256:f247d02460690fec6efb80b7f4a7936671eddc6c9ccf6debe5e128276001877a
+  checksum: sha256:404b0c3a3aefa38965ad3ace2747d308685a67e3b218cb835d45a9ab375294df
 portfolio:
   location_ids: [A1, A2, A3, A4, A5, A6, A7, A8, A9]
 noise:

@@ -210,3 +210,6 @@ def test_adapter_regenerates_the_thesis_eventset(catalogue: Path, pinned: dict) 
     assert parity.result.skipped == ()
     assert "**Result: bit-identical.**" in tap.render(parity)
     assert parity.build_record["n_storms_within_radius"] == 6057
+    # MAR-94: both the adapter's build and the fixture record CC BY 4.0.
+    assert parity.ours.metadata.licence == "CC-BY-4.0"
+    assert parity.fixture.metadata.licence == "CC-BY-4.0"
