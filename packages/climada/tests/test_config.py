@@ -10,8 +10,7 @@ import yaml
 
 from parametric_insurance_design.errors import ConfigError
 from parametric_insurance_design.eventset import EventSet
-from parametric_insurance_design_climada import cli
-from parametric_insurance_design_climada import iris
+from parametric_insurance_design_climada import cli, iris
 from parametric_insurance_design_climada.config import (
     PipelineConfigError,
     iris_licence,
