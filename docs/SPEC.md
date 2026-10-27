@@ -241,7 +241,7 @@ Uncertainty is represented as scenario EventSets S_0 (reference) … S_K. Each i
   - results cover at least uncertainty sources (i) and (iii);
   - a price-of-robustness figure exists for each scope.
 
-### 6.6 Portfolio (D2, decided by spike P-05)
+### 6.6 Portfolio (D2, decided 2026-10-27 after spike P-05)
 - **Requirements:**
   - single risk owner;
   - 25–200 assets inside the IRIS North Atlantic domain (US Gulf/East coast, Caribbean, Central America);
@@ -250,6 +250,14 @@ Uncertainty is represented as scenario EventSets S_0 (reference) … S_K. Each i
   - (a) a real company's assets from the **VELO/CDT database**: real coordinates and asset types; values need a proxy; may be anonymised in the paper;
   - (b) CLIMADA LitPop municipal/sovereign portfolio (fully open, which the CLIMADA tutorial needs anyway);
   - (c) Overture candidate locations.
+- **Decision (D2, MAR-30, 2026-10-27; note in `research/notes/d2-paper-portfolio.md`):**
+  - **Source:** (b) LitPop now; revisit (a) VELO/CDT after MAR-41.
+  - **Region and owner:** Florida's 67 counties, with the State of Florida as the single risk owner. Each county's value is the sum of the cells of the pinned CLIMADA data-API file `LitPop_150arcsec_USA` v3 (uuid and MD5 in the note).
+  - **Single risk owner:** a government whose loss is the modelled LitPop asset loss in its territory, stated as a documented proxy.
+  - **Index for an aggregated unit:** wind at the value-weighted centroid, plus cat-in-a-circle around it. Both are already in §6.3.
+  - **Publication constraints:** CC BY 4.0 attribution on every output, no anonymisation, and the derived EventSet recorded as `CC-BY-4.0`.
+  - **K-04 tutorial:** reuses the paper portfolio (the same data).
+  - **Fallback:** Puerto Rico's 78 municipalities.
 - The thesis 9-asset Miami portfolio stays as the illustrative and parity case.
 
 ### 6.7 Testing the method
@@ -362,7 +370,7 @@ Each decision's status and outcome is recorded on its **Linear issue**, which is
 | ID | Decision | Linear issue |
 |---|---|---|
 | D1 | Repository and package name: `parametric-insurance-design` (decided; ADR 0001) | MAR-5 |
-| D2 | Paper portfolio source | MAR-30 |
+| D2 | Paper portfolio source: CLIMADA LitPop (revisit VELO/CDT after MAR-41), Florida's 67 counties with the State of Florida as the single risk owner (a documented proxy); county values from the pinned `LitPop_150arcsec_USA` v3; CC BY 4.0 attribution, no anonymisation; fallback Puerto Rico's 78 municipalities (decided 2026-10-27; §6.6; note in `research/notes/d2-paper-portfolio.md`) | MAR-30 |
 | D3 | Licences: BSD-3-Clause core/viz, GPL-3.0-or-later CLIMADA adapter, AGPL-3.0-or-later CRC adapter (decided; ADR 0001, §4.3) | MAR-5 |
 | D4 | Target venue (e.g. NHESS / Environment Systems and Decisions vs. Insurance: Mathematics and Economics / ASTIN) | MAR-29 (C1) |
 | D5 | Website stack: Quarto + OJS on GitHub Pages (decided 2026-10-25; ADR 0003) | MAR-52 |
