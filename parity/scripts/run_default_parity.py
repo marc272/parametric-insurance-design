@@ -46,9 +46,12 @@ Run from the repository root::
 :data:`ALL_SWEEPS`) and ``--no-sweeps`` runs the baseline only; each report
 compares the golden records of its sources on the runs of its points.
 ``--jobs N`` (default 1) solves the sweep points in ``N`` worker processes
-(``sweeps.run_sweeps(jobs=N)``, MAR-105, MAR-125) with the same store
-contents and so the same reports; the 9 single runs, the thesis-payout
-checks and the reference runs stay serial.
+(``sweeps.run_sweeps(jobs=N)``, MAR-105, MAR-125), and then the accurate MSE
+reference runs of every report (:class:`ReferenceRuns`, MAR-129), with the
+same store contents and so the same reports. The reports' comparisons and
+thesis-payout checks run first (:func:`compare_group`), so that every
+reference run is known before any report is written; the 9 single runs, the
+checks and the report writing stay serial.
 ``--check`` exits with status 1 if a finding of any report has no
 explanation (as ``report.py --check``) or an explanation lacks its evidence.
 The exit status is 1 too if a run failed where the thesis did not: a run
@@ -63,12 +66,16 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import multiprocessing
 import os
 import sys
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from concurrent.futures import Future, ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, replace
 from pathlib import Path
+from types import TracebackType
 from typing import Any, Final, TypeVar, cast
 
 import numpy as np
@@ -94,14 +101,19 @@ from parametric_insurance_design.experiment.config import (  # noqa: E402
 from parametric_insurance_design.experiment.runner import (  # noqa: E402
     RunInput,
     RunOutcome,
+    execute,
     load_input,
     package_versions,
     policy_fingerprint,
     prepare_eventset,
     run_config,
+    run_key,
     run_single,
 )
-from parametric_insurance_design.experiment.store import ResultStore  # noqa: E402
+from parametric_insurance_design.experiment.store import (  # noqa: E402
+    ResultStore,
+    RunTables,
+)
 from parametric_insurance_design.experiment.sweeps import (  # noqa: E402
     SWEEP_SOURCES,
     SweepResult,
@@ -785,6 +797,37 @@ def _spent_loading(loading: float, excess: float) -> float:
     return float(f"{loading * (1.0 + excess):.12g}")
 
 
+REFERENCE_SOURCE: Final[str] = "parity_reference"
+"""``runs.source`` tag of the accurate MSE runs in the reference store."""
+
+
+def _needs_reference(check: PayoutCheck) -> bool:
+    """Whether :func:`mse_references` adds a reference to ``check``."""
+    return check.objective == "mse" and not check.strict
+
+
+def _reference_points(
+    check: PayoutCheck, single: ExperimentConfig
+) -> tuple[float, tuple[float, float, float], tuple[ExperimentConfig, ...]]:
+    """Return the reference runs of an MSE check.
+
+    Returns
+    -------
+    tuple
+        The run's budget loading; the three reference loadings (the run's,
+        the one the thesis payout spends and the one ours spends); and the
+        single-run config at each of them.
+    """
+    loading = next(float(c.loading) for c in single.constraints if c.kind == "budget")
+    loadings = (
+        loading,
+        _spent_loading(loading, check.thesis.budget),
+        _spent_loading(loading, check.ours.budget),
+    )
+    points = tuple(single.with_parameter("budget_loading", v) for v in loadings)
+    return loading, loadings, points
+
+
 def mse_references(
     checks: Sequence[PayoutCheck],
     config: ExperimentConfig,
@@ -830,24 +873,15 @@ def mse_references(
     configs = point_configs(config, sweeps)
     out: list[PayoutCheck] = []
     for check in checks:
-        if check.objective != "mse" or check.strict:
+        if not _needs_reference(check):
             out.append(check)
             continue
-        single = configs[check.config_hash]
-        loading = next(
-            float(c.loading) for c in single.constraints if c.kind == "budget"
-        )
+        loading, loadings, points = _reference_points(check, configs[check.config_hash])
         values: list[float] = []
         hashes: list[str] = []
-        loadings = (
-            loading,
-            _spent_loading(loading, check.thesis.budget),
-            _spent_loading(loading, check.ours.budget),
-        )
-        for value in loadings:
-            point = single.with_parameter("budget_loading", value)
+        for point in points:
             outcome = run_single(
-                point, data, reference_store, source="parity_reference", policy=policy
+                point, data, reference_store, source=REFERENCE_SOURCE, policy=policy
             )
             if not outcome.ok:
                 raise RuntimeError(
@@ -1822,10 +1856,7 @@ def accurate_mse(
         If an accurate run fails.
     """
     configs = point_configs(config, sweeps)
-    records: dict[tuple[str, str, str], list[PayoutCheck]] = defaultdict(list)
-    for c in checks:
-        if c.objective == "mse":
-            records[(c.source, c.parameters, c.config_hash)].append(c)
+    records = _mse_records(checks)
     kpi_index: dict[tuple[str, str, str, str], tuple[float, float]] = {}
     for r in result.kpis.to_dict("records"):
         if r["subject"] == harness.PORTFOLIO_SUBJECT:
@@ -1839,7 +1870,7 @@ def accurate_mse(
             configs[chash],
             data,
             reference_store,
-            source="parity_reference",
+            source=REFERENCE_SOURCE,
             policy=policy,
         )
         if not outcome.ok:
@@ -1882,6 +1913,199 @@ def accurate_mse(
             )
         )
     return out
+
+
+def _mse_records(
+    checks: Sequence[PayoutCheck],
+) -> dict[tuple[str, str, str], list[PayoutCheck]]:
+    """Group the MSE checks by record: (source, parameters, config hash)."""
+    records: dict[tuple[str, str, str], list[PayoutCheck]] = defaultdict(list)
+    for c in checks:
+        if c.objective == "mse":
+            records[(c.source, c.parameters, c.config_hash)].append(c)
+    return records
+
+
+def reference_configs(
+    checks: Sequence[PayoutCheck],
+    config: ExperimentConfig,
+    *,
+    sweeps: Sequence[str] = (),
+) -> list[ExperimentConfig]:
+    """Return the reference runs that one report's checks need (MAR-129).
+
+    The runs that :func:`mse_references` and then :func:`accurate_mse` solve
+    for ``checks``, in that order, duplicates included. Solving them first
+    (:class:`ReferenceRuns`) makes each of their ``run_single`` calls a cache
+    hit.
+
+    Parameters
+    ----------
+    checks : sequence of PayoutCheck
+        From :func:`thesis_payout_checks`.
+    config : ExperimentConfig
+        The thesis config.
+    sweeps : sequence of str, default ()
+        As for :func:`thesis_payout_checks`.
+
+    Returns
+    -------
+    list of ExperimentConfig
+        Single-run configs.
+    """
+    configs = point_configs(config, sweeps)
+    out: list[ExperimentConfig] = []
+    for check in checks:
+        if _needs_reference(check):
+            out.extend(_reference_points(check, configs[check.config_hash])[2])
+    out.extend(configs[chash] for _, _, chash in _mse_records(checks))
+    return out
+
+
+class ReferenceRuns:
+    """Solve the accurate MSE reference runs on worker processes (MAR-129).
+
+    :meth:`submit` queues single-run configs and :meth:`wait` writes their
+    runs into ``store``. The store ends up as :func:`runner.run_single` per
+    config, in submission order, would leave it (apart from wall times and
+    timestamps), the way ``sweeps.run_sweeps(jobs=N)`` handles sweep points:
+    the parent looks every run up and writes it, and the workers only execute
+    (:func:`runner.execute`) and return the tables. A run that is already in
+    the store, or already queued, is not executed again. With ``jobs == 1``
+    there is no pool: :meth:`submit` runs each config with
+    :func:`runner.run_single` at once.
+
+    Use it as a context manager: the pool starts on entry, and on exit the
+    pending runs are cancelled and the pool waits for the running ones.
+
+    Parameters
+    ----------
+    data : RunInput
+        The EventSet as loaded.
+    store : ResultStore
+        The reference store, written by this process only.
+    jobs : int, default 1
+        Worker processes (``spawn`` start method).
+    policy : SolverPolicy, default DEFAULT_POLICY
+        The accurate policy.
+
+    Attributes
+    ----------
+    executed, cached : int
+        Runs executed so far, and runs found in the store.
+
+    Raises
+    ------
+    ValueError
+        If ``jobs`` is less than 1.
+    """
+
+    def __init__(
+        self,
+        data: RunInput,
+        store: ResultStore,
+        *,
+        jobs: int = 1,
+        policy: SolverPolicy = DEFAULT_POLICY,
+    ) -> None:
+        if jobs < 1:
+            raise ValueError(f"jobs must be at least 1, got {jobs}")
+        self.data = data
+        self.store = store
+        self.jobs = jobs
+        self.policy = policy
+        self.executed = 0
+        self.cached = 0
+        self._seen: set[str] = set()
+        self._pending: list[tuple[str, Future[tuple[RunTables, dict[str, Any]]]]] = []
+        self._executor: ProcessPoolExecutor | None = None
+
+    def __enter__(self) -> ReferenceRuns:
+        """Start the worker pool (none for ``jobs == 1``)."""
+        if self.jobs > 1:
+            self._executor = ProcessPoolExecutor(
+                max_workers=self.jobs, mp_context=multiprocessing.get_context("spawn")
+            )
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        """Cancel the pending runs and stop the pool."""
+        for _, future in self._pending:
+            future.cancel()
+        self._pending.clear()
+        if self._executor is not None:
+            self._executor.shutdown(wait=True, cancel_futures=True)
+            self._executor = None
+
+    def submit(self, configs: Iterable[ExperimentConfig]) -> None:
+        """Queue the runs of ``configs`` that are neither stored nor queued.
+
+        Raises
+        ------
+        RuntimeError
+            With ``jobs > 1``, if called outside the ``with`` block.
+        """
+        for single in configs:
+            run_id = run_key(
+                config_hash(single), self.data.checksum, policy=self.policy
+            )
+            if run_id in self._seen:
+                continue
+            self._seen.add(run_id)
+            if self.store.has_run(run_id):
+                self.cached += 1
+                continue
+            if self.jobs == 1:
+                run_single(
+                    single,
+                    self.data,
+                    self.store,
+                    source=REFERENCE_SOURCE,
+                    policy=self.policy,
+                )
+                self.executed += 1
+                continue
+            if self._executor is None:
+                raise RuntimeError("ReferenceRuns.submit outside its with block")
+            future = self._executor.submit(
+                execute, single, self.data, source=REFERENCE_SOURCE, policy=self.policy
+            )
+            self._pending.append((run_id, future))
+
+    def wait(self) -> None:
+        """Write the queued runs into the store, in submission order.
+
+        Raises
+        ------
+        RuntimeError
+            If a worker process dies, or returns another run than it was
+            given. An exception raised in a worker (a configuration error, or
+            a bug) is re-raised with its type. Either way the runs queued
+            before it are in the store. A run that fails to solve is
+            recorded, not raised: :func:`mse_references` and
+            :func:`accurate_mse` raise on it.
+        """
+        while self._pending:
+            run_id, future = self._pending[0]
+            try:
+                tables, manifest = future.result()
+            except BrokenProcessPool as exc:
+                raise RuntimeError(
+                    f"a worker process died while running reference run {run_id}; "
+                    f"the runs before it are in {self.store.root}"
+                ) from exc
+            if manifest.get("run_id") != run_id or tables.run_id != run_id:
+                raise RuntimeError(
+                    f"a worker returned run {manifest.get('run_id')}, expected {run_id}"
+                )
+            self.store.write_run(tables, manifest)
+            self._pending.pop(0)
+            self.executed += 1
 
 
 def _worst(values: Sequence[float]) -> str:
@@ -2282,6 +2506,57 @@ def _simulation_note(provenance: Mapping[str, Any], source: str) -> str:
     )
 
 
+def compare_group(
+    group: ReportGroup,
+    *,
+    config: ExperimentConfig,
+    data: RunInput,
+    store: ResultStore,
+    golden: harness.Golden,
+) -> tuple[harness.ParityResult, list[PayoutCheck]]:
+    """Compare one report group and check its thesis payouts.
+
+    The part of :func:`write_group` that needs no reference run, so that
+    :func:`main` can collect every report's reference runs
+    (:func:`reference_configs`) and solve them in parallel first (MAR-129).
+
+    Parameters
+    ----------
+    group : ReportGroup
+        From :func:`report_groups`.
+    config, data : ExperimentConfig, RunInput
+        The thesis config and EventSet.
+    store : ResultStore
+        The parity runs.
+    golden : harness.Golden
+        The golden tables (with the simulation tables where needed).
+
+    Returns
+    -------
+    tuple of harness.ParityResult and list of PayoutCheck
+        ``harness.compare`` on the group's runs, and
+        :func:`thesis_payout_checks` on its matched runs (without MSE
+        references).
+    """
+    result = harness.compare(
+        golden,
+        store,
+        sources=group.sources,
+        baseline_parameters=baseline_parameters(config, data),
+        run_ids=group.run_ids,
+    )
+    checks = thesis_payout_checks(
+        config,
+        data,
+        golden,
+        store,
+        sources=group.sources,
+        sweeps=group.sweeps,
+        result=result,
+    )
+    return result, checks
+
+
 def write_group(
     group: ReportGroup,
     *,
@@ -2296,6 +2571,7 @@ def write_group(
     summaries: Sequence[GroupSummary] = (),
     adapter: str = "",
     provenance: Mapping[str, Any] | None = None,
+    compared: tuple[harness.ParityResult, list[PayoutCheck]] | None = None,
 ) -> GroupSummary:
     """Compare one report group, write its analysis and report, summarise it.
 
@@ -2321,6 +2597,10 @@ def write_group(
         The adapter section appended to ``REPORT.md``; empty to omit.
     provenance : mapping, optional
         :func:`load_provenance` (default: read it from the golden directory).
+    compared : tuple of harness.ParityResult and list of PayoutCheck, optional
+        :func:`compare_group` of ``group`` on ``store``, if already made
+        (default: make it here). The reference runs it needs are solved here
+        unless they are in ``reference_store`` already (:class:`ReferenceRuns`).
 
     Returns
     -------
@@ -2329,22 +2609,11 @@ def write_group(
     """
     if provenance is None:
         provenance = load_provenance(harness.SIMULATION_DIR)
-    result = harness.compare(
-        golden,
-        store,
-        sources=group.sources,
-        baseline_parameters=baseline_parameters(config, data),
-        run_ids=group.run_ids,
-    )
-    checks = thesis_payout_checks(
-        config,
-        data,
-        golden,
-        store,
-        sources=group.sources,
-        sweeps=group.sweeps,
-        result=result,
-    )
+    if compared is None:
+        compared = compare_group(
+            group, config=config, data=data, store=store, golden=golden
+        )
+    result, checks = compared
     checks = mse_references(checks, config, data, reference_store, sweeps=group.sweeps)
     accurate = accurate_mse(
         checks, result, config, data, reference_store, sweeps=group.sweeps
@@ -2546,8 +2815,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=_positive_int,
         default=1,
         metavar="N",
-        help="solve the sweep points in N worker processes (default: "
-        "%(default)s, serial); the reports are the same",
+        help="solve the sweep points and the reference runs in N worker "
+        "processes (default: %(default)s, serial); the reports are the same",
     )
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args(argv)
@@ -2586,9 +2855,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         reports_dir=Path(args.reports_dir),
         analysis_dir=Path(args.analysis_dir),
     )
-    summaries: list[GroupSummary] = []
     # The simulation sweeps first: the main report indexes them.
-    for group in sorted(groups, key=lambda g: g.name == MAIN_GROUP):
+    ordered = sorted(groups, key=lambda g: g.name == MAIN_GROUP)
+    # Every report's comparison and checks first, then its reference runs on
+    # the workers while the next report is compared (MAR-129); the reports
+    # are written once the reference store holds every run they read.
+    compared: list[tuple[harness.ParityResult, list[PayoutCheck]]] = []
+    with ReferenceRuns(data, reference_store, jobs=args.jobs) as references:
+        for group in ordered:
+            compared.append(
+                compare_group(
+                    group, config=config, data=data, store=shown, golden=golden
+                )
+            )
+            references.submit(
+                reference_configs(compared[-1][1], config, sweeps=group.sweeps)
+            )
+        references.wait()
+    print(
+        f"reference runs: {references.executed} executed, {references.cached} "
+        f"cached in {_display(reference_store.root)}"
+    )
+    summaries: list[GroupSummary] = []
+    for group, group_compared in zip(ordered, compared, strict=True):
         summaries.append(
             write_group(
                 group,
@@ -2603,6 +2892,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 summaries=summaries,
                 adapter=args.adapter,
                 provenance=provenance,
+                compared=group_compared,
             )
         )
     accepted = {r for s in summaries for r in s.failed_on_both_sides}
