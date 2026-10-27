@@ -543,9 +543,18 @@ def _check_impf_column(locations: pd.DataFrame, impf_id: int) -> None:
 # --------------------------------------------------------------------------
 
 
-def _exposures(locations: pd.DataFrame, impf_id: int) -> Exposures:
-    """Locations as exposures, row ``j`` assigned to centroid ``j``."""
+def _exposures(
+    locations: pd.DataFrame,
+    impf_id: int,
+    centroid_of: NDArray[np.int64] | None = None,
+) -> Exposures:
+    """Locations as exposures, row ``j`` assigned to centroid ``centroid_of[j]``.
+
+    Default: row ``j`` to centroid ``j``.
+    """
     n = len(locations)
+    if centroid_of is None:
+        centroid_of = np.arange(n, dtype=np.int64)
     return Exposures(
         pd.DataFrame(
             {
@@ -553,7 +562,7 @@ def _exposures(locations: pd.DataFrame, impf_id: int) -> Exposures:
                 "longitude": locations["lon"].to_numpy(dtype=np.float64),
                 "value": locations["value"].to_numpy(dtype=np.float64),
                 f"impf_{HAZARD_TYPE}": np.full(n, impf_id, dtype=np.int64),
-                f"centr_{HAZARD_TYPE}": np.arange(n, dtype=np.int64),
+                f"centr_{HAZARD_TYPE}": centroid_of,
             }
         )
     )
@@ -605,11 +614,32 @@ def _check_matrix(
 
 @dataclass(frozen=True)
 class _CellLoss:
-    """The CLIMADA inputs of the per-cell loss path."""
+    """The CLIMADA inputs of the per-cell loss path.
+
+    ``centroids`` are the distinct cell centres (CLIMADA computes no wind
+    twice at one point); cell ``c`` is at centroid ``centroid_of[c]``.
+    """
 
     table: CellTable
     centroids: Centroids
     exposures: Exposures
+    centroid_of: NDArray[np.int64]
+
+    @classmethod
+    def from_table(cls, table: CellTable, impf_id: int) -> _CellLoss:
+        """Build the centroids and the exposures of ``table``."""
+        points, centroid_of = np.unique(
+            table.cells[["lat", "lon"]].to_numpy(dtype=np.float64),
+            axis=0,
+            return_inverse=True,
+        )
+        centroid_of = np.asarray(centroid_of, dtype=np.int64).reshape(-1)
+        return cls(
+            table=table,
+            centroids=Centroids(lat=points[:, 0].copy(), lon=points[:, 1].copy()),
+            exposures=_exposures(table.cells, impf_id, centroid_of),
+            centroid_of=centroid_of,
+        )
 
 
 def _hazard_and_impact(
@@ -622,8 +652,13 @@ def _hazard_and_impact(
     impact_functions: ImpactFuncSet,
     where: str,
     with_impact: bool,
+    centroid_of: NDArray[np.int64] | None = None,
 ) -> tuple[TropCyclone, NDArray[np.float64], NDArray[np.float64] | None]:
-    """Return ``(hazard, dense wind, dense base loss or None)`` at the centroids."""
+    """Return ``(hazard, dense wind, dense base loss or None)``.
+
+    Wind and loss columns follow the exposures; exposure ``j`` is at centroid
+    ``centroid_of[j]`` (default ``j``).
+    """
     hazard = cast(
         TropCyclone,
         TropCyclone.from_tracks(
@@ -632,10 +667,17 @@ def _hazard_and_impact(
     )
     if [str(name) for name in hazard.event_name] != event_ids:
         raise PipelineError("CLIMADA returned the events in another order")
-    shape = (len(event_ids), int(centroids.size))
     wind = _check_matrix(
-        f"wind{where}", hazard.intensity.toarray(), shape, non_negative=True
+        f"wind{where}",
+        hazard.intensity.toarray(),
+        (len(event_ids), int(centroids.size)),
+        non_negative=True,
     )
+    if centroid_of is not None:
+        wind = wind[:, centroid_of]
+    shape = (len(event_ids), len(exposures.gdf))
+    if wind.shape != shape:
+        raise PipelineError(f"wind{where} has shape {wind.shape}, expected {shape}")
     if not with_impact:
         return hazard, wind, None
     impact = ImpactCalc(exposures, impact_functions, hazard).impact(
@@ -708,6 +750,7 @@ def _run_batch(
         impact_functions=impact_functions,
         where=" at the cells",
         with_impact=True,
+        centroid_of=cells.centroid_of,
     )
     assert cell_loss is not None
     cell_batch = HazardBatch(
@@ -923,14 +966,7 @@ def build_eventset(
     )
     cell_loss: _CellLoss | None = None
     if cell_table is not None:
-        cell_loss = _CellLoss(
-            table=cell_table,
-            centroids=Centroids(
-                lat=cell_table.cells["lat"].to_numpy(dtype=np.float64),
-                lon=cell_table.cells["lon"].to_numpy(dtype=np.float64),
-            ),
-            exposures=_exposures(cell_table.cells, config.impact_function.impf_id),
-        )
+        cell_loss = _CellLoss.from_table(cell_table, config.impact_function.impf_id)
     index_parts: list[NDArray[np.float64]] = []
     loss_parts: list[NDArray[np.float64]] = []
     n_batches = -(-len(modelled) // config.batch_size)

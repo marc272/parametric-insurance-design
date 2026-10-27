@@ -446,9 +446,7 @@ class CellLossConfig(_Model):
 
 
 #: The ``loss`` section of a pipeline config, selected by ``kind``.
-LossConfig = Annotated[
-    CentroidLossConfig | CellLossConfig, Field(discriminator="kind")
-]
+LossConfig = Annotated[CentroidLossConfig | CellLossConfig, Field(discriminator="kind")]
 
 
 class PipelineConfig(_Model):
