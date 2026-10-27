@@ -45,7 +45,7 @@ A test checks that the STORM config differs from the IRIS reference only in `cat
 
 ## IRIS reference S_0 (built)
 
-See `research/data/p06-storm-eventset/README.md` for its content hash, size, time and memory.
+`configs/florida_counties_no_draws.yaml` on IRIS: content hash `sha256:07eb5c9a808af45f7d05932b5d78f0cc9b1142f37aef8c9749138dc8c1f379e5`, 13,902 rows × 67 counties (8,977 rows with zero loss everywhere), expected annual loss 7.616 × 10⁹ USD (MAR-114 measured the same without draws). Pipeline runtime 487.9 s, wall 494.3 s, peak RSS 1.57 GB. Details in `research/data/p06-storm-eventset/`.
 
 ## What the STORM half needs (next PR)
 
