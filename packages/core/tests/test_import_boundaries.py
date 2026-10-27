@@ -20,11 +20,24 @@ literal, so the allow-list entry also pins that argument expression, and
 :func:`test_the_allowed_call_site_imports_viz` checks at runtime that the
 constant names the viz module (not an adapter) and that the call site still
 exists, so the allow-list cannot go stale.
+
+A runtime check (MAR-123) complements both static ones: a fresh interpreter
+imports the core and every one of its submodules (found with
+:func:`pkgutil.walk_packages`), then reports which adapter or viz modules are
+in :data:`sys.modules`. It sees indirect loads that no source check can, for
+example a third-party dependency that imports an adapter. Viz is forbidden
+too: the core loads it only when the ``figures`` command runs, so importing
+the core must not (this test never calls :func:`cli.main`). A submodule that
+fails to import, or writes to stdout or stderr while importing, fails the
+check instead of being skipped.
 """
 
 from __future__ import annotations
 
 import ast
+import json
+import subprocess
+import sys
 from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
@@ -38,6 +51,9 @@ ADAPTER_PACKAGES = (
     "parametric_insurance_design_crc",
     "parametric_insurance_design_climada",
 )
+VIZ_PACKAGE = "parametric_insurance_design_viz"
+NOT_LOADED_BY_CORE = (*ADAPTER_PACKAGES, VIZ_PACKAGE)
+"""Packages that importing the core must not load (runtime check)."""
 IMPORT_FUNCTIONS = frozenset({"import_module", "__import__"})
 """Function names of the dynamic-import routes, called as ``x.<name>(...)``."""
 
@@ -218,3 +234,146 @@ def test_the_allow_list_is_keyed_by_module_and_function() -> None:
 )
 def test_the_check_accepts_other_imports(source: str) -> None:
     assert violations(source) == []
+
+
+# Runtime check (MAR-123) -----------------------------------------------------
+
+PROBE = """
+import contextlib, importlib, io, json, pkgutil, sys, traceback
+
+root, package, *forbidden = sys.argv[1:]
+if root:
+    sys.path.insert(0, root)
+output = io.StringIO()
+failed = {}
+
+def record(name):
+    failed[name] = traceback.format_exc()
+
+with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+    imported = [package]
+    try:
+        top = importlib.import_module(package)
+    except Exception:
+        record(package)
+    else:
+        for info in pkgutil.walk_packages(
+            top.__path__, prefix=f"{package}.", onerror=record
+        ):
+            imported.append(info.name)
+            try:
+                importlib.import_module(info.name)
+            except Exception:
+                record(info.name)
+loaded = sorted(
+    m for m in sys.modules
+    if any(m == p or m.startswith(f"{p}.") for p in forbidden)
+)
+print(json.dumps(
+    {"imported": imported, "failed": failed, "output": output.getvalue(),
+     "loaded": loaded}
+))
+"""
+"""Run as ``python -I -c PROBE <sys.path root or ""> <package> <forbidden ...>``."""
+
+
+@dataclass(frozen=True)
+class Probe:
+    """What a fresh interpreter saw while importing a package tree."""
+
+    imported: list[str]  # the package and every submodule walk_packages found
+    failed: dict[str, str]  # module name -> traceback
+    output: str  # anything written to stdout or stderr while importing
+    loaded: list[str]  # forbidden modules in sys.modules afterwards
+
+
+def probe(
+    package: str,
+    forbidden: tuple[str, ...] = NOT_LOADED_BY_CORE,
+    root: Path | None = None,
+) -> Probe:
+    """Import ``package`` and all its submodules in a fresh, isolated interpreter.
+
+    ``-I`` keeps the working directory, ``PYTHONPATH`` and user site-packages
+    off ``sys.path``; ``root``, if given, is prepended to it.
+    """
+    args = [str(root or ""), package, *forbidden]
+    result = subprocess.run(
+        [sys.executable, "-I", "-c", PROBE, *args],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    return Probe(**json.loads(result.stdout))
+
+
+def test_importing_the_core_loads_no_adapter_or_viz() -> None:
+    seen = probe(CORE_PACKAGE)
+    assert seen.failed == {}, "\n".join(seen.failed.values())
+    assert seen.output == ""
+    assert seen.loaded == []
+    # walk_packages found every module the AST check parses, and nothing else
+    assert sorted(seen.imported) == sorted(core_sources())
+
+
+def _fake_tree(root: Path, sources: dict[str, str]) -> Path:
+    """Write ``sources`` (relative path -> source) under ``root``."""
+    for relative, source in sources.items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(source, encoding="utf-8")
+    return root
+
+
+def test_the_runtime_check_sees_indirect_loads(tmp_path: Path) -> None:
+    """A submodule loads an adapter through a third module: the probe sees it."""
+    root = _fake_tree(
+        tmp_path,
+        {
+            "fake_core/__init__.py": "",
+            "fake_core/clean.py": "import json\n",
+            "fake_core/deep/__init__.py": "",
+            "fake_core/deep/uses_helper.py": "import helper\n",
+            "helper.py": "import importlib\n"
+            "importlib.import_module('parametric_insurance_design_crc.x')\n",
+            "parametric_insurance_design_crc/__init__.py": "",
+            "parametric_insurance_design_crc/x.py": "",
+        },
+    )
+    seen = probe("fake_core", root=root)
+    assert seen.failed == {}
+    assert seen.output == ""
+    assert seen.imported == [
+        "fake_core",
+        "fake_core.clean",
+        "fake_core.deep",
+        "fake_core.deep.uses_helper",
+    ]
+    assert seen.loaded == [
+        "parametric_insurance_design_crc",
+        "parametric_insurance_design_crc.x",
+    ]
+
+
+def test_the_runtime_check_reports_failures_and_output(tmp_path: Path) -> None:
+    """A failing or noisy submodule is reported, never skipped."""
+    root = _fake_tree(
+        tmp_path,
+        {
+            "fake_core/__init__.py": "",
+            "fake_core/broken.py": "raise RuntimeError('boom')\n",
+            "fake_core/broken_pkg/__init__.py": "raise ImportError('gone')\n",
+            "fake_core/noisy.py": "import warnings\nprint('side effect')\n"
+            "warnings.warn('careful', UserWarning, stacklevel=1)\n",
+        },
+    )
+    seen = probe("fake_core", root=root)
+    assert sorted(seen.failed) == ["fake_core.broken", "fake_core.broken_pkg"]
+    assert "boom" in seen.failed["fake_core.broken"]
+    assert "gone" in seen.failed["fake_core.broken_pkg"]
+    assert "side effect" in seen.output
+    assert "careful" in seen.output
+    assert seen.loaded == []
