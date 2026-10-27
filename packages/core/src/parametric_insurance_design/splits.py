@@ -267,4 +267,6 @@ def kpi_gap(kpis: pd.DataFrame) -> pd.DataFrame:
         columns={"value_train": "train", "value_test": "test"}
     )
     out["gap"] = out["test"] - out["train"]
+    # Explicit column order: pandas < 2.2 orders an empty outer merge differently.
+    out = out[[*key, "train", "test", "gap"]]
     return out.sort_values(key, kind="stable").reset_index(drop=True)
