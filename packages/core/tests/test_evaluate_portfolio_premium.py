@@ -89,13 +89,13 @@ def loaded(payout: NDArray[np.float64], rate: float, q: float) -> float:
 
 
 def premium_kpi(table: pd.DataFrame, level: KpiLevel, subject_id: str) -> float:
-    rows = table[
+    rows = table.loc[
         (table["kpi"] == KpiName.PREMIUM)
         & (table["level"] == level)
         & (table["subject_id"] == subject_id)
     ]
     assert len(rows) == 1
-    return float(rows["value"].iloc[0])
+    return float(rows["value"].to_numpy()[0])
 
 
 def run_kpis(
