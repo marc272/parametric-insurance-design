@@ -1,0 +1,70 @@
+# pixi environment for parametric-insurance-design-climada (SPEC §4.1).
+#
+# CLIMADA comes from conda-forge, so this package is not a uv workspace member
+# and is not in uv.lock. The core is installed from ../core as an editable path
+# dependency, and this package itself is installed editable from ".".
+# This env never contains parametric-insurance-design-crc (AGENTS.md): the
+# CLIMADA stream is CRC-free.
+#
+#   pixi run test        # tests (CI job "test (climada, pixi)" runs the same)
+#   pixi lock            # after editing this file; commit pixi.lock
+#
+# Versions:
+#   - climada 6.1.0 is the newest on conda-forge. It needs python >=3.10,<3.13
+#     and pins scipy 1.15.*, so python is 3.12 here (the newest CLIMADA
+#     allows) and scipy satisfies the core's floor (>=1.15).
+#   - The core's own dependencies come from conda-forge too (listed below), so
+#     that only the two local packages are installed as PyPI packages and the
+#     conda numpy/scipy stack is never shadowed by wheels.
+
+[workspace]
+name = "parametric-insurance-design-climada"
+channels = ["conda-forge"]
+# linux-64 for CI, osx-arm64 for the owner's machine. Add a platform with
+# `pixi workspace platform add <platform>`, which re-locks.
+platforms = ["linux-64", "osx-arm64"]
+requires-pixi = ">=0.83"
+
+[dependencies]
+python = "3.12.*"
+climada = "==6.1.0"
+# The core's dependencies (packages/core/pyproject.toml), from conda-forge.
+# scipy: the core needs >=1.15 (fcluster(maxclust) is broken on 1.11-1.14).
+cvxpy = ">=1.6"
+numpy = ">=1.26"
+pandas = ">=2.1"
+pyarrow = ">=15"
+pydantic = ">=2.7"
+pyyaml = ">=6.0.1"
+scipy = ">=1.15"
+# Test tools.
+pytest = ">=9"
+pytest-cov = ">=7"
+hypothesis = ">=6.100"
+# Type checker (MAR-73): the root pyright excludes this package, because it
+# needs CLIMADA, which only this env has. Same floor as the uv lint group.
+pyright = ">=1.1.400"
+
+[pypi-dependencies]
+parametric-insurance-design = { path = "../core", editable = true }
+parametric-insurance-design-climada = { path = ".", editable = true }
+
+[tasks]
+test = { cmd = "pytest", description = "Run the CLIMADA adapter tests" }
+# The core's tests in this env (they use the root pyproject.toml's pytest
+# config). The uv workspace remains the place where the core's coverage gate
+# is enforced; this only proves the core works next to CLIMADA's pins.
+test-core = { cmd = "pytest ../core/tests -p no:cacheprovider", description = "Run the core's tests in the CLIMADA env" }
+# Download IRIS from figshare (about 260 MB), extract the ten North Atlantic
+# files and merge them into the 10,000-year catalogue, all checked against
+# src/parametric_insurance_design_climada/iris_manifest.json. Writes to the
+# git-ignored data/iris/ at the repository root; re-running skips verified
+# files. Pass `--archive <path>` to use a local copy of IRIS_event_set.zip.
+iris = { cmd = "python -m parametric_insurance_design_climada.iris --data-dir ../../data/iris", description = "Download, verify and merge the IRIS North Atlantic event set (MAR-72)" }
+# Track -> wind -> impact pipeline writing an EventSet (MAR-73). Pass the
+# config and options after the task name, e.g.
+#   pixi run build-eventset --config configs/thesis.yaml [--overwrite]
+build-eventset = { cmd = "python -m parametric_insurance_design_climada.cli", description = "Build an EventSet from an IRIS catalogue with CLIMADA (MAR-73)" }
+# pyright (basic) on this package's src and tests, against this env's
+# CLIMADA and core; settings in pyrightconfig.json next to this file.
+typecheck = { cmd = "pyright", description = "Type-check the CLIMADA adapter with pyright in this env" }

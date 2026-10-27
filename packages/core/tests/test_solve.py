@@ -21,10 +21,9 @@ from typing import Any, ClassVar
 
 import cvxpy as cp
 import numpy as np
+import pandas as pd
 import pytest
-import scipy
 from cvxpy.error import SolverError
-from numpy.lib import NumpyVersion
 from numpy.typing import NDArray
 
 from parametric_insurance_design import solve as solve_module
@@ -55,6 +54,8 @@ from parametric_insurance_design.solve import (
     DEFAULT_POLICY,
     FAILURE_PRECEDENCE,
     NOT_INSTALLED,
+    OSQP_OPTIONS,
+    THESIS_POLICY,
     SolverPolicy,
     SolveStatus,
     is_qp,
@@ -123,11 +124,41 @@ def test_default_policy_follows_the_thesis() -> None:
     assert DEFAULT_POLICY.qp_solvers == ("OSQP", "CLARABEL")
     assert DEFAULT_POLICY.accept_inaccurate
     assert dict(DEFAULT_POLICY.solver_options["SCS"]) == {"max_iters": 20000}
+    # The one deviation from the thesis: OSQP at interior-point accuracy.
+    assert set(DEFAULT_POLICY.solver_options) == {"OSQP", "SCS"}
     assert DEFAULT_POLICY.accepted == {
         SolveStatus.OPTIMAL,
         SolveStatus.OPTIMAL_INACCURATE,
     }
     assert SolverPolicy(accept_inaccurate=False).accepted == {SolveStatus.OPTIMAL}
+
+
+def test_default_osqp_options_are_tight() -> None:
+    # MAR-98: cvxpy's OSQP defaults (eps 1e-5, max_iter 10000) leave
+    # violations of ~1.5e-5 in scaled units when polishing fails.
+    options = dict(DEFAULT_POLICY.solver_options["OSQP"])
+    assert options == dict(OSQP_OPTIONS)
+    assert options == {"eps_abs": 1e-8, "eps_rel": 1e-8, "max_iter": 100_000}
+    with pytest.raises(TypeError):
+        OSQP_OPTIONS["eps_abs"] = 1e-5  # type: ignore[index]
+
+
+def test_thesis_policy_is_the_pre_mar98_default() -> None:
+    # Main's DEFAULT_POLICY before MAR-98, field for field: OSQP at cvxpy's
+    # defaults, everything else as the default.
+    assert THESIS_POLICY.lp_solvers == DEFAULT_POLICY.lp_solvers
+    assert THESIS_POLICY.qp_solvers == DEFAULT_POLICY.qp_solvers
+    assert THESIS_POLICY.accept_inaccurate is DEFAULT_POLICY.accept_inaccurate
+    assert {k: dict(v) for k, v in THESIS_POLICY.solver_options.items()} == {
+        "SCS": {"max_iters": 20000}
+    }
+
+
+def test_explicit_options_replace_the_defaults() -> None:
+    # A policy that names its options runs OSQP with cvxpy's defaults, e.g.
+    # to reproduce the thesis MSE values.
+    policy = SolverPolicy(solver_options={"SCS": {"max_iters": 20000}})
+    assert "OSQP" not in policy.solver_options
 
 
 def test_policy_options_are_read_only() -> None:
@@ -200,9 +231,9 @@ def test_mse_is_reported_in_squared_loss_units(toy_eventset: EventSet) -> None:
     built = toy_built(toy_eventset, MSE(), (Budget(2.0),))
     result = solve(built)
     assert result.solver in DEFAULT_POLICY.qp_solvers
-    assert result.objective_value == pytest.approx(12.5 / 3, rel=1e-4)
+    assert result.objective_value == pytest.approx(12.5 / 3, rel=1e-6)
     assert result.diagnostics["mse"] == pytest.approx(result.objective_value)
-    np.testing.assert_allclose(result.theta.sum(axis=0), [3.5, 16.0], rtol=1e-4)
+    np.testing.assert_allclose(result.theta.sum(axis=0), [3.5, 16.0], rtol=1e-6)
 
 
 INACCURATE_WARNING = "ignore:Solution may be inaccurate:UserWarning"
@@ -403,23 +434,6 @@ OBJECTIVES: dict[str, Objective] = {
 }
 N_PROBLEMS = {"individual": 9, "portfolio": 1, "cluster": 1}
 
-# scipy 1.15.0 and 1.15.1 overflow int32 indices when cvxpy reshapes the
-# sparse problem data of the weighted-CVaR LPs (more than 2**31 entries):
-# ``ValueError: negative axis 0 index``. Fixed in scipy 1.15.2. Core declares
-# ``scipy>=1.15``, so CI's lowest-direct job hits it; raising the floor is a
-# proposed follow-up (MAR-14 PR). Strict, so the mark goes stale loudly.
-SCIPY_COO_RESHAPE_OVERFLOW = pytest.mark.xfail(
-    NumpyVersion(scipy.__version__) < "1.15.2",
-    reason="scipy < 1.15.2 overflows int32 indices in COO reshape",
-    raises=ValueError,
-    strict=True,
-)
-FIXTURE_OBJECTIVES = [
-    pytest.param(name, marks=SCIPY_COO_RESHAPE_OVERFLOW)
-    if name == "weighted_cvar"
-    else name
-    for name in OBJECTIVES
-]
 N_ENTITIES = {"individual": 1, "portfolio": 9, "cluster": N_CLUSTERS}
 
 needs_fixture = pytest.mark.skipif(
@@ -459,7 +473,7 @@ def numpy_objective(
 
 
 @needs_fixture
-@pytest.mark.parametrize("objective", FIXTURE_OBJECTIVES)
+@pytest.mark.parametrize("objective", list(OBJECTIVES))
 @pytest.mark.parametrize("scope", list(SCOPES))
 def test_nine_combinations_solve_on_the_fixture(
     thesis_data: EventSet, scope: str, objective: str
@@ -484,11 +498,12 @@ def test_nine_combinations_solve_on_the_fixture(
         assert result.theta.shape == (N_ENTITIES[scope], N_BINS)
         assert result.solver == ("OSQP" if objective == "mse" else "CLARABEL")
         # Payout family and budget hold in loss units, up to the solver
-        # tolerance in scaled units (OSQP's eps is 1e-5; Clarabel's ~1e-8).
+        # tolerance in scaled units (OSQP's eps is 1e-8, MAR-98; Clarabel's
+        # ~1e-8). Measured: <= 4.4e-10 (OSQP), <= 5e-12 (Clarabel).
         violation = result.diagnostics["max_constraint_violation_scaled"]
-        assert violation <= 1e-5
+        assert violation <= 1e-6
         theta, cap = result.theta, problem.entity_loss.max(axis=0)
-        tol = 1e-5 * result.scale
+        tol = 1e-6 * result.scale
         assert np.all(theta >= -tol)
         assert np.all(np.diff(theta, axis=1) >= -tol)
         assert np.all(theta <= cap[:, None] + tol)
@@ -523,3 +538,63 @@ def test_injected_infeasible_problem_raises_on_the_fixture(
     assert error.status is SolveStatus.INFEASIBLE
     tried = DEFAULT_POLICY.solvers_for(built.problem)
     assert tuple(a.solver for a in error.attempts) == tried
+
+
+# -- THESIS_POLICY (MAR-98) --------------------------------------------------
+
+GOLDEN_RESULTS = REPO_ROOT / "parity" / "golden" / "full_optimization_results.csv.gz"
+THESIS_APPROACH = {
+    "portfolio": "integrated_portfolio_optimization",
+    "cluster": "cluster_optimization",
+}
+# MSE objective values (loss units) of main's DEFAULT_POLICY before MAR-98 on
+# this fixture (macOS arm64, workspace lock). Compared to 1e-9 relative, not
+# bit for bit: OSQP's iterates depend on the BLAS and on the solver versions
+# of each CI job. The MAR-98 default lands 9.1e-5 (portfolio) and 4.7e-6
+# (cluster) lower, far outside that tolerance.
+PRE_MAR98_MSE = {"portfolio": 606424236718.7905, "cluster": 676157755876.9508}
+
+
+def golden_payouts(approach: str, entity_ids: tuple[str, ...]) -> NDArray[np.float64]:
+    """The thesis single-run MSE step levels of the given entities."""
+    table = pd.read_csv(GOLDEN_RESULTS)
+    selected = (
+        (table["Source"] == "single_run")
+        & (table["Approach"] == approach)
+        & (table["Method"] == "pure_basis_risk_minimization")
+    )
+    payouts = dict(
+        zip(
+            table.loc[selected, "Asset_ID"], table.loc[selected, "Payouts"], strict=True
+        )
+    )
+    return np.vstack(
+        [np.array(str(payouts[e]).strip("[]").split(), float) for e in entity_ids]
+    )
+
+
+@needs_fixture
+@pytest.mark.parametrize("scope", ["portfolio", "cluster"])
+def test_thesis_policy_reproduces_the_thesis_mse_solves(
+    thesis_data: EventSet, scope: str
+) -> None:
+    payout = StepPayout(attachment=ATTACHMENT, limit=LIMIT, n_bins=N_BINS)
+    (built,) = build_problems(
+        thesis_data,
+        SCOPES[scope],
+        payout,
+        MSE(),
+        PurePremium(),
+        (Budget(KAPPA),),
+        basis=BASIS,
+    )
+    result = solve(built, THESIS_POLICY)
+    assert result.solver == "OSQP"
+    assert result.objective_value == pytest.approx(PRE_MAR98_MSE[scope], rel=1e-9)
+    # ... which is the objective of the thesis payouts themselves.
+    problem = built.context.problem
+    theta = golden_payouts(THESIS_APPROACH[scope], result.entity_ids)
+    paid = payout.evaluate(problem.index, theta).sum(axis=1)
+    p = thesis_data.rates / thesis_data.rates.sum()
+    thesis_value = numpy_objective("mse", problem.loss, paid, p)
+    assert result.objective_value == pytest.approx(thesis_value, rel=1e-9)

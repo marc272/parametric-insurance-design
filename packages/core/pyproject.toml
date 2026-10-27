@@ -14,7 +14,7 @@ dependencies = [
     "pyarrow>=15",
     "pydantic>=2.7",
     "pyyaml>=6.0.1",
-    "scipy>=1.15",
+    "scipy>=1.15.2",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
@@ -29,6 +29,9 @@ classifiers = [
 
 [project.urls]
 Repository = "https://github.com/marc272/parametric-insurance-design"
+
+[project.scripts]
+parametric-insurance-design = "parametric_insurance_design.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.13.5,<0.14"]

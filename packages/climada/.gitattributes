@@ -1,0 +1,2 @@
+# pixi lockfile: no text merges (re-lock instead), collapsed in GitHub diffs
+pixi.lock merge=binary linguist-language=YAML linguist-generated=true
