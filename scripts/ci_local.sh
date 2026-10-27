@@ -78,7 +78,8 @@ for j in $selected; do
   esac
 done
 
-logdir=$(mktemp -d "${TMPDIR:-/tmp}/ci-local.XXXXXX") || exit 2
+tmp=${TMPDIR:-/tmp}
+logdir=$(mktemp -d "${tmp%/}/ci-local.XXXXXX") || exit 2
 head=$(git rev-parse --short HEAD)
 branch=$(git rev-parse --abbrev-ref HEAD)
 dirty=$(git status --porcelain --untracked-files=normal | wc -l | tr -d ' ')
