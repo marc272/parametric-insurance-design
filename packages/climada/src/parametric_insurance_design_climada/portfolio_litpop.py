@@ -818,7 +818,11 @@ def build_florida_locations(
         "producer": {
             "package": "parametric-insurance-design-climada",
             "version": version("parametric-insurance-design-climada"),
-            "function": f"{__name__}.build_florida_locations",
+            # Spelled out: __name__ is "__main__" under `python -m`.
+            "function": (
+                "parametric_insurance_design_climada.portfolio_litpop."
+                "build_florida_locations"
+            ),
             "climada": version("climada"),
             "geopandas": version("geopandas"),
             "shapely": version("shapely"),
