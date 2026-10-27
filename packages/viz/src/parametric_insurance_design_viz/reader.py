@@ -8,6 +8,8 @@ the store.
 
 * :class:`ResultReader` opens a store and returns :class:`RunResult` objects:
   the validated record tables of one committed run, plus its manifest.
+  :meth:`ResultReader.runs` reads many runs in bulk, one store read per table
+  (MAR-120), and :meth:`ResultReader.kpis` the ``kpis`` table of many runs.
 * :meth:`RunResult.problem_specs` rebuilds the run's design problems
   (entity membership) from the ``entities`` table.
 * :func:`entity_events` gives the event data under a run's entities (the
@@ -238,24 +240,20 @@ class ResultReader:
                 "figures read the store and never re-run an optimisation, so "
                 "compute it first (parametric-insurance-design run CONFIG)"
             )
-        tables = {name: self._store.read(name, run_ids=[run_id]) for name in TABLES}
-        return RunResult(
-            run_id=run_id,
-            runs=tables["runs"],
-            entities=tables["entities"],
-            payouts=tables["payouts"],
-            kpis=tables["kpis"],
-            exceedance=tables["exceedance"],
-            manifest=self._store.manifest(run_id),
-        )
+        return self._read([run_id])[0]
 
     def runs(self, run_ids: Iterable[str]) -> tuple[RunResult, ...]:
         """Read several committed runs, in the given order.
 
+        Bulk read (MAR-120): each record table is read once for all the runs
+        (one ``ResultStore.read`` per table) and split by ``run_id``, so
+        reading many runs costs about as much as their files. The results
+        equal those of :meth:`run`, one run at a time.
+
         Parameters
         ----------
         run_ids : iterable of str
-            The runs' ids.
+            The runs' ids. A repeated id gives the same result twice.
 
         Returns
         -------
@@ -266,8 +264,42 @@ class ResultReader:
         ------
         MissingRunError
             If a run is not committed; the message lists every missing one.
+        StoreError, RecordSchemaError
+            If the store is damaged.
         """
         ids = tuple(run_ids)
+        self._require(ids)
+        return self._read(ids)
+
+    def kpis(self, run_ids: Iterable[str]) -> pd.DataFrame:
+        """Read the ``kpis`` table of several committed runs at once (MAR-120).
+
+        Parameters
+        ----------
+        run_ids : iterable of str
+            The runs' ids.
+
+        Returns
+        -------
+        pandas.DataFrame
+            The validated ``kpis`` rows of those runs, as
+            ``ResultStore.read`` returns them: runs in sorted ``run_id``
+            order, rows in their written order within a run. The rows of one
+            run equal :attr:`RunResult.kpis` of :meth:`run`.
+
+        Raises
+        ------
+        MissingRunError
+            If a run is not committed; the message lists every missing one.
+        StoreError, RecordSchemaError
+            If the store is damaged.
+        """
+        ids = tuple(run_ids)
+        self._require(ids)
+        return self._store.read("kpis", run_ids=ids)
+
+    def _require(self, ids: Sequence[str]) -> None:
+        """Raise :class:`MissingRunError` naming every uncommitted run."""
         missing = [r for r in ids if not self._store.has_run(r)]
         if missing:
             raise MissingRunError(
@@ -276,7 +308,43 @@ class ResultReader:
                 "never re-run an optimisation, so compute them first "
                 "(parametric-insurance-design run CONFIG)"
             )
-        return tuple(self.run(r) for r in ids)
+
+    def _read(self, ids: Sequence[str]) -> tuple[RunResult, ...]:
+        """Read committed runs: one store read per table, split by run."""
+        unique = tuple(dict.fromkeys(ids))
+        if not unique:
+            return ()
+        split = {
+            name: _split(self._store.read(name, run_ids=unique), unique)
+            for name in TABLES
+        }
+        results = {
+            run_id: RunResult(
+                run_id=run_id,
+                runs=split["runs"][run_id],
+                entities=split["entities"][run_id],
+                payouts=split["payouts"][run_id],
+                kpis=split["kpis"][run_id],
+                exceedance=split["exceedance"][run_id],
+                manifest=self._store.manifest(run_id),
+            )
+            for run_id in unique
+        }
+        return tuple(results[r] for r in ids)
+
+
+def _split(frame: pd.DataFrame, run_ids: Sequence[str]) -> dict[str, pd.DataFrame]:
+    """Split a table of several runs into one frame per run.
+
+    Each frame keeps the rows of its run in table order, with a fresh
+    ``RangeIndex`` and the table's dtypes, as a read of that run alone
+    returns it; a run without rows gets an empty frame.
+    """
+    positions = frame.groupby("run_id", sort=False).indices
+    none = np.zeros(0, dtype=np.intp)
+    return {
+        r: frame.take(positions.get(r, none)).reset_index(drop=True) for r in run_ids
+    }
 
 
 def check_eventset(run: RunResult, eventset: EventSet | str) -> None:

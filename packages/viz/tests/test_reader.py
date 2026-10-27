@@ -5,9 +5,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
+import pandas as pd
 import pytest
 
-from parametric_insurance_design.records import ALL_PROBLEMS
+from parametric_insurance_design.experiment.store import ResultStore
+from parametric_insurance_design.records import ALL_PROBLEMS, TABLES
 from parametric_insurance_design_viz.errors import (
     EventSetMismatchError,
     IncompleteRunError,
@@ -139,3 +141,53 @@ def test_entity_events_without_specs_is_empty(toy: Fixture) -> None:
     events = entity_events(toy.eventset, toy.config.scopes[0].build(), ())
     assert events.empty
     assert tuple(events.columns) == EVENT_COLUMNS
+
+
+# -- bulk reads (MAR-120) -------------------------------------------------------
+
+
+def one_at_a_time(store: ResultStore, run_id: str) -> dict[str, pd.DataFrame]:
+    """Each table of one run, read alone (the reader before MAR-120)."""
+    return {name: store.read(name, run_ids=[run_id]) for name in TABLES}
+
+
+@pytest.mark.parametrize("name", ["toy", "failed"])
+def test_bulk_read_equals_the_per_run_reads(
+    name: str, request: pytest.FixtureRequest
+) -> None:
+    fx: Fixture = request.getfixturevalue(name)
+    reader = ResultReader(fx.store)
+    ids = list(reversed(fx.run_ids))  # not the store's sorted order
+    bulk = reader.runs(ids)
+    assert [r.run_id for r in bulk] == ids
+    for run in bulk:
+        alone = one_at_a_time(fx.store, run.run_id)
+        for table, frame in alone.items():
+            pd.testing.assert_frame_equal(getattr(run, table), frame)
+        assert dict(run.manifest) == fx.store.manifest(run.run_id)
+    kpis = reader.kpis(ids)
+    expected = pd.concat(
+        [one_at_a_time(fx.store, r)["kpis"] for r in sorted(ids)], ignore_index=True
+    )
+    pd.testing.assert_frame_equal(kpis, expected)
+
+
+def test_bulk_read_of_a_failed_run_has_empty_tables(failed: Fixture) -> None:
+    run_id = failed.run_id("cluster", "mse")
+    (run,) = ResultReader(failed.store).runs([run_id])
+    assert run.payouts.empty
+    assert list(run.payouts.columns) == list(TABLES["payouts"].column_names)
+    pd.testing.assert_frame_equal(
+        run.payouts, failed.store.read("payouts", run_ids=[run_id])
+    )
+
+
+def test_bulk_read_repeats_and_empty(toy: Fixture) -> None:
+    reader = ResultReader(toy.store)
+    first = toy.run_ids[0]
+    a, b = reader.runs([first, first])
+    assert a.run_id == b.run_id == first
+    assert reader.runs([]) == ()
+    assert reader.kpis([]).empty
+    with pytest.raises(MissingRunError, match=r"1 of 2 runs"):
+        reader.kpis([first, UNKNOWN])
