@@ -15,6 +15,8 @@ Two groups:
 
 from __future__ import annotations
 
+import copy
+import pickle
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, ClassVar
@@ -37,6 +39,7 @@ from parametric_insurance_design.errors import (
     UnboundedError,
 )
 from parametric_insurance_design.eventset import EventSet
+from parametric_insurance_design.experiment.runner import policy_fingerprint, run_key
 from parametric_insurance_design.interfaces import (
     Constraint,
     Objective,
@@ -202,6 +205,121 @@ def test_problem_class_selects_the_solver_list(toy_eventset: EventSet) -> None:
     )
     assert DEFAULT_POLICY.solvers_for(qp.problem) == DEFAULT_POLICY.qp_solvers
     assert DEFAULT_POLICY.solvers_for(lp.problem) == DEFAULT_POLICY.lp_solvers
+
+
+# -- pickling (MAR-124) ------------------------------------------------------
+
+# The fingerprints and run ids of the two named policies, computed on main
+# before MAR-124 (71676b9): pickling support must not change them.
+PINNED_FINGERPRINTS: dict[str, dict[str, Any]] = {
+    "DEFAULT_POLICY": {
+        "lp_solvers": ["CLARABEL", "HIGHS", "SCS"],
+        "qp_solvers": ["OSQP", "CLARABEL"],
+        "accept_inaccurate": True,
+        "solver_options": {
+            "OSQP": {"eps_abs": 1e-08, "eps_rel": 1e-08, "max_iter": 100000},
+            "SCS": {"max_iters": 20000},
+        },
+    },
+    "THESIS_POLICY": {
+        "lp_solvers": ["CLARABEL", "HIGHS", "SCS"],
+        "qp_solvers": ["OSQP", "CLARABEL"],
+        "accept_inaccurate": True,
+        "solver_options": {"SCS": {"max_iters": 20000}},
+    },
+}
+PINNED_RUN_IDS: dict[str, str] = {
+    "DEFAULT_POLICY": (
+        "sha256:394fa39d7a5f5a3a0d00f331a3d5498d4481881351a2d6ac4f142e5ee5249b5a"
+    ),
+    "THESIS_POLICY": (
+        "sha256:029a975bb3c32204cae56fbaf2263cc692152c6f11273af5a32983007a151535"
+    ),
+}
+NAMED_POLICIES: dict[str, SolverPolicy] = {
+    "DEFAULT_POLICY": DEFAULT_POLICY,
+    "THESIS_POLICY": THESIS_POLICY,
+}
+
+
+def _pinned_run_id(policy: SolverPolicy) -> str:
+    """The run id of a fixed config hash, checksum and version under a policy."""
+    return run_key(
+        "sha256:" + "0" * 64,
+        "sha256:" + "1" * 64,
+        package_version="0.0.0",
+        policy=policy,
+    )
+
+
+def _assert_read_only(policy: SolverPolicy) -> None:
+    """The options mapping and every per-solver mapping refuse writes."""
+    with pytest.raises(TypeError):
+        policy.solver_options["SCS"] = {}  # type: ignore[index]
+    for options in policy.solver_options.values():
+        with pytest.raises(TypeError):
+            options["max_iters"] = 1  # type: ignore[index]
+
+
+@pytest.mark.parametrize("name", sorted(NAMED_POLICIES))
+def test_named_policy_fingerprints_are_pinned(name: str) -> None:
+    policy = NAMED_POLICIES[name]
+    assert policy_fingerprint(policy) == PINNED_FINGERPRINTS[name]
+    assert _pinned_run_id(policy) == PINNED_RUN_IDS[name]
+
+
+@pytest.mark.parametrize("protocol", range(pickle.HIGHEST_PROTOCOL + 1))
+@pytest.mark.parametrize("name", sorted(NAMED_POLICIES))
+def test_named_policies_survive_a_pickle_round_trip(name: str, protocol: int) -> None:
+    policy = NAMED_POLICIES[name]
+    copied = pickle.loads(pickle.dumps(policy, protocol=protocol))
+    assert copied == policy
+    assert type(copied) is SolverPolicy
+    assert policy_fingerprint(copied) == PINNED_FINGERPRINTS[name]
+    assert _pinned_run_id(copied) == PINNED_RUN_IDS[name]
+    _assert_read_only(copied)
+    # Pickling does not unfreeze the original either.
+    _assert_read_only(policy)
+
+
+def test_a_custom_policy_survives_copies_and_pickling() -> None:
+    policy = SolverPolicy(
+        lp_solvers=("SCS",),
+        qp_solvers=("CLARABEL",),
+        accept_inaccurate=False,
+        solver_options={"SCS": {"max_iters": 5, "eps": 1e-3}, "OSQP": {}},
+    )
+    for copied in (
+        pickle.loads(pickle.dumps(policy)),
+        copy.copy(policy),
+        copy.deepcopy(policy),
+    ):
+        assert copied == policy
+        assert copied is not policy
+        assert policy_fingerprint(copied) == policy_fingerprint(policy)
+        assert copied.accepted == {SolveStatus.OPTIMAL}
+        _assert_read_only(copied)
+
+
+def test_unequal_policies_stay_unequal_after_pickling() -> None:
+    copied = pickle.loads(pickle.dumps(THESIS_POLICY))
+    assert copied != DEFAULT_POLICY
+    assert policy_fingerprint(copied) != policy_fingerprint(DEFAULT_POLICY)
+
+
+@dataclass(frozen=True)
+class _TaggedPolicy(SolverPolicy):
+    """A subclass with an extra field, to check that pickling keeps it."""
+
+    tag: str = "untagged"
+
+
+def test_a_policy_subclass_keeps_its_class_and_fields() -> None:
+    policy = _TaggedPolicy(accept_inaccurate=False, tag="worker")
+    copied = pickle.loads(pickle.dumps(policy))
+    assert type(copied) is _TaggedPolicy
+    assert copied == policy
+    assert copied.tag == "worker"
 
 
 # -- results -----------------------------------------------------------------

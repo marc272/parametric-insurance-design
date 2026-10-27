@@ -12,9 +12,10 @@ from __future__ import annotations
 import os
 import pickle
 from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass
 from multiprocessing import get_context
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 import pytest
@@ -391,7 +392,7 @@ def test_a_worker_without_the_input_refuses_to_run(
     config = toy_config(toy_dir, tmp_path, **PORTFOLIO_MSE)
     data = load_input(config)
     (single,) = config.single_runs()
-    sent = module._PolicyFields.of(DEFAULT_POLICY)
+    sent = DEFAULT_POLICY
     with pytest.raises(SweepWorkerError, match="no input or another input"):
         module._execute_in_worker(single, data.checksum, "single_run", sent)
     module._init_worker(data)
@@ -408,12 +409,64 @@ def test_a_worker_without_the_input_refuses_to_run(
 
 @pytest.mark.parametrize("policy", [DEFAULT_POLICY, FAILING_POLICY, SolverPolicy()])
 def test_policies_survive_the_trip_to_a_worker(policy: SolverPolicy) -> None:
-    # SolverPolicy itself cannot be pickled (read-only option mappings).
-    sent = module._PolicyFields.of(policy)
-    rebuilt = pickle.loads(pickle.dumps(sent)).policy()
+    # The policy itself is sent (MAR-124: SolverPolicy can be pickled).
+    module._check_policy_survives_pickling(policy)
+    rebuilt = pickle.loads(pickle.dumps(policy))
     assert rebuilt == policy
     assert type(rebuilt) is type(policy)
     assert policy_fingerprint(rebuilt) == policy_fingerprint(policy)
+
+
+@dataclass(frozen=True)
+class _ForgetfulPolicy(SolverPolicy):
+    """A policy that arrives in a worker as the default policy."""
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        return (SolverPolicy, ())
+
+
+@dataclass(frozen=True)
+class _UnpicklablePolicy(SolverPolicy):
+    """A policy that cannot be sent to a worker."""
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        raise TypeError("cannot pickle this policy")
+
+
+class _NoSubmit:
+    """An executor stand-in that fails the test if a run is submitted."""
+
+    def submit(self, *args: object, **kwargs: object) -> object:
+        raise AssertionError("a run was submitted")
+
+
+@pytest.mark.parametrize(
+    ("policy", "message"),
+    [
+        (_ForgetfulPolicy(accept_inaccurate=False), "changes its fingerprint"),
+        (_UnpicklablePolicy(), "cannot send the solver policy"),
+    ],
+)
+def test_a_policy_that_would_change_in_a_worker_is_refused(
+    toy_dir: Path, tmp_path: Path, policy: SolverPolicy, message: str
+) -> None:
+    with pytest.raises(SweepWorkerError, match=message):
+        module._check_policy_survives_pickling(policy)
+    config = toy_config(toy_dir, tmp_path, **PORTFOLIO_MSE)
+    data = load_input(config)
+    store = ResultStore(tmp_path / "store")
+    with pytest.raises(SweepWorkerError, match=message):
+        module._run_all(
+            config.single_runs(),
+            data,
+            store,
+            source="single_run",
+            policy=policy,
+            force=False,
+            retry_failed=False,
+            workers=module._Workers(cast(ProcessPoolExecutor, _NoSubmit()), data, 2),
+        )
+    assert store.run_ids() == ()
 
 
 def test_the_pool_must_hold_the_sweep_input(toy_dir: Path, tmp_path: Path) -> None:
