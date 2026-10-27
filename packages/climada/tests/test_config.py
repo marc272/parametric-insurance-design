@@ -11,8 +11,10 @@ import yaml
 from parametric_insurance_design.errors import ConfigError
 from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design_climada import cli
+from parametric_insurance_design_climada import iris
 from parametric_insurance_design_climada.config import (
     PipelineConfigError,
+    iris_licence,
     load_config,
     parse_config,
 )
@@ -37,7 +39,33 @@ def test_thesis_config_resolves_against_its_directory() -> None:
     assert config.wind.max_dist_inland_km is None
     assert config.impact_function.kind == "emanuel_usa"
     assert config.hazard_release is None
-    assert config.licence == "CC0-1.0"
+    assert config.licence == "CC-BY-4.0"
+
+
+def test_iris_derived_builds_default_to_cc_by_4(config_data: dict[str, Any]) -> None:
+    # MAR-94: IRIS-derived data is CC BY 4.0; a config that names no licence
+    # gets the one the IRIS manifest applies.
+    assert "licence" not in config_data
+    assert iris_licence() == iris.load_manifest().licence_applied == "CC-BY-4.0"
+    assert parse_config(config_data).licence == "CC-BY-4.0"
+    custom = parse_config({**config_data, "licence": "CC-BY-NC-4.0"})
+    assert custom.licence == "CC-BY-NC-4.0"
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "thesis.yaml",
+        "thesis_cat_in_circle.yaml",
+        "thesis_cat_in_circle_vulnerability.yaml",
+        "thesis_vulnerability.yaml",
+        "thesis_vulnerability_all_events.yaml",
+        "florida_counties.yaml",
+        "florida_counties_cat_in_circle.yaml",
+    ],
+)
+def test_shipped_iris_configs_record_cc_by_4(name: str) -> None:
+    assert load_config(PACKAGE / "configs" / name).licence == "CC-BY-4.0"
 
 
 @pytest.mark.parametrize(

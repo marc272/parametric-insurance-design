@@ -134,7 +134,7 @@ def test_fixture_semantics(eventset: EventSet) -> None:
         "USD",
     )
     assert meta.hazard.name == "IRIS"
-    assert meta.licence == "CC0-1.0"
+    assert meta.licence == "CC-BY-4.0"
     assert meta.filters == ()
     # Zero-loss rows are kept, not dropped.
     all_zero = ((eventset.index == 0) & (eventset.loss == 0)).all(axis=1)

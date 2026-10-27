@@ -92,7 +92,7 @@ DEFAULT_MANIFEST = PARITY_DIR / "manifest.json"
 LEADING_COLUMNS = ("Event_ID", "Year", "Portfolio_Total_Loss", "Portfolio_Max_Wind")
 
 SCENARIO_ID = "iris-present-climate"
-LICENCE = "CC0-1.0"
+LICENCE = "CC-BY-4.0"
 HAZARD = HazardSource(
     name="IRIS",
     release=(

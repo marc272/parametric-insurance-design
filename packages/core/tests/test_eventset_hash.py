@@ -40,7 +40,7 @@ GOLDEN_SMALL_FILTERED = (
     "sha256:d96c4b80e1d31ebdee89cc51e59a20a2161a12ba58861e0f0dfcb123c46716d0"
 )
 GOLDEN_PARITY_FIXTURE = (
-    "sha256:f247d02460690fec6efb80b7f4a7936671eddc6c9ccf6debe5e128276001877a"
+    "sha256:404b0c3a3aefa38965ad3ace2747d308685a67e3b218cb835d45a9ab375294df"
 )
 # MAR-88: the small EventSet with one transform record (_TRANSFORM below).
 GOLDEN_SMALL_TRANSFORMED = (
