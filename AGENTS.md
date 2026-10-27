@@ -68,7 +68,7 @@ If these conflict, stop and escalate. Never resolve a conflict by editing the sp
 
 ## Definition of done
 
-- CI is green on the PR.
+- CI is green on the PR, or, while Actions minutes are exhausted, `scripts/ci_local.sh` passes on the PR head and its summary is in the PR body (under "Local CI (GitHub Actions minutes exhausted)"; runbook "Merge policy").
 - Every acceptance criterion is met and evidenced in the PR body.
 - Tests cover the new behaviour. Docstrings and docs are updated.
 - No new TODOs without a proposed follow-up.
