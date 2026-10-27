@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 import yaml
 
+from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.experiment.config import (
     ExperimentConfig,
     config_hash,
@@ -162,26 +163,29 @@ def holdout(toy_grid: dict) -> dict[str, tuple[RunResult, ...]]:
     }
 
 
-def as_annual(run: RunResult) -> RunResult:
-    """The run's rows relabelled as annual: AEP and OEP (values / 2) curves.
-
-    The runner cannot evaluate the annual basis yet (MAR-24), so the curves
-    are made from the event curve.
-    """
-    curves = run.exceedance.assign(basis="annual")
-    aep = curves.assign(curve="aep")
-    oep = curves.assign(curve="oep", value=curves["value"] / 2)
-    return dataclasses.replace(
-        run,
-        kpis=run.kpis.assign(basis="annual"),
-        exceedance=pd.concat([aep, oep], ignore_index=True),
-    )
-
-
 @pytest.fixture(scope="module")
-def annual(toy_grid: dict) -> dict[str, tuple[RunResult, ...]]:
-    """Annual-basis runs: AEP and OEP curves instead of the event curve."""
-    return {"portfolio": tuple(as_annual(r) for r in toy_grid["portfolio"])}
+def annual(
+    toy: Fixture, tmp_path_factory: pytest.TempPathFactory
+) -> dict[str, tuple[RunResult, ...]]:
+    """Annual-basis runs (MAR-24): AEP and OEP curves instead of the event curve.
+
+    The toy's 60 events are spread over 30 years (two per year, rate 1/30),
+    so that the yearly sum (AEP) and the largest event of a year (OEP)
+    differ; years whose rows the threshold filter drops are zero-loss years.
+    """
+    directory = tmp_path_factory.mktemp("annual")
+    raw = EventSet.from_parquet(toy.path.parent / "eventset")
+    n_years = 30
+    events = raw.events.assign(year=np.arange(raw.n_rows) % n_years, rate=1.0 / n_years)
+    EventSet(
+        events=events,
+        locations=raw.locations,
+        index=raw.index,
+        loss=raw.loss,
+        metadata=dataclasses.replace(raw.metadata, n_years=n_years),
+    ).to_parquet(directory / "eventset")
+    v = variant(toy, directory, basis="annual", eventset={"path": "eventset"})
+    return {"portfolio": variant_grid(v)["portfolio"]}
 
 
 # -- kpi_table -------------------------------------------------------------------
@@ -481,6 +485,18 @@ def test_exceedance_curve_kinds(annual: dict, toy_grid: dict) -> None:
     oep = exceedance_curves(runs, curve="oep").data[""]
     assert set(oep["curve"]) == {"oep"}
     assert set(oep["source"]) == {"exceedance"}  # VaR is an aggregate quantile
+    # Real annual curves: the yearly sum is at least the largest event of the
+    # year, and above it at some return period (two events per year).
+    e = runs[0].exceedance
+    portfolio_loss = (e["level"] == "portfolio") & (e["quantity"] == "loss")
+    by_period = {
+        kind: where(e, portfolio_loss & (e["curve"] == kind))
+        .sort_values("return_period")["value"]
+        .to_numpy()
+        for kind in ("aep", "oep")
+    }
+    assert np.all(by_period["aep"] >= by_period["oep"] - 1e-9)
+    assert np.any(by_period["aep"] > by_period["oep"] + 1e-9)
     loss = exceedance_curves(runs, quantity="loss").data[""]
     assert set(loss["quantity"]) == {"loss"}
     assert set(loss["source"]) == {"exceedance"}

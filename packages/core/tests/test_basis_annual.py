@@ -35,7 +35,6 @@ from parametric_insurance_design.objectives import (
 from parametric_insurance_design.payout import StepPayout
 from parametric_insurance_design.pricing import PurePremium
 from parametric_insurance_design.problem import build_problems
-from parametric_insurance_design.records import KpiName
 from parametric_insurance_design.scopes import Individual, Portfolio
 from parametric_insurance_design.solve import solve
 
@@ -104,7 +103,9 @@ def one_per_year(toy: EventSet, n_years: int = 8, seed: int = 3) -> EventSet:
 # --------------------------------------------------------------------------
 
 
-def test_annual_sums_rows_per_year_and_pools_empty_years(toy_eventset: EventSet) -> None:
+def test_annual_sums_rows_per_year_and_pools_empty_years(
+    toy_eventset: EventSet,
+) -> None:
     data = clustered(toy_eventset)
     measure = outcome_measure(data, Basis.ANNUAL)
     assert measure.basis is Basis.ANNUAL
@@ -167,9 +168,7 @@ def test_annual_needs_the_draw_rate_convention(toy_eventset: EventSet) -> None:
     data = clustered(toy_eventset)
     unequal = data.events.assign(rate=[0.2, 0.2, 0.1, 0.2])
     with pytest.raises(InputMismatchError, match=r"1 / \(n_years \* n_draws\)"):
-        outcome_measure(
-            dataclasses.replace(data, events=unequal), Basis.ANNUAL
-        )
+        outcome_measure(dataclasses.replace(data, events=unequal), Basis.ANNUAL)
     # Rates 1/Y but a draw_id of 1: the draws' rates were not divided.
     drawn = data.events.assign(draw_id=[0, 1, 0, 0])
     with pytest.raises(InputMismatchError, match=r"draw_id must lie in \[0, 1\)"):
@@ -407,9 +406,7 @@ def test_mse_squares_the_summed_yearly_residual(toy_eventset: EventSet) -> None:
     loss = data.loss[:, 0]
     payout = np.array([1.0, 8.0, 8.0, 1.0])
     x = cp.Variable(4)
-    term_expr = measure.probability @ cp.square(
-        measure.aggregate_expression(loss - x)
-    )
+    term_expr = measure.probability @ cp.square(measure.aggregate_expression(loss - x))
     problem = cp.Problem(cp.Minimize(term_expr), [x == payout])
     problem.solve(solver=cp.CLARABEL)
     # Residuals 3, 2, -2, -1: year 0 (rows 0, 1, 3) sums to 4, year 1 is -2,
@@ -427,9 +424,9 @@ def test_mse_squares_the_summed_yearly_residual(toy_eventset: EventSet) -> None:
         basis=Basis.ANNUAL,
     )
     result = solve(built[0])  # entity A
-    fitted = result.payout_structure.evaluate(
-        data.index[:, :1], result.theta
-    ).sum(axis=1)
+    fitted = result.payout_structure.evaluate(data.index[:, :1], result.theta).sum(
+        axis=1
+    )
     residual = measure.aggregate(loss - fitted)
     assert result.objective_value == pytest.approx(
         float(measure.probability @ residual**2), rel=1e-5, abs=1e-6

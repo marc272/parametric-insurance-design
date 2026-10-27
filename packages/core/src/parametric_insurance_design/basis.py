@@ -279,8 +279,8 @@ class OutcomeMeasure:
 
         On a per-row measure the expression is returned unchanged (so the
         ``event_conditional`` problems are exactly the thesis's). Otherwise it
-        is multiplied by a sparse 0/1 matrix (built once per measure); outcomes without rows are
-        the constant 0.
+        is multiplied by a sparse 0/1 matrix, built once per measure;
+        outcomes without rows are the constant 0.
 
         Parameters
         ----------
@@ -341,7 +341,7 @@ def _sample_years(eventset: EventSet, years: ArrayLike | None) -> NDArray[np.int
 
 
 def _n_draws(eventset: EventSet) -> int:
-    """Number of draws ``D`` implied by the rates ``1 / (n_years * D)``.
+    """Return the number of draws ``D`` implied by rates ``1 / (n_years * D)``.
 
     Raises
     ------
