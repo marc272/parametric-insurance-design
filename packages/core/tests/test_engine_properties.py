@@ -17,9 +17,9 @@ does not depend on the thesis numbers, through the public API only:
 * Scaling invariance: losses times ``c`` give payouts times ``c``.
 
 Every check recomputes the quantity in numpy from the EventSet and the
-fitted ``theta``, independently of the cvxpy expressions. Only the
-``event_conditional`` basis is implemented so far (``event`` and ``annual``
-come with MAR-24), so every test uses it.
+fitted ``theta``, independently of the cvxpy expressions. Every test here
+uses the ``event_conditional`` basis; the same properties on the ``event``
+and ``annual`` bases are in ``test_engine_properties_bases.py`` (MAR-24).
 
 Determinism: hypothesis runs with ``derandomize=True`` and no example
 database, so CI draws the same examples every run. The analytical tests draw
