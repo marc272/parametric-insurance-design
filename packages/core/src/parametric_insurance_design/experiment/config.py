@@ -393,9 +393,11 @@ class KFoldSampleConfig(_Model):
 
     @model_validator(mode="after")
     def _fold_in_range(self) -> Self:
-        """The fold lies in ``0 .. k - 1``."""
+        """Check that the fold lies in ``0 .. k - 1``."""
         if self.fold is not None and self.fold >= self.k:
-            raise ValueError(f"fold {self.fold} is not in 0 .. {self.k - 1} (k={self.k})")
+            raise ValueError(
+                f"fold {self.fold} is not in 0 .. {self.k - 1} (k={self.k})"
+            )
         return self
 
 
@@ -961,9 +963,7 @@ class ExperimentConfig(_Model):
                 for f in range(sample.k)
             ]
         return tuple(
-            self._replaced(
-                scopes=[scope], objectives=[objective], sweeps=[], sample=s
-            )
+            self._replaced(scopes=[scope], objectives=[objective], sweeps=[], sample=s)
             for scope in self.scopes
             for objective in self.objectives
             for s in samples

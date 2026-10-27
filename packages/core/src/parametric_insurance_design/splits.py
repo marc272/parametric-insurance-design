@@ -99,9 +99,9 @@ def _event_years(eventset: EventSet) -> NDArray[np.int64]:
     events = eventset.events
     years = events["year"].to_numpy(dtype=np.int64)
     per_event = events.groupby("event_id", sort=False)["year"].nunique()
-    spread = per_event[per_event > 1]
-    if len(spread):
-        examples = ", ".join(repr(e) for e in spread.index[:5])
+    spread = [str(e) for e in per_event.index[per_event.to_numpy() > 1]]
+    if spread:
+        examples = ", ".join(repr(e) for e in spread[:5])
         raise LeakageError(
             f"{len(spread)} events have rows in more than one year (e.g. "
             f"{examples}); a year-block split would put draws of one event in "

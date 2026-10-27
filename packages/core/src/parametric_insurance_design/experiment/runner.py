@@ -485,9 +485,9 @@ def run_parameters(config: ExperimentConfig, eventset: EventSet) -> dict[str, An
     -------
     dict
         ``attachment``, ``limit``, ``n_bins``, ``n_assets``,
-        ``evaluation_beta``, ``sample``; ``train_fraction`` (holdout), ``k``
-        and ``fold`` (k-fold); ``n_clusters``, ``beta_tail``, ``linkage`` (cluster scope);
-        ``scope_index`` (if set); ``alpha``, ``beta`` (weighted CVaR);
+        ``evaluation_beta``, ``sample``; ``train_fraction`` (holdout);
+        ``k``, ``fold`` (k-fold); ``n_clusters``, ``beta_tail``, ``linkage``
+        (cluster scope); ``scope_index`` (if set); ``alpha``, ``beta`` (weighted CVaR);
         ``pricing_rate``, ``pricing_q`` (cost of capital); ``budget_loading``
         (budget); ``noise_kind``, ``noise_level``, ``n_copies``,
         ``noise_seed``, ``noise_low``, ``noise_high`` (noise); ``threshold``,

@@ -576,14 +576,23 @@ def test_holdout_calibrates_on_train_and_evaluates_both(
     assert m["parameters"]["train_fraction"] == 0.6
 
 
-def test_kfold_is_refused(
+def test_kfold_without_a_fold_is_refused(
     toy_dir: Path, tmp_path: Path, toy_eventset: EventSet
 ) -> None:
+    # MAR-22: each fold is a run of its own; single_runs() sets the fold.
     config = toy_config(toy_dir, tmp_path, sample={"kind": "kfold", "k": 3})
     run = single(config, "portfolio", "mse")
     assert run_parameters(run, toy_eventset)["k"] == 3
+    assert run_parameters(run, toy_eventset)["fold"] == 0
+    whole = toy_config(
+        toy_dir,
+        tmp_path,
+        sample={"kind": "kfold", "k": 3},
+        scopes=[{"kind": "portfolio"}],
+        objectives=[{"kind": "mse"}],
+    )
     with pytest.raises(ConfigError, match="k-fold"):
-        execute(run, load_input(config))
+        execute(whole, load_input(config))
 
 
 def test_run_single_needs_one_scope_and_objective(

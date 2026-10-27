@@ -50,6 +50,7 @@ from parametric_insurance_design.experiment.sweeps import (
 )
 from parametric_insurance_design.records import ALL_PROBLEMS, TABLES
 from parametric_insurance_design.solve import DEFAULT_POLICY, SolverPolicy
+from parametric_insurance_design.splits import SplitError
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PARITY_EVENTSET = REPO_ROOT / "parity" / "tests" / "data" / "thesis_eventset"
@@ -315,16 +316,18 @@ def test_run_sweep_alone_runs_in_parallel(toy_dir: Path, tmp_path: Path) -> None
 
 
 def test_worker_errors_propagate_with_their_type(toy_dir: Path, tmp_path: Path) -> None:
-    # The runner refuses k-fold samples; here it does so inside a worker.
+    # A holdout without training years (0.1 of 3 years) fails in the split;
+    # here it does so inside a worker. (Until MAR-22 the runner refused k-fold
+    # samples, which this test used.)
     config = toy_config(
         toy_dir,
         tmp_path,
         **PORTFOLIO_MSE,
-        sample={"kind": "kfold", "k": 2},
+        sample={"kind": "holdout", "train_fraction": 0.1},
         sweeps=[{"parameter": "n_bins", "values": [3]}],
     )
     store = ResultStore(tmp_path / "store")
-    with pytest.raises(ConfigError, match="k-fold"):
+    with pytest.raises(SplitError, match="training years"):
         run_sweeps(config, store=store, baseline=False, jobs=2)
     assert store.run_ids() == ()
     assert read_sweep_manifests(store) == ()
