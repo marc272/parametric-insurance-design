@@ -9,9 +9,10 @@ store's own tables.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pandas as pd
@@ -31,8 +32,9 @@ from parametric_insurance_design_viz.command import (
 from parametric_insurance_design_viz.errors import (
     InconsistentRunsError,
     MissingRunError,
+    VizError,
 )
-from parametric_insurance_design_viz.reader import ResultReader
+from parametric_insurance_design_viz.reader import ResultReader, RunResult
 from parametric_insurance_design_viz.sweep_figures import (
     THESIS_TRANSACTION_COSTS,
     MissingKpiError,
@@ -490,3 +492,147 @@ def test_failed_baselines_skip_their_figures(
     assert penalty["penalty"].isna().tolist() == [False, True]
     breakeven = pd.read_csv(out / "breakeven_cost_cluster.csv")
     assert breakeven["n_clusters"].tolist() == [2]
+
+
+# -- unrun sweeps, bulk reads, transaction costs (MAR-120) ---------------------
+
+GONE = "sha256:" + "e" * 64
+
+
+def draw(swept: SweepFixture, out: Path, **options: Any) -> FigureReport:  # noqa: ANN401
+    return write_figures(
+        swept.toy.config,
+        swept.toy.run_ids,
+        store=swept.toy.store,
+        out_dir=out,
+        eventset=swept.toy.eventset,
+        figure_sets=(sweep_figures.sweep_figures,),
+        **options,
+    )
+
+
+def test_missing_sweep_points_skip_their_figures(
+    swept: SweepFixture, tmp_path: Path
+) -> None:
+    # an alpha point of the portfolio x weighted CVaR run (single run 8) and
+    # an n_clusters point at C = 4 > K = 3 of cluster x weighted CVaR (5)
+    gone = (
+        SweepRun("alpha", 0.3, GONE, single=8),
+        SweepRun("n_clusters", 4, "sha256:" + "d" * 64, single=5),
+    )
+    report = draw(
+        swept, tmp_path, sweeps=(*swept.sweeps, *gone), skip_missing_sweeps=True
+    )
+    assert report.missing_sweeps == gone
+    assert not report.ok
+    missing = [s.name for s in report.skipped if s.missing]
+    assert missing == [
+        "payout_sweep_portfolio_a1_alpha",
+        "sensitivity_alpha",
+        "tradeoff_portfolio_alpha",
+        "sensitivity_n_clusters",
+        "net_advantage_cluster",
+    ]
+    assert all(not s.failed for s in report.skipped if s.missing)
+    reason = next(s.reason for s in report.skipped if s.name == "sensitivity_alpha")
+    assert "1 of its 7 sweep points are not in the result store" in reason
+    assert GONE in reason
+    assert "sweep CONFIG --parameter alpha" in reason
+    # figures whose points are all in the store are drawn as without the flag
+    written = [w.name for w in report.written]
+    assert written == [n for n in EXPECTED if n not in missing]
+    assert "breakeven_cost_cluster" in written  # needs only C < K
+    for name in ("payout_sweep_individual_a1_alpha", "breakeven_cost_cluster"):
+        pd.testing.assert_frame_equal(
+            pd.read_csv(tmp_path / f"{name}.csv"), swept.csv(name)
+        )
+    # the failed n_assets points are still reported as failed
+    assert [s.name for s in report.skipped if s.failed] == ["sensitivity_n_assets"]
+
+
+def test_skipping_with_nothing_missing_changes_nothing(
+    swept: SweepFixture, tmp_path: Path
+) -> None:
+    report = draw(swept, tmp_path, sweeps=swept.sweeps, skip_missing_sweeps=True)
+    assert report.missing_sweeps == ()
+    assert [w.name for w in report.written] == EXPECTED
+    assert report.skipped == swept.report.skipped
+
+
+def test_every_sweep_point_missing(swept: SweepFixture, tmp_path: Path) -> None:
+    gone = tuple(
+        SweepRun(p.parameter, p.value, "sha256:" + f"{i:064x}", p.single)
+        for i, p in enumerate(swept.sweeps)
+    )
+    report = draw(swept, tmp_path, sweeps=gone, skip_missing_sweeps=True)
+    assert len(report.missing_sweeps) == len(gone)
+    assert [w.name for w in report.written] == ["premium_reallocation"]
+    assert [s.name for s in report.skipped] == EXPECTED[1:]
+    assert all(s.missing and not s.failed for s in report.skipped)
+    assert not report.ok
+
+
+def test_sweep_runs_are_read_in_bulk(
+    swept: SweepFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[str, ...]] = []
+    bulk = ResultReader.runs
+
+    def runs(self: ResultReader, run_ids: Iterable[str]) -> tuple[RunResult, ...]:
+        ids = tuple(run_ids)
+        calls.append(ids)
+        return bulk(self, ids)
+
+    def one(self: ResultReader, run_id: str) -> RunResult:
+        raise AssertionError(f"read run {run_id} alone")
+
+    monkeypatch.setattr(ResultReader, "runs", runs)
+    monkeypatch.setattr(ResultReader, "run", one)
+    report = draw(swept, tmp_path, sweeps=swept.sweeps)
+    assert [w.name for w in report.written] == EXPECTED
+    # the single runs, then one bulk read per sweep with all of its points
+    assert calls[0] == swept.toy.run_ids
+    assert [len(c) for c in calls[1:]] == [
+        len({p.run_id for p in swept.points(x)})
+        for x in ("alpha", "n_clusters", "n_assets")
+    ]
+
+
+def test_custom_transaction_costs_reach_the_figure_data(
+    swept: SweepFixture, tmp_path: Path
+) -> None:
+    costs = (2.0, 0.5, 0.0)
+    report = draw(swept, tmp_path, sweeps=swept.sweeps, transaction_costs=costs)
+    assert [w.name for w in report.written] == EXPECTED
+    net = pd.read_csv(tmp_path / "net_advantage_cluster.csv")
+    assert sorted(set(net["transaction_cost"])) == sorted(costs)
+    penalty = swept.csv("net_advantage_cluster.penalty")
+    merged = net.merge(penalty[["n_clusters", "penalty"]], on="n_clusters")
+    np.testing.assert_allclose(
+        merged["net_advantage"],
+        (3 - merged["n_clusters"]) * merged["transaction_cost"] - merged["penalty_y"],
+    )
+    zero = where(net, net["transaction_cost"] == 0.0)
+    np.testing.assert_allclose(zero["net_advantage"], -zero["penalty"])
+    # the break-even cost does not depend on the costs
+    pd.testing.assert_frame_equal(
+        pd.read_csv(tmp_path / "breakeven_cost_cluster.csv"),
+        swept.csv("breakeven_cost_cluster"),
+    )
+
+
+@pytest.mark.parametrize(
+    ("costs", "match"),
+    [
+        ((), "at least one"),
+        ((1.0, -1.0), "finite and >= 0"),
+        ((float("nan"),), "finite and >= 0"),
+        ((1.0, 1.0), "repeat"),
+    ],
+)
+def test_bad_transaction_costs_are_an_error(
+    swept: SweepFixture, tmp_path: Path, costs: tuple[float, ...], match: str
+) -> None:
+    with pytest.raises(VizError, match=match):
+        draw(swept, tmp_path, sweeps=swept.sweeps, transaction_costs=costs)
+    assert not list(tmp_path.iterdir())  # checked before drawing

@@ -9,7 +9,11 @@ parametric-insurance-design run CONFIG      # or `sweep CONFIG` if the config ha
 parametric-insurance-design figures CONFIG [--out DIR]
 ```
 
-If the config has `sweeps`, `figures` also needs every sweep point in the store (run `parametric-insurance-design sweep CONFIG` first); a missing point is an error that names it.
+If the config has `sweeps`, `figures` also needs every sweep point in the store (run `parametric-insurance-design sweep CONFIG` first); a missing point is an error that names it (exit 3). To draw the figures before every sweep has run, pass `--skip-missing-sweeps`: the sweep figures whose points are missing are skipped and listed as `MISSING` with the command that runs them, everything else is drawn, and the command exits 1. The single runs (`run CONFIG`) must still be in the store.
+
+The cluster net-advantage figure needs transaction costs per contract, which are not part of the config (as in the thesis). The default is the thesis' 25,000 to 125,000 (loss units), which is the setting of the parity config; set others with `--transaction-costs 1000,5000,10000`. The figure's CSV records the cost of every row (`transaction_cost`). The break-even figure does not depend on them.
+
+Runs are read in bulk: `ResultReader.runs` reads each store table once for all the runs it is given, and the sweep figures read all the points of one sweep at once. `ResultReader.kpis` reads the `kpis` table of many runs.
 
 `figures` is a core command that imports this package only when it runs. Each figure is written as `<name>.png` with its figure data next to it: `<name>.csv` and, for some figures, `<name>.<part>.csv`.
 
@@ -28,7 +32,7 @@ write_figure(payout_grid(runs), "figures/")
 | Module | What it holds |
 |---|---|
 | `style` | Fonts, palette and labels of the thesis `global_settings` |
-| `reader` | Result-store reader: runs, entities, event data under each entity |
+| `reader` | Result-store reader: runs (one at a time or in bulk), the `kpis` table of many runs, entities, event data under each entity |
 | `figure_data` | `FigureOutput` and `write_figure`: the image plus its figure-data CSVs |
 | `payout_functions` | Payout-function grid and normalised payout figure |
 | `kpi_figures` | KPI heatmaps, performance overview and exceedance curves |
