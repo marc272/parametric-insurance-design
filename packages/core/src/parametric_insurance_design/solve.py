@@ -43,9 +43,10 @@ Solvers that are not installed are not called, but they are still recorded
 as an attempt with status ``error`` and the message
 :data:`NOT_INSTALLED`, so the attempt log shows every solver the policy
 named up to the accepted one. This is how the policy copes with HiGHS
-missing: cvxpy < 1.8 ships no ``highspy`` (the CLIMADA env, ADR 0002), so
-the LP chain there is Clarabel, then SCS. If no solver of the chosen list is
-installed, :func:`solve` raises :class:`SolveError` before trying any.
+missing: cvxpy < 1.8 ships no ``highspy`` (e.g. the core's lowest-direct CI
+job, ADR 0002), so the LP chain there is Clarabel, then SCS. If no solver of
+the chosen list is installed, :func:`solve` raises :class:`SolveError` before
+trying any.
 
 Failure handling
     * An exception that cvxpy raises as :class:`cvxpy.error.SolverError`

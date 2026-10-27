@@ -17,7 +17,7 @@ concurrency:
 #   - "test-workspace" runs every package from uv.lock on 3.12 and 3.13;
 #   - "test-core-py311" installs packages/core alone on 3.11, outside the
 #     workspace lock, once with the newest dependencies and once with the
-#     lowest direct ones (numpy 1.26, pandas 2.1: the CLIMADA env's floor).
+#     lowest direct ones (numpy 1.26, pandas 2.1: the core's lowest-direct floor).
 # Core's coverage gate (85 %) counts only what core's own tests cover.
 
 jobs:
