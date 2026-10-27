@@ -52,7 +52,7 @@ Repeat until no step can make progress:
    - post a **Dispatch record** comment on it.
 
    Then keep working on other steps. You are notified when a worker finishes; don't poll.
-5. **Review** each PR a worker reports, against the runbook checklist. Wait for CI with `gh pr checks <n> --watch` (in the background if it's slow). If the review fails, send the findings to the same worker. After two failed rounds, escalate to Marc.
+5. **Review** each PR a worker reports, against the runbook checklist. Wait for CI with `gh pr checks <n> --watch` (in the background if it's slow). While Actions minutes are exhausted, follow the runbook's "Fallback: local CI": check the worker's pasted `scripts/ci_local.sh` summary and re-run the relevant jobs in the PR's worktree before merging. If the review fails, send the findings to the same worker. After two failed rounds, escalate to Marc.
 6. **Merge** the PRs that pass review, in dependency order (runbook "Merge policy"):
    - `gh pr merge <n> --squash`;
    - then `git pull --ff-only` on `main`;
