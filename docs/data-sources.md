@@ -63,7 +63,7 @@ Decided by the owner, Marc Prinzing, on 2026-10-27 (MAR-94; ADR 0001, amendment 
 - **Both records listed; treated as CC BY 4.0 by owner decision (MAR-94).** The records above stay as they are. IRIS-derived data is treated as CC BY 4.0, the stricter of the two.
 - **What records it.** The parity fixture's `metadata.json` records `CC-BY-4.0`. The CLIMADA adapter writes `CC-BY-4.0` into every EventSet it builds from IRIS by default (`licence_applied` in `iris_manifest.json`, which keeps the two recorded licences under `licence` and the decision under `licence_resolution`). The Florida EventSets (MAR-114) are CC-BY-4.0 already, through LitPop as well.
 - **What it asks of outputs.** Every output that uses IRIS-derived data gives credit (cite the data descriptor and the figshare collection, as the "Attribution" point above asks), links to the licence (<https://creativecommons.org/licenses/by/4.0/>), and indicates changes (for example: per-asset losses computed with CLIMADA from the IRIS tracks).
-- **The thesis result tables** in `parity/golden/`, the simulation-sweep tables included, are **CC0-1.0** by the same decision (`parity/golden/LICENSE`).
+- **The thesis result tables** in `parity/golden/`, the simulation-sweep tables included, are **CC-BY-4.0**, by the owner's revised decision of 2026-10-27 (MAR-94; applied in MAR-135): they were computed from IRIS-derived losses, so they follow the treatment above. This supersedes the CC0-1.0 first recorded for them (MAR-109). `parity/golden/LICENSE` states the licence and the attribution.
 
 ### LitPop and Overture licence check (MAR-30)
 
