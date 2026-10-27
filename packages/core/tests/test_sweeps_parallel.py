@@ -118,7 +118,7 @@ def _volatile(key: str) -> bool:
     )
 
 
-def _stable(value: Any) -> Any:
+def _stable(value: object) -> object:
     """A JSON value without its wall times and timestamps."""
     if isinstance(value, dict):
         return {k: _stable(v) for k, v in value.items() if not _volatile(k)}
@@ -127,17 +127,20 @@ def _stable(value: Any) -> Any:
     return value
 
 
+def _records(store: ResultStore, table: str) -> pd.DataFrame:
+    """A record table without its timings, in a fixed row order."""
+    frame = store.read(table)
+    columns = [str(c) for c in frame.columns if not _volatile(str(c))]
+    stable = pd.DataFrame(frame[columns])
+    return stable.sort_values(by=columns).reset_index(drop=True)
+
+
 def assert_same_contents(left: ResultStore, right: ResultStore) -> None:
     """Same runs, records, run manifests and sweep manifests, wall times aside."""
     assert left.run_ids() == right.run_ids()
     assert left.uncommitted_runs() == right.uncommitted_runs() == ()
     for table in TABLES:
-        frames = []
-        for store in (left, right):
-            frame = store.read(table)
-            frame = frame[[c for c in frame.columns if not _volatile(c)]]
-            frames.append(frame.sort_values(list(frame.columns)).reset_index(drop=True))
-        pd.testing.assert_frame_equal(*frames)
+        pd.testing.assert_frame_equal(_records(left, table), _records(right, table))
     for run_id in left.run_ids():
         assert _stable(left.manifest(run_id)) == _stable(right.manifest(run_id))
     assert [_stable(m) for m in read_sweep_manifests(left)] == [
@@ -230,10 +233,21 @@ def test_parallel_force_and_retry_failed_match_the_serial_path(
         sweeps=[{"parameter": "n_bins", "values": [2, 4]}],
     )
     serial, parallel = two_stores(tmp_path)
-    for options in ({}, {}, {"force": True}, {"retry_failed": True}):
-        one = run_sweeps(config, store=serial, policy=FAILING_POLICY, **options)
-        many = run_sweeps(
-            config, store=parallel, policy=FAILING_POLICY, jobs=2, **options
+    runs: list[tuple[bool, bool]] = [(False, False)] * 2 + [
+        (True, False),
+        (False, True),
+    ]
+    for force, retry_failed in runs:
+        one, many = (
+            run_sweeps(
+                config,
+                store=store,
+                policy=FAILING_POLICY,
+                force=force,
+                retry_failed=retry_failed,
+                jobs=jobs,
+            )
+            for store, jobs in ((serial, 1), (parallel, 2))
         )
         assert outcomes(one) == outcomes(many)
         assert not any(o.ok for o in many.baseline)
@@ -267,12 +281,12 @@ def test_duplicate_runs_get_the_serial_outcomes(
         "retry_failed": False,
         **options,
     }
-    for _ in range(2):  # an empty store, then a full one
-        expected = module._run_all(configs, data, serial, workers=None, **common)
-        with module._workers(2, data) as workers:
+    with module._workers(2, data) as workers:
+        for _ in range(2):  # an empty store, then a full one
+            expected = module._run_all(configs, data, serial, workers=None, **common)
             got = module._run_all(configs, data, parallel, workers=workers, **common)
-        assert got == expected
-        assert [o.ok for o in got] == [True, False, True, False, True]
+            assert got == expected
+            assert [o.ok for o in got] == [True, False, True, False, True]
     assert len(parallel.run_ids()) == 2
     assert_same_contents(serial, parallel)
 
@@ -386,16 +400,16 @@ def test_the_pool_must_hold_the_sweep_input(toy_dir: Path, tmp_path: Path) -> No
 
 @pytest.mark.parametrize("jobs", [0, -1, True, 1.5, "2"])
 def test_jobs_must_be_a_positive_integer(
-    toy_dir: Path, tmp_path: Path, jobs: Any
+    toy_dir: Path, tmp_path: Path, jobs: object
 ) -> None:
     config = toy_config(
         toy_dir, tmp_path, sweeps=[{"parameter": "alpha", "values": [0.5]}]
     )
     store = ResultStore(tmp_path / "store")
     with pytest.raises(ConfigError, match="jobs must be a positive integer"):
-        run_sweeps(config, store=store, jobs=jobs)
+        run_sweeps(config, store=store, jobs=jobs)  # pyright: ignore[reportArgumentType]
     with pytest.raises(ConfigError, match="jobs must be a positive integer"):
-        run_sweep(config, "alpha", load_input(config), store, jobs=jobs)
+        run_sweep(config, "alpha", load_input(config), store, jobs=jobs)  # pyright: ignore[reportArgumentType]
     assert not store.root.exists()
 
 
@@ -411,7 +425,7 @@ def test_the_pinned_checksum_is_checked(
     )
     store = ResultStore(tmp_path / "store")
     data = RunInput.from_eventset(toy_eventset)
-    with pytest.raises(ChecksumMismatchError, match="pins eventset.checksum"):
+    with pytest.raises(ChecksumMismatchError, match=r"pins eventset\.checksum"):
         run_sweep(config, "alpha", data, store, jobs=jobs)
     assert store.run_ids() == ()
 

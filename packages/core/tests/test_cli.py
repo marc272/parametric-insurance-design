@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import subprocess
 import sys
 from importlib.metadata import entry_points
@@ -395,6 +396,49 @@ def test_sweep_refuses_missing_sweeps(
     assert main(["sweep", str(path), *argv]) == ExitCode.INPUT_ERROR
     assert message in caplog.text
     assert not (path.parent / "results").exists()
+
+
+def _without_timings(out: str) -> list[str]:
+    return [re.sub(r"\d+\.\d s;", "_ s;", line) for line in lines(out)]
+
+
+def test_sweep_jobs_runs_in_worker_processes(
+    write_config: WriteConfig, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # MAR-105: --jobs N gives the serial summary and the same store.
+    serial = write_config("serial.yaml", **SWEEP)
+    parallel = write_config(
+        "parallel.yaml", **SWEEP, output={"directory": "results-parallel"}
+    )
+    assert main(["sweep", str(serial), "-q"]) == ExitCode.OK
+    expected = _without_timings(capsys.readouterr().out)
+    assert main(["sweep", str(parallel), "-q", "--jobs", "2"]) == ExitCode.OK
+    got = _without_timings(capsys.readouterr().out)
+    assert got[1:] == expected[1:]  # the first line names the store
+    left = ResultStore(tmp_path / "results")
+    right = ResultStore(tmp_path / "results-parallel")
+    assert left.run_ids() == right.run_ids()
+    assert len(right.run_ids()) == 5
+    manifests = [
+        sorted(p.name for p in (store.root / SWEEPS_DIR).glob("*.json"))
+        for store in (left, right)
+    ]
+    assert manifests[0] == manifests[1]
+    assert len(manifests[0]) == 2
+
+
+@pytest.mark.parametrize("jobs", ["0", "-2", "two", "1.5"])
+def test_sweep_jobs_must_be_positive(
+    jobs: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["sweep", "x.yaml", "--jobs", jobs]) == ExitCode.USAGE
+    assert "--jobs" in capsys.readouterr().err
+
+
+def test_jobs_is_a_sweep_option(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["sweep", "--help"]) == ExitCode.OK
+    assert "--jobs N" in capsys.readouterr().out
+    assert main(["run", "x.yaml", "--jobs", "2"]) == ExitCode.USAGE
 
 
 # -- errors and logging -------------------------------------------------------
