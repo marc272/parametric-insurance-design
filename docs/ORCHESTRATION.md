@@ -29,6 +29,8 @@ These steps are done by Marc, because agents may not change their own permission
    }
    ```
 
+   While Actions minutes are exhausted, "all CI checks are green" in this text is met by the local-CI fallback (see "Merge policy", "Fallback: local CI while Actions minutes are exhausted"). The block itself doesn't need to change.
+
 2. **Start sessions in auto mode.** Otherwise every command prompts and the loop stalls.
 3. **Optional: phone alerts.** Connect Remote Control, so that `PushNotification` reaches your phone as well as the desktop.
 4. **Guardrails, already checked in.** `.claude/settings.json` denies force pushes, pushes to `main`, admin merges and repository edits or deletes, in every mode.
@@ -117,7 +119,7 @@ The Program hub sets these rules:
 3. **Check size.** If an issue is clearly more than one PR (several modules, or more than about a day of work), first split it into sub-issues with goal, scope, acceptance and blockers. The original becomes a container. Don't pre-split far-future work; split when it becomes ready.
 4. **Delegate** (see below). Set the issue to In Progress and post a **dispatch record** on it.
 5. **Review.** When a worker reports back, check:
-   - CI is green;
+   - CI is green (or the local-CI fallback, see "Merge policy");
    - every acceptance criterion is evidenced in the PR body;
    - the diff stays within the owned files, with no stray interface or dependency changes;
    - tests exercise the behaviour, beyond a smoke test;
