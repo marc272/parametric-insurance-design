@@ -42,6 +42,7 @@ def test_writes_the_payout_figure_set(toy: Fixture, tmp_path: Path) -> None:
         store=toy.store,
         out_dir=tmp_path,
         eventset=toy.eventset,
+        figure_sets=(payout_figures,),
     )
     assert report.ok
     assert report.skipped == ()
@@ -62,7 +63,13 @@ def test_writes_the_payout_figure_set(toy: Fixture, tmp_path: Path) -> None:
 
 
 def test_without_eventset_there_are_no_overlays(toy: Fixture, tmp_path: Path) -> None:
-    report = write_figures(toy.config, toy.run_ids, store=toy.store, out_dir=tmp_path)
+    report = write_figures(
+        toy.config,
+        toy.run_ids,
+        store=toy.store,
+        out_dir=tmp_path,
+        figure_sets=(payout_figures,),
+    )
     assert [w.name for w in report.written] == EXPECTED
     assert not (tmp_path / "payout_grid_individual.events.csv").exists()
     assert pd.read_csv(tmp_path / "normalised_payout_individual_a1.density.csv").empty
@@ -75,6 +82,7 @@ def test_failed_scope_is_skipped_and_reported(failed: Fixture, tmp_path: Path) -
         store=failed.store,
         out_dir=tmp_path,
         eventset=failed.eventset,
+        figure_sets=(payout_figures,),
     )
     assert not report.ok
     assert [w.name for w in report.written] == [
@@ -98,7 +106,13 @@ def test_normalised_figure_needs_the_benchmark(toy: Fixture, tmp_path: Path) -> 
     run_ids = [
         toy.run_id("portfolio", o) for o in ("expected_uncovered", "weighted_cvar")
     ]
-    report = write_figures(config, run_ids, store=toy.store, out_dir=tmp_path)
+    report = write_figures(
+        config,
+        run_ids,
+        store=toy.store,
+        out_dir=tmp_path,
+        figure_sets=(payout_figures,),
+    )
     assert report.ok
     assert [w.name for w in report.written] == ["payout_grid_portfolio"]
     assert report.skipped == (
@@ -146,7 +160,7 @@ def test_figure_sets_are_extensible(toy: Fixture, tmp_path: Path) -> None:
     (context,) = seen
     assert [s.key for s in context.scopes] == ["individual", "cluster", "portfolio"]
     assert [len(s.runs) for s in context.scopes] == [3, 3, 3]
-    assert FIGURE_SETS == (payout_figures,)
+    assert FIGURE_SETS[0] is payout_figures  # later sets append (ADR 0002)
 
 
 def test_scope_keys_number_repeated_kinds(toy: Fixture) -> None:
