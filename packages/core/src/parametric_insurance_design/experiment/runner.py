@@ -22,6 +22,12 @@ Owner: MAR-64. Executes one configured run end to end and persists it in a
 5. **Build, solve, evaluate.** ``problem.build_problems``, then
    ``solve.solve`` for every design problem, then ``evaluate.kpis`` and
    ``evaluate.exceedance_curves`` when every design problem was solved.
+   With a ``bootstrap`` config section (MAR-23), ``bootstrap.bootstrap_kpis``
+   replaces ``evaluate.kpis``: the same point values plus block-bootstrap
+   confidence intervals in the ``ci_*`` columns, with a fresh generator
+   ``BootstrapConfig.rng()`` per evaluation sample. The manifest's
+   ``bootstrap`` entry records the settings, the time per sample and the
+   KPIs whose bounds are null because some replicate is undefined.
 6. **Persist.** One row per design problem in ``runs``, entity membership in
    ``entities``, the fitted levels in ``payouts``, the KPI and exceedance
    tables, and a provenance manifest.
@@ -115,9 +121,11 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Final
 
+import numpy as np
 import pandas as pd
 
 from parametric_insurance_design import splits
+from parametric_insurance_design.bootstrap import bootstrap_kpis, resample_years
 from parametric_insurance_design.errors import (
     ConfigError,
     InputMismatchError,
@@ -676,6 +684,20 @@ def _samples(
     return train, (train, test)
 
 
+def _undefined_counts(table: pd.DataFrame) -> dict[str, int]:
+    """``{"level/subject_id/kpi": n_undefined}`` of ``KpiBootstrap.n_undefined``."""
+    return {
+        f"{level}/{subject}/{kpi}": int(n)
+        for level, subject, kpi, n in zip(
+            table["level"],
+            table["subject_id"],
+            table["kpi"],
+            table["n_undefined"],
+            strict=True,
+        )
+    }
+
+
 def _attempts(attempts: tuple[SolverAttempt, ...]) -> list[dict[str, Any]]:
     """Solver attempts as JSON values."""
     return [
@@ -841,6 +863,7 @@ def execute(
     kpi_frames: list[pd.DataFrame] = []
     curve_frames: list[pd.DataFrame] = []
     skipped: str | None = None
+    bootstrap_log: list[dict[str, Any]] = []
     if not built:
         skipped = "building the design problems failed"
     elif len(results) != len(built):
@@ -850,18 +873,49 @@ def execute(
         )
     else:
         for sample in evaluation_samples:
-            kpi_frames.append(
-                kpis(
+            if config.bootstrap is None:
+                kpi_frames.append(
+                    kpis(
+                        prepared,
+                        scope,
+                        results,
+                        basis=components.basis,
+                        beta=config.evaluation.beta,
+                        run_id=run_id,
+                        sample=sample,
+                        pricing=components.pricing,
+                    )
+                )
+            else:
+                boot_start = time.perf_counter()
+                boot = bootstrap_kpis(
                     prepared,
                     scope,
                     results,
                     basis=components.basis,
                     beta=config.evaluation.beta,
                     run_id=run_id,
+                    resample=resample_years(
+                        sample.years,
+                        config.bootstrap.n_bootstrap,
+                        config.bootstrap.rng(),
+                    ),
                     sample=sample,
                     pricing=components.pricing,
+                    level=config.bootstrap.level,
                 )
-            )
+                kpi_frames.append(boot.table)
+                bootstrap_log.append(
+                    {
+                        "sample": sample.name,
+                        "fold": sample.fold,
+                        "n_without_bounds": int(
+                            np.isnan(boot.table["ci_low"].to_numpy(np.float64)).sum()
+                        ),
+                        "n_undefined": _undefined_counts(boot.n_undefined),
+                        "seconds": time.perf_counter() - boot_start,
+                    }
+                )
             curve_frames.append(
                 exceedance_curves(
                     prepared,
@@ -932,6 +986,16 @@ def execute(
             "skipped_reason": skipped,
             "beta": config.evaluation.beta,
         },
+        "bootstrap": (
+            None
+            if config.bootstrap is None
+            else {
+                "seed": config.bootstrap.seed,
+                "n_bootstrap": config.bootstrap.n_bootstrap,
+                "level": config.bootstrap.level,
+                "samples": bootstrap_log,
+            }
+        ),
         "timings": {
             "load_seconds": data.load_seconds,
             "prepare_seconds": prepare_seconds,
