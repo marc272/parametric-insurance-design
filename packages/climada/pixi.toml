@@ -61,6 +61,14 @@ test-core = { cmd = "pytest ../core/tests -p no:cacheprovider", description = "R
 # git-ignored data/iris/ at the repository root; re-running skips verified
 # files. Pass `--archive <path>` to use a local copy of IRIS_event_set.zip.
 iris = { cmd = "python -m parametric_insurance_design_climada.iris --data-dir ../../data/iris", description = "Download, verify and merge the IRIS North Atlantic event set (MAR-72)" }
+# Florida's 67 counties from LitPop (D2, MAR-113): download the pinned
+# LitPop_150arcsec_USA v3 file (51 MB) and the TIGER/Line 2025 county
+# boundaries (84 MB), both checked against
+# src/parametric_insurance_design_climada/litpop_florida_manifest.json, then
+# write the EventSet locations table (locations.yaml), the cell-to-county
+# table (cells.parquet) and provenance.json to the git-ignored
+# data/litpop-florida/ at the repository root. Pass --overwrite to rebuild.
+florida-locations = { cmd = "python -m parametric_insurance_design_climada.portfolio_litpop --data-dir ../../data/litpop-florida", description = "Build the D2 Florida county locations from LitPop (MAR-113)" }
 # Track -> wind -> impact pipeline writing an EventSet (MAR-73). Pass the
 # config and options after the task name, e.g.
 #   pixi run build-eventset --config configs/thesis.yaml [--overwrite]

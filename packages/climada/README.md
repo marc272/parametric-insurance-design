@@ -51,6 +51,18 @@ The pinned URLs, DOIs, version, citation and checksums are in `src/parametric_in
 
 **No Parquet copy of the catalogue.** pandas parses the 103 MB merged text file in about half a second, and the build itself takes about 30 s, so a typed Parquet copy would add a second artefact to keep in sync for no measurable gain. The reader checks the layout and types instead (`tracks.read_iris_catalogue`).
 
+## Florida county locations (LitPop, D2)
+
+`pixi run florida-locations` (module `parametric_insurance_design_climada.portfolio_litpop`, MAR-113) builds the paper portfolio's `locations` table (D2, SPEC §6.6): Florida's 67 counties, each valued by the sum of its cells in the pinned CLIMADA data-API file `LitPop_150arcsec_USA` v3 and placed at the cells' value-weighted centroid.
+
+1. downloads the LitPop file (51 MB) and the U.S. Census Bureau TIGER/Line 2025 county boundaries (84 MB), checking size, MD5 and SHA256 against `src/parametric_insurance_design_climada/litpop_florida_manifest.json`;
+2. assigns every LitPop cell in the region (Florida's bounding box plus 0.5°) to the county polygon it intersects, using the national county file, so that cells across the state line count as "in another county";
+3. writes `locations.yaml` (the layout `locations: {yaml: ...}` reads), `cells.parquet` (every region cell with its county, for a per-cell loss) and `provenance.json` (sources, checksums, method, counts) to the git-ignored `data/litpop-florida/locations/`. `--overwrite` rebuilds; `--download-only` only fetches and verifies.
+
+No cell is dropped silently: the report counts cells in a Florida county, in another county, in no county and outside the region, with their values. A county without cells raises `EmptyUnitError`; one whose cells are all zero-valued raises `ZeroValueUnitError`. A copy of the 67-county table (13 KB, CC BY 4.0) and its provenance is committed in `research/data/d2-florida-litpop/`; the measured numbers are in `research/notes/d2-florida-litpop-locations.md`. If the LitPop file is ever withdrawn upstream, do not regenerate it: that needs a NASA login, which only the owner may use.
+
+`scripts/estimate_florida_grid.py` counts the IRIS storms within the pipeline's radius of a set of locations, to size the dense events × locations grid before a build.
+
 ## Building an EventSet
 
 `pixi run build-eventset --config <file>` (module `parametric_insurance_design_climada.cli`) runs the port of the thesis `src/CLIMADA/engine.py` (`pipeline.build_eventset`):
