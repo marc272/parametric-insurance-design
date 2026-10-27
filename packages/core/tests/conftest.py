@@ -1,6 +1,8 @@
 """Shared fixtures for core tests (owner: MAR-61, ADR 0002).
 
 Other issues may use these fixtures but add their own in their test files.
+Test doubles shared by several test files live in ``_doubles.py`` (MAR-87):
+import them with ``from ._doubles import ...``.
 """
 
 from __future__ import annotations
