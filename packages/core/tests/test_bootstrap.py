@@ -36,12 +36,16 @@ from parametric_insurance_design.bootstrap import (
     resample_years,
 )
 from parametric_insurance_design.errors import InputMismatchError
-from parametric_insurance_design.evaluate import kpis, var_cvar
+from parametric_insurance_design.evaluate import (
+    _evaluate,  # pyright: ignore[reportPrivateUsage]
+    kpis,
+    var_cvar,
+)
 from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.interfaces import Sample, SolveResult
 from parametric_insurance_design.objectives import MSE, WeightedCVaR
 from parametric_insurance_design.payout import StepPayout
-from parametric_insurance_design.pricing import PurePremium
+from parametric_insurance_design.pricing import CostOfCapitalLoad, PurePremium
 from parametric_insurance_design.problem import build_problems
 from parametric_insurance_design.records import KPIS, KpiName
 from parametric_insurance_design.scopes import Individual, Portfolio
@@ -513,6 +517,54 @@ def test_bootstrap_kpis_on_a_test_sample(toy_eventset: EventSet) -> None:
             resample=wrong,
             sample=test,
         )
+
+
+@pytest.mark.parametrize("basis", [Basis.EVENT_CONDITIONAL, Basis.ANNUAL])
+def test_loaded_premium_is_priced_on_each_replicate(
+    toy_eventset: EventSet, basis: Basis
+) -> None:
+    # Premium (1 - r) E[pi] + r CVaR_q(pi) of the portfolio payout, priced on
+    # the concatenated resampled years (MAR-27 pricing on the aggregate payout).
+    data = random_rows(toy_eventset, n_years=20, n_draws=2, seed=12)
+    scope = Individual()
+    results = solved(data, scope, MSE(), basis)
+    pricing = CostOfCapitalLoad(rate=0.3, q=0.8)
+    rs = resample_years(np.arange(20), 30, np.random.default_rng(2))
+    boot = bootstrap_kpis(
+        data,
+        scope,
+        results,
+        basis=basis,
+        beta=BETA,
+        run_id="r",
+        resample=rs,
+        pricing=pricing,
+    )
+    expected = kpis(
+        data, scope, results, basis=basis, beta=BETA, run_id="r", pricing=pricing
+    )
+    np.testing.assert_array_equal(col(boot.table, "value"), col(expected, "value"))
+    ev = _evaluate(data, scope, results, basis, None)
+    (portfolio,) = [s for s in ev.subjects if s.level.value == "portfolio"]
+    (row,) = np.flatnonzero(
+        (col(boot.table, "level") == "portfolio")
+        & (col(boot.table, "kpi") == "premium")
+    )
+    loss = portfolio.loss
+    for b in range(rs.n_bootstrap):
+        _, pay, prob = explicit_outcomes(
+            data, basis, rs.years, rs.indices[b], loss, portfolio.payout
+        )
+        p = prob / prob.sum()
+        _, cvar = var_cvar(pay, p, 0.8)
+        premium = 0.7 * float(p @ pay) + 0.3 * cvar
+        assert boot.replicates[row, b] == pytest.approx(premium, rel=1e-9)
+    # A loaded premium exceeds the expected payout in every replicate here.
+    (pay_row,) = np.flatnonzero(
+        (col(boot.table, "level") == "portfolio")
+        & (col(boot.table, "kpi") == "expected_payout")
+    )
+    assert np.all(boot.replicates[row] >= boot.replicates[pay_row] - 1e-9)
 
 
 def test_undefined_replicates_give_null_bounds(toy_eventset: EventSet) -> None:
