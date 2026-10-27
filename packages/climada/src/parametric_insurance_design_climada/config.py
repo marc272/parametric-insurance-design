@@ -40,6 +40,7 @@ from pydantic import (
     ConfigDict,
     Field,
     ValidationError,
+    field_validator,
     model_validator,
 )
 
@@ -51,6 +52,7 @@ from parametric_insurance_design_climada.cat_in_circle import (
 )
 from parametric_insurance_design_climada.iris import load_manifest
 from parametric_insurance_design_climada.vulnerability import (
+    DEFAULT_BASINS,
     DEFAULT_N_DRAWS,
     EBERENZ_SCALE,
     EBERENZ_V_THRESH,
@@ -289,13 +291,33 @@ class EberenzEdrPriorConfig(_Model):
         Leave out events whose EM-DAT record lists an associated disaster
         (surge, rain, flood, slide, other). Default True, the MAR-103 decision
         (2026-10-27): the index and the loss are wind only, so the prior uses
-        the 19 wind-only NA2 events. False keeps all events (43 for NA2), the
-        sensitivity option.
+        the wind-only events. False keeps all events, the sensitivity option.
+    basins : tuple of str or None
+        Keep only the events whose IBTrACS genesis basin is listed (codes
+        ``NA``, ``SA``, ``EP``, ``WP``, ``NI``, ``SI``, ``SP``). Default
+        ``[NA]``, the MAR-132 decision (2026-10-27): NA2 is defined by the
+        affected country and also holds East Pacific storms that hit Hawaii.
+        With both defaults NA2 keeps 17 events. ``null`` keeps every basin,
+        the sensitivity option; with ``wind_only: false`` too it is the
+        published distribution (43 NA2 events). A region event with no known
+        basin raises :class:`.vulnerability.UnknownBasinError` at build time.
     """
 
     kind: Literal["eberenz2021_edr"] = "eberenz2021_edr"
     region: Literal["NA1", "NA2", "NI", "OC", "SI", "WP1", "WP2", "WP3", "WP4"] = "NA2"
     wind_only: bool = Field(default=True, strict=True)
+    basins: (
+        tuple[Literal["NA", "SA", "EP", "WP", "NI", "SI", "SP"], ...] | None
+    ) = Field(default=DEFAULT_BASINS, min_length=1)
+
+    @field_validator("basins")
+    @classmethod
+    def _distinct_basins(
+        cls, value: tuple[str, ...] | None
+    ) -> tuple[str, ...] | None:
+        if value is not None and len(set(value)) != len(value):
+            raise ValueError("basins lists a code twice")
+        return value
 
 
 class UniformPriorConfig(_Model):
@@ -349,7 +371,7 @@ class EmanuelVHalfDrawsConfig(_Model):
         so that every build is reproducible from its config.
     prior : EberenzEdrPriorConfig or UniformPriorConfig
         Prior of ``v_half``; default: Eberenz et al. (2021), region ``NA2``,
-        wind-only events.
+        wind-only North Atlantic events.
     """
 
     kind: Literal["emanuel_v_half"]
@@ -383,7 +405,9 @@ class EmanuelVHalfDrawsConfig(_Model):
         prior_config = self.prior
         prior = (
             EberenzEdrPrior.from_climada(
-                prior_config.region, wind_only=prior_config.wind_only
+                prior_config.region,
+                wind_only=prior_config.wind_only,
+                basins=prior_config.basins,
             )
             if isinstance(prior_config, EberenzEdrPriorConfig)
             else UniformPrior(
