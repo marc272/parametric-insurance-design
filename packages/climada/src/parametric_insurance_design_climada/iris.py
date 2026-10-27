@@ -140,7 +140,14 @@ class IrisManifest:
     Attributes
     ----------
     dataset, version, collection_doi, article_doi, licence, citation : str
-        Provenance, as recorded in ``docs/data-sources.md``.
+        Provenance, as recorded in ``docs/data-sources.md``. ``licence``
+        states what the source records say (they differ, MAR-72).
+    licence_applied : str
+        The licence identifier written into every EventSet built from IRIS:
+        ``"CC-BY-4.0"``, the stricter of the two records, by owner decision
+        (MAR-94).
+    licence_resolution : str
+        That decision, in words.
     archive : RemoteFile
         The figshare zip with all basins.
     readme : RemoteFile
@@ -158,6 +165,8 @@ class IrisManifest:
     collection_doi: str
     article_doi: str
     licence: str
+    licence_applied: str
+    licence_resolution: str
     citation: str
     archive: RemoteFile
     readme: RemoteFile
@@ -247,6 +256,8 @@ def load_manifest(path: Path | None = None) -> IrisManifest:
             collection_doi=str(raw["collection_doi"]),
             article_doi=str(raw["article_doi"]),
             licence=str(raw["licence"]),
+            licence_applied=str(raw["licence_applied"]),
+            licence_resolution=str(raw["licence_resolution"]),
             citation=str(raw["citation"]),
             archive=_remote(raw["archive"]),
             readme=_remote(raw["readme"]),
@@ -696,7 +707,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"{action:9s} {name}")
     print(f"merged catalogue: {paths.merged}")
     print(f"sha256: {manifest.merged.sha256}")
-    print(f"licence: {manifest.licence}; cite: {manifest.citation}")
+    print(f"licence: {manifest.licence_applied} ({manifest.licence_resolution})")
+    print(f"cite: {manifest.citation}")
     return 0
 
 

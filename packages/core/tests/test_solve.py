@@ -355,8 +355,9 @@ def test_accepted_status_without_solution_is_an_error(
 def test_missing_solver_is_recorded_and_skipped(
     toy_eventset: EventSet, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The CLIMADA env (cvxpy < 1.8) has no HiGHS: the default LP chain then
-    # records HIGHS as not installed if it gets that far, and goes on to SCS.
+    # Installs with cvxpy < 1.8 (e.g. the core's lowest-direct CI job) have no
+    # HiGHS: the default LP chain then records HIGHS as not installed if it
+    # gets that far, and goes on to SCS.
     built = toy_built(toy_eventset)
     monkeypatch.setattr(cp, "installed_solvers", lambda: ["CLARABEL", "SCS"])
     result = solve(built, SolverPolicy(lp_solvers=("HIGHS", "CLARABEL")))

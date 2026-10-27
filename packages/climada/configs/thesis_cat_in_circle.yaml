@@ -36,5 +36,5 @@ index:
   breakpoints_kn: [64, 83, 96, 113, 137]
   track_step_hours: 0.5   # interpolate the 3-hourly IRIS tracks; null = raw points
 scenario_id: iris-present-climate
-licence: CC0-1.0
+licence: CC-BY-4.0
 output: ../../../data/eventsets/thesis-iris-cat-in-circle-50km

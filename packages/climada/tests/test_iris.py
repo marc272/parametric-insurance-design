@@ -97,7 +97,9 @@ def mini(tmp_path: Path) -> Mini:
         "version": "test",
         "collection_doi": "10.0/c",
         "article_doi": "10.0/a",
-        "licence": "CC0-1.0",
+        "licence": "CC0-1.0 on one record, CC-BY-4.0 on another",
+        "licence_applied": "CC-BY-4.0",
+        "licence_resolution": "test",
         "citation": "test",
         "archive": _remote("IRIS_event_set.zip", archive, "https://host/zip"),
         "readme": _remote("IRIS_event_set_README.txt", readme, "https://host/readme"),
@@ -129,6 +131,28 @@ def test_shipped_manifest_pins_the_figshare_files_and_the_thesis_merge() -> None
     for f in (m.archive, m.readme, *m.members, m.merged):
         assert len(f.sha256) == 64
         assert int(f.sha256, 16) >= 0
+
+
+def test_shipped_manifest_applies_the_owner_licence_decision() -> None:
+    # MAR-94: both records are kept, and IRIS-derived data is CC BY 4.0.
+    m = iris.load_manifest()
+    assert m.licence_applied == "CC-BY-4.0"
+    assert "CC0-1.0" in m.licence
+    assert "CC-BY-4.0" in m.licence
+    assert "MAR-94" in m.licence_resolution
+
+
+@pytest.mark.parametrize("key", ["licence_applied", "licence_resolution"])
+def test_manifest_requires_the_licence_resolution(
+    mini: Mini, tmp_path: Path, key: str
+) -> None:
+    *_, path = mini
+    raw = json.loads(path.read_text())
+    del raw[key]
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps(raw))
+    with pytest.raises(iris.IrisDataError, match=key):
+        iris.load_manifest(bad)
 
 
 def test_shipped_manifest_is_self_consistent() -> None:
@@ -393,6 +417,7 @@ def test_main_runs_and_reports(
     out = capsys.readouterr().out
     assert "created   IRIS_NA_10000Y_merged.txt" in out
     assert manifest.merged.sha256 in out
+    assert "licence: CC-BY-4.0 (test)" in out
 
 
 def test_main_returns_1_on_a_data_error(

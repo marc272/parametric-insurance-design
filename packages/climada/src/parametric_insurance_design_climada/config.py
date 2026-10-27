@@ -44,6 +44,7 @@ from parametric_insurance_design_climada.cat_in_circle import (
     SAFFIR_SIMPSON_KN,
     CatInCircleIndex,
 )
+from parametric_insurance_design_climada.iris import load_manifest
 from parametric_insurance_design_climada.vulnerability import (
     DEFAULT_N_DRAWS,
     EBERENZ_SCALE,
@@ -72,6 +73,7 @@ __all__ = [
     "VulnerabilityConfig",
     "WindConfig",
     "check_circle_radius",
+    "iris_licence",
     "load_config",
     "parse_config",
 ]
@@ -449,6 +451,19 @@ class CellLossConfig(_Model):
 LossConfig = Annotated[CentroidLossConfig | CellLossConfig, Field(discriminator="kind")]
 
 
+def iris_licence() -> str:
+    """Return the licence identifier of IRIS-derived data.
+
+    Returns
+    -------
+    str
+        ``licence_applied`` of the packaged IRIS manifest: ``"CC-BY-4.0"``,
+        the stricter of the two IRIS licence records, by owner decision of
+        2026-10-27 (MAR-94; ``docs/data-sources.md``, IRIS licence check).
+    """
+    return load_manifest().licence_applied
+
+
 class PipelineConfig(_Model):
     """One EventSet build.
 
@@ -492,8 +507,10 @@ class PipelineConfig(_Model):
         Sentences appended to the scenario description, e.g. a value-unit
         caveat or the data attribution. Default: none.
     licence : str
-        Licence of the data, written as the parity fixture does (the IRIS
-        licence record is open under MAR-94).
+        Licence of the data, written into the EventSet's ``licence``.
+        Default: the IRIS licence applied by owner decision, ``CC-BY-4.0``
+        (MAR-94; ``licence_applied`` in ``iris_manifest.json``). A build that
+        adds sources with stricter terms must say so here.
     output : pathlib.Path
         EventSet directory to write.
     """
@@ -512,7 +529,7 @@ class PipelineConfig(_Model):
     scenario_id: str = Field(default="iris-present-climate", min_length=1)
     scenario: str | None = Field(default=None, min_length=1)
     scenario_notes: tuple[Annotated[str, Field(min_length=1)], ...] = ()
-    licence: str = Field(default="CC0-1.0", min_length=1)
+    licence: str = Field(default_factory=iris_licence, min_length=1)
     output: Path
 
     @model_validator(mode="after")

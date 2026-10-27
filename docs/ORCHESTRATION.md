@@ -29,6 +29,8 @@ These steps are done by Marc, because agents may not change their own permission
    }
    ```
 
+   While Actions minutes are exhausted, "all CI checks are green" in this text is met by the local-CI fallback (see "Merge policy", "Fallback: local CI while Actions minutes are exhausted"). The block itself doesn't need to change.
+
 2. **Start sessions in auto mode.** Otherwise every command prompts and the loop stalls.
 3. **Optional: phone alerts.** Connect Remote Control, so that `PushNotification` reaches your phone as well as the desktop.
 4. **Guardrails, already checked in.** `.claude/settings.json` denies force pushes, pushes to `main`, admin merges and repository edits or deletes, in every mode.
@@ -117,7 +119,7 @@ The Program hub sets these rules:
 3. **Check size.** If an issue is clearly more than one PR (several modules, or more than about a day of work), first split it into sub-issues with goal, scope, acceptance and blockers. The original becomes a container. Don't pre-split far-future work; split when it becomes ready.
 4. **Delegate** (see below). Set the issue to In Progress and post a **dispatch record** on it.
 5. **Review.** When a worker reports back, check:
-   - CI is green;
+   - CI is green (or the local-CI fallback, see "Merge policy");
    - every acceptance criterion is evidenced in the PR body;
    - the diff stays within the owned files, with no stray interface or dependency changes;
    - tests exercise the behaviour, beyond a smoke test;
@@ -193,6 +195,18 @@ Marc authorised agent merges on 2026-10-25 ("PR should be merged automatically i
 - it doesn't merge into, or past, a gate that isn't Done (e.g. no F5 method change before MAR-18).
 
 Otherwise, set the issue to In Review, assign it to Marc, and alert him. Never use `--admin`, never force-push, and never push to `main` directly. Branch protection (MAR-78) may require status checks, but must **not** require approving reviews: that would block every agent merge.
+
+### Fallback: local CI while Actions minutes are exhausted
+
+The repository is private and, since 2026-10-27, has no GitHub Actions minutes (Marc, MAR-80 comment of 2026-10-27). Until minutes are back, [`scripts/ci_local.sh`](../scripts/ci_local.sh) is the merge gate, and it replaces "every CI check is green" above:
+
+- **Local CI on the PR head replaces the GitHub checks.** `scripts/ci_local.sh <checkout> [job ...]` runs the jobs of `ci.yml` and `climada.yml` (lint, workspace-3.12, workspace-3.13, core-3.11-highest, core-3.11-lowest-direct, build, climada), prints a PASS/FAIL line per job and a summary with the commit, keeps its logs in a temp directory outside the checkout, and exits non-zero on any failure. It also says when the tree is dirty, which doesn't count as a run of the PR head.
+- **The worker** runs every job on the final PR head and pastes the summary into the PR body under a heading "Local CI (GitHub Actions minutes exhausted)".
+- **The orchestrator re-runs it before merging**, in the PR's worktree, on the head it is about to merge: at least `lint` plus the test jobs of the packages the diff touches (`workspace-3.12` and `workspace-3.13` for `core`, `viz`, `crc` or `parity`; also the `core-3.11-*` jobs and `climada` for `core`; `climada` for `packages/climada`; `build` for any `pyproject.toml` or packaging change). Run all jobs when in doubt. Merge only if that run passes.
+- **Checks that are red only for billing reasons are ignored.** They fail within seconds with no steps run, and their annotation reads "The job was not started because recent account payments have failed or your spending limit needs to be increased" (`gh api repos/marc272/parametric-insurance-design/check-runs/<job id>/annotations`). A check that ran and failed on its merits still blocks.
+- **The Python 3.11 gap is noted on every PR.** The `core-3.11-*` jobs need a clean Python 3.11. uv can't download Pythons on the owner's machine, so `scripts/ci_local.sh --setup` makes one with pixi from `scripts/ci_local/py311/pixi.toml` (osx-arm64 and linux-64); `CI_LOCAL_PY311=<path>` overrides it. Without either, the jobs fall back to Python 3.12 and the summary warns about it. On that fallback `core-3.11-lowest-direct` can't install at all (pandas 2.1.0 has no cp312 wheel), so it fails for that reason alone. Each PR states which Python the `core-3.11-*` jobs used (the summary shows it), and that the run was on macOS rather than CI's Ubuntu.
+
+When Actions minutes are back, return to the GitHub checks, and say so in the next Program hub status update.
 
 ## Resuming after an interruption
 

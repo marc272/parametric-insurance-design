@@ -24,6 +24,6 @@
       "parametric-insurance-framework/configs/global_settings.yaml": "sha256:152372f75df80ebbbb7265e161b9ee256a46362b19d34cd95eb5c37dd2721e4f"
     }
   },
-  "licence": "CC0-1.0",
+  "licence": "CC-BY-4.0",
   "filters": []
 }
