@@ -58,7 +58,7 @@ Repeat until no step can make progress:
    - then `git pull --ff-only` on `main`;
    - set the issue to Done, comment with the PR link, and file the reported follow-ups.
 
-   Rebase dependent branches if needed. **Never merge** a Human or Gate output, a PR with red or pending CI, or a PR that changes a spec decision without Marc's recorded answer.
+   Rebase dependent branches if needed. **Never merge** a Human or Gate output, a PR with red or pending CI (except billing-only red, per the runbook's "Fallback: local CI"), or a PR that changes a spec decision without Marc's recorded answer.
 7. **Prepare** "Agent may prepare" parts of Human issues when a worker slot is free and nothing on the critical path is ready. Then set the issue to In Review, assign it to Marc, and alert him (step 3).
 
 While workers run, stay responsive. End your turn only when you're waiting on workers, because their completion wakes you.
