@@ -372,14 +372,31 @@ class HoldoutSampleConfig(_Model):
 class KFoldSampleConfig(_Model):
     """Year-block k-fold (:func:`~parametric_insurance_design.splits.year_block_kfold`).
 
+    A k-fold experiment calibrates once per fold. Each fold is a run of its
+    own (MAR-22): :meth:`ExperimentConfig.single_runs` expands a config
+    without ``fold`` into one config per fold, so the fold is part of the
+    :func:`config_hash` and of the ``run_id``, and the ``runs`` key
+    ``(run_id, problem_id)`` stays unique without a ``fold`` column.
+
     Parameters
     ----------
     k : int, default 5
         Number of folds, >= 2.
+    fold : int or None, default None
+        The fold this run calibrates on, in ``0 .. k - 1``. None (the
+        experiment level) means every fold; the runner needs it set.
     """
 
     kind: Literal["kfold"]
     k: Annotated[int, Field(strict=True, ge=2)] = 5
+    fold: Annotated[int, Field(strict=True, ge=0)] | None = None
+
+    @model_validator(mode="after")
+    def _fold_in_range(self) -> Self:
+        """The fold lies in ``0 .. k - 1``."""
+        if self.fold is not None and self.fold >= self.k:
+            raise ValueError(f"fold {self.fold} is not in 0 .. {self.k - 1} (k={self.k})")
+        return self
 
 
 SampleConfig = Annotated[
@@ -924,17 +941,32 @@ class ExperimentConfig(_Model):
     def single_runs(self) -> tuple[ExperimentConfig, ...]:
         """Split into one config per (scope, objective), without sweeps.
 
+        A k-fold sample without a ``fold`` is also split per fold, so each
+        fold is a run of its own (:class:`KFoldSampleConfig`).
+
         Returns
         -------
         tuple of ExperimentConfig
             Scope-major (every objective for the first scope, then the next),
-            in config order. Each has one scope, one objective and no sweeps;
-            its :func:`config_hash` is the cache key of that run.
+            in config order, and for k-fold fold-minor (folds ``0 .. k - 1``
+            of a scope and objective next to each other). Each has one scope,
+            one objective, no sweeps and, for k-fold, one fold; its
+            :func:`config_hash` is the cache key of that run.
         """
+        sample = self.sample
+        samples: list[dict[str, Any]] = [sample.model_dump(mode="python")]
+        if sample.kind == "kfold" and sample.fold is None:
+            samples = [
+                sample.model_copy(update={"fold": f}).model_dump(mode="python")
+                for f in range(sample.k)
+            ]
         return tuple(
-            self._replaced(scopes=[scope], objectives=[objective], sweeps=[])
+            self._replaced(
+                scopes=[scope], objectives=[objective], sweeps=[], sample=s
+            )
             for scope in self.scopes
             for objective in self.objectives
+            for s in samples
         )
 
     def applies(self, parameter: str) -> bool:
