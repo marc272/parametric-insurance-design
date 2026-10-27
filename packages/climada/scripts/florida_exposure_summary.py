@@ -311,11 +311,20 @@ def summarise(
         color=INK_2,
         arrowprops={"arrowstyle": "-", "color": INK_2, "linewidth": 0.6},
     )
-    share = ax.twinx()
-    share.plot(ranks, 100 * table["share"].cumsum(), color=INK, linewidth=1.2)
-    share.set_ylim(0, 100)
-    share.set_ylabel("cumulative share of value, % (line)")
-    share.spines["right"].set_visible(True)
+    # Cumulative share as marked ranks on the same axis (no second y-scale).
+    cumulative = table["share"].cumsum().to_numpy()
+    for k, level in enumerate((0.5, 0.8, 0.9)):
+        n = int(np.searchsorted(cumulative, level) + 1)
+        ax.axvline(n + 0.5, color=MUTED, linewidth=0.6, linestyle=":")
+        ax.text(
+            n + 0.8,
+            float(table["value"].max()) / 1e9 / 5**k,
+            f"{level:.0%} of value\nin {n} counties",
+            fontsize=7,
+            color=INK_2,
+            va="top",
+            bbox={"facecolor": "white", "edgecolor": "none", "pad": 1.0},
+        )
     ax.set_title(
         f"(c) County values: total {loc['value'].sum() / 1e12:.3f} x 10^12 USD"
     )
