@@ -36,6 +36,12 @@ objective (``mse``).
 
 No silent failures
 ------------------
+* A config with a ``kfold`` sample is refused up front (MAR-142), with
+  :class:`~parametric_insurance_design_viz.kpi_figures.KFoldRunsError`,
+  before the store is read or any figure set runs. Its single runs are a run
+  per scope x objective x fold (MAR-22), and the figure sets show one run per
+  scope x objective; how folds are combined is decided with the confidence
+  intervals (MAR-23).
 * A run that is not in the store raises
   :class:`~parametric_insurance_design_viz.errors.MissingRunError` before
   anything is drawn. That includes every sweep point passed in ``sweeps``:
@@ -80,7 +86,7 @@ from parametric_insurance_design_viz.figure_data import (
     WrittenFigure,
     write_figure,
 )
-from parametric_insurance_design_viz.kpi_figures import kpi_figures
+from parametric_insurance_design_viz.kpi_figures import KFoldRunsError, kpi_figures
 from parametric_insurance_design_viz.payout_functions import (
     AxisLabels,
     normalised_payout,
@@ -456,6 +462,26 @@ def _check_costs(costs: Sequence[float]) -> tuple[float, ...]:
     return values
 
 
+def _refuse_kfold(config: ExperimentConfig) -> None:
+    """Refuse a config with a k-fold sample, before any figure set runs.
+
+    Raises
+    ------
+    KFoldRunsError
+        If ``config.sample`` is ``kfold`` (MAR-142).
+    """
+    sample = config.sample
+    if sample.kind == "kfold":  # KFOLD_SAMPLE, as a literal for narrowing
+        raise KFoldRunsError(
+            f"config {config.name!r} has a k-fold sample (k={sample.k}): the "
+            "figures command refuses k-fold configs (MAR-142). A k-fold "
+            "experiment has a run per scope x objective x fold (MAR-22), and "
+            "the figures show one run per scope x objective; the rule for "
+            "combining folds is decided with the confidence intervals "
+            "(MAR-23). Draw the figures from a holdout config"
+        )
+
+
 def write_figures(
     config: ExperimentConfig,
     run_ids: Sequence[str],
@@ -509,6 +535,10 @@ def write_figures(
 
     Raises
     ------
+    KFoldRunsError
+        If the config's sample is ``kfold`` (MAR-142): its single runs are a
+        run per fold, and the figure sets show one run per scope x
+        objective. Raised before the store is read; nothing is drawn.
     InconsistentRunsError
         If ``run_ids`` does not match the config's single runs, or a sweep
         point names no single run of the config.
@@ -520,6 +550,7 @@ def write_figures(
     VizError
         If the transaction costs are empty, negative, not finite or repeat.
     """
+    _refuse_kfold(config)
     costs = _check_costs(transaction_costs)
     singles = config.single_runs()
     ids = tuple(run_ids)
