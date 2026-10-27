@@ -82,8 +82,10 @@ def _arrow(frame: pd.DataFrame, tmp_path: Path) -> pd.DataFrame:
 
 
 def _nullable(frame: pd.DataFrame, tmp_path: Path) -> pd.DataFrame:
-    # pandas "string", Int64, Float64 and boolean dtypes.
-    return frame.convert_dtypes()
+    # pandas "string", Int64, Float64 and boolean dtypes. pandas 2.1 warns
+    # when it tries an integer cast of infinite floats.
+    with np.errstate(invalid="ignore"):
+        return frame.convert_dtypes()
 
 
 def _object(frame: pd.DataFrame, tmp_path: Path) -> pd.DataFrame:
@@ -199,9 +201,12 @@ def test_bool_and_timestamp_columns_on_every_backing(
     ]
     expected = schema.from_rows(rows)
     frame = _backed(rows, backing, tmp_path)
-    if backing in ("object", "arrow"):
-        # Neither an object column of datetimes nor an Arrow timestamp column
-        # has the DatetimeTZDtype the timestamp check requires (as before).
+    # The timestamp check is by dtype (as before): an Arrow timestamp column,
+    # or an object column of datetimes, is rejected. validate looks at the
+    # column after ``reset_index``, which pandas 2.1 re-infers as
+    # datetime64[ns, UTC] for an object column of aware datetimes.
+    seen = frame["at"].reset_index(drop=True).dtype
+    if not isinstance(seen, pd.DatetimeTZDtype):
         with pytest.raises(RecordSchemaError, match="'at' must hold timestamp"):
             schema.validate(frame)
         return
