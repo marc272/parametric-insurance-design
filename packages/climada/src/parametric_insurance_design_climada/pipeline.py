@@ -23,6 +23,24 @@ Port of the thesis ``src/CLIMADA/engine.py``. :func:`build_eventset` runs:
    ``rate`` = ``1 / n_years`` (divided by the number of draws), ``year`` from
    IRIS.
 
+**Loss per cell** (MAR-114, D2). By default the loss is the impact at the
+location's centroid, as in the thesis (``loss: {kind: centroid}``). With
+``loss: {kind: cells, cells: <parquet>}`` each location is an aggregate of
+gridded cells (e.g. a county of LitPop cells, MAR-113), and its loss is the
+sum of the impacts on its cells (:func:`read_cells`). Per batch the pipeline
+then also computes the wind at the cells, the base impact on the cell
+exposures and the vulnerability draws on a *cell batch* (a
+:class:`~parametric_insurance_design_climada.hooks.HazardBatch` whose
+"locations" are the cells), and sums the cell losses of each location. The
+index is unchanged: the index builder still sees the location batch (wind at
+the location's ``lat``/``lon``, or the cat-in-a-circle around it). The draws
+hook is called once per batch, on the cell batch only, so its generator is
+consumed as with centroid losses and one ``v_half`` per (storm, draw) is
+shared by every cell of every location (MAR-25). The proximity filter still
+tests the locations; :func:`build_eventset` checks that no storm it removes
+can reach a cell (``max_dist_eye_km`` plus the farthest cell from its
+location must not exceed ``proximity_km``).
+
 Differences from the thesis, all deliberate:
 
 * Storms with fewer than two track points (CLIMADA needs two) were skipped
@@ -60,6 +78,7 @@ from typing import Any, Final, cast
 
 import numpy as np
 import pandas as pd
+import scipy.sparse as sp
 import yaml
 from climada.engine.impact_calc import ImpactCalc
 from climada.entity import Exposures, ImpactFuncSet
@@ -81,6 +100,7 @@ from parametric_insurance_design_climada import iris, tracks
 from parametric_insurance_design_climada.cat_in_circle import CatInCircleIndex
 from parametric_insurance_design_climada.config import (
     CatInCircleIndexConfig,
+    CellLossConfig,
     EmanuelVHalfDrawsConfig,
     LocationsConfig,
     PipelineConfig,
@@ -97,8 +117,10 @@ from parametric_insurance_design_climada.hooks import (
 
 __all__ = [
     "BUILD_RECORD_NAME",
+    "CELL_VALUE_RTOL",
     "HAZARD_TYPE",
     "PRODUCER",
+    "CellTable",
     "PipelineError",
     "PipelineResult",
     "SkippedStorm",
@@ -106,6 +128,7 @@ __all__ = [
     "make_impact_function",
     "make_index_builder",
     "make_vulnerability_draws",
+    "read_cells",
     "read_locations",
 ]
 
@@ -118,6 +141,9 @@ PRODUCER: Final[str] = "parametric-insurance-design-climada"
 #: CLIMADA hazard type of tropical cyclones.
 HAZARD_TYPE: Final[str] = "TC"
 _LOCATION_COLUMNS: Final[tuple[str, ...]] = ("location_id", "lat", "lon", "value")
+_CELL_COLUMNS: Final[tuple[str, ...]] = ("lat", "lon", "value", "location_id")
+#: Relative tolerance of the check that a location's cells sum to its value.
+CELL_VALUE_RTOL: Final[float] = 1e-9
 
 
 class PipelineError(ParametricInsuranceDesignError, RuntimeError):
@@ -308,6 +334,157 @@ def make_vulnerability_draws(
     return NoDraws()
 
 
+@dataclass(frozen=True)
+class CellTable:
+    """The cells of the locations, for the per-cell loss path.
+
+    Attributes
+    ----------
+    cells : pandas.DataFrame
+        One row per cell of a location, in file order: ``location_id``,
+        ``lat``, ``lon``, ``value``.
+    membership : scipy.sparse.csr_matrix
+        ``(n_cells, n_locations)`` indicator: entry ``(c, j)`` is 1 if cell
+        ``c`` belongs to location ``j`` (the column order of the locations).
+        ``cell_losses @ membership`` sums the cell losses per location.
+    n_cells_file : int
+        Rows in the file.
+    n_cells_unassigned : int
+        Rows with a null ``location_id`` (in no location), left out.
+    value_unassigned : float
+        Their total value.
+    max_distance_km : float
+        Largest great-circle distance from a cell to its location's
+        ``lat``/``lon``.
+    """
+
+    cells: pd.DataFrame
+    membership: sp.csr_matrix
+    n_cells_file: int
+    n_cells_unassigned: int
+    value_unassigned: float
+    max_distance_km: float
+
+    @property
+    def n_cells(self) -> int:
+        """Number of cells of the locations."""
+        return len(self.cells)
+
+
+def read_cells(path: Path, locations: pd.DataFrame) -> CellTable:
+    """Read the cells of the locations, for the per-cell loss path.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        Parquet table with the columns ``lat``, ``lon``, ``value`` and
+        ``location_id`` (other columns are ignored).
+    locations : pandas.DataFrame
+        The locations (:func:`read_locations`).
+
+    Returns
+    -------
+    CellTable
+        The cells of the locations and their membership matrix. Rows with a
+        null ``location_id`` are left out and counted.
+
+    Raises
+    ------
+    PipelineConfigError
+        If the file cannot be read or lacks a column; a coordinate or value
+        is out of range; a ``location_id`` is not a location; a location has
+        no cell; or a location's cell values do not sum to its ``value``
+        (relative tolerance :data:`CELL_VALUE_RTOL`).
+    """
+    try:
+        frame = pd.read_parquet(path)
+    except (OSError, ValueError) as exc:
+        raise PipelineConfigError(f"cannot read cells {path}: {exc}") from exc
+    missing = [c for c in _CELL_COLUMNS if c not in frame.columns]
+    if missing:
+        raise PipelineConfigError(f"{path}: cells lack columns {missing}")
+    assigned = frame["location_id"].notna().to_numpy()
+    try:
+        numbers = {
+            c: frame[c].to_numpy(dtype=np.float64) for c in ("lat", "lon", "value")
+        }
+    except (TypeError, ValueError) as exc:
+        raise PipelineConfigError(f"{path}: cell lat, lon and value: {exc}") from exc
+    cells = pd.DataFrame(
+        {
+            "location_id": frame.loc[assigned, "location_id"].astype(str).to_numpy(),
+            **{c: v[assigned] for c, v in numbers.items()},
+        }
+    )
+    lat, lon, value = (
+        cells[c].to_numpy(dtype=np.float64) for c in ("lat", "lon", "value")
+    )
+    if not np.isfinite(np.concatenate([lat, lon, value])).all():
+        raise PipelineConfigError(f"{path}: cell lat, lon and value must be finite")
+    if (np.abs(lat) > 90).any() or (np.abs(lon) > 180).any() or (value < 0).any():
+        raise PipelineConfigError(
+            f"{path}: cell lat must be in [-90, 90], lon in [-180, 180], value >= 0"
+        )
+    ids = [str(i) for i in locations["location_id"]]
+    column_of = {location_id: j for j, location_id in enumerate(ids)}
+    unknown = sorted(set(cells["location_id"]) - set(ids))
+    if unknown:
+        raise PipelineConfigError(
+            f"{path}: cells name location_id values that are not locations: "
+            f"{unknown[:10]}"
+        )
+    columns = np.array([column_of[i] for i in cells["location_id"]], dtype=np.int64)
+    counts = np.bincount(columns, minlength=len(ids))
+    empty = [ids[j] for j in np.flatnonzero(counts == 0)]
+    if empty:
+        raise PipelineConfigError(f"{path}: locations without a cell: {empty[:10]}")
+    sums = np.bincount(columns, weights=value, minlength=len(ids))
+    expected = locations["value"].to_numpy(dtype=np.float64)
+    bad = ~np.isclose(sums, expected, rtol=CELL_VALUE_RTOL, atol=0.0)
+    if bad.any():
+        j = int(np.flatnonzero(bad)[0])
+        raise PipelineConfigError(
+            f"{path}: the cells of {int(bad.sum())} location(s) do not sum to "
+            f"their value, e.g. {ids[j]}: {sums[j]:.6g} against {expected[j]:.6g}"
+        )
+    distance = np.zeros(len(cells))
+    for j, (lat0, lon0) in enumerate(
+        zip(locations["lat"].tolist(), locations["lon"].tolist(), strict=True)
+    ):
+        own = columns == j
+        distance[own] = tracks.haversine_km(lat[own], lon[own], lat0, lon0)
+    membership = sp.csr_matrix(
+        (np.ones(len(cells)), (np.arange(len(cells)), columns)),
+        shape=(len(cells), len(ids)),
+    )
+    return CellTable(
+        cells=cells,
+        membership=membership,
+        n_cells_file=len(frame),
+        n_cells_unassigned=int((~assigned).sum()),
+        value_unassigned=float(numbers["value"][~assigned].sum()),
+        max_distance_km=float(np.max(distance)),
+    )
+
+
+def _check_cell_reach(cells: CellTable, config: PipelineConfig) -> None:
+    """Check that no storm removed by the proximity filter can reach a cell.
+
+    CLIMADA computes no wind farther than ``max_dist_eye_km`` from a track
+    point. A removed storm has every track point farther than
+    ``proximity_km`` from every location, so (triangle inequality) farther
+    than ``proximity_km - max_distance_km`` from every cell.
+    """
+    reach = config.wind.max_dist_eye_km + cells.max_distance_km
+    if reach > config.proximity_km:
+        raise PipelineConfigError(
+            f"proximity_km ({config.proximity_km:g}) is below wind.max_dist_eye_km "
+            f"({config.wind.max_dist_eye_km:g}) plus the farthest cell from its "
+            f"location ({cells.max_distance_km:.1f} km): storms removed by the "
+            "proximity filter could have wind at a cell"
+        )
+
+
 def _hazard_release(
     config: PipelineConfig, sha256: str, basins: Sequence[str]
 ) -> tuple[str, str]:
@@ -332,6 +509,11 @@ def _hazard_release(
             "in the config to describe it"
         )
     return config.hazard_release, config.catalogue.name
+
+
+def _file_checksum(path: Path) -> tuple[str, str]:
+    """Return ``(file name, sha256)``."""
+    return path.name, iris.file_digests(path)[1]
 
 
 def _location_checksum(source: LocationsConfig) -> tuple[str, str]:
@@ -421,6 +603,50 @@ def _check_matrix(
     return matrix
 
 
+@dataclass(frozen=True)
+class _CellLoss:
+    """The CLIMADA inputs of the per-cell loss path."""
+
+    table: CellTable
+    centroids: Centroids
+    exposures: Exposures
+
+
+def _hazard_and_impact(
+    event_ids: list[str],
+    track_data: TCTracks,
+    *,
+    config: PipelineConfig,
+    centroids: Centroids,
+    exposures: Exposures,
+    impact_functions: ImpactFuncSet,
+    where: str,
+    with_impact: bool,
+) -> tuple[TropCyclone, NDArray[np.float64], NDArray[np.float64] | None]:
+    """Return ``(hazard, dense wind, dense base loss or None)`` at the centroids."""
+    hazard = cast(
+        TropCyclone,
+        TropCyclone.from_tracks(
+            track_data, centroids=centroids, **_wind_kwargs(config)
+        ),
+    )
+    if [str(name) for name in hazard.event_name] != event_ids:
+        raise PipelineError("CLIMADA returned the events in another order")
+    shape = (len(event_ids), int(centroids.size))
+    wind = _check_matrix(
+        f"wind{where}", hazard.intensity.toarray(), shape, non_negative=True
+    )
+    if not with_impact:
+        return hazard, wind, None
+    impact = ImpactCalc(exposures, impact_functions, hazard).impact(
+        save_mat=True, assign_centroids=False
+    )
+    base_loss = _check_matrix(
+        f"loss{where}", impact.imp_mat.toarray(), shape, non_negative=True
+    )
+    return hazard, wind, base_loss
+
+
 def _run_batch(
     event_ids: list[str],
     storms: dict[str, pd.DataFrame],
@@ -433,25 +659,25 @@ def _run_batch(
     index_builder: IndexBuilder,
     vulnerability: VulnerabilityDraws,
     rng: np.random.Generator | None,
+    cells: _CellLoss | None = None,
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    """Return ``(index, loss draws)`` of one batch of modelled storms."""
+    """Return ``(index, loss draws)`` of one batch of modelled storms.
+
+    With ``cells``, the loss draws are computed on the cells and summed per
+    location; the location-level impact is then not computed.
+    """
     track_data = TCTracks([tracks.storm_to_track(storms[e]) for e in event_ids])
-    hazard = cast(
-        TropCyclone,
-        TropCyclone.from_tracks(
-            track_data, centroids=centroids, **_wind_kwargs(config)
-        ),
+    hazard, wind, base_loss = _hazard_and_impact(
+        event_ids,
+        track_data,
+        config=config,
+        centroids=centroids,
+        exposures=exposures,
+        impact_functions=impact_functions,
+        where="",
+        with_impact=cells is None,
     )
-    if [str(name) for name in hazard.event_name] != event_ids:
-        raise PipelineError("CLIMADA returned the events in another order")
     shape = (len(event_ids), len(locations))
-    wind = _check_matrix("wind", hazard.intensity.toarray(), shape, non_negative=True)
-    impact = ImpactCalc(exposures, impact_functions, hazard).impact(
-        save_mat=True, assign_centroids=False
-    )
-    base_loss = _check_matrix(
-        "loss", impact.imp_mat.toarray(), shape, non_negative=True
-    )
     batch = HazardBatch(
         event_ids=tuple(event_ids),
         tracks=track_data,
@@ -464,13 +690,46 @@ def _run_batch(
     index = _check_matrix(
         "index", index_builder.build(batch), shape, non_negative=False
     )
-    draws = _check_matrix(
-        "loss draws",
-        vulnerability.losses(batch, base_loss, rng),
-        (vulnerability.n_draws, *shape),
+    if cells is None:
+        assert base_loss is not None
+        draws = _check_matrix(
+            "loss draws",
+            vulnerability.losses(batch, base_loss, rng),
+            (vulnerability.n_draws, *shape),
+            non_negative=True,
+        )
+        return index, draws
+    cell_hazard, cell_wind, cell_loss = _hazard_and_impact(
+        event_ids,
+        track_data,
+        config=config,
+        centroids=cells.centroids,
+        exposures=cells.exposures,
+        impact_functions=impact_functions,
+        where=" at the cells",
+        with_impact=True,
+    )
+    assert cell_loss is not None
+    cell_batch = HazardBatch(
+        event_ids=tuple(event_ids),
+        tracks=track_data,
+        hazard=cell_hazard,
+        locations=cells.table.cells,
+        exposures=cells.exposures,
+        impact_functions=impact_functions,
+        wind=cell_wind,
+    )
+    n_cells = cells.table.n_cells
+    cell_draws = _check_matrix(
+        "loss draws at the cells",
+        vulnerability.losses(cell_batch, cell_loss, rng),
+        (vulnerability.n_draws, len(event_ids), n_cells),
         non_negative=True,
     )
-    return index, draws
+    summed = np.asarray(
+        cell_draws.reshape(-1, n_cells) @ cells.table.membership, dtype=np.float64
+    )
+    return index, summed.reshape(vulnerability.n_draws, *shape)
 
 
 # --------------------------------------------------------------------------
@@ -487,6 +746,7 @@ def _scenario_text(
     n_skipped: int,
     n_draws: int,
     has_draws: bool,
+    cells: CellTable | None,
 ) -> str:
     impf = config.impact_function
     if has_draws:
@@ -502,6 +762,13 @@ def _scenario_text(
         if n_skipped
         else ""
     )
+    where = (
+        f" Each location's loss is the sum of the impacts on its cells "
+        f"({cells.n_cells:,} cells in all, wind at each cell centre); the index "
+        "is computed at the location's lat/lon."
+        if cells is not None
+        else ""
+    )
     return (
         f"IRIS {config.n_years:,}-year synthetic tropical-cyclone catalogue "
         f"for {n_locations} locations. One row per storm whose track passes "
@@ -510,7 +777,7 @@ def _scenario_text(
         "location); years without such a storm are implicit zero-loss years."
         f"{skipped} Losses from CLIMADA's Emanuel (2011) USA tropical-cyclone "
         f"impact function (v_thresh {impf.v_thresh:g} m/s, v_half "
-        f"{impf.v_half:g} m/s, scale {impf.scale:g}). {draws}"
+        f"{impf.v_half:g} m/s, scale {impf.scale:g}).{where} {draws}"
     )
 
 
@@ -589,6 +856,10 @@ def build_eventset(
     locations = read_locations(config.locations)
     _check_impf_column(locations, config.impact_function.impf_id)
     location_key, location_sha = _location_checksum(config.locations)
+    cell_table: CellTable | None = None
+    if isinstance(config.loss, CellLossConfig):
+        cell_table = read_cells(config.loss.cells, locations)
+        _check_cell_reach(cell_table, config)
 
     catalogue_sha = iris.file_digests(config.catalogue)[1]
     catalogue = tracks.read_iris_catalogue(config.catalogue)
@@ -650,6 +921,16 @@ def build_eventset(
         lat=locations["lat"].to_numpy(dtype=np.float64),
         lon=locations["lon"].to_numpy(dtype=np.float64),
     )
+    cell_loss: _CellLoss | None = None
+    if cell_table is not None:
+        cell_loss = _CellLoss(
+            table=cell_table,
+            centroids=Centroids(
+                lat=cell_table.cells["lat"].to_numpy(dtype=np.float64),
+                lon=cell_table.cells["lon"].to_numpy(dtype=np.float64),
+            ),
+            exposures=_exposures(cell_table.cells, config.impact_function.impf_id),
+        )
     index_parts: list[NDArray[np.float64]] = []
     loss_parts: list[NDArray[np.float64]] = []
     n_batches = -(-len(modelled) // config.batch_size)
@@ -667,6 +948,7 @@ def build_eventset(
             index_builder=index_builder,
             vulnerability=vulnerability,
             rng=rng,
+            cells=cell_loss,
         )
         index_parts.append(index)
         loss_parts.append(draws)
@@ -690,6 +972,30 @@ def build_eventset(
     )
     n_zero = int(((index_all == 0) & (loss_all == 0).all(axis=1)).all(axis=1).sum())
 
+    # Centroid losses add nothing here, so thesis builds keep their hashes.
+    loss_parameters: dict[str, Any] = {}
+    cell_checksums: dict[str, str] = {}
+    if cell_table is not None:
+        assert isinstance(config.loss, CellLossConfig)
+        cells_key, cells_sha = _file_checksum(config.loss.cells)
+        cell_checksums[cells_key] = f"sha256:{cells_sha}"
+        loss_parameters["loss"] = {
+            "kind": "cells",
+            "file": cells_key,
+            "sha256": cells_sha,
+            "n_cells_file": cell_table.n_cells_file,
+            "n_cells": cell_table.n_cells,
+            "n_cells_positive": int((cell_table.cells["value"] > 0).sum()),
+            "n_cells_unassigned": cell_table.n_cells_unassigned,
+            "value_unassigned": cell_table.value_unassigned,
+            "max_cell_distance_km": cell_table.max_distance_km,
+            "aggregation": (
+                "loss of a location = sum of the impacts on its cells (cells "
+                "with a null location_id are left out); wind at each cell "
+                "centre; vulnerability draws applied to the cells, one v_half "
+                "per (event, draw_id) shared by every cell"
+            ),
+        }
     build_record = TransformRecord(
         name=BUILD_RECORD_NAME,
         function=f"{__name__}.build_eventset",
@@ -728,6 +1034,7 @@ def build_eventset(
             },
             "index": index_builder.parameters(),
             "n_draws": n_draws,
+            **loss_parameters,
         },
     )
     transforms = [build_record]
@@ -735,21 +1042,22 @@ def build_eventset(
     if draw_record is not None:
         transforms.append(draw_record)
 
+    scenario = config.scenario or _scenario_text(
+        config,
+        n_locations=n_locations,
+        n_events=len(modelled),
+        n_zero=n_zero,
+        n_skipped=len(skipped),
+        n_draws=n_draws,
+        has_draws=not isinstance(vulnerability, NoDraws),
+        cells=cell_table,
+    )
     metadata = EventSetMetadata(
         hazard=HazardSource(name="IRIS", release=release),
         index=index_builder.describe(_wind_field_text(config, climada_version)),
-        loss=LossDefinition(unit="USD", currency="USD"),
+        loss=LossDefinition(unit=config.loss.unit, currency="USD"),
         n_years=config.n_years,
-        scenario=config.scenario
-        or _scenario_text(
-            config,
-            n_locations=n_locations,
-            n_events=len(modelled),
-            n_zero=n_zero,
-            n_skipped=len(skipped),
-            n_draws=n_draws,
-            has_draws=not isinstance(vulnerability, NoDraws),
-        ),
+        scenario=" ".join([scenario, *config.scenario_notes]),
         provenance=Provenance(
             producer=PRODUCER,
             producer_version=version(PRODUCER),
@@ -757,6 +1065,7 @@ def build_eventset(
             source_checksums={
                 catalogue_key: f"sha256:{catalogue_sha}",
                 location_key: f"sha256:{location_sha}",
+                **cell_checksums,
             },
         ),
         licence=config.licence,
