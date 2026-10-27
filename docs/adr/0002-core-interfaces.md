@@ -189,11 +189,26 @@ One owner issue per file. Other issues may import a module but never edit it. A 
 | `src/.../experiment/store.py` | MAR-64 | |
 | `src/.../experiment/sweeps.py` | MAR-65 | |
 | `src/.../cli.py` | MAR-66 | |
-| `tests/conftest.py`, `tests/test_interfaces.py`, `tests/test_basis.py`, `tests/test_records.py`, `tests/test_walking_skeleton.py` | MAR-61 | Others may use the fixtures; changes need an amendment |
+| `tests/conftest.py`, `tests/_doubles.py`, `tests/test_interfaces.py`, `tests/test_basis.py`, `tests/test_records.py`, `tests/test_walking_skeleton.py` | MAR-61 | Others may use the fixtures and doubles; changes need an amendment. MAR-87 (amendment) added `_doubles.py`: the payout, grouped-measure and context-builder doubles shared by `test_objectives.py`, `test_pricing.py` and `test_constraints.py`, imported with `from ._doubles import ...` (a relative import works under `--import-mode=importlib`). Its context builder calls the real `build_context`. MAR-24 may replace `GroupedMeasure` with the real grouped measure |
 | `tests/test_<module>.py` | The module's owner | E.g. `test_payout.py` belongs to MAR-11 |
 | `tests/test_engine_properties.py` (new) | MAR-15 | Analytical and property tests (SPEC §6.7) through the public API |
 | `pyproject.toml`, `uv.lock` (core and root) | Shared, append-only | An issue may add its own dependency or entry-point lines, with a one-line justification in its PR; never edit another issue's lines. On conflict: rebase on `main` and run `uv lock`. A change to the core's dependencies (`packages/core/pyproject.toml`) must also run `pixi lock` in `packages/climada` and commit `packages/climada/pixi.lock`, because the climada CI job installs with `--locked` and fails on a stale lock (MAR-71, PR #28). Examples: scipy (MAR-12/MAR-24), pydantic (MAR-63), the CLI entry point (MAR-66), hypothesis (MAR-15, root dev group) |
 | `parity/BENCHMARK.md` | MAR-14 | Solve-time baseline |
+| `packages/climada/src/.../portfolio_litpop.py`, `litpop_florida_manifest.json`, `tests/test_portfolio_litpop.py`, `scripts/estimate_florida_grid.py`; `research/data/d2-florida-litpop/` | MAR-113 | Not under `packages/core/`. LitPop cells to county locations (D2): pinned LitPop and TIGER/Line downloads, `aggregate_cells`, the 67-county `locations` table and its provenance. MAR-114 imports it; changes to the table's columns or the manifest go through a follow-up |
+
+The viz package (`packages/viz/`, MAR-21 / F-08) follows the same rule. Viz modules read the result store and never import the solver, the problem builder, the runner, the sweeps or an adapter (SPEC §3.1 C6, ADR 0001; checked by `tests/test_imports.py`).
+
+| File | Owner | Notes |
+|---|---|---|
+| `packages/viz/src/.../__init__.py`, `errors.py`, `style.py`, `reader.py`, `figure_data.py` | MAR-110 | Foundation: shared style (thesis `global_settings`), result-store reader, figure-data CSV writer, typed errors. Later sub-issues import them; a change goes through a follow-up |
+| `packages/viz/src/.../payout_functions.py` | MAR-110 | Payout-function grid and normalised payout figure |
+| `packages/viz/src/.../command.py` | MAR-110 → **MAR-111**, **MAR-112** | The `figures` figure set. MAR-111 and MAR-112 only append their builder to `FIGURE_SETS` (append-only); on conflict, rebase on `main` |
+| `packages/viz/src/.../kpi_figures.py` | MAR-111 | KPI heatmaps (`kpi_heatmap`), performance overview (`performance_overview`, thesis Fig 5.5) and exceedance curves (`exceedance_curves`, Fig 5.6), plus `kpi_table` and the `kpi_figures` builder in `FIGURE_SETS`. Reads only the `kpis` and `exceedance` tables; never re-evaluates payouts |
+| `packages/viz/src/.../sweep_figures.py` (new, not created yet) | MAR-112 | Sweep plots, premium reallocation, tail-vs-total trade-off, cluster net advantage |
+| `packages/viz/tests/conftest.py`, `tests/test_<module>.py` | The module's owner (MAR-110 for `conftest.py` and the foundation) | Others may use the `toy` and `failed` fixture stores but add their own fixtures in their test files |
+| `packages/viz/pyproject.toml` | Shared, append-only | As the core's: MAR-110 added matplotlib, numpy, pandas, scipy |
+| `packages/core/src/.../cli.py`, the `figures` subcommand only | MAR-110 | Imports `parametric_insurance_design_viz.command` lazily (`VizNotInstalledError` without it); the core never depends on viz. The rest of `cli.py` stays MAR-66's |
+| `packages/core/tests/test_cli_figures.py` | MAR-110 | |
 
 **Parallel dispatch.** MAR-10, MAR-11, MAR-12, MAR-13, MAR-14 and MAR-16 own disjoint files and can be built at the same time. Each one tests against the contracts with small test doubles, as the walking skeleton does. The acceptance tests that need several real components (MAR-14: all nine combinations solve on the fixture; MAR-16: KPIs match the thesis on the fixture) also need MAR-11, MAR-12 and MAR-13 merged, plus the MAR-9 fixture.
 
