@@ -42,7 +42,7 @@ from parametric_insurance_design.experiment.runner import (
     run_single,
 )
 from parametric_insurance_design.experiment.store import ResultStore
-from parametric_insurance_design.interfaces import Sample, SolveStatus
+from parametric_insurance_design.interfaces import Pricing, Sample, SolveStatus
 from parametric_insurance_design.noise import add_noise
 from parametric_insurance_design.problem import BuiltProblem, build_problems
 from parametric_insurance_design.records import ALL_PROBLEMS, TABLES
@@ -282,14 +282,19 @@ def test_failing_solve_is_a_runs_row_with_its_error(
 def test_partial_failure_keeps_the_solved_problems(
     toy_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def fail_on_b(built: BuiltProblem, policy: SolverPolicy = DEFAULT_POLICY) -> Any:  # noqa: ANN401
+    def fail_on_b(
+        built: BuiltProblem,
+        policy: SolverPolicy = DEFAULT_POLICY,
+        *,
+        pricing: Pricing | None = None,
+    ) -> Any:  # noqa: ANN401
         if built.spec.problem_id == "B":
             raise InfeasibleError(
                 "no solver returned an acceptable result [CLARABEL: infeasible]",
                 problem_id="B",
                 status=SolveStatus.INFEASIBLE,
             )
-        return solve(built, policy)
+        return solve(built, policy, pricing=pricing)
 
     monkeypatch.setattr(runner, "solve", fail_on_b)
     config = toy_config(toy_dir, tmp_path)
