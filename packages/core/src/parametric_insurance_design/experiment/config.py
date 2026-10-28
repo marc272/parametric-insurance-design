@@ -57,9 +57,11 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    SerializerFunctionWrapHandler,
     ValidationError,
     ValidationInfo,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -532,12 +534,71 @@ class ClusterScopeConfig(_Model):
         Clustering strategy.
     index : {"point", "value_weighted"} or None, default None
         Entity index; None uses the scope's default (``value_weighted``).
+    cap_n_clusters : bool, default False
+        In an ``n_assets`` sweep, give a location subset smaller than
+        ``n_clusters`` the effective count ``min(n_clusters, n_locations)``
+        (:meth:`effective_n_clusters`, MAR-131). The sweep writes it into the
+        point's config, so the run's manifest, ``runs.parameters`` and its
+        config hash carry the count the run used, and the sweep manifest
+        records the requested and the effective count. False is the thesis
+        behaviour: such a subset fails to build (``InputMismatchError``), as
+        the thesis did. The scope itself never caps: a run whose own config
+        asks for more clusters than it has locations fails.
+
+    Notes
+    -----
+    ``cap_n_clusters`` is left out of :func:`to_dict`, :func:`dump_config`
+    and :func:`canonical_json` when it is False, its default. A config that
+    does not set it therefore dumps and hashes exactly as before MAR-131 (the
+    parity config and its config hashes are unchanged); a config that sets
+    it to True has a hash of its own.
     """
 
     kind: Literal["cluster"]
     n_clusters: PositiveInt
     strategy: ThesisWardConfig
     index: IndexKind | None = None
+    cap_n_clusters: Annotated[bool, Field(strict=True)] = False
+
+    @model_serializer(mode="wrap")
+    def _drop_default_cap(self, handler: SerializerFunctionWrapHandler) -> Any:  # noqa: ANN401
+        """Leave ``cap_n_clusters`` out of every dump while it is False."""
+        data = handler(self)
+        if not self.cap_n_clusters and isinstance(data, dict):
+            data.pop("cap_n_clusters", None)
+        return data
+
+    def effective_n_clusters(self, n_locations: int) -> int:
+        """Return the number of clusters a run on ``n_locations`` locations uses.
+
+        Parameters
+        ----------
+        n_locations : int
+            Number of locations of the run, >= 1.
+
+        Returns
+        -------
+        int
+            ``min(n_clusters, n_locations)`` with ``cap_n_clusters``,
+            ``n_clusters`` without (the scope then refuses a count above
+            ``n_locations``).
+
+        Raises
+        ------
+        ConfigError
+            If ``n_locations`` is not an integer >= 1.
+        """
+        if (
+            isinstance(n_locations, bool)
+            or not isinstance(n_locations, int | np.integer)
+            or n_locations < 1
+        ):
+            raise ConfigError(
+                f"n_locations must be an integer >= 1, got {n_locations!r}"
+            )
+        if self.cap_n_clusters:
+            return min(self.n_clusters, int(n_locations))
+        return self.n_clusters
 
     def build(self) -> Cluster:
         """Return the :class:`Cluster` scope."""

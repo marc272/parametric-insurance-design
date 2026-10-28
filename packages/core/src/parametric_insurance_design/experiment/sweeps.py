@@ -36,6 +36,25 @@ subset by subset), each value with the experiment's scope x objective runs in
   noise and the threshold (thesis order). The thesis config gives
   9 + 6 x 25 + 9 + 1 = 169 subsets.
 
+Cluster count of ``n_assets`` subsets (MAR-131)
+-----------------------------------------------
+A subset can have fewer locations than the cluster scope's ``n_clusters``
+(the thesis' 1- and 2-asset subsets with 3 clusters). Without
+``cap_n_clusters`` on the cluster scope (the default, and the parity config)
+the point keeps ``n_clusters``, and its run fails to build with
+``InputMismatchError``, recorded as a failed run, as the thesis failed (it
+swallowed the error). With ``cap_n_clusters: true`` the point's config gets
+the effective count ``min(n_clusters, len(subset))``
+(:meth:`~.config.ClusterScopeConfig.effective_n_clusters`) through
+``with_parameter("n_clusters", ...)``, so nothing is capped at run time:
+the run's config, manifest, ``runs.parameters`` and config hash carry the
+count it used. The cap is recorded, never applied silently: the point keeps
+both counts (:attr:`SweepPoint.n_clusters_requested`,
+:attr:`SweepPoint.n_clusters_effective`), and so does its entry in the sweep
+manifest (``n_clusters_requested``, ``n_clusters_effective``; only for
+cluster-scope points of a capped scope, so uncapped manifests are unchanged).
+Other sweeps never cap: an ``n_clusters`` sweep value is the count asked for.
+
 The thesis' simulation sweeps (``noise_value``, ``n_assets``) ran every scope
 x objective except those a figure cell excluded; that exclusion is a plotting
 choice, so every single run is a point here and the figures select.
@@ -163,6 +182,7 @@ from parametric_insurance_design.errors import (
 )
 from parametric_insurance_design.experiment.config import (
     SWEEP_PARAMETERS,
+    ClusterScopeConfig,
     ExperimentConfig,
     SweepConfig,
     config_hash,
@@ -273,6 +293,12 @@ class SweepPoint:
     subset_index : int or None, default None
         ``n_assets`` only: position of the subset among the chosen subsets of
         its size (0-based, in sampling order).
+    n_clusters_requested : int or None, default None
+        ``n_assets`` points of a cluster scope with ``cap_n_clusters`` only:
+        the experiment's ``n_clusters`` (MAR-131).
+    n_clusters_effective : int or None, default None
+        Likewise: the count the point's config has,
+        ``min(n_clusters_requested, len(location_ids))``.
     """
 
     parameter: str
@@ -280,6 +306,16 @@ class SweepPoint:
     config: ExperimentConfig
     location_ids: tuple[str, ...] | None = None
     subset_index: int | None = None
+    n_clusters_requested: int | None = None
+    n_clusters_effective: int | None = None
+
+    @property
+    def n_clusters_capped(self) -> bool:
+        """Whether the point's cluster count was capped at its subset size."""
+        return (
+            self.n_clusters_requested is not None
+            and self.n_clusters_effective != self.n_clusters_requested
+        )
 
     @property
     def scope(self) -> str:
@@ -426,16 +462,42 @@ def sweep_points(
     for size, chosen in zip(sizes, subsets, strict=True):
         for index, subset in enumerate(chosen):
             points.extend(
-                SweepPoint(
-                    parameter,
-                    size,
-                    single.with_locations(subset),
-                    location_ids=subset,
-                    subset_index=index,
-                )
-                for single in singles
+                _subset_point(single, size, subset, index) for single in singles
             )
     return tuple(points)
+
+
+def _subset_point(
+    single: ExperimentConfig, size: int, subset: tuple[str, ...], index: int
+) -> SweepPoint:
+    """Return the ``n_assets`` point of one single run on one subset (MAR-131 cap)."""
+    config = single.with_locations(subset)
+    scope = config.scopes[0]
+    if not (isinstance(scope, ClusterScopeConfig) and scope.cap_n_clusters):
+        return SweepPoint(
+            "n_assets", size, config, location_ids=subset, subset_index=index
+        )
+    requested = scope.n_clusters
+    effective = scope.effective_n_clusters(len(subset))
+    if effective != requested:
+        config = config.with_parameter("n_clusters", effective)
+        _log.info(
+            "n_assets sweep: subset %s has %d locations; n_clusters capped "
+            "from %d to %d (cap_n_clusters)",
+            list(subset),
+            len(subset),
+            requested,
+            effective,
+        )
+    return SweepPoint(
+        "n_assets",
+        size,
+        config,
+        location_ids=subset,
+        subset_index=index,
+        n_clusters_requested=requested,
+        n_clusters_effective=effective,
+    )
 
 
 # --------------------------------------------------------------------------
@@ -988,9 +1050,20 @@ def _manifest(
                 "cached": r.outcome.cached,
                 "ok": r.outcome.ok,
                 "failed": list(r.outcome.failed),
+                **_cap_record(r.point),
             }
             for number, r in enumerate(result.points)
         ],
+    }
+
+
+def _cap_record(point: SweepPoint) -> dict[str, int]:
+    """Manifest fields of a point's cluster-count cap; empty if it has none."""
+    if point.n_clusters_requested is None or point.n_clusters_effective is None:
+        return {}
+    return {
+        "n_clusters_requested": point.n_clusters_requested,
+        "n_clusters_effective": point.n_clusters_effective,
     }
 
 
