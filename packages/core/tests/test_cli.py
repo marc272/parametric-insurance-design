@@ -11,6 +11,7 @@ import logging
 import re
 import subprocess
 import sys
+from dataclasses import replace
 from importlib.metadata import entry_points
 from pathlib import Path
 from typing import Any, Protocol
@@ -24,7 +25,7 @@ from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.experiment.config import config_hash, load_config
 from parametric_insurance_design.experiment.runner import load_input, run_key
 from parametric_insurance_design.experiment.store import ResultStore
-from parametric_insurance_design.experiment.sweeps import SWEEPS_DIR
+from parametric_insurance_design.experiment.sweeps import SWEEPS_DIR, sweep_points
 from parametric_insurance_design.solve import DEFAULT_POLICY, THESIS_POLICY
 
 CLUSTER = {
@@ -338,6 +339,49 @@ def test_sweep_dry_run_lists_n_assets_subsets(
     assert "n_assets=1 [A] portfolio x mse" in out
     assert "n_assets=1 [B] portfolio x mse" in out
     assert "n_assets=2 [A,B] portfolio x mse" in out
+
+
+def test_sweep_dry_run_shows_the_n_clusters_cap(
+    write_config: WriteConfig, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # MAR-150: a capped point's label shows the cap (MAR-131); a cluster point
+    # that keeps its count, and points of other scopes, are labelled as before.
+    path = write_config(
+        scopes=[
+            {"kind": "portfolio"},
+            {**CLUSTER, "n_clusters": 2, "cap_n_clusters": True},
+        ],
+        objectives=[{"kind": "mse"}],
+        sweeps=[{"parameter": "n_assets", "values": [1, 2]}],
+    )
+    assert main(["sweep", str(path), "--dry-run", "--no-baseline"]) == ExitCode.OK
+    lines = capsys.readouterr().out.splitlines()
+    labels = [line for line in lines if "n_assets=" in line]
+    assert len(labels) == 6
+    for subset in ("A", "B"):
+        capped = f"n_assets=1 [{subset}] (n_clusters 2->1) cluster x mse"
+        assert sum(capped in line for line in labels) == 1
+        assert sum(f"n_assets=1 [{subset}] portfolio x mse" in ln for ln in labels) == 1
+    assert sum("n_assets=2 [A,B] cluster x mse" in line for line in labels) == 1
+    assert sum("n_assets=2 [A,B] portfolio x mse" in line for line in labels) == 1
+    assert sum("n_clusters" in line for line in labels) == 2
+
+
+def test_point_label_shows_the_cap_only_when_capped(
+    write_config: WriteConfig,
+) -> None:
+    path = write_config(
+        scopes=[{**CLUSTER, "cap_n_clusters": True}],
+        objectives=[{"kind": "mse"}],
+        sweeps=[{"parameter": "n_assets", "values": [2]}],
+    )
+    (capped,) = sweep_points(load_config(path), "n_assets", location_ids=["A", "B"])
+    assert capped.n_clusters_capped
+    assert (
+        cli._point_label(capped) == "n_assets=2 [A,B] (n_clusters 3->2) cluster x mse"
+    )
+    uncapped = replace(capped, n_clusters_requested=None, n_clusters_effective=None)
+    assert cli._point_label(uncapped) == "n_assets=2 [A,B] cluster x mse"
 
 
 def test_sweep_selects_parameters_and_skips_the_baseline(
