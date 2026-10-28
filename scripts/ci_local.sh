@@ -12,7 +12,8 @@
 #
 # Jobs (default: all, in this order):
 #   lint                     ruff check, import-boundary negative test,
-#                            ruff format --check, pyright, pre-commit
+#                            ruff format --check, pyright, ruff single
+#                            source check, pre-commit
 #   workspace-3.12           core (coverage >= 85 %), viz + crc, parity tests
 #   workspace-3.13           the same on Python 3.13
 #   core-3.11-highest        core alone on 3.11, newest dependencies
@@ -122,6 +123,7 @@ job_lint() {
   uv run --locked scripts/check_import_boundaries.sh
   uv run --locked ruff format --check
   uv run --locked pyright
+  uv run --locked scripts/check_ruff_single_source.py --self-test
   uv run --locked pre-commit run --all-files --show-diff-on-failure
 }
 
