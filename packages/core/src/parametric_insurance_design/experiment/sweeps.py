@@ -55,6 +55,19 @@ manifest (``n_clusters_requested``, ``n_clusters_effective``; only for
 cluster-scope points of a capped scope, so uncapped manifests are unchanged).
 Other sweeps never cap: an ``n_clusters`` sweep value is the count asked for.
 
+Folds of a k-fold experiment (MAR-138)
+--------------------------------------
+A k-fold experiment runs **one run per fold** (ADR 0002 §7):
+``single_runs()`` sets :attr:`~.config.KFoldSampleConfig.fold`, so the fold
+is part of each point's config, config hash and ``run_id``, and a sweep of a
+k-fold experiment has ``k`` points per value and scope x objective (folds
+``0 .. k - 1`` next to each other). The point's fold is
+:attr:`SweepPoint.fold`, and its entry in the sweep manifest has a ``fold``
+key, so a manifest says which fold every point calibrated on without a join
+with ``runs.fold``. Only k-fold points have the key: the manifests of other
+samples are unchanged, and :func:`sweep_membership` reads a manifest without
+it (written before MAR-138, or of another sample) as ``fold`` = ``<NA>``.
+
 The thesis' simulation sweeps (``noise_value``, ``n_assets``) ran every scope
 x objective except those a figure cell excluded; that exclusion is a plotting
 choice, so every single run is a point here and the figures select.
@@ -184,6 +197,7 @@ from parametric_insurance_design.experiment.config import (
     SWEEP_PARAMETERS,
     ClusterScopeConfig,
     ExperimentConfig,
+    KFoldSampleConfig,
     SweepConfig,
     config_hash,
 )
@@ -267,6 +281,7 @@ MEMBERSHIP_COLUMNS: Final[tuple[str, ...]] = (
     "run_source",
     "cached",
     "ok",
+    "fold",
 )
 """Columns of :func:`sweep_membership`, in order."""
 
@@ -316,6 +331,12 @@ class SweepPoint:
             self.n_clusters_requested is not None
             and self.n_clusters_effective != self.n_clusters_requested
         )
+
+    @property
+    def fold(self) -> int | None:
+        """The k-fold fold the point calibrates on; None for other samples."""
+        sample = self.config.sample
+        return sample.fold if isinstance(sample, KFoldSampleConfig) else None
 
     @property
     def scope(self) -> str:
@@ -1051,6 +1072,7 @@ def _manifest(
                 "ok": r.outcome.ok,
                 "failed": list(r.outcome.failed),
                 **_cap_record(r.point),
+                **_fold_record(r.point),
             }
             for number, r in enumerate(result.points)
         ],
@@ -1065,6 +1087,11 @@ def _cap_record(point: SweepPoint) -> dict[str, int]:
         "n_clusters_requested": point.n_clusters_requested,
         "n_clusters_effective": point.n_clusters_effective,
     }
+
+
+def _fold_record(point: SweepPoint) -> dict[str, int]:
+    """Manifest field of a point's k-fold fold; empty for other samples (MAR-138)."""
+    return {} if point.fold is None else {"fold": point.fold}
 
 
 def run_sweeps(
@@ -1211,7 +1238,9 @@ def sweep_membership(store: ResultStore) -> pd.DataFrame:
         with the record tables on ``run_id``. ``location_ids`` is a tuple of
         str (``n_assets``) or None; ``subset_index`` is None outside
         ``n_assets``. ``run_source`` is the tag of the run's ``runs`` rows,
-        ``source`` the sweep's tag.
+        ``source`` the sweep's tag. ``fold`` is the k-fold fold of the point
+        (MAR-138), ``<NA>`` for other samples and for manifests written
+        before it was recorded.
 
     Raises
     ------
@@ -1223,7 +1252,8 @@ def sweep_membership(store: ResultStore) -> pd.DataFrame:
             "sweep_id": manifest["sweep_id"],
             "parameter": manifest["parameter"],
             "source": manifest["source"],
-            **{key: point[key] for key in MEMBERSHIP_COLUMNS[3:]},
+            **{key: point[key] for key in MEMBERSHIP_COLUMNS[3:-1]},
+            "fold": point.get("fold"),
         }
         for manifest in read_sweep_manifests(store)
         for point in manifest["points"]
@@ -1233,4 +1263,5 @@ def sweep_membership(store: ResultStore) -> pd.DataFrame:
         None if ids is None else tuple(ids) for ids in frame["location_ids"]
     ]
     frame["subset_index"] = frame["subset_index"].astype("Int64")
+    frame["fold"] = frame["fold"].astype("Int64")
     return frame
