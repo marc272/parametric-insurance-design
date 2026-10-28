@@ -36,12 +36,20 @@ objective (``mse``).
 
 No silent failures
 ------------------
-* A config with a ``kfold`` sample is refused up front (MAR-142), with
-  :class:`~parametric_insurance_design_viz.kpi_figures.KFoldRunsError`,
-  before the store is read or any figure set runs. Its single runs are a run
-  per scope x objective x fold (MAR-22), and the figure sets show one run per
-  scope x objective; how folds are combined is decided with the confidence
-  intervals (MAR-23).
+* A config with a ``kfold`` sample (MAR-151) has a run per scope x
+  objective x fold (MAR-22). Its KPI figures show the **pooled**
+  out-of-sample KPIs (``pooled_kpis``, from the core's
+  ``experiment.kfold.pooled_kpis``; the ``figures`` command computes them),
+  one row per scope x objective. Without ``pooled_kpis`` it is refused up
+  front with
+  :class:`~parametric_insurance_design_viz.kpi_figures.KFoldRunsError`
+  (MAR-142), before the store is read or any figure set runs; so is a config
+  that fixes one fold. Only the figure sets in :data:`KFOLD_FIGURE_SETS` run
+  for it: the payout figures and the exceedance figures are each reported as
+  a :class:`SkippedFigure` with the reason (``failed=False``), and every
+  other set (the sweep figures, which show one run per scope x objective)
+  as one :class:`SkippedFigure` named after the set. Sweep points are not
+  read.
 * A run that is not in the store raises
   :class:`~parametric_insurance_design_viz.errors.MissingRunError` before
   anything is drawn. That includes every sweep point passed in ``sweeps``:
@@ -105,6 +113,9 @@ from parametric_insurance_design_viz.sweep_figures import (
 
 __all__ = [
     "FIGURE_SETS",
+    "KFOLD_FIGURE_SETS",
+    "KFOLD_PAYOUT_REASON",
+    "KFOLD_SET_REASON",
     "FigureContext",
     "FigureReport",
     "FigureSet",
@@ -152,10 +163,13 @@ class ScopeRuns:
         Figure-name stem of the scope, e.g. ``"individual"`` or
         ``"cluster_2"``.
     runs : tuple of RunResult
-        One per configured objective, in config order.
+        One per configured objective, in config order. For a k-fold config
+        (MAR-151) one per objective and fold, fold-minor (the order of
+        ``config.single_runs()``).
     events : pandas.DataFrame or None
         :func:`~parametric_insurance_design_viz.reader.entity_events` of the
-        scope; None without an EventSet or when a run failed.
+        scope; None without an EventSet, when a run failed, or for a k-fold
+        config (each fold has its own design problems).
     """
 
     key: str
@@ -239,6 +253,11 @@ class FigureContext:
         Transaction costs per contract, loss units, of the cluster
         net-advantage figure (MAR-120;
         :data:`~parametric_insurance_design_viz.sweep_figures.THESIS_TRANSACTION_COSTS`).
+    pooled_kpis : pandas.DataFrame or None, default None
+        k-fold configs only (MAR-151): the pooled out-of-sample KPIs, the
+        table of the core's ``experiment.kfold.pooled_kpis`` (columns
+        ``experiment.kfold.POOLED_COLUMNS``). The KPI figures draw them; the
+        viz never re-evaluates payouts.
     """
 
     config: ExperimentConfig
@@ -249,6 +268,7 @@ class FigureContext:
     eventset: EventSet | None = None
     missing_sweeps: tuple[SweepRun, ...] = ()
     transaction_costs: tuple[float, ...] = THESIS_TRANSACTION_COSTS
+    pooled_kpis: pd.DataFrame | None = None
 
     def scope_of(self, single: int) -> tuple[ScopeRuns, RunResult]:
         """Return the scope and the run of a single run, by its position.
@@ -261,21 +281,21 @@ class FigureContext:
         Returns
         -------
         tuple
-            ``(scope runs, run)``.
+            ``(scope runs, run)``; for a k-fold config the run of that fold.
 
         Raises
         ------
         InconsistentRunsError
             If there is no single run at that position.
         """
-        n_objectives = len(self.config.objectives)
-        scope, objective = divmod(single, n_objectives)
-        if not 0 <= single < len(self.scopes) * n_objectives:
+        per_scope = len(self.config.objectives) * _n_folds(self.config)
+        scope, position = divmod(single, per_scope)
+        if not 0 <= single < len(self.scopes) * per_scope:
             raise InconsistentRunsError(
                 f"config {self.config.name!r} has no single run {single}"
             )
         runs = self.scopes[scope]
-        return runs, runs.runs[objective]
+        return runs, runs.runs[position]
 
 
 FigureSet = Callable[[FigureContext], Iterable[FigureOutput | SkippedFigure]]
@@ -324,10 +344,13 @@ def payout_figures(context: FigureContext) -> list[FigureOutput | SkippedFigure]
     -------
     list
         Per scope: ``payout_grid_<key>``, then
-        ``normalised_payout_<key>_<first entity>`` (or skipped figures).
+        ``normalised_payout_<key>_<first entity>`` (or skipped figures). For
+        a k-fold config both are skipped with :data:`KFOLD_PAYOUT_REASON`
+        (MAR-151).
     """
     out: list[FigureOutput | SkippedFigure] = []
     benchmark = style.BENCHMARK_OBJECTIVE
+    kfold = _n_folds(context.config) > 1
     for scope in context.scopes:
         grid = f"payout_grid_{scope.key}"
         normalised = f"normalised_payout_{scope.key}"
@@ -335,6 +358,10 @@ def payout_figures(context: FigureContext) -> list[FigureOutput | SkippedFigure]
             reason = scope.failure_reason()
             out.append(SkippedFigure(grid, reason, failed=True))
             out.append(SkippedFigure(normalised, reason, failed=True))
+            continue
+        if kfold:
+            out.append(SkippedFigure(grid, KFOLD_PAYOUT_REASON, failed=False))
+            out.append(SkippedFigure(normalised, KFOLD_PAYOUT_REASON, failed=False))
             continue
         out.append(
             payout_grid(
@@ -369,6 +396,31 @@ FIGURE_SETS: Final[tuple[FigureSet, ...]] = (
     sweep_figures,
 )
 """Figure builders of the ``figures`` command, in order (append-only)."""
+
+KFOLD_FIGURE_SETS: Final[tuple[FigureSet, ...]] = (payout_figures, kpi_figures)
+"""Figure builders that handle a k-fold config (MAR-151): its scopes hold a
+run per objective and fold, and :attr:`FigureContext.pooled_kpis` the pooled
+KPIs. :func:`write_figures` reports any other set as one skipped figure."""
+
+KFOLD_PAYOUT_REASON: Final[str] = (
+    "k-fold config: each scope x objective has a design per fold, and the "
+    "payout figures show one design per scope x objective (MAR-151 pools the "
+    "portfolio KPIs only)"
+)
+"""Why the payout figures of a k-fold config are skipped."""
+
+KFOLD_SET_REASON: Final[str] = (
+    "k-fold config: this figure set shows one run per scope x objective, and a "
+    "k-fold config has a run per fold (MAR-151 pools the portfolio KPIs only, "
+    "in the KPI figures)"
+)
+"""Why a figure set that is not in :data:`KFOLD_FIGURE_SETS` is skipped."""
+
+
+def _n_folds(config: ExperimentConfig) -> int:
+    """Return the single runs per scope x objective: ``k`` for k-fold, else 1."""
+    sample = config.sample
+    return sample.k if sample.kind == "kfold" else 1  # KFOLD_SAMPLE, literal
 
 
 def _scope_keys(config: ExperimentConfig) -> list[str]:
@@ -462,23 +514,32 @@ def _check_costs(costs: Sequence[float]) -> tuple[float, ...]:
     return values
 
 
-def _refuse_kfold(config: ExperimentConfig) -> None:
-    """Refuse a config with a k-fold sample, before any figure set runs.
+def _check_kfold(config: ExperimentConfig, pooled_kpis: pd.DataFrame | None) -> None:
+    """Refuse a k-fold config the figures cannot draw, before any figure set runs.
 
     Raises
     ------
     KFoldRunsError
-        If ``config.sample`` is ``kfold`` (MAR-142).
+        If ``config.sample`` is ``kfold`` and ``pooled_kpis`` is None
+        (MAR-142, MAR-151), or the sample fixes one fold.
     """
     sample = config.sample
-    if sample.kind == "kfold":  # KFOLD_SAMPLE, as a literal for narrowing
+    if sample.kind != "kfold":  # KFOLD_SAMPLE, as a literal for narrowing
+        return
+    if sample.fold is not None:
         raise KFoldRunsError(
-            f"config {config.name!r} has a k-fold sample (k={sample.k}): the "
-            "figures command refuses k-fold configs (MAR-142). A k-fold "
-            "experiment has a run per scope x objective x fold (MAR-22), and "
-            "the figures show one run per scope x objective; the rule for "
-            "combining folds is decided with the confidence intervals "
-            "(MAR-23). Draw the figures from a holdout config"
+            f"config {config.name!r} fixes fold {sample.fold} of its k-fold "
+            "sample; the figures of a k-fold config pool every fold (MAR-151), "
+            "so leave sample.fold unset"
+        )
+    if pooled_kpis is None:
+        raise KFoldRunsError(
+            f"config {config.name!r} has a k-fold sample (k={sample.k}): a "
+            "k-fold experiment has a run per scope x objective x fold (MAR-22), "
+            "and its figures show the pooled out-of-sample KPIs (MAR-151), "
+            "which were not given. Compute them with the core's "
+            "experiment.kfold.pooled_kpis and pass pooled_kpis=...table; the "
+            "figures command does this"
         )
 
 
@@ -494,6 +555,7 @@ def write_figures(
     dpi: int = DEFAULT_DPI,
     skip_missing_sweeps: bool = False,
     transaction_costs: Sequence[float] = THESIS_TRANSACTION_COSTS,
+    pooled_kpis: pd.DataFrame | None = None,
 ) -> FigureReport:
     """Draw the figure set of a config from its result store.
 
@@ -527,6 +589,11 @@ def write_figures(
         net-advantage figure (MAR-120). Default
         :data:`~parametric_insurance_design_viz.sweep_figures.THESIS_TRANSACTION_COSTS`,
         the thesis' 25k to 125k.
+    pooled_kpis : pandas.DataFrame, optional
+        Required for a k-fold config, ignored otherwise (MAR-151): the
+        pooled out-of-sample KPIs, ``experiment.kfold.pooled_kpis(...).table``.
+        The KPI figures draw one pooled row per scope x objective; the module
+        docstring says which figures are skipped. ``sweeps`` are not read.
 
     Returns
     -------
@@ -536,9 +603,9 @@ def write_figures(
     Raises
     ------
     KFoldRunsError
-        If the config's sample is ``kfold`` (MAR-142): its single runs are a
-        run per fold, and the figure sets show one run per scope x
-        objective. Raised before the store is read; nothing is drawn.
+        If the config's sample is ``kfold`` and ``pooled_kpis`` is not given,
+        or the sample fixes one fold (MAR-142, MAR-151). Raised before the
+        store is read; nothing is drawn.
     InconsistentRunsError
         If ``run_ids`` does not match the config's single runs, or a sweep
         point names no single run of the config.
@@ -550,7 +617,9 @@ def write_figures(
     VizError
         If the transaction costs are empty, negative, not finite or repeat.
     """
-    _refuse_kfold(config)
+    _check_kfold(config, pooled_kpis)
+    n_folds = _n_folds(config)
+    kfold = n_folds > 1
     costs = _check_costs(transaction_costs)
     singles = config.single_runs()
     ids = tuple(run_ids)
@@ -561,7 +630,13 @@ def write_figures(
         )
     reader = ResultReader(store)
     results = reader.runs(ids)
-    points = tuple(sweeps)
+    points = () if kfold else tuple(sweeps)
+    if kfold and sweeps:
+        _log.warning(
+            "k-fold config: its %d sweep points are not read; the sweep figures "
+            "are skipped (MAR-151)",
+            len(sweeps),
+        )
     missing = _check_sweeps(config, reader, points, skip_missing=skip_missing_sweeps)
     if missing:
         _log.warning(
@@ -570,18 +645,18 @@ def write_figures(
             len(missing),
             len(points),
         )
-    n_objectives = len(config.objectives)
+    per_scope = len(config.objectives) * n_folds
     eventset_hash = eventset.content_hash() if eventset is not None else None
     scopes: list[ScopeRuns] = []
     for i, (key, scope_config) in enumerate(
         zip(_scope_keys(config), config.scopes, strict=True)
     ):
-        runs = results[i * n_objectives : (i + 1) * n_objectives]
+        runs = results[i * per_scope : (i + 1) * per_scope]
         events = None
         if eventset is not None and eventset_hash is not None:
             for run in runs:
                 check_eventset(run, eventset_hash)
-            if all(r.complete for r in runs):
+            if not kfold and all(r.complete for r in runs):
                 events = entity_events(
                     eventset, scope_config.build(), runs[0].problem_specs()
                 )
@@ -595,11 +670,17 @@ def write_figures(
         eventset=eventset,
         missing_sweeps=missing,
         transaction_costs=costs,
+        pooled_kpis=pooled_kpis if kfold else None,
     )
     directory = Path(out_dir)
     written: list[WrittenFigure] = []
     skipped: list[SkippedFigure] = []
     for figure_set in figure_sets:
+        if kfold and figure_set not in KFOLD_FIGURE_SETS:
+            name = getattr(figure_set, "__name__", repr(figure_set))
+            _log.info("figure set %s skipped: %s", name, KFOLD_SET_REASON)
+            skipped.append(SkippedFigure(name, KFOLD_SET_REASON, failed=False))
+            continue
         for item in figure_set(context):
             if isinstance(item, SkippedFigure):
                 level = logging.WARNING if item.failed or item.missing else logging.INFO
