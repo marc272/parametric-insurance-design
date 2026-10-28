@@ -531,6 +531,82 @@ def test_bad_manifests_are_errors(tmp_path: Path, content: str, message: str) ->
         read_sweep_manifests(ResultStore(tmp_path))
 
 
+# -- k-fold: the fold of every point (MAR-138) ---------------------------------
+
+
+def test_kfold_sweep_manifest_lists_the_fold_per_point(
+    toy_dir: Path, tmp_path: Path
+) -> None:
+    config = toy_config(
+        toy_dir,
+        tmp_path / "store",
+        sample={"kind": "kfold", "k": 3},
+        sweeps=[{"parameter": "alpha", "values": [0.5, 0.9]}],
+    )
+    store = ResultStore(tmp_path / "store")
+    result = run_sweep(config, "alpha", load_input(config), store)
+    assert result.ok, [p.outcome.failed for p in result.failed]
+    # value x scope (weighted_cvar only) x fold, folds next to each other.
+    assert [p.point.fold for p in result.points] == [0, 1, 2] * 4
+
+    (manifest,) = read_sweep_manifests(store)
+    entries = manifest["points"]
+    assert [e["fold"] for e in entries] == [0, 1, 2] * 4
+    assert len({e["run_id"] for e in entries}) == 12  # a run per fold
+
+    # The manifest's fold is the fold the run calibrated on.
+    runs = store.read("runs").drop_duplicates("run_id").set_index("run_id")
+    for entry in entries:
+        assert int(runs.at[entry["run_id"], "fold"]) == entry["fold"]
+        run = store.manifest(entry["run_id"])
+        assert run["config"]["sample"]["fold"] == entry["fold"]
+
+    membership = sweep_membership(store)
+    assert list(membership.columns) == list(MEMBERSHIP_COLUMNS)
+    assert membership["fold"].dtype == "Int64"
+    assert membership["fold"].tolist() == [0, 1, 2] * 4
+
+
+def test_other_samples_have_no_fold_in_the_manifest(
+    toy_dir: Path, tmp_path: Path
+) -> None:
+    config = toy_config(
+        toy_dir,
+        tmp_path / "store",
+        sample={"kind": "holdout", "train_fraction": 0.7},
+        sweeps=[{"parameter": "alpha", "values": [0.5]}],
+    )
+    store = ResultStore(tmp_path / "store")
+    result = run_sweep(config, "alpha", load_input(config), store)
+    assert all(p.point.fold is None for p in result.points)
+    (manifest,) = read_sweep_manifests(store)
+    assert not any("fold" in e for e in manifest["points"])
+    assert bool(sweep_membership(store)["fold"].isna().all())
+
+
+def test_membership_reads_manifests_without_the_fold(
+    toy_dir: Path, tmp_path: Path
+) -> None:
+    """A manifest written before MAR-138 (no ``fold`` key) still reads."""
+    config = toy_config(
+        toy_dir,
+        tmp_path / "store",
+        sample={"kind": "kfold", "k": 3},
+        sweeps=[{"parameter": "alpha", "values": [0.9]}],
+    )
+    store = ResultStore(tmp_path / "store")
+    result = run_sweep(config, "alpha", load_input(config), store)
+    manifest = json.loads(result.manifest_path.read_text())
+    for entry in manifest["points"]:
+        del entry["fold"]
+    result.manifest_path.write_text(json.dumps(manifest))
+
+    membership = sweep_membership(store)
+    assert len(membership) == 6
+    assert membership["fold"].dtype == "Int64"
+    assert bool(membership["fold"].isna().all())
+
+
 # -- acceptance: the thesis grid ------------------------------------------------
 
 # Thesis optimisation sweeps: (scope, objective) of our config -> thesis

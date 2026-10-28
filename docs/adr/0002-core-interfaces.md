@@ -128,6 +128,8 @@ These are typed tables (`TableSchema`: columns, kinds, nullability, allowed valu
 
 KPI names are an enum (`KpiName`) mapped to the thesis columns. A new KPI needs an amendment.
 
+*Amendment (MAR-138, recording MAR-22, PR #78): k-fold is one run per fold.* A k-fold experiment calibrates once per fold, and each fold is a run of its own. `ExperimentConfig.single_runs()` expands a `kfold` sample without a `fold` into one config per fold, with `KFoldSampleConfig.fold` set, so the fold is part of the config hash and of the `run_id`. The runner refuses a k-fold config whose `fold` is unset. The `runs` key stays `(run_id, problem_id)`: no table gains a key column, and no schema changes. The fold number is in `runs.fold` (with `runs.calibration_split = "train"`), in the `fold` key column of `kpis` and `exceedance`, and in `runs.parameters` (`k` and `fold`). Sweeps expand the same way, one point per value and fold, and since MAR-138 each k-fold point's entry in the sweep manifest has a `fold` key (absent for other samples). Details: `docs/methodology/out-of-sample.md`.
+
 ### 8. `experiment/` subpackage
 
 SPEC §4.2's `experiment.py` would be edited by four issues, so it becomes `experiment/config.py` (MAR-63), `experiment/runner.py` and `experiment/store.py` (MAR-64), and `experiment/sweeps.py` (MAR-65). MAR-66's CLI is the top-level `cli.py`, because later commands (`figures`, `export-site`) aren't experiment logic. These names match what the Linear issues already say. SPEC §4.2 should be updated to match (follow-up; SPEC edits aren't part of this issue).
