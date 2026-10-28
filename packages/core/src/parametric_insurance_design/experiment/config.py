@@ -70,6 +70,7 @@ from parametric_insurance_design.bootstrap import DEFAULT_LEVEL, DEFAULT_N_BOOTS
 from parametric_insurance_design.clustering import ThesisWardClustering
 from parametric_insurance_design.constraints import Budget
 from parametric_insurance_design.errors import ComponentConfigError, ConfigError
+from parametric_insurance_design.evaluate import DEFAULT_RETURN_PERIODS
 from parametric_insurance_design.index import (
     EntityIndex,
     PointIndex,
@@ -196,6 +197,8 @@ Seed = Annotated[int, Field(strict=True, ge=0)]
 """A seed for :func:`numpy.random.default_rng`, an integer >= 0."""
 NonEmptyStr = Annotated[str, Field(strict=True, min_length=1)]
 """A non-empty string."""
+ReturnPeriod = Annotated[float, Field(strict=True, allow_inf_nan=False, gt=1.0)]
+"""A finite return period > 1; integers are accepted."""
 IndexKind = Literal["point", "value_weighted"]
 """Entity index: ``PointIndex`` or ``ValueWeightedIndex``."""
 
@@ -739,7 +742,7 @@ ConstraintConfig = Annotated[BudgetConfig, Field(discriminator="kind")]
 
 
 class EvaluationConfig(_Model):
-    """KPI settings (:func:`~parametric_insurance_design.evaluate.kpis`).
+    """KPI and exceedance-curve settings (:mod:`~parametric_insurance_design.evaluate`).
 
     Parameters
     ----------
@@ -747,9 +750,54 @@ class EvaluationConfig(_Model):
         VaR/CVaR level of the KPIs, in ``(0, 1)`` (thesis ``BENCHMARK_BETA``).
         Independent of the objectives' ``beta``: a ``beta`` sweep changes the
         objectives only, as in the thesis.
+    return_periods : tuple of float, default ``evaluate.DEFAULT_RETURN_PERIODS``
+        Return periods of the ``exceedance`` table
+        (:func:`~parametric_insurance_design.evaluate.exceedance_curves`,
+        MAR-117): at least one, each finite and > 1, in strictly increasing
+        order. Integers are read as floats. Their unit follows the basis
+        (years on ``annual`` and ``event``, events on ``event_conditional``;
+        see ``exceedance_curves``). The default is
+        :data:`~parametric_insurance_design.evaluate.DEFAULT_RETURN_PERIODS`
+        (2, 5, 10, 25, 50, 100, 250); the parity config sets the thesis grid
+        of Figure 5.6 (2, 5, 10, 20, 50, 100, 200, 500).
+
+    Notes
+    -----
+    ``return_periods`` is left out of :func:`to_dict`, :func:`dump_config`
+    and :func:`canonical_json` when it equals the default, whether unset or
+    written out. A config that does not set another grid therefore dumps and
+    hashes exactly as before MAR-117 and keeps its run ids; a config with
+    another grid has a hash of its own, since the grid is part of the run's
+    stored ``exceedance`` table.
     """
 
     beta: UnitOpen
+    return_periods: tuple[ReturnPeriod, ...] = DEFAULT_RETURN_PERIODS
+
+    @field_validator("return_periods")
+    @classmethod
+    def _check_return_periods(cls, value: tuple[float, ...]) -> tuple[float, ...]:
+        """Require a non-empty, strictly increasing grid; store floats."""
+        if not value:
+            raise ValueError("needs at least one return period")
+        repeated = sorted({v for v in value if value.count(v) > 1})
+        if repeated:
+            raise ValueError(f"return periods repeat {repeated}")
+        if list(value) != sorted(value):
+            raise ValueError(
+                f"return periods must be in increasing order, got {list(value)}"
+            )
+        return tuple(float(v) for v in value)
+
+    @model_serializer(mode="wrap")
+    def _drop_default_return_periods(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> Any:  # noqa: ANN401
+        """Leave ``return_periods`` out of every dump while it is the default."""
+        data = handler(self)
+        if self.return_periods == DEFAULT_RETURN_PERIODS and isinstance(data, dict):
+            data.pop("return_periods", None)
+        return data
 
 
 class BootstrapConfig(_Model):
@@ -1345,7 +1393,10 @@ def load_config(path: str | Path) -> ExperimentConfig:
 def to_dict(config: ExperimentConfig) -> dict[str, Any]:
     """Return the config as plain JSON/YAML types (str, int, float, list, dict).
 
-    Every field is written, defaults included, so the output is complete.
+    Every field is written, defaults included, so the output is complete,
+    except the opt-in fields left out at their default: an absent
+    ``bootstrap`` (:data:`OMITTED_WHEN_ABSENT`), a False ``cap_n_clusters``
+    and the default ``evaluation.return_periods``.
     Paths are written as POSIX strings.
     """
     data = _drop_absent(config.model_dump(mode="json", round_trip=True))
@@ -1484,9 +1535,10 @@ def config_hash(config: ExperimentConfig) -> str:
     ``EventSet.content_hash()``).
 
     Any change to the canonical form or the exclusions changes
-    :data:`CONFIG_HASH_DOMAIN`. (Omitting an absent ``bootstrap`` did not:
-    the canonical JSON of every config that existed before it is unchanged.)
-    Adding a schema field with a default changes
+    :data:`CONFIG_HASH_DOMAIN`. (Omitting an absent ``bootstrap``, a False
+    ``cap_n_clusters`` or a default ``evaluation.return_periods`` did not:
+    the canonical JSON of every config that existed before them is
+    unchanged.) Adding a schema field with a default that is hashed changes
     the hash of every config, because defaults are hashed; that is a schema
     version change.
     """

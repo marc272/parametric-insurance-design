@@ -75,6 +75,20 @@ THESIS_FILES: Final = (
 EVENTSET_PATH: Final = "../tests/data/thesis_eventset"
 OUTPUT_DIRECTORY: Final = "../../results/thesis"
 
+THESIS_RETURN_PERIODS: Final[tuple[float, ...]] = (
+    2.0,
+    5.0,
+    10.0,
+    20.0,
+    50.0,
+    100.0,
+    200.0,
+    500.0,
+)
+"""Return periods of the thesis exceedance curves (Figure 5.6): the default
+of ``plot_exceedance_curves`` in the thesis ``src/utils/plotting.py``, which
+the notebook does not override (MAR-117)."""
+
 OBJECTIVE_KINDS: Final[Mapping[str, str]] = {
     "pure_basis_risk_minimization": "mse",
     "pure_uncovered_loss_minimization": "expected_uncovered",
@@ -233,6 +247,11 @@ IMPLICIT: Final[tuple[tuple[str, str], ...]] = (
     (
         "sweeps[n_assets].max_combinations",
         "25: max_combos_per_n of the notebook's n_assets sensitivity cell",
+    ),
+    (
+        "evaluation.return_periods",
+        "2, 5, 10, 20, 50, 100, 200, 500: plot_exceedance_curves default "
+        "(src/utils/plotting.py, Figure 5.6)",
     ),
     ("output.directory", f"{OUTPUT_DIRECTORY} (relative to parity/configs)"),
 )
@@ -534,7 +553,10 @@ def migrate(
         "constraints": [
             {"kind": "budget", "loading": value(f"{inputs}.budget_loading")}
         ],
-        "evaluation": {"beta": value("global_settings.BENCHMARK_BETA")},
+        "evaluation": {
+            "beta": value("global_settings.BENCHMARK_BETA"),
+            "return_periods": list(THESIS_RETURN_PERIODS),
+        },
         "sweeps": sweeps,
         "output": {"directory": OUTPUT_DIRECTORY},
     }

@@ -45,17 +45,22 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 PARITY_CONFIG = REPO_ROOT / "parity" / "configs" / "thesis.yaml"
 
 THESIS_SINGLE_RUN_HASHES = (
-    "sha256:3eec7ac6ed4dac0540d409a87893d4e000f5e52c006833efd2f3e2db6e85d24c",
-    "sha256:8e3e9ca927bfacf4ed5170f7498c7b8d3fbb12d9b55a2aa1ef6ace7fc20a86bd",
-    "sha256:3666438e3ea961bf33412f3c1c6901baf1c80327f49ce186da0218620812dba5",
-    "sha256:9cedd23cf2511120da05d19a683dd783c25b34a90ad93484a946ca1837401d81",
-    "sha256:5ebf4bdfcedf9a1b65338e0866cfb2d813b53d5c5102d321ed0a35703686fda9",
-    "sha256:e85db2607bc6c8f8530baa4cfbf55ece989c8e25d210693bd215fd59222254f2",
-    "sha256:e134d0bea41f0bbf99b12a8817b161a2d3acb92a7bd38f9a8ea756322ac2178c",
-    "sha256:bbe10df69cbe6dc84bc6b8fca70e57eda14a20389e4ef954416232908c27236b",
-    "sha256:71718bcbd1d5384f70fba6472d89e3f846a62160f728ee6663e08a2522d27a6b",
+    "sha256:e2921efb64394b7f36f9deb18c2167ad6dac45ccf4c823340c940051ccc6a807",
+    "sha256:7794a200e904deaa0dfc5653bd0ff6f1f176abb58460817227b503020ffb5dd9",
+    "sha256:73e24b54ec1dc0f1af243e47d9767fea5469587348efd4b764009e036ec00b97",
+    "sha256:2100f064618d6270d623e224bb6e66d063bc600f0f6d879412e448d9a21504a4",
+    "sha256:601a28c31e1cba5fd9eb97fc82000f3288fab814d84bfb0c454d51ee779464a7",
+    "sha256:0a0969343e560d672e8b7b461b086029037ff2f268c67231b1375e34b9fad264",
+    "sha256:3d3e150f1b3722cf7a60659d7cb081cc2698551a22a1241dc4e9db37a557b04b",
+    "sha256:2ba236ff3708c72d5a68737d73d4860922839880fd68745bab7744cff820049d",
+    "sha256:1a84fd742e94b86d3b30e98cf3cf8e2c8e12a770693bf1f694ef81a4718cf24d",
 )
-"""``config_hash`` of the 9 thesis single runs on ``main`` before MAR-131."""
+"""``config_hash`` of the 9 thesis single runs.
+
+MAR-131 left them unchanged. MAR-117 changed them on purpose: the parity
+config now sets the thesis return-period grid (``evaluation.return_periods``);
+``test_return_periods.py`` pins the hashes before MAR-117 and shows that the
+grid is the only difference."""
 
 CLUSTER: dict[str, Any] = {
     "kind": "cluster",
