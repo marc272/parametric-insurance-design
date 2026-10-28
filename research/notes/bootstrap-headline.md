@@ -66,15 +66,15 @@ Other KPIs, test, weighted CVaR − MSE:
 
 | Scope | `expected_uncovered` | `var_uncovered` | `rmse_residual` | `expected_payout` | `correlation` |
 |---|---|---|---|---|---|
-| individual | +77,005 [+43,323, +109,272] | +492,553 [+354,233, +601,725] | +317,165 [+140,575, +465,416] | −4,943 [−77,546, +77,393] | −0.00129 [−0.00223, −0.00070] |
-| cluster | +48,228 [+25,203, +70,374] | +221,579 [−58,900, +365,060] | +196,878 [+21,219, +333,893] | −16,179 [−61,408, +37,897] | −0.00167 [−0.00246, −0.00046] |
-| portfolio | +44,546 [+20,696, +66,380] | +242,044 [+66,753, +328,004] | +193,552 [+72,582, +291,016] | −661 [−49,782, +54,547] | −0.00079 [−0.00145, −0.00038] |
+| individual | +77,005 [+43,323, +109,272] | +492,553 [+354,233, +601,360] | +317,165 [+140,575, +465,416] | −4,943 [−77,546, +77,393] | −0.00129 [−0.00223, −0.00070] |
+| cluster | +48,228 [+25,203, +70,374] | +221,579 [−57,983, +365,060] | +196,878 [+21,219, +333,893] | −16,179 [−61,408, +37,897] | −0.00167 [−0.00246, −0.00046] |
+| portfolio | +44,546 [+20,696, +66,380] | +242,044 [+66,753, +327,560] | +193,552 [+72,582, +291,016] | −661 [−49,782, +54,547] | −0.00079 [−0.00145, −0.00038] |
 
 Observations:
 
 - **Paired vs. separate.** Pairing narrows the intervals of the differences: the separate intervals overlap, but every paired `cvar_uncovered` interval excludes zero, in every scope, against MSE and against E[U], on both train and test.
 - **Upper bounds near zero.** Some paired upper bounds are close to zero: individual, test, −15,911 against MSE and −13,310 against E[U]. The paired intervals are also wide relative to their point values: the test intervals are 0.70–1.01 million wide, against differences of 0.45–0.49 million.
-- **The other side of the trade.** The paired intervals of `expected_uncovered` and `rmse_residual` (weighted CVaR higher) exclude zero in every scope on test. So does `var_uncovered`, except in the cluster scope, where the test intervals against MSE ([−58,900, +365,060]) and against E[U] contain zero.
+- **The other side of the trade.** The paired intervals of `expected_uncovered` and `rmse_residual` (weighted CVaR higher) exclude zero in every scope on test. So does `var_uncovered`, except in the cluster scope, where the test intervals against MSE ([−57,983, +365,060]) and against E[U] contain zero.
 - **Payout.** `expected_payout` differences have intervals that contain zero in every scope on test. On train they're 0 up to solver precision (the budget binds there), and their intervals come only from resampling the train years.
 - **Correlation.** The correlation differences are small (−0.0005 to −0.0017), and their intervals exclude zero on test, except weighted CVaR − E[U] in the portfolio scope ([−0.00133, +0.00013]).
 
@@ -94,13 +94,15 @@ Config hashes and run ids of the 9 runs (holdout with bootstrap; they differ fro
 
 ## 3. Timings
 
-These are B = 1000 runs on a 10-core Mac shared with a parity run at `--jobs 4`, so they're slower than on an idle machine (`summary.json`). Bootstrap seconds per run, train (7,000 years) / test (3,000 years):
+B = 1000, from `summary.json`, on a 10-core Mac shared with other jobs. Bootstrap seconds per run, train (7,000 years) / test (3,000 years):
 
-- individual: 4.6 / 2.5 (MSE), 8.0 / 4.3 (E[U]), 12.7 / 4.4 (weighted CVaR);
-- cluster: 2.8 / 1.3, 3.7 / 1.7, 5.0 / 2.0;
-- portfolio: 8.7 / 4.3, 5.9 / 2.4, 12.3 / 6.4.
+- individual (9 problems, 19 subjects): 5.3 / 2.4 (MSE), 5.3 / 2.3 (E[U]), 4.9 / 1.9 (weighted CVaR);
+- cluster: 2.1 / 1.1, 2.0 / 0.8, 1.6 / 0.7;
+- portfolio: 3.0 / 1.4, 3.1 / 1.4, 3.1 / 1.3.
 
-On the idle machine the test sample took 3.6 s (individual), 1.0 s (cluster) and 1.9 s (portfolio). On most runs the bootstrap takes longer than the solve.
+Whole runs (solve plus both bootstraps plus I/O) took 3.1–12.3 s. The first version of the code took about twice as long on the individual scope. Removing the reversed cumulative sums in the CVaR tail and the replicate-sized temporaries in the correlation brought it here, with intervals unchanged to 1e-12 relative.
+
+**VaR on a step.** A first run of this script found that some replicates' β = 0.95 falls exactly on a step of the resampled distribution. The thesis rows carry equal rates, so replicate probabilities are multiples of one over the resampled row count. Whether such a step counts as reaching β then depended on rounding. The code now resolves it to the exact-arithmetic VaR (`docs/methodology/bootstrap.md`). This moved a few `var_uncovered` bounds by up to 3.6 % (the cluster weighted CVaR − E[U] lower bound from −75,207 to −72,506). The numbers above are after the fix.
 
 ## Not covered
 

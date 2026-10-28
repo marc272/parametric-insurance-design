@@ -47,12 +47,12 @@
       "scope": "individual",
       "objective": "mse",
       "cached": false,
-      "run_seconds": 8.51,
+      "run_seconds": 11.35,
       "bootstrap_seconds": {
-        "train": 4.55,
-        "test": 2.53
+        "train": 5.25,
+        "test": 2.36
       },
-      "recompute_seconds": 10.25,
+      "recompute_seconds": 10.79,
       "n_without_bounds": {
         "train": 0,
         "test": 0
@@ -62,12 +62,12 @@
       "scope": "individual",
       "objective": "expected_uncovered",
       "cached": false,
-      "run_seconds": 13.44,
+      "run_seconds": 9.71,
       "bootstrap_seconds": {
-        "train": 7.98,
-        "test": 4.31
+        "train": 5.3,
+        "test": 2.29
       },
-      "recompute_seconds": 16.55,
+      "recompute_seconds": 9.3,
       "n_without_bounds": {
         "train": 0,
         "test": 0
@@ -77,12 +77,12 @@
       "scope": "individual",
       "objective": "weighted_cvar",
       "cached": false,
-      "run_seconds": 21.18,
+      "run_seconds": 11.88,
       "bootstrap_seconds": {
-        "train": 12.74,
-        "test": 4.37
+        "train": 4.89,
+        "test": 1.88
       },
-      "recompute_seconds": 14.95,
+      "recompute_seconds": 12.54,
       "n_without_bounds": {
         "train": 0,
         "test": 0
@@ -92,12 +92,12 @@
       "scope": "cluster",
       "objective": "mse",
       "cached": false,
-      "run_seconds": 5.17,
+      "run_seconds": 4.67,
       "bootstrap_seconds": {
-        "train": 2.76,
-        "test": 1.31
+        "train": 2.09,
+        "test": 1.14
       },
-      "recompute_seconds": 6.63,
+      "recompute_seconds": 4.82,
       "n_without_bounds": {
         "train": 0,
         "test": 0
@@ -107,12 +107,12 @@
       "scope": "cluster",
       "objective": "expected_uncovered",
       "cached": false,
-      "run_seconds": 5.95,
+      "run_seconds": 3.41,
       "bootstrap_seconds": {
-        "train": 3.73,
-        "test": 1.72
+        "train": 1.99,
+        "test": 0.82
       },
-      "recompute_seconds": 7.59,
+      "recompute_seconds": 2.69,
       "n_without_bounds": {
         "train": 0,
         "test": 0
@@ -122,12 +122,12 @@
       "scope": "cluster",
       "objective": "weighted_cvar",
       "cached": false,
-      "run_seconds": 8.02,
+      "run_seconds": 3.13,
       "bootstrap_seconds": {
-        "train": 4.95,
-        "test": 1.97
+        "train": 1.55,
+        "test": 0.69
       },
-      "recompute_seconds": 6.28,
+      "recompute_seconds": 2.96,
       "n_without_bounds": {
         "train": 0,
         "test": 0
@@ -137,12 +137,12 @@
       "scope": "portfolio",
       "objective": "mse",
       "cached": false,
-      "run_seconds": 21.76,
+      "run_seconds": 12.34,
       "bootstrap_seconds": {
-        "train": 8.66,
-        "test": 4.25
+        "train": 2.98,
+        "test": 1.4
       },
-      "recompute_seconds": 20.71,
+      "recompute_seconds": 12.23,
       "n_without_bounds": {
         "train": 0,
         "test": 0
@@ -152,12 +152,12 @@
       "scope": "portfolio",
       "objective": "expected_uncovered",
       "cached": false,
-      "run_seconds": 9.18,
+      "run_seconds": 5.23,
       "bootstrap_seconds": {
-        "train": 5.85,
-        "test": 2.38
+        "train": 3.05,
+        "test": 1.37
       },
-      "recompute_seconds": 14.67,
+      "recompute_seconds": 5.06,
       "n_without_bounds": {
         "train": 0,
         "test": 0
@@ -167,12 +167,12 @@
       "scope": "portfolio",
       "objective": "weighted_cvar",
       "cached": false,
-      "run_seconds": 20.81,
+      "run_seconds": 5.91,
       "bootstrap_seconds": {
-        "train": 12.28,
-        "test": 6.38
+        "train": 3.1,
+        "test": 1.33
       },
-      "recompute_seconds": 17.49,
+      "recompute_seconds": 5.88,
       "n_without_bounds": {
         "train": 0,
         "test": 0
