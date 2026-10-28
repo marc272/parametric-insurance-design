@@ -16,6 +16,9 @@ import numpy as np
 import pandas as pd
 import pytest
 import yaml
+from matplotlib.axes import Axes
+from matplotlib.container import ErrorbarContainer
+from numpy.typing import NDArray
 
 from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.experiment.config import (
@@ -44,9 +47,12 @@ from parametric_insurance_design_viz.figure_data import write_figure
 from parametric_insurance_design_viz.kpi_figures import (
     CURVE_COLUMNS,
     KPI_COLUMNS,
+    OVERVIEW_KPIS,
     Baseline,
     KFoldRunsError,
+    _fmt_sci,  # pyright: ignore[reportPrivateUsage]
     exceedance_curves,
+    interval_note,
     kpi_figures,
     kpi_heatmap,
     kpi_label,
@@ -80,6 +86,11 @@ def grid(fixture: Fixture) -> dict[str, tuple[RunResult, ...]]:
 
 def where(frame: pd.DataFrame, mask: Any) -> pd.DataFrame:  # noqa: ANN401
     return cast(pd.DataFrame, frame.loc[np.asarray(mask, dtype=bool)])
+
+
+def drawn(frame: pd.DataFrame) -> NDArray[np.bool_]:
+    """The figure data's ``ci_drawn`` column as a numpy array."""
+    return frame["ci_drawn"].to_numpy(dtype=bool)
 
 
 def store_kpi(run: RunResult, kpi: str, split: str = "full") -> float:
@@ -161,6 +172,30 @@ def holdout_store(toy: Fixture, tmp_path_factory: pytest.TempPathFactory) -> Var
 def holdout(holdout_store: Variant) -> dict[str, tuple[RunResult, ...]]:
     """The holdout store's runs per scope (individual, portfolio)."""
     return variant_grid(holdout_store)
+
+
+BOOTSTRAP = {"seed": 0, "n_bootstrap": 200, "level": 0.9}
+
+
+@pytest.fixture(scope="module")
+def holdout_ci_store(toy: Fixture, tmp_path_factory: pytest.TempPathFactory) -> Variant:
+    """A real holdout store with block-bootstrap intervals (MAR-23, MAR-148).
+
+    The runner fills ``ci_low``, ``ci_high``, ``ci_level`` and
+    ``n_bootstrap`` of every KPI row, on both splits.
+    """
+    return variant(
+        toy,
+        tmp_path_factory.mktemp("holdout_ci"),
+        sample={"kind": "holdout", "train_fraction": 0.7},
+        bootstrap=BOOTSTRAP,
+    )
+
+
+@pytest.fixture(scope="module")
+def holdout_ci(holdout_ci_store: Variant) -> dict[str, tuple[RunResult, ...]]:
+    """The bootstrapped holdout store's runs per scope (individual, portfolio)."""
+    return variant_grid(holdout_ci_store)
 
 
 @pytest.fixture(scope="module")
@@ -345,8 +380,14 @@ def test_heatmap_data(toy_grid: dict, tmp_path: Path) -> None:
         "is_baseline",
         "row",
         "col",
+        "ci_drawn",
     ]
     assert len(main) == 9
+    # no bootstrap in the toy config: no interval, no footnote
+    intervals = main[["ci_low", "ci_high", "ci_level", "n_bootstrap"]]
+    assert np.isnan(intervals.to_numpy(dtype=np.float64)).all()
+    assert not drawn(main).any()
+    assert not [t for t in output.figure.texts if "interval" in t.get_text()]
     base = where(main, main["is_baseline"])
     assert list(zip(base["scope_key"], base["objective"], strict=True)) == [
         ("individual", "mse")
@@ -426,7 +467,9 @@ def test_performance_overview_data(toy_grid: dict, tmp_path: Path) -> None:
         "pct_vs_baseline",
         "is_baseline",
         "bar_x",
+        "ci_drawn",
     ]
+    assert not drawn(main).any()
     assert list(main["kpi"].unique()) == ["cvar_uncovered", "expected_uncovered"]
     assert len(main) == 18
     for kpi, rows in main.groupby("kpi"):
@@ -440,6 +483,11 @@ def test_performance_overview_data(toy_grid: dict, tmp_path: Path) -> None:
     fig = output.figure
     assert fig.axes[0].get_ylabel() == r"Tail basis risk $CVaR(UL^p)$ [USD]"
     assert [len(ax.patches) for ax in fig.axes] == [9, 9]
+    # without bounds: no interval bars and the legend has the baseline only
+    assert [interval_bars(ax) for ax in fig.axes] == [[], []]
+    assert legend_texts(fig)[-1] == [
+        "Baseline (individual scope & residual loss objective)"
+    ]
 
 
 def test_performance_overview_panels(toy_grid: dict) -> None:
@@ -449,6 +497,157 @@ def test_performance_overview_panels(toy_grid: dict) -> None:
     assert output.name == "overview_rmse"
     assert list(output.data[""]["kpi"].unique()) == ["rmse_residual"]
     assert len(output.figure.axes) == 1
+
+
+# -- confidence intervals (MAR-148) ----------------------------------------------
+
+
+def interval_bars(ax: Axes) -> list[tuple[float, float, float]]:
+    """``(x, low, high)`` of every interval bar drawn on ``ax``, by x."""
+    out: list[tuple[float, float, float]] = []
+    for container in ax.containers:
+        if isinstance(container, ErrorbarContainer):
+            _, _, columns = container.lines
+            for segment in columns[0].get_segments():
+                (x0, y0), (x1, y1) = segment
+                assert x0 == x1
+                out.append((float(x0), float(min(y0, y1)), float(max(y0, y1))))
+    return sorted(out)
+
+
+def legend_texts(fig: Any) -> list[list[str]]:  # noqa: ANN401
+    return [[t.get_text() for t in legend.get_texts()] for legend in fig.legends]
+
+
+def store_row(run: RunResult, kpi: str, split: str) -> pd.Series:
+    k = run.kpis
+    rows = where(
+        k,
+        (k["level"] == "portfolio") & (k["kpi"] == kpi) & (k["eval_split"] == split),
+    )
+    assert len(rows) == 1
+    return rows.iloc[0]
+
+
+def test_the_bootstrapped_store_is_real(holdout_ci: dict) -> None:
+    for runs in holdout_ci.values():
+        for run in runs:
+            assert run.parameters["sample"] == "holdout"
+            assert run.manifest["bootstrap"]["n_bootstrap"] == 200
+            kpis = run.kpis
+            assert set(kpis["ci_level"]) == {0.9}
+            assert set(kpis["n_bootstrap"]) == {200}
+            portfolio = where(kpis, kpis["level"] == "portfolio")
+            assert np.isfinite(portfolio["ci_low"].to_numpy(dtype=float)).any()
+
+
+def test_kpi_table_reads_the_intervals(holdout_ci: dict) -> None:
+    table = kpi_table(holdout_ci, ["cvar_uncovered", "expected_uncovered"])
+    assert set(table["eval_split"]) == {"test"}
+    assert set(table["ci_level"]) == {0.9}
+    assert table["n_bootstrap"].tolist() == [200] * len(table)
+    for row in cast(Any, table.itertuples(index=False)):
+        run = next(r for r in holdout_ci[row.scope_key] if r.run_id == row.run_id)
+        stored = store_row(run, row.kpi, "test")
+        assert row.value == stored["value"]
+        assert row.ci_low == stored["ci_low"]
+        assert row.ci_high == stored["ci_high"]
+        assert row.ci_low < row.ci_high
+    assert interval_note(table) == ("90% block-bootstrap interval over years (B = 200)")
+
+
+def test_overview_draws_the_stored_intervals(holdout_ci: dict, tmp_path: Path) -> None:
+    output = performance_overview(holdout_ci)
+    written = write_figure(output, tmp_path)
+    main = pd.read_csv(written.tables[""])
+    assert drawn(main).all()
+    for ax, kpi in zip(output.figure.axes, OVERVIEW_KPIS, strict=True):
+        rows = where(main, main["kpi"] == kpi).sort_values("bar_x")
+        bars = interval_bars(ax)
+        assert len(bars) == len(rows) == 4
+        assert np.allclose([b[0] for b in bars], rows["bar_x"])
+        assert np.allclose([b[1] for b in bars], rows["ci_low"])
+        assert np.allclose([b[2] for b in bars], rows["ci_high"])
+    assert legend_texts(output.figure)[-1] == [
+        "Baseline (individual scope & residual loss objective)",
+        "90% block-bootstrap interval over years (B = 200)",
+    ]
+
+
+def test_heatmap_shows_the_stored_intervals(holdout_ci: dict) -> None:
+    output = kpi_heatmap(holdout_ci, "cvar_uncovered")
+    main = output.data[""]
+    assert drawn(main).all()
+    texts = [t.get_text() for t in output.figure.axes[0].texts]
+    for row in cast(Any, main.itertuples(index=False)):
+        assert f"[{_fmt_sci(row.ci_low)}, {_fmt_sci(row.ci_high)}]" in texts
+    notes = [t.get_text() for t in output.figure.texts]
+    assert "In brackets: 90% block-bootstrap interval over years (B = 200)" in notes
+
+
+def test_rows_without_bounds_draw_without_an_interval(holdout_ci: dict) -> None:
+    """A KPI undefined in some replicate has null bounds next to ci_level."""
+    run = holdout_ci["portfolio"][1]
+    kpis = run.kpis.copy()
+    undefined = (kpis["kpi"] == "cvar_uncovered") & (kpis["eval_split"] == "test")
+    kpis.loc[undefined, ["ci_low", "ci_high"]] = np.nan
+    scopes = {
+        **holdout_ci,
+        "portfolio": (holdout_ci["portfolio"][0], dataclasses.replace(run, kpis=kpis)),
+    }
+    output = performance_overview(scopes)
+    main = output.data[""]
+    missing = (
+        (main["kpi"] == "cvar_uncovered") & (main["run_id"] == run.run_id)
+    ).to_numpy(dtype=bool)
+    assert drawn(main)[missing].tolist() == [False]
+    assert drawn(main)[~missing].all()
+    cvar_ax, total_ax = output.figure.axes
+    assert len(interval_bars(cvar_ax)) == 3
+    assert len(interval_bars(total_ax)) == 4
+    heatmap = kpi_heatmap(scopes, "cvar_uncovered").data[""]
+    assert int(drawn(heatmap).sum()) == 3
+
+
+def test_intervals_of_different_levels_are_refused(holdout_ci: dict) -> None:
+    run = holdout_ci["portfolio"][1]
+    other = dataclasses.replace(run, kpis=run.kpis.assign(ci_level=0.95))
+    scopes = {**holdout_ci, "portfolio": (holdout_ci["portfolio"][0], other)}
+    with pytest.raises(InconsistentRunsError, match="differ in level"):
+        performance_overview(scopes)
+    with pytest.raises(InconsistentRunsError, match="differ in level"):
+        kpi_heatmap(scopes, "expected_uncovered")
+    sized = dataclasses.replace(run, kpis=run.kpis.assign(n_bootstrap=100))
+    scopes = {**holdout_ci, "portfolio": (holdout_ci["portfolio"][0], sized)}
+    with pytest.raises(InconsistentRunsError, match="number of replicates"):
+        performance_overview(scopes)
+    unlabelled = dataclasses.replace(run, kpis=run.kpis.assign(ci_level=np.nan))
+    scopes = {**holdout_ci, "portfolio": (holdout_ci["portfolio"][0], unlabelled)}
+    with pytest.raises(InconsistentRunsError, match="differ in level"):
+        performance_overview(scopes)
+
+
+def test_interval_note_without_bounds(toy_grid: dict) -> None:
+    assert interval_note(kpi_table(toy_grid, ["cvar_uncovered"])) is None
+
+
+def test_figures_command_draws_intervals_on_a_holdout_store(
+    holdout_ci_store: Variant, tmp_path: Path
+) -> None:
+    v = holdout_ci_store
+    report = write_figures(
+        v.config,
+        v.run_ids,
+        store=v.store,
+        out_dir=tmp_path,
+        figure_sets=(kpi_figures,),
+    )
+    assert report.ok
+    for name in KPI_NAMES:
+        main = pd.read_csv(tmp_path / f"{name}.csv")
+        assert drawn(main).all(), name
+        assert set(main["ci_level"]) == {0.9}, name
+        assert set(main["n_bootstrap"]) == {200}, name
 
 
 # -- exceedance curves -----------------------------------------------------------
