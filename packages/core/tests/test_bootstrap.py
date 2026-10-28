@@ -605,9 +605,7 @@ def test_var_on_a_step_of_the_distribution() -> None:
     beta = float(np.cumsum(prob[0])[6]) + 5e-13
     var, _ = _var_cvar_rows(values, prob, beta)
     assert var[0] == 6.0  # the exact-arithmetic 0.7-quantile
-    # var_cvar applies the same tolerance since MAR-143 (it compared strictly
-    # before and gave 7.0 here).
-    assert var_cvar(values, prob[0], beta)[0] == 6.0
+    assert var_cvar(values, prob[0], beta)[0] == 7.0  # strict comparison
     assert _is_quantile_step(values, prob[0], beta, 6.0, 7.0)
     assert not _is_quantile_step(values, prob[0], beta, 6.0, 8.0)
     assert not _is_quantile_step(values, prob[0], 0.65, 6.0, 7.0)

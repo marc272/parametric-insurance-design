@@ -7,16 +7,27 @@ uses :func:`lower_quantile` for the exceedance curves, so both read one
 definition. ``evaluate`` re-exports :func:`var_cvar`; it lived there until
 MAR-143.
 
-Quantiles on a step of the distribution (MAR-143)
+Quantiles on a step of the distribution: strict, as in the thesis
     The VaR is the smallest value whose cumulative probability reaches
-    ``beta``. When ``beta`` falls exactly on a step of the distribution (e.g.
-    ``beta = 0.8`` with 40 equally likely years), the summed probabilities
-    land a rounding error above or below ``beta`` depending on the summation
-    order, which follows ``numpy.argsort`` of tied values and differs between
-    platforms (Linux, macOS). A cumulative probability that falls short of
-    ``beta`` by at most :data:`CDF_ATOL` therefore counts as reaching it,
-    which gives the exact-arithmetic quantile on every platform. The
-    bootstrap (``bootstrap.py``, MAR-23) uses the same tolerance.
+    ``beta``, and :func:`lower_quantile` (so :func:`var_cvar` and the
+    exceedance curves) compares the cumulative probability with the level
+    **exactly**, as the thesis ``calculate_var_cvar`` and
+    ``_weighted_quantile`` do. When the level falls exactly on a step of the
+    distribution (e.g. ``beta = 0.8`` with 40 equally likely years, or
+    ``beta = 0.95`` with a multiple of 20 equally likely events), the summed
+    probabilities land a rounding error above or below it, depending on the
+    summation order of tied rows (``numpy.argsort`` of tied values, which
+    differs between platforms, e.g. Linux and macOS). The result is then
+    either of the two adjacent atoms: the exact-arithmetic lower one or the
+    next one up. Kept strict so that the parity reports stay byte-identical
+    with the thesis golden values (MAR-143, orchestrator decision: option
+    B; a tolerance moved 162 ``VaR_Uncovered`` values of the asset-count
+    sweep to the lower atom). Making the quantile platform-independent is
+    tracked as a follow-up.
+
+    The bootstrap (``bootstrap.py``, MAR-23) does use a tolerance,
+    :data:`CDF_ATOL`, in its vectorised VaR, and accepts either adjacent
+    atom when it checks its point values against ``evaluate.kpis``.
 """
 
 from __future__ import annotations
@@ -41,12 +52,15 @@ __all__ = [
 ]
 
 CDF_ATOL: Final[float] = 1e-10
-"""A cumulative probability within this of a level counts as reaching it.
+"""Tolerance of the bootstrap's VaR on a step (``bootstrap.py`` only).
 
-See the module docstring, "Quantiles on a step of the distribution". Far
-below any probability step of the data (an outcome of probability ``1e-10``
-would need ten billion equally likely outcomes) and far above the rounding of
-a cumulative sum of probabilities (about ``n * 1e-16``)."""
+In the bootstrap's vectorised VaR, a cumulative probability within this of
+``beta`` counts as reaching it (the exact-arithmetic quantile).
+:func:`lower_quantile` and :func:`var_cvar` do **not** use it: they compare
+strictly, as the thesis (module docstring). Far below any probability step
+of the data (an outcome of probability ``1e-10`` would need ten billion
+equally likely outcomes) and far above the rounding of a cumulative sum of
+probabilities (about ``n * 1e-16``)."""
 
 
 def check_beta(beta: object) -> float:
@@ -127,7 +141,8 @@ def sorted_cdf(
 
     ``np.argsort`` with its default kind, as the thesis, so that ties are
     summed in the same order on one platform. Across platforms the order of
-    ties can differ; :func:`lower_quantile` absorbs the rounding that causes.
+    ties can differ, which can move a quantile on an exact step (module
+    docstring).
 
     Parameters
     ----------
@@ -152,9 +167,10 @@ def lower_quantile(
 ) -> float:
     """Smallest value whose cumulative probability reaches ``level``.
 
-    A cumulative probability within :data:`CDF_ATOL` below ``level`` counts
-    as reaching it (module docstring). If rounding keeps the last cumulative
-    probability below that, the largest value is returned (thesis
+    The cumulative probability is compared with ``level`` exactly, as in
+    the thesis; on an exact step the result depends on the summation order
+    of tied values (module docstring). If rounding keeps the last cumulative
+    probability below ``level``, the largest value is returned (thesis
     behaviour).
 
     Parameters
@@ -169,7 +185,7 @@ def lower_quantile(
     float
         The lower ``level``-quantile.
     """
-    pos = int(np.searchsorted(cdf, level - CDF_ATOL, side="left"))
+    pos = int(np.searchsorted(cdf, level, side="left"))
     return float(sorted_x[min(pos, sorted_x.shape[0] - 1)])
 
 
@@ -179,8 +195,9 @@ def var_cvar(
     """VaR and CVaR of a discrete distribution (thesis ``calculate_var_cvar``).
 
     ``VaR_beta`` is the lower ``beta``-quantile: the smallest value ``v``
-    with ``P(X <= v) >= beta`` (:func:`lower_quantile`, so a cumulative
-    probability within :data:`CDF_ATOL` of ``beta`` reaches it). ``CVaR_beta``
+    with ``P(X <= v) >= beta`` (:func:`lower_quantile`, compared strictly,
+    as the thesis; see the module docstring for a ``beta`` exactly on a
+    step). ``CVaR_beta``
     is the Rockafellar-Uryasev value ``VaR + E[(X - VaR)^+] / (1 - beta)``,
     i.e. the mean of the worst ``1 - beta`` probability mass, with the atom
     at the VaR split as needed:

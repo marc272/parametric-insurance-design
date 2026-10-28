@@ -29,11 +29,10 @@ over the rows ``e`` of an outcome)
     * ``expected_uncovered = E[U]`` [thesis ``E_Uncovered``].
     * ``var_uncovered``, ``cvar_uncovered``: :func:`var_cvar` of ``U`` at
       ``beta`` [``VaR_Uncovered``, ``CVaR_Uncovered``]. ``var_cvar`` lives in
-      ``riskmeasures.py`` since MAR-143 and is re-exported here. A cumulative
-      probability within ``riskmeasures.CDF_ATOL`` (``1e-10``) of ``beta``
-      counts as reaching it, so a VaR on a step of the distribution is the
-      exact-arithmetic quantile on every platform (the thesis compared
-      exactly).
+      ``riskmeasures.py`` since MAR-143 and is re-exported here. It
+      compares the cumulative probability with ``beta`` strictly, as the
+      thesis; for a ``beta`` exactly on a step of the distribution see
+      ``riskmeasures``.
     * ``rmse_residual = sqrt(E[R^2])`` [``E_Residual``; despite the thesis
       name, a root mean square].
     * ``payout_to_loss_ratio = E[pi] / E[L]``, null if ``E[L] = 0``
@@ -64,8 +63,8 @@ Exceedance curves
     For each subject and quantity (loss, payout, uncovered loss), the value
     exceeded with probability ``1 / T`` at return period ``T``: the lower
     ``(1 - 1/T)``-quantile of the outcome values, the same quantile as the VaR
-    of :func:`var_cvar` (``riskmeasures.lower_quantile``, with the same
-    tolerance; thesis ``_weighted_quantile``). On the ``annual``
+    of :func:`var_cvar` (``riskmeasures.lower_quantile``, strict as in the
+    thesis ``_weighted_quantile``). On the ``annual``
     basis there are two curves: ``aep`` over the yearly sums and ``oep`` over
     the yearly maximum event (the largest per-row value in each outcome; an
     outcome without rows counts as 0). On the event bases there is one curve,

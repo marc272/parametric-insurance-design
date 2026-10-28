@@ -2,9 +2,9 @@
 
 ``var_cvar``'s formulas are tested in ``test_evaluate.py`` (MAR-16), through
 the re-export in ``evaluate``. These tests cover what MAR-143 changed: the
-module boundary (pricing no longer imports evaluate) and the tolerance at a
-step of the distribution, which makes the VaR independent of the order in
-which tied values are summed.
+module boundary (pricing no longer imports evaluate), and they pin the
+strict comparison at a step of the distribution, as in the thesis (MAR-143,
+option B): the bootstrap's tolerance ``CDF_ATOL`` is not applied here.
 """
 
 from __future__ import annotations
@@ -71,49 +71,36 @@ def test_var_cvar_is_the_lower_quantile_and_the_tail_mean() -> None:
         check_beta(1.0)
 
 
-@pytest.mark.parametrize("offset", [-5e-11, -1e-15, 0.0, 1e-15])
-def test_a_level_within_the_tolerance_of_a_step_reaches_it(offset: float) -> None:
-    # Ten equally likely values: P(X <= 6) = 0.7. A level a rounding error
-    # either side of 0.7 is the step itself: the VaR is 6 (exact arithmetic).
-    values = np.arange(10.0)
+def test_var_on_an_exact_step_is_strict_and_can_be_the_upper_atom() -> None:
+    # Ten equally likely values 1..10 and beta = 0.8 exactly: P(X <= 8) = 0.8
+    # in exact arithmetic, so the exact quantile is 8. The normalised
+    # probabilities sum to a rounding error below 0.8 at 8, and the strict
+    # comparison (thesis) returns the next atom up. No ties, so the summation
+    # order, and this result, is the same on every platform.
+    values = np.arange(1.0, 11.0)
     prob = np.full(10, 0.1)
-    var, cvar = var_cvar(values, prob, 0.7 + offset)
-    assert var == 6.0
-    assert cvar == pytest.approx(8.0, rel=1e-9)  # mean of 7, 8, 9
+    assert var_cvar(values, prob, 0.8) == (9.0, 9.5)
+    assert var_cvar(values, prob, 0.9) == (10.0, 10.0)
+    x, p = discrete_distribution(values, prob)
+    sorted_x, _, cdf = sorted_cdf(x, p)
+    assert cdf[7] < 0.8  # the rounding that moves the quantile up a step
+    assert lower_quantile(sorted_x, cdf, 0.8) == 9.0
+    # A tolerance (the bootstrap's) would give the exact-arithmetic atom.
+    assert cdf[7] >= 0.8 - CDF_ATOL
 
 
-def test_a_level_beyond_the_tolerance_is_not_a_step() -> None:
+def test_lower_quantile_ignores_cdf_atol() -> None:
+    # beta a rounding error (5e-13, far inside CDF_ATOL) above the 0.7 step
+    # of ten equally likely values: strict, so the next value up.
     values = np.arange(10.0)
     prob = np.full(10, 0.1)
-    assert var_cvar(values, prob, 0.7 + 10 * CDF_ATOL)[0] == 7.0
-    assert var_cvar(values, prob, 0.7 - 10 * CDF_ATOL)[0] == 6.0
-    # Far from the step: the next value up.
+    beta = float(np.cumsum(prob)[6]) + 5e-13
+    assert 5e-13 < CDF_ATOL
+    assert var_cvar(values, prob, beta)[0] == 7.0
+
+
+def test_var_off_a_step_is_the_lower_quantile() -> None:
+    values = np.arange(10.0)
+    prob = np.full(10, 0.1)
     assert var_cvar(values, prob, 0.75)[0] == 7.0
-
-
-def test_var_does_not_depend_on_the_order_of_tied_values() -> None:
-    # 40 equally likely outcomes with many ties and beta = 0.8, on a step:
-    # whichever order argsort puts the ties in (it differs between Linux and
-    # macOS), the VaR is the same atom.
-    rng = np.random.default_rng(143)
-    values = rng.integers(0, 6, size=40).astype(np.float64)
-    prob = np.full(40, 1 / 40)
-    beta = 0.8
-    reference = var_cvar(values, prob, beta)
-    sorted_values = np.sort(values)
-    # The exact-arithmetic quantile: the 32nd smallest value (32 / 40 = 0.8).
-    assert reference[0] == sorted_values[31]
-    for _ in range(50):
-        perm = rng.permutation(40)
-        var, cvar = var_cvar(values[perm], prob[perm], beta)
-        assert var == reference[0]
-        assert cvar == pytest.approx(reference[1], rel=1e-12)
-
-
-def test_var_on_a_step_under_unequal_probabilities() -> None:
-    # Cumulative sums 0.1 + 0.2 = 0.30000000000000004 and the like: the
-    # level 0.3 is reached by the second value, as in exact arithmetic.
-    values = np.array([1.0, 2.0, 3.0, 4.0])
-    prob = np.array([0.1, 0.2, 0.3, 0.4])
-    assert var_cvar(values, prob, 0.3)[0] == 2.0
-    assert var_cvar(values, prob, 0.6)[0] == 3.0
+    assert var_cvar(values, prob, 0.65)[0] == 6.0

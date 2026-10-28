@@ -408,8 +408,9 @@ def _var_cvar_rows(
     The sort order of the values does not depend on the weights, so the
     values are sorted once and only the cumulative weights differ per row.
     A cumulative probability within ``riskmeasures.CDF_ATOL`` below ``beta``
-    counts as reaching it, as in ``var_cvar`` (the exact-arithmetic VaR on a
-    step of the distribution).
+    counts as reaching it (the exact-arithmetic VaR on a step of the
+    distribution); ``var_cvar`` compares strictly, so on a step the two can
+    give adjacent atoms (see :func:`_is_quantile_step`).
     """
     order = np.argsort(values)
     xs = values[order]
@@ -842,9 +843,7 @@ def bootstrap_kpis(
             uncovered[k], ones_prob[0], level_beta, ours, theirs
         ):
             # VaR on a step of the distribution: both values are the
-            # beta-quantile up to rounding; keep evaluate's. Since MAR-143
-            # var_cvar applies CDF_ATOL as well, so both normally pick the
-            # lower atom; this guard stays for sums that differ by more.
+            # beta-quantile up to rounding (see CDF_ATOL); keep evaluate's.
             pass
         else:
             _check_point(k, ours, theirs)
