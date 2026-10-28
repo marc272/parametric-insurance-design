@@ -22,10 +22,15 @@
 #   climada                  pixi: adapter tests, typecheck, core in the CLIMADA env
 #
 # Python 3.11: uv may not be able to download Pythons, so the core-3.11-* jobs
-# use, in order: $CI_LOCAL_PY311; the pixi env in scripts/ci_local/py311 (made
-# by --setup, resolved relative to this script); any 3.11 that uv finds. With
-# none of these they fall back to 3.12 and say so in the summary. On 3.12,
-# core-3.11-lowest-direct cannot install (pandas 2.1.0 has no cp312 wheel).
+# use, in order: $CI_LOCAL_PY311 (an error if it is set but not executable);
+# the pixi env in scripts/ci_local/py311 (made by --setup), looked up next to
+# this script, in the checkout under test, then in the main checkout of a
+# linked worktree (found with `git rev-parse --git-common-dir`; MAR-150), so
+# agent worktrees use the main checkout's env; any 3.11 that uv finds. The
+# start of the output names the Python taken and warns loudly when no pixi env
+# was found. With none of these the jobs fall back to 3.12 and say so in the
+# summary. On 3.12, core-3.11-lowest-direct cannot install (pandas 2.1.0 has
+# no cp312 wheel).
 #
 # Output: one PASS/FAIL line per job, then a summary with the commit. Logs go
 # to a fresh temp directory outside the checkout, printed at the start.
@@ -37,7 +42,8 @@ set -uo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
 py311_manifest="$here/ci_local/py311/pixi.toml"
-py311_env_python="$here/ci_local/py311/.pixi/envs/default/bin/python3.11"
+py311_env_rel="ci_local/py311/.pixi/envs/default/bin/python3.11"
+py311_env_python="$here/$py311_env_rel"
 all_jobs="lint workspace-3.12 workspace-3.13 core-3.11-highest core-3.11-lowest-direct build climada"
 
 usage() {
@@ -89,6 +95,50 @@ state="clean tree"
 [ "$dirty" != 0 ] && state="DIRTY tree: $dirty changed or untracked paths, not a pure run of the commit"
 echo "ci_local: $(pwd), bash $BASH_VERSION, $(uname -sm)"
 echo "ci_local: $head on $branch ($state); logs in $logdir"
+
+# The Python of the core-3.11-* jobs, resolved once (see the header) and
+# named in the output: a path, or "3.11" for uv's own lookup.
+find_py311() {
+  local common main candidate looked=""
+  if [ -n "${CI_LOCAL_PY311:-}" ]; then
+    if [ ! -x "$CI_LOCAL_PY311" ]; then
+      echo "ci_local: CI_LOCAL_PY311=$CI_LOCAL_PY311 is not an executable" >&2
+      return 1
+    fi
+    py311=$CI_LOCAL_PY311
+    echo "ci_local: python 3.11 for core-3.11-*: $py311 (CI_LOCAL_PY311)"
+    return 0
+  fi
+  # The main checkout of a linked worktree is the parent of the shared .git.
+  common=$(git rev-parse --git-common-dir) || return 1
+  main=$(cd "$common/.." && pwd) || return 1
+  for candidate in "$py311_env_python" "$top/scripts/$py311_env_rel" \
+    "$main/scripts/$py311_env_rel"; do
+    if [ -x "$candidate" ]; then
+      py311=$candidate
+      echo "ci_local: python 3.11 for core-3.11-*: $py311 (pixi env)"
+      return 0
+    fi
+    case "$looked " in
+      *" $candidate "*) ;;
+      *) looked="$looked $candidate" ;;
+    esac
+  done
+  py311=3.11
+  echo "ci_local: WARNING: no pixi Python 3.11 env found. Looked for:"
+  for candidate in $looked; do
+    echo "ci_local: WARNING:   $candidate"
+  done
+  echo "ci_local: WARNING: the core-3.11-* jobs take any 3.11 uv finds, else"
+  echo "ci_local: WARNING: Python 3.12, where core-3.11-lowest-direct fails."
+  echo "ci_local: WARNING: run scripts/ci_local.sh --setup in the main checkout,"
+  echo "ci_local: WARNING: or set CI_LOCAL_PY311."
+}
+
+py311=""
+case " $selected " in
+  *" core-3.11-"*) find_py311 || exit 2 ;;
+esac
 
 fail=0
 results=""
@@ -143,9 +193,7 @@ job_workspace() {
 }
 
 job_core311() {
-  local res=$1 venv=".venv-ci-core311-$1" py311 version
-  py311=${CI_LOCAL_PY311:-$py311_env_python}
-  [ -x "$py311" ] || py311=3.11
+  local res=$1 venv=".venv-ci-core311-$1" version
   rm -rf "$venv"
   if ! uv venv --no-project --python "$py311" "$venv"; then
     echo "Python 3.11 unavailable here; falling back to 3.12."

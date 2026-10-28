@@ -415,10 +415,19 @@ def _label(config: ExperimentConfig) -> str:
 
 
 def _point_label(point: SweepPoint) -> str:
-    """Describe a sweep point: its value (and subset), scope and objective."""
+    """Describe a sweep point: its value (and subset), scope and objective.
+
+    A point whose cluster count was capped at its subset size (MAR-131) also
+    shows the cap, e.g. ``n_assets=2 [A,B] (n_clusters 3->2) cluster x mse``
+    (MAR-150), so a dry run never hides it.
+    """
     value = f"{point.parameter}={point.value!r}"
     if point.location_ids is not None:
         value += f" [{','.join(point.location_ids)}]"
+    if point.n_clusters_capped:
+        value += (
+            f" (n_clusters {point.n_clusters_requested}->{point.n_clusters_effective})"
+        )
     return f"{value} {point.scope} x {point.objective}"
 
 
