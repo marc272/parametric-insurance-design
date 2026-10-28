@@ -509,10 +509,21 @@ def test_drift_guard_raises_on_a_changed_stored_kpi(kfold: KFold) -> None:
 
 
 def test_drift_guard_raises_on_changed_bin_edges(kfold: KFold) -> None:
+    """Stored bin edges that the config's payout structure no longer gives."""
+
+    def shift(frame: pd.DataFrame) -> pd.DataFrame:
+        frame = frame.copy()
+        frame["upper"] = frame["upper"] + 1.0
+        return frame
+
+    store = Tampered(kfold.store.root, "payouts", shift)
+    with pytest.raises(FoldDriftError, match=r"bin edges \(upper\)"):
+        pooled_kpis(kfold.config, store, kfold.eventset, kfold.run_ids)
+    # a changed payout config is another run (its config hash differs)
     config = kfold.config.model_copy(
         update={"payout": kfold.config.payout.model_copy(update={"limit": 80.0})}
     )
-    with pytest.raises(FoldDriftError, match="bin edges"):
+    with pytest.raises(PooledKFoldError, match="config hash"):
         pooled_kpis(config, kfold.store, kfold.eventset, kfold.run_ids)
 
 
@@ -580,6 +591,12 @@ def test_refuses_run_ids_that_are_not_the_folds(kfold: KFold, tmp_path: Path) ->
     objectives = (*kfold.run_ids[2:4], *kfold.run_ids[0:2], *kfold.run_ids[4:])
     with pytest.raises(PooledKFoldError, match="individual x mse"):
         pooled_kpis(kfold.config, kfold.store, kfold.eventset, objectives)
+    # runs of the same scope kind and objective, but of another config
+    scopes = list(kfold.config.scopes)
+    scopes[1] = scopes[1].model_copy(update={"n_clusters": 3})
+    other = kfold.config.model_copy(update={"scopes": tuple(scopes)})
+    with pytest.raises(PooledKFoldError, match="config hash"):
+        pooled_kpis(other, kfold.store, kfold.eventset, kfold.run_ids)
     missing = ("sha256:" + "0" * 64, *kfold.run_ids[1:])
     with pytest.raises(PooledKFoldError, match="1 of 12 fold runs are not in"):
         pooled_kpis(kfold.config, kfold.store, kfold.eventset, missing)

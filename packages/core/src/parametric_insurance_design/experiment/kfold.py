@@ -45,7 +45,9 @@ No silent failures
       config's payout structure, and a prepared EventSet whose content hash
       differs from the runs' manifests.
     * A run that is not in the store, or a run that is not the expected fold
-      of the expected scope x objective, raises :class:`PooledKFoldError`.
+      of the expected scope x objective (its config hash, sample, ``k``,
+      fold, scope and objective are checked), raises
+      :class:`PooledKFoldError`.
     * A scope x objective with a failed fold (a failed design problem, so no
       KPIs) is not pooled; it is listed in :attr:`PooledKpis.failed` with the
       reason, never dropped quietly.
@@ -79,7 +81,10 @@ from parametric_insurance_design.bootstrap import (
 from parametric_insurance_design.errors import InputMismatchError
 from parametric_insurance_design.evaluate import PORTFOLIO_SUBJECT, var_cvar
 from parametric_insurance_design.eventset import EventSet
-from parametric_insurance_design.experiment.config import ExperimentConfig
+from parametric_insurance_design.experiment.config import (
+    ExperimentConfig,
+    config_hash,
+)
 from parametric_insurance_design.experiment.store import ResultStore
 from parametric_insurance_design.interfaces import (
     Entity,
@@ -460,14 +465,21 @@ def _read_folds(store: ResultStore, run_ids: Sequence[str]) -> dict[str, _Fold]:
 
 
 def _check_fold(
-    fold: _Fold, *, expected: int, k: int, scope: str, objective: str
+    fold: _Fold,
+    single: ExperimentConfig,
+    *,
+    expected: int,
+    k: int,
+    scope: str,
+    objective: str,
 ) -> None:
     """Check that a stored run is fold ``expected`` of the scope x objective.
 
     Raises
     ------
     PooledKFoldError
-        If it is another fold, sample, scope or objective.
+        If it is another fold, sample, scope or objective, or its config hash
+        is not that of ``single`` (e.g. a run of another scope of one kind).
     """
     runs = fold.runs
     params = json.loads(str(runs["parameters"].iloc[0]))
@@ -485,6 +497,12 @@ def _check_fold(
             f"run {fold.run_id} is not fold {expected} of k={k} of {scope} x "
             f"{objective}: sample {got[0]!r}, k={got[1]}, fold {got[2]}, "
             f"scope {sorted(got[4])}, objective {sorted(got[5])}"
+        )
+    hashes = set(runs["config_hash"])
+    if hashes != {config_hash(single)}:
+        raise PooledKFoldError(
+            f"run {fold.run_id} has config hash {sorted(hashes)}, fold {expected} "
+            f"of {scope} x {objective} in this config {config_hash(single)}"
         )
 
 
@@ -709,6 +727,7 @@ def pooled_designs(
             for f, run_id in enumerate(fold_ids):
                 _check_fold(
                     folds[run_id],
+                    singles[start + f],
                     expected=f,
                     k=k,
                     scope=scope.name,
