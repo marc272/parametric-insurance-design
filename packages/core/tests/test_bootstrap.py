@@ -38,11 +38,7 @@ from parametric_insurance_design.bootstrap import (  # pyright: ignore[reportPri
     resample_years,
 )
 from parametric_insurance_design.errors import InputMismatchError
-from parametric_insurance_design.evaluate import (
-    _evaluate,  # pyright: ignore[reportPrivateUsage]
-    kpis,
-    var_cvar,
-)
+from parametric_insurance_design.evaluate import evaluate_results, kpis, var_cvar
 from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.interfaces import Sample, SolveResult
 from parametric_insurance_design.objectives import MSE, WeightedCVaR
@@ -549,7 +545,7 @@ def test_loaded_premium_is_priced_on_each_replicate(
         data, scope, results, basis=basis, beta=BETA, run_id="r", pricing=pricing
     )
     np.testing.assert_array_equal(col(boot.table, "value"), col(expected, "value"))
-    ev = _evaluate(data, scope, results, basis, None)
+    ev = evaluate_results(data, scope, results, basis=basis)
     (portfolio,) = [s for s in ev.subjects if s.level.value == "portfolio"]
     (row,) = np.flatnonzero(
         (col(boot.table, "level") == "portfolio")
@@ -629,7 +625,7 @@ def test_point_check_accepts_the_other_side_of_a_step(
     rs = resample_years(np.arange(20), 20, np.random.default_rng(0))
     real = bootstrap_module.kpis  # pyright: ignore[reportPrivateImportUsage]
     table = real(data, scope, results, basis=Basis.ANNUAL, beta=0.8, run_id="r")
-    ev = _evaluate(data, scope, results, Basis.ANNUAL, None)
+    ev = evaluate_results(data, scope, results, basis=Basis.ANNUAL)
     (portfolio,) = [s for s in ev.subjects if s.level.value == "portfolio"]
     u = ev.measure.aggregate(np.maximum(portfolio.loss - portfolio.payout, 0.0))
     p = ev.measure.probability

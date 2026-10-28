@@ -8,12 +8,18 @@ MAR-27 implemented :class:`CostOfCapitalLoad`. The interface is
 * :class:`CostOfCapitalLoad`: ``Premium = (1 - r) E[pi] + r CVaR_q(pi)``
   (thesis issue M4), convex for ``r`` in ``[0, 1]`` (still an LP). ``r = 0``
   is exactly :class:`PurePremium`. The CVaR uses
-  ``objectives.rockafellar_uryasev``.
+  ``objectives.rockafellar_uryasev`` in the problem and
+  ``riskmeasures.var_cvar`` for a realised payout.
 
 Both price the objective-level payout of one design problem, aggregated into
 outcomes by the measure: ``pi_o = sum_{e in o} pi_e`` (one row per outcome on
 the ``event_conditional`` basis). How a run's portfolio premium is formed from
 a pricing is ``evaluate.kpis``'s business; see ``docs/methodology/pricing.md``.
+
+The premium of a solution (``SolveResult.premium``) is ``premium_value`` of
+its realised payout, which ``solve.solve`` computes in numpy when it is given
+the pricing (MAR-143), not the value of the ``premium`` term: no solver runs
+when a premium is read.
 
 A standard-deviation load (SOCP) is not implemented; it would be another
 class here.
@@ -28,14 +34,13 @@ from typing import ClassVar, cast
 
 import cvxpy as cp
 import numpy as np
-from cvxpy.transforms.partial_optimize import partial_optimize
 from numpy.typing import ArrayLike, NDArray
 
 from parametric_insurance_design.basis import OutcomeMeasure
 from parametric_insurance_design.errors import ComponentConfigError, InputMismatchError
-from parametric_insurance_design.evaluate import var_cvar
 from parametric_insurance_design.interfaces import Pricing, ProblemContext, Term
 from parametric_insurance_design.objectives import rockafellar_uryasev
+from parametric_insurance_design.riskmeasures import var_cvar
 
 __all__ = ["CostOfCapitalLoad", "Pricing", "PurePremium"]
 
@@ -119,7 +124,7 @@ class CostOfCapitalLoad(Pricing):
     ``Premium = (1 - r) E[pi] + r CVaR_q(pi)`` (SPEC §6.4, thesis issue M4),
     with ``pi_o`` the objective-level payout of outcome ``o`` and ``CVaR_q``
     the mean of the worst ``1 - q`` probability mass of ``pi`` (the exact
-    discrete CVaR, :func:`~parametric_insurance_design.evaluate.var_cvar`).
+    discrete CVaR, :func:`~parametric_insurance_design.riskmeasures.var_cvar`).
     The load ``r (CVaR_q(pi) - E[pi])`` prices the risk capital a writer
     holds against the payout tail, so a tail-heavy payout costs more than
     its expected value: ``E[pi] <= Premium <= CVaR_q(pi)``.
@@ -149,19 +154,23 @@ class CostOfCapitalLoad(Pricing):
 
     Notes
     -----
-    In the problem the CVaR is the Rockafellar-Uryasev minimum
-    ``min_zeta zeta + E[(pi - zeta)^+] / (1 - q)``
-    (:func:`~parametric_insurance_design.objectives.rockafellar_uryasev`).
-    It is wrapped in a cvxpy partial minimisation over ``zeta``
-    (``cvxpy.transforms.partial_optimize``): cvxpy inlines the auxiliaries
-    ``zeta`` and ``u_o >= pi_o - zeta``, ``u_o >= 0`` into the LP when it
-    compiles the problem, so the LP is exactly the Rockafellar-Uryasev one.
-    The wrapper makes the term's value at a solution the CVaR itself, not the
-    Rockafellar-Uryasev bound at whatever ``zeta`` the solver returned (only
-    tight when the budget binds), so ``SolveResult.premium`` is the true
-    loaded premium of the solution, budget binding or not, and is defined
-    without a budget. Reading that value solves the small inner LP over
-    ``zeta`` with ``theta`` fixed, with cvxpy's default solver.
+    In the problem the CVaR is the Rockafellar-Uryasev function
+    ``zeta + E[(pi - zeta)^+] / (1 - q)``
+    (:func:`~parametric_insurance_design.objectives.rockafellar_uryasev`),
+    with the auxiliary ``zeta`` a variable of the design problem; cvxpy adds
+    the epigraph variables ``u_o >= pi_o - zeta``, ``u_o >= 0`` when it
+    compiles the problem. Its minimum over ``zeta`` is ``CVaR_q(pi)``, so the
+    budget ``Premium <= kappa E[L]`` admits exactly the payouts whose loaded
+    premium meets it. At a solution the term's value is the
+    Rockafellar-Uryasev bound at the ``zeta`` the solver returned: at least
+    the loaded premium, and equal to it only where the budget binds. The
+    premium of a solution is therefore :meth:`premium_value` of its realised
+    payout, exact and without a solver: ``solve.solve(built, policy,
+    pricing=...)`` records it as ``SolveResult.premium`` (MAR-143). Until
+    MAR-143 the term wrapped the minimisation over ``zeta`` in
+    ``cvxpy.transforms.partial_optimize``, so that its value was the CVaR,
+    which solved an inner LP with cvxpy's default solver whenever the value
+    was read.
     """
 
     name: ClassVar[str] = "cost_of_capital"
@@ -192,23 +201,17 @@ class CostOfCapitalLoad(Pricing):
         -------
         Term
             Convex scalar premium, scaled units, without constraints of its
-            own (the Rockafellar-Uryasev auxiliaries live inside the partial
-            minimisation; class notes). With ``rate = 0`` it is
+            own (cvxpy adds the Rockafellar-Uryasev epigraph when it
+            compiles the problem; class notes). Its value at a solution is
+            an upper bound on the loaded premium, exact where the budget
+            binds; :meth:`premium_value` is exact. With ``rate = 0`` it is
             :class:`PurePremium`'s affine term.
         """
         pure = PurePremium().premium(ctx)
         if self.rate == 0.0:
             return pure
         per_outcome = ctx.measure.aggregate_expression(ctx.payout)
-        cvar, _, zeta = rockafellar_uryasev(
-            per_outcome, ctx.measure.probability, self.q
-        )
-        inner = cp.Problem(cp.Minimize(cvar))
-        tail = partial_optimize(
-            inner,
-            opt_vars=[zeta],
-            dont_opt_vars=[v for v in inner.variables() if v.id != zeta.id],
-        )
+        tail, _, _ = rockafellar_uryasev(per_outcome, ctx.measure.probability, self.q)
         expression = cast(
             cp.Expression, (1.0 - self.rate) * pure.expression + self.rate * tail
         )
