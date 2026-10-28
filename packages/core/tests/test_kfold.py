@@ -27,8 +27,10 @@ from parametric_insurance_design.bootstrap import (
     BootstrapError,
     kpi_replicates,
     percentile_interval,
+    premium_replicates,
     resample_years,
 )
+from parametric_insurance_design.evaluate import var_cvar
 from parametric_insurance_design.eventset import (
     EventSet,
     EventSetMetadata,
@@ -191,6 +193,16 @@ def annual(tmp_path_factory: pytest.TempPathFactory) -> KFold:
     )
 
 
+@pytest.fixture(scope="module")
+def loaded(tmp_path_factory: pytest.TempPathFactory) -> KFold:
+    """A portfolio-scope k = 2 store priced with a cost-of-capital load."""
+    return build(
+        tmp_path_factory.mktemp("loaded"),
+        scopes=[{"kind": "portfolio"}],
+        pricing={"kind": "cost_of_capital", "rate": 0.3, "q": 0.95},
+    )
+
+
 def stored_test(v: KFold) -> pd.DataFrame:
     """The stored portfolio test rows of every fold run."""
     kpis = v.store.read("kpis", run_ids=v.run_ids)
@@ -349,10 +361,14 @@ def test_intervals_come_from_one_shared_resample(kfold: KFold) -> None:
     full = Sample.full(kfold.eventset)
     measure = outcome_measure(kfold.eventset, kfold.config.basis, years=full.years)
     years = kfold.eventset.events["year"].to_numpy()
+    pricing = kfold.config.to_components().pricing
     table = pooled.table
     for design in designs:
         reps = kpi_replicates(
             design.loss, design.payout, measure, years, expected, beta=0.9
+        )
+        reps[KpiName.PREMIUM] = premium_replicates(
+            design.payout, measure, years, expected, pricing
         )
         mask = (
             (table["scope_position"] == design.scope_position)
@@ -361,13 +377,6 @@ def test_intervals_come_from_one_shared_resample(kfold: KFold) -> None:
         for position in np.flatnonzero(mask):
             row: dict[str, Any] = table.iloc[int(position)].to_dict()
             kpi = KpiName(row["kpi"])
-            if kpi is KpiName.PREMIUM:
-                assert np.isnan(pooled.replicates[position]).all()
-                assert pd.isna(row["ci_level"])
-                assert pd.isna(row["n_bootstrap"])
-                assert np.isnan(row["ci_low"])
-                assert np.isnan(row["ci_high"])
-                continue
             np.testing.assert_array_equal(pooled.replicates[position], reps[kpi])
             low, high = percentile_interval(reps[kpi], 0.9)
             if np.isnan(low):
@@ -379,6 +388,9 @@ def test_intervals_come_from_one_shared_resample(kfold: KFold) -> None:
     # the pooled tail intervals are proper intervals
     cvar = where(table, table["kpi"] == "cvar_uncovered")
     assert np.all(cvar["ci_low"] <= cvar["ci_high"])
+    # every row is bootstrapped, the premium included (MAR-153)
+    assert bool(table["ci_level"].notna().all())
+    assert bool(table["n_bootstrap"].notna().all())
     assert pooled.n_undefined.columns.tolist() == [
         "scope_position",
         "scope",
@@ -386,6 +398,84 @@ def test_intervals_come_from_one_shared_resample(kfold: KFold) -> None:
         "kpi",
         "n_undefined",
     ]
+
+
+def premium_and_payout_rows(pooled: PooledKpis) -> list[tuple[int, int, int, str]]:
+    """Per design: positions of its premium and expected payout rows, its key."""
+    table = pooled.table
+    position = table["scope_position"].to_numpy()
+    objective = table["objective"].to_numpy()
+    kpi = table["kpi"].to_numpy()
+    designs = dict.fromkeys(zip(position.tolist(), objective.tolist(), strict=True))
+    out: list[tuple[int, int, int, str]] = []
+    for p, o in designs:
+        mine = (position == p) & (objective == o)
+        (premium,) = np.flatnonzero(mine & (kpi == "premium"))
+        (payout,) = np.flatnonzero(mine & (kpi == "expected_payout"))
+        out.append((int(premium), int(payout), int(p), str(o)))
+    return out
+
+
+@pytest.mark.parametrize("variant", ["kfold", "loaded"])
+def test_pooled_premium_has_an_interval_from_the_shared_resample(
+    variant: str, request: pytest.FixtureRequest
+) -> None:
+    # MAR-153: the pooled premium is bootstrapped like the other KPIs, with
+    # bootstrap.premium_replicates of the pooled payout on the one resample.
+    v: KFold = request.getfixturevalue(variant)
+    pooled = v.pooled()
+    assert pooled.replicates is not None
+    assert pooled.resample is not None
+    table = pooled.table
+    assert pooled.resample.same_as(
+        resample_years(np.arange(N_YEARS), N_BOOTSTRAP, np.random.default_rng(SEED))
+    )
+    designs, _ = pooled_designs(v.config, v.store, v.eventset, v.run_ids)
+    by_key = {(d.scope_position, d.objective): d for d in designs}
+    full = Sample.full(v.eventset)
+    measure = outcome_measure(v.eventset, v.config.basis, years=full.years)
+    years = v.eventset.events["year"].to_numpy()
+    pricing = v.config.to_components().pricing
+    assert pooled.failed == ()
+    assert len(designs) == (6 if variant == "kfold" else 2)
+    rows = premium_and_payout_rows(pooled)
+    assert len(rows) == len(designs)
+    for premium, payout, position, objective in rows:
+        row = table.iloc[premium]
+        reps = pooled.replicates[premium]
+        assert row["kpi"] == "premium"
+        assert row["ci_level"] == 0.9
+        assert row["n_bootstrap"] == N_BOOTSTRAP
+        assert np.all(np.isfinite(reps))
+        assert (row["ci_low"], row["ci_high"]) == percentile_interval(reps, 0.9)
+        assert row["ci_low"] <= row["ci_high"]
+        design = by_key[(position, objective)]
+        np.testing.assert_array_equal(
+            reps,
+            premium_replicates(design.payout, measure, years, pooled.resample, pricing),
+        )
+        # the point value is the premium on the unresampled measure
+        assert row["value"] == pytest.approx(
+            pricing.premium_value(design.payout, measure), rel=1e-12
+        )
+        expected_payout = pooled.replicates[payout]
+        if v.config.pricing.kind == "pure":
+            # a pure premium is the expected payout, replicate by replicate
+            np.testing.assert_allclose(reps, expected_payout, rtol=1e-12)
+        else:
+            # a loaded premium exceeds it in every replicate
+            assert np.all(reps >= expected_payout - 1e-9)
+            assert np.any(reps > expected_payout + 1e-9)
+            # each replicate prices the payout of the concatenated years
+            counts = pooled.resample.counts(0, 3)
+            for b in range(3):
+                weight = counts[b][np.searchsorted(pooled.resample.years, years)]
+                p = measure.probability[measure.outcome_of_row] * weight
+                p = p / p.sum()
+                concatenated = 0.7 * float(p @ design.payout) + 0.3 * float(
+                    var_cvar(design.payout, p, 0.95)[1]
+                )
+                assert reps[b] == pytest.approx(concatenated, rel=1e-9)
 
 
 def test_pooled_kpis_are_deterministic(kfold: KFold) -> None:
@@ -416,10 +506,6 @@ def test_paired_difference_uses_the_shared_replicates(kfold: KFold) -> None:
         assert row["value_a"] == table["value"].iloc[ia]
         assert row["value_b"] == table["value"].iloc[ib]
         assert row["difference"] == pytest.approx(row["value_a"] - row["value_b"])
-        if row["kpi"] == "premium":
-            assert np.isnan(row["ci_low"])
-            assert pd.isna(row["n_bootstrap"])
-            continue
         low, high = percentile_interval(
             pooled.replicates[ia] - pooled.replicates[ib], 0.9
         )

@@ -19,6 +19,7 @@ from importlib.metadata import version
 
 from parametric_insurance_design import (
     basis,
+    bootstrap,
     clustering,
     constraints,
     errors,
@@ -32,6 +33,7 @@ from parametric_insurance_design import (
     pricing,
     problem,
     records,
+    riskmeasures,
     robust,
     scopes,
     solve,
@@ -67,6 +69,7 @@ __all__ = [
     "SolveStatus",
     "__version__",
     "basis",
+    "bootstrap",
     "clustering",
     "constraints",
     "errors",
@@ -80,6 +83,7 @@ __all__ = [
     "pricing",
     "problem",
     "records",
+    "riskmeasures",
     "robust",
     "scopes",
     "solve",

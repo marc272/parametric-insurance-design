@@ -46,6 +46,13 @@ From year counts to a resampled measure
     vectorised KPI formulas reproduce ``evaluate.kpis`` (a guard against
     drift; a mismatch raises :class:`BootstrapError`).
 
+Array-level replicates
+    :func:`kpi_replicates` gives the eight ``evaluate`` KPIs of per-row loss
+    and payout, and :func:`premium_replicates` the premium of a payout
+    (``pricing.premium_value`` on each replicate's measure), without an
+    EventSet. :func:`bootstrap_kpis` builds on the same code, and
+    ``experiment.kfold`` uses both for the pooled k-fold KPIs (MAR-153).
+
 Intervals
     Percentile intervals: the ``(1 - level) / 2`` and ``(1 + level) / 2``
     quantiles (``numpy.quantile``, linear interpolation) of the replicate
@@ -78,7 +85,7 @@ from parametric_insurance_design.basis import (
     Basis,
     OutcomeMeasure,
 )
-from parametric_insurance_design.errors import InputMismatchError
+from parametric_insurance_design.errors import ComponentConfigError, InputMismatchError
 from parametric_insurance_design.evaluate import KpiSubject, evaluate_results, kpis
 from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.interfaces import Pricing, Sample, Scope, SolveResult
@@ -96,6 +103,7 @@ __all__ = [
     "kpi_replicates",
     "paired_difference",
     "percentile_interval",
+    "premium_replicates",
     "resample_years",
 ]
 
@@ -567,8 +575,9 @@ def kpi_replicates(
     Returns
     -------
     dict
-        For each of the eight ``evaluate`` KPIs (not ``premium``), an array
-        of shape ``(B,)``; NaN where the KPI is undefined in a replicate.
+        For each of the eight ``evaluate`` KPIs (not ``premium``; see
+        :func:`premium_replicates`), an array of shape ``(B,)``; NaN where
+        the KPI is undefined in a replicate.
 
     Raises
     ------
@@ -713,6 +722,60 @@ def _replicate_premiums(
             for i, (_, payout) in enumerate(payouts):
                 out[i, start + b] = float(pricing.premium_value(payout, measure))
     return out
+
+
+def premium_replicates(
+    payout: ArrayLike,
+    measure: OutcomeMeasure,
+    row_years: ArrayLike,
+    resample: YearResample,
+    pricing: Pricing,
+) -> NDArray[np.float64]:
+    """Bootstrap replicates of the premium of one payout (array level).
+
+    The premium counterpart of :func:`kpi_replicates`, usable without an
+    EventSet: ``pricing.premium_value`` of the payout on each replicate's
+    measure (the evaluation measure reweighted by the replicate's year
+    counts, module docstring). :func:`bootstrap_kpis` replicates its
+    ``premium`` rows the same way, so on the same rows, measure and resample
+    the two give the same values.
+
+    Parameters
+    ----------
+    payout : array_like of float
+        Per-row payout to price, shape ``(n_rows,)``: the objective-level
+        payout (the portfolio payout for the ``premium`` KPI).
+    measure : OutcomeMeasure
+        Evaluation measure over the same rows.
+    row_years : array_like of int
+        Year of each row, all among ``resample.years``.
+    resample : YearResample
+        The replicates.
+    pricing : Pricing
+        The pricing rule, e.g. ``pricing.PurePremium()``.
+
+    Returns
+    -------
+    numpy.ndarray of float
+        Shape ``(B,)``: the premium in each replicate.
+
+    Raises
+    ------
+    BootstrapError
+        If the rows, years and measure do not fit together (module
+        docstring), or ``resample`` is not a :class:`YearResample`.
+    InputMismatchError
+        If ``payout`` does not have one finite value per row.
+    ComponentConfigError
+        If ``pricing`` is not a ``Pricing``.
+    """
+    if not isinstance(pricing, Pricing):
+        raise ComponentConfigError(f"pricing must be a Pricing, got {pricing!r}")
+    if not isinstance(resample, YearResample):
+        raise BootstrapError(f"resample must be a YearResample, got {resample!r}")
+    pay = _row_values(payout, measure, "payout")
+    reweighting = _Reweighting.build(measure, row_years, resample.years)
+    return _replicate_premiums(reweighting, resample, [("", pay)], pricing)[0]
 
 
 def bootstrap_kpis(
