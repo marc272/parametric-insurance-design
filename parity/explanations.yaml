@@ -14,7 +14,7 @@
 # record the thesis-payout check does not support.
 
 # Thesis baseline, integrated portfolio, weighted CVaR (config_hash
-# sha256:71718bcbd1d5384f70fba6472d89e3f846a62160f728ee6663e08a2522d27a6b):
+# sha256:1a84fd742e94b86d3b30e98cf3cf8e2c8e12a770693bf1f694ef81a4718cf24d, MAR-117):
 # asset-level KPIs of A1, A2, A4 and A6 only. The glob names asset subjects
 # (A<k>), so a portfolio-level finding of this record stays unexplained.
 ? "kpi/integrated_portfolio_optimization/weighted_cvar_minimization/single_run/alpha=0.9, beta=0.95, budget_loading=1, n_bins=15/A?/*"

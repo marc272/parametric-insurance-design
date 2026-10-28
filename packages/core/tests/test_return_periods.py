@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import pytest
 import yaml
 
@@ -21,6 +22,7 @@ from parametric_insurance_design.evaluate import DEFAULT_RETURN_PERIODS
 from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.experiment.config import (
     EvaluationConfig,
+    ExperimentConfig,
     canonical_json,
     config_hash,
     dump_config,
@@ -217,19 +219,53 @@ def test_parity_config_sets_the_thesis_grid() -> None:
     )
 
 
-@needs_fixture
-def test_parity_run_stores_rp_20_200_and_500(tmp_path: Path) -> None:
-    config = load_config(PARITY_CONFIG)
+def _parity_portfolio_wcvar(config: ExperimentConfig) -> ExperimentConfig:
     (run,) = [
         s
         for s in config.single_runs()
         if s.scopes[0].kind == "portfolio" and s.objectives[0].kind == "weighted_cvar"
     ]
-    store = ResultStore(tmp_path)
-    (outcome,) = run_config(run, store=store, data=load_input(config))
-    assert outcome.ok
-    exceedance = store.read("exceedance")
-    portfolio = exceedance.loc[exceedance["level"] == "portfolio", "return_period"]
+    return run
+
+
+@needs_fixture
+def test_parity_run_stores_rp_20_200_and_500(tmp_path: Path) -> None:
+    # The thesis grid changes the exceedance rows only: the same run on the
+    # default grid has the same payouts and KPIs, and the same exceedance
+    # values at the return periods both grids hold.
+    config = load_config(PARITY_CONFIG)
+    data = to_dict(config)
+    del data["evaluation"]["return_periods"]
+    default = parse_config(data, base_dir=PARITY_CONFIG.parent)
+    eventset = load_input(config)
+    tables = {}
+    for name, cfg in (("thesis", config), ("default", default)):
+        store = ResultStore(tmp_path / name)
+        (outcome,) = run_config(
+            _parity_portfolio_wcvar(cfg), store=store, data=eventset
+        )
+        assert outcome.ok
+        tables[name] = {
+            t: store.read(t).drop(columns="run_id")
+            for t in ("payouts", "kpis", "exceedance")
+        }
+    thesis, before = tables["thesis"], tables["default"]
+    for t in ("payouts", "kpis"):
+        pd.testing.assert_frame_equal(thesis[t], before[t])
+
+    portfolio = thesis["exceedance"]
+    portfolio = portfolio.loc[portfolio["level"] == "portfolio", "return_period"]
     stored = np.unique(portfolio.to_numpy(dtype=np.float64))
     np.testing.assert_array_equal(stored, THESIS_GRID)
     assert {20.0, 200.0, 500.0} <= set(stored)
+
+    common = sorted(set(THESIS_GRID) & set(DEFAULT_RETURN_PERIODS))
+    assert common == [2.0, 5.0, 10.0, 50.0, 100.0]
+
+    def at_common(frame: pd.DataFrame) -> pd.DataFrame:
+        rows = frame.loc[frame["return_period"].isin(common)]
+        return pd.DataFrame(rows).reset_index(drop=True)
+
+    pd.testing.assert_frame_equal(
+        at_common(thesis["exceedance"]), at_common(before["exceedance"])
+    )
