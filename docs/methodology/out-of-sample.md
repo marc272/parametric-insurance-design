@@ -34,18 +34,44 @@ Both return `Sample` objects (`train`, `test`) whose `years` include the years w
 
 `splits.kpi_gap(kpis)` pairs each KPI's `train` and `test` values of one run and fold, with `gap = test − train`. Joined with `runs` (scope, `parameters.n_bins`), it gives the gap as a function of `n_bins` and scope. `research/scripts/out_of_sample_rerun.py` does this for the thesis configuration. Its observations are in `research/notes/out-of-sample-rerun.md`.
 
+## Pooled k-fold KPIs
+
+Issue MAR-151. Code: `packages/core/src/parametric_insurance_design/experiment/kfold.py` (`pooled_kpis`, `pooled_designs`, `pooled_difference`).
+
+A k-fold experiment has one run per fold (see "Runs" above; the fold is in `runs.fold`, in `runs.parameters`, in the `fold` key of `kpis` and `exceedance` and, for sweeps, in each point's `fold` key of the sweep manifest; ADR 0002 §7, amendment MAR-138). Each scope × objective therefore has k out-of-sample KPI values, each over 1/k of the years. The pooled rule combines them into one out-of-sample value per scope × objective.
+
+**The rule.**
+
+- The k test blocks partition the years, so every year, and every row, is evaluated by exactly one design: the one calibrated on the other k − 1 blocks.
+- The pooled payout of a row is that design's portfolio payout. With the row's portfolio loss, it forms one out-of-sample sample over **all** years. The pooled KPIs are the `evaluate` KPIs of that sample, on the evaluation measure of all years (`Sample.full`): the eight portfolio KPIs and the premium.
+- Only the **portfolio level** is pooled. Entities and design problems aren't comparable across folds: the cluster scope's partition differs per fold, so cluster C1 of fold 0 isn't cluster C1 of fold 1.
+- **Paired intervals.** One `bootstrap.resample_years(all_years, B, default_rng(seed))` is drawn and shared by every design, with B, seed and level from the config's `bootstrap` section. The replicates come from `bootstrap.kpi_replicates` of each design's pooled loss and payout, and the intervals from `bootstrap.percentile_interval`. Because the resample is shared, a difference between two designs is paired: `pooled_difference(pooled, a, b)` gives its interval from the replicate differences. Without a `bootstrap` section, the pooled KPIs have point values only.
+- **Rejected: the mean of the per-fold KPIs.** A tail KPI (VaR, CVaR) from 1/k of the years is noisier than one from all years, and the mean of k CVaRs isn't the CVaR of any distribution. CVaR is concave in the distribution, so the weighted mean of the fold CVaRs understates the pooled CVaR (`tests/test_kfold.py` checks this on a real k = 2 store).
+
+**Without re-solving.** Each fold's design is read from the store. `entities` gives its `ProblemSpec`s and `payouts` gives its levels θ. The payout structure, scope, basis and pricing come from the config. A row's test payout is `payout.evaluate(scope.materialise(test_data, spec).index, θ)`, on the prepared EventSet split with `splits.year_block_kfold`.
+
+**No silent failures.**
+
+- **Drift guard.** Each fold's portfolio KPIs on its test block are recomputed from those payouts and compared with the stored `kpis` rows (`eval_split = "test"`). A mismatch raises `FoldDriftError`. The guard also raises when the stored bin edges differ from the config's payout structure, or when the EventSet isn't the runs' prepared EventSet (content hash in the manifests).
+- A run missing from the store, or a run that isn't the expected fold of the expected scope × objective, raises `PooledKFoldError`. So do a config that isn't k-fold and one that fixes `sample.fold`.
+- A scope × objective with a failed fold isn't pooled. It is listed in `PooledKpis.failed` with the reason.
+- A KPI that is undefined in some replicate gets null bounds, with `ci_level` and `n_bootstrap` set (as in the `kpis` table), and `PooledKpis.n_undefined` counts its undefined replicates.
+- The pooled `premium` has no interval (`ci_level` null), because the bootstrap module replicates premiums only inside `bootstrap_kpis`.
+
+**Storage: computed on demand** (orchestrator decision, MAR-151 option A; ADR 0002 §7 amendment MAR-151). Nothing is written to the store, and no record table changes. The rejected options were a pseudo-run with `fold = -1` in the store (B) and a new `pooled_kpis` table (C). Both would change the store contract, so revisit them only if the website export needs pooled rows in the store.
+
 ## Figures
 
-The KPI figures draw `full` and `holdout` runs, with their bootstrap intervals where the config has them (MAR-148, [`bootstrap.md`](bootstrap.md#figures)). They refuse k-fold runs (`KFoldRunsError`, MAR-137 and MAR-142). A k-fold experiment has one run per fold, so each scope × objective has k test values, and no rule for combining them is implemented yet.
+The KPI figures draw `full` and `holdout` runs, with their bootstrap intervals where the config has them (MAR-148, [`bootstrap.md`](bootstrap.md#figures)).
 
-The proposed rule is **pooled out-of-sample KPIs**. Its implementation is a follow-up of MAR-148:
+For a k-fold config (MAR-151), the `figures` command computes the pooled KPIs with `pooled_kpis` and passes them to `write_figures(..., pooled_kpis=...)`. The viz never re-evaluates payouts.
 
-- The k test blocks partition the years, so every year is evaluated by the design of the fold that held it out.
-- The pooled KPIs are computed over all years, from each row's loss and that design's payout.
-- The intervals come from a block bootstrap over the pooled years, with one resample shared by every design, so that comparisons stay paired.
-- The alternative, the mean of the per-fold KPIs with a bootstrap spread, would be documented as rejected or offered as an option.
+- The KPI heatmaps and the performance overview draw one pooled row per scope × objective, with the pooled intervals. Their figure data have `eval_split = "pooled"`, the k fold runs in `run_id` (joined by `;`) and `k`. The subtitle says "pooled out of sample over k = … folds".
+- The exceedance figures are skipped, with the reason stated. The pooled rule covers the portfolio KPIs, while the `exceedance` table holds one curve per fold, over 1/k of the years.
+- The payout figures are skipped, because each scope × objective has a design per fold. The sweep figures are skipped too, because they show one run per scope × objective.
+- Without pooled KPIs, `write_figures` refuses a k-fold config (`KFoldRunsError`, MAR-142). The figure functions that take runs (`kpi_table`, `kpi_heatmap`, `performance_overview`, `exceedance_curves`) still refuse k-fold runs (MAR-137).
 
-Where the pooled rows live (a store table, a pseudo-fold in `kpis`, or computed for the figures on demand) is an ADR 0002 decision.
+The exceedance x-axis is labelled per basis (MAR-117, MAR-139): "Return period RP [events]" on `event_conditional`, where 1/T is a share of the given events, and "[years]" on `annual` and `event`.
 
 ## Not covered here
 
