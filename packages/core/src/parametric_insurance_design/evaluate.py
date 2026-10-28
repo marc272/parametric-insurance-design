@@ -63,9 +63,27 @@ Exceedance curves
     basis there are two curves: ``aep`` over the yearly sums and ``oep`` over
     the yearly maximum event (the largest per-row value in each outcome; an
     outcome without rows counts as 0). On the event bases there is one curve,
-    ``event``, over the per-event values; its return period counts outcomes
-    of the measure, which on ``event_conditional`` are events, not years
-    (thesis convention).
+    ``event``, over the per-event values. ``1 / T`` is a probability under
+    the measure, so the unit of ``T`` depends on the basis (``S`` the
+    sample's years, ``D`` the draws; see ``basis.py``):
+
+    * ``annual``: years, exactly. Every (year, draw) slot has probability
+      ``1 / (|S| * D)``, and each draw is one simulated version of its year
+      (SPEC §5), so ``1 / T`` is the share of years whose value exceeds the
+      level, averaged over the draws. With ``D = 1`` that is the share of
+      the ``|S|`` simulated years. With ``D > 1`` the curve mixes the draws:
+      its ``|S| * D`` slots share the hazard of ``|S|`` years, so they are not
+      ``|S| * D`` independent years of record.
+    * ``event``: years, approximately. Probabilities are the rows' annual
+      rates (over the sample's years) plus a "no event" outcome, so ``1 / T``
+      is the expected number of events per year whose value exceeds the
+      level, and ``T`` is their mean recurrence interval in years. The share
+      of years with such an event is at most that rate, so ``T`` reads as an
+      occurrence (OEP) return period only while years rarely hold more than
+      one such event.
+    * ``event_conditional``: events, not years (thesis convention).
+      Probabilities are ``rate / sum(rate)`` over the rows given, so ``1 /
+      T`` is a share of those rows' events and ``T`` counts events.
 
 No silent failures (thesis issue C3)
     Results whose design problems repeat, overlap in locations, or do not
@@ -140,7 +158,8 @@ DEFAULT_RETURN_PERIODS: Final[tuple[float, ...]] = (
     100.0,
     250.0,
 )
-"""Default return periods of :func:`exceedance_curves`, in years."""
+"""Default return periods of :func:`exceedance_curves`: years on the
+``annual`` and ``event`` bases, events on ``event_conditional``."""
 
 
 # --------------------------------------------------------------------------
@@ -645,13 +664,23 @@ def exceedance_curves(
     basis : Basis
         ``annual`` gives OEP curves (the largest event of each year, a year
         without rows counting as 0) and AEP curves (the sum over each year).
-        The event bases give per-event curves (``curve = "event"``), whose
-        return period counts outcomes of the measure (events on
-        ``event_conditional``, as in the thesis plots).
+        The event bases give per-event curves (``curve = "event"``). The
+        unit of the return period depends on the basis (module docstring,
+        "Exceedance curves"):
+
+        * ``annual``: years, exactly. ``1 / T`` is the share of (year, draw)
+          slots above the level, i.e. the share of years above it averaged
+          over the draws; with one draw, the share of the sample's years.
+        * ``event``: years, approximately. ``1 / T`` is the annual rate of
+          events above the level, which bounds the share of years with such
+          an event from above and equals it when no year holds two.
+        * ``event_conditional``: events. ``1 / T`` is a share of the given
+          rows' events (thesis plots).
     run_id : str
         Written to every row.
     return_periods : array_like of float, optional
-        Return periods, each finite and > 1, unique.
+        Return periods, each finite and > 1, unique. In the unit the basis
+        gives them (see ``basis``).
     sample : Sample, optional
         Rows to evaluate on. Default: all rows.
 

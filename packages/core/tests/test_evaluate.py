@@ -4,10 +4,11 @@ Thesis parity on the Miami fixture is in ``parity/tests/test_evaluate_parity.py`
 The last test here runs its golden-table check, so that CI runs it while
 ``parity/tests`` is not yet in CI (MAR-86).
 
-The annual measure is MAR-24's. The annual tests stand in for it with a
-grouped :class:`OutcomeMeasure` (one outcome per sample year, years without
-rows included), patched into ``evaluate.outcome_measure``. Every EventSet
-built here keeps ``year`` in ``[0, n_years)`` (ADR 0002 §5).
+The ``annual`` and ``event`` tests run on the real measures of
+``basis.outcome_measure`` (MAR-24). Their expected values are worked out by
+hand and recomputed with numpy from per-year or per-slot arrays, never
+through ``evaluate``. Every EventSet built here keeps ``year`` in
+``[0, n_years)`` (ADR 0002 §5).
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ import pytest
 from numpy.typing import ArrayLike
 
 from parametric_insurance_design import evaluate, records
-from parametric_insurance_design.basis import Basis, OutcomeMeasure
+from parametric_insurance_design.basis import Basis, OutcomeMeasure, outcome_measure
 from parametric_insurance_design.errors import (
     ComponentConfigError,
     EntityMismatchError,
@@ -432,7 +433,7 @@ def test_bad_scope_raises(toy_eventset: EventSet) -> None:
 
 
 # --------------------------------------------------------------------------
-# Annual basis (grouped measure standing in for MAR-24)
+# Annual and event bases (the real MAR-24 measures)
 # --------------------------------------------------------------------------
 
 
@@ -447,6 +448,11 @@ def annual_eventset(toy: EventSet) -> EventSet:
     2    1     50       15       6       1
     3    0     10       55       0       3
     ===  ====  =======  =======  ======  ======
+
+    Every rate is ``0.2 = 1 / (n_years * D)`` with ``D = 1`` draw (SPEC §5),
+    and the rates sum to 0.8 events per year, so both the ``annual`` and the
+    ``event`` measure accept it. Entity A's payout is 1, 8, 8, 1 (index 10
+    and 30 in bin 0, 50 in bin 1), so its per-row uncovered loss is 3, 2, 0, 0.
     """
     events = pd.DataFrame(
         {
@@ -466,31 +472,65 @@ def annual_eventset(toy: EventSet) -> EventSet:
     )
 
 
-def grouped_measure(
-    eventset: EventSet, basis: Basis, *, years: ArrayLike | None = None
-) -> OutcomeMeasure:
-    """One outcome per year of the sample, probability 1/n_years each."""
-    assert basis is Basis.ANNUAL
-    assert years is not None
-    y = np.asarray(years)
-    row_years = eventset.events["year"].to_numpy()
-    return OutcomeMeasure(
-        basis=basis,
-        outcome_of_row=np.searchsorted(y, row_years),
-        probability=np.full(y.size, 1.0 / y.size),
-    )
+ANNUAL_PAYOUT_A = np.array([1.0, 8.0, 8.0, 1.0])
+"""Entity A's per-row payout on :func:`annual_eventset` (worked by hand)."""
 
 
 @pytest.fixture
-def annual(toy_eventset: EventSet, monkeypatch: pytest.MonkeyPatch) -> EventSet:
-    monkeypatch.setattr(evaluate, "outcome_measure", grouped_measure)
+def annual(toy_eventset: EventSet) -> EventSet:
     return annual_eventset(toy_eventset)
+
+
+def per_year(eventset: EventSet, values: ArrayLike, n_years: int) -> np.ndarray:
+    """Sum per-row values into years ``0 .. n_years - 1`` with numpy alone."""
+    out = np.zeros(n_years)
+    np.add.at(out, eventset.events["year"].to_numpy(), np.asarray(values))
+    return out
+
+
+def ru_cvar(x: np.ndarray, p: np.ndarray, beta: float) -> float:
+    """CVaR as the Rockafellar-Uryasev minimum over the values (numpy alone)."""
+    return min(z + float(p @ np.maximum(x - z, 0.0)) / (1 - beta) for z in x)
+
+
+def at(
+    table: pd.DataFrame,
+    curve: str,
+    quantity: str,
+    period: float,
+    subject: str = "A",
+    level: str = "entity",
+) -> float:
+    """The one exceedance value of a subject, curve, quantity and period."""
+    row = table.loc[
+        (table["level"] == level)
+        & (table["subject_id"] == subject)
+        & (table["curve"] == curve)
+        & (table["quantity"] == quantity)
+        & (table["return_period"] == period)
+    ]
+    assert len(row) == 1
+    return float(row["value"].to_numpy()[0])
+
+
+def test_annual_measure_of_the_fixture(annual: EventSet) -> None:
+    # Slots (year 0) and (year 1) hold rows; years 2-4 are pooled into one
+    # last outcome of probability 3/5.
+    measure = outcome_measure(annual, Basis.ANNUAL)
+    assert measure.basis is Basis.ANNUAL
+    assert measure.outcome_of_row.tolist() == [0, 0, 1, 0]
+    np.testing.assert_allclose(measure.probability, [0.2, 0.2, 0.6], rtol=1e-15)
 
 
 def test_annual_kpis_are_over_years(annual: EventSet) -> None:
     # Entity A: payout 1, 8, 8, 1; per-row uncovered 3, 2, 0, 0, so
     # U_y = 5, 0, 0, 0, 0 (row 3 over-pays and does not offset row 0).
     # Residual per year 4, -2, 0, 0, 0. Loss per year 14, 6; payout 10, 8.
+    loss = per_year(annual, annual.loss[:, 0], 5)
+    payout = per_year(annual, ANNUAL_PAYOUT_A, 5)
+    uncovered = per_year(annual, np.maximum(annual.loss[:, 0] - ANNUAL_PAYOUT_A, 0), 5)
+    p = np.full(5, 0.2)  # every simulated year, D = 1
+    np.testing.assert_array_equal(uncovered, [5.0, 0, 0, 0, 0])
     table = kpis(
         annual,
         Portfolio(),
@@ -511,6 +551,25 @@ def test_annual_kpis_are_over_years(annual: EventSet) -> None:
     )
     assert value(table, "entity", "A", KpiName.CORRELATION) == pytest.approx(
         weighted_corr(np.array([14.0, 6, 0, 0, 0]), np.array([10.0, 8, 0, 0, 0]))
+    )
+    # The same values recomputed from the per-year arrays.
+    assert value(table, "entity", "A", KpiName.EXPECTED_UNCOVERED) == pytest.approx(
+        float(p @ uncovered)
+    )
+    assert value(table, "entity", "A", KpiName.CVAR_UNCOVERED) == pytest.approx(
+        ru_cvar(uncovered, p, 0.5)
+    )
+    assert value(table, "entity", "A", KpiName.RMSE_RESIDUAL) == pytest.approx(
+        math.sqrt(float(p @ (loss - payout) ** 2))
+    )
+    assert value(table, "entity", "A", KpiName.EXPECTED_LOSS) == pytest.approx(
+        float(p @ loss)
+    )
+    assert value(table, "entity", "A", KpiName.EXPECTED_PAYOUT) == pytest.approx(
+        float(p @ payout)
+    )
+    assert value(table, "entity", "A", KpiName.CORRELATION) == pytest.approx(
+        weighted_corr(loss, payout)
     )
 
 
@@ -542,30 +601,109 @@ def test_annual_exceedance_oep_and_aep(annual: EventSet) -> None:
     )
     records.EXCEEDANCE.validate(table)
     assert set(table["curve"]) == {"oep", "aep"}
-
-    def at(curve: str, quantity: str, period: float, subject: str = "A") -> float:
-        row = table.loc[
-            (table["level"] == "entity")
-            & (table["subject_id"] == subject)
-            & (table["curve"] == curve)
-            & (table["quantity"] == quantity)
-            & (table["return_period"] == period)
-        ]
-        assert len(row) == 1
-        return float(row["value"].to_numpy()[0])
-
+    assert np.all(col(table, "basis") == "annual")
     # Entity A uncovered: year 0 has events 3, 2, 0 -> OEP 3, AEP 5.
-    assert at("oep", "uncovered", 10.0) == 3.0
-    assert at("aep", "uncovered", 10.0) == 5.0
-    assert at("oep", "uncovered", 2.0) == 0.0  # 3 of 5 years have nothing
+    assert at(table, "oep", "uncovered", 10.0) == 3.0
+    assert at(table, "aep", "uncovered", 10.0) == 5.0
+    assert at(table, "oep", "uncovered", 2.0) == 0.0  # 3 of 5 years have nothing
     # Loss: year 0 max 10, sum 14.
-    assert at("oep", "loss", 10.0) == 10.0
-    assert at("aep", "loss", 10.0) == 14.0
+    assert at(table, "oep", "loss", 10.0) == 10.0
+    assert at(table, "aep", "loss", 10.0) == 14.0
     # Payout: year 0 max 8, sum 10.
-    assert at("oep", "payout", 10.0) == 8.0
-    assert at("aep", "payout", 10.0) == 10.0
+    assert at(table, "oep", "payout", 10.0) == 8.0
+    assert at(table, "aep", "payout", 10.0) == 10.0
     # 2 entities + problem + portfolio, 3 quantities, 2 curves, 2 periods.
     assert len(table) == 4 * 3 * 2 * 2
+
+
+def test_annual_return_periods_are_in_years_averaged_over_draws(
+    toy_eventset: EventSet,
+) -> None:
+    # Two years, two draws per event (rates 1 / (2 * 2)). Event e0 (year 0)
+    # has both draws; e1 (year 1) only draw 0, so slot (year 1, draw 1) is
+    # empty. Entity A's loss per (year, draw) slot:
+    #     draw 0  draw 1
+    #  y0   4      10
+    #  y1   6       0
+    events = pd.DataFrame(
+        {
+            "event_id": ["e0", "e0", "e1"],
+            "year": [0, 0, 1],
+            "rate": [0.25] * 3,
+            "draw_id": [0, 1, 0],
+            "scenario_id": ["toy"] * 3,
+        }
+    )
+    eventset = EventSet(
+        events=events,
+        locations=toy_eventset.locations,
+        index=np.array([[30.0, 35.0], [50.0, 55.0], [50.0, 15.0]]),
+        loss=np.array([[4.0, 2.0], [10.0, 6.0], [6.0, 1.0]]),
+        metadata=dataclasses.replace(toy_eventset.metadata, n_years=2),
+    )
+    measure = outcome_measure(eventset, Basis.ANNUAL)
+    np.testing.assert_allclose(measure.probability, np.full(4, 0.25), rtol=1e-15)
+    periods = [2.0, 4.0, 10.0]
+    table = exceedance_curves(
+        eventset,
+        Portfolio(),
+        portfolio_results(),
+        basis=Basis.ANNUAL,
+        run_id="r",
+        return_periods=periods,
+    )
+    got = {t: at(table, "aep", "loss", t) for t in periods}
+    # Slots sorted 0, 4, 6, 10 with probability 1/4 each.
+    assert got == {2.0: 4.0, 4.0: 6.0, 10.0: 10.0}
+    # 1/T is a probability per year: the share of years above the level in
+    # each draw, averaged over the draws (a lower quantile, so the level is
+    # exceeded with at most, and reached with at least, probability 1/T).
+    by_year_draw = np.array([[4.0, 10.0], [6.0, 0.0]])
+    for period, level in got.items():
+        above = (by_year_draw > level).mean(axis=0).mean()
+        reached = (by_year_draw >= level).mean(axis=0).mean()
+        assert above <= 1 / period <= reached
+
+
+def test_event_return_periods_are_in_years(annual: EventSet) -> None:
+    # Event basis on the same rows: one outcome per row with its annual rate
+    # 0.2, plus "no event" with 1 - 0.8 = 0.2. Entity A uncovered per row
+    # 3, 2, 0, 0 (and 0 for "no event").
+    measure = outcome_measure(annual, Basis.EVENT)
+    np.testing.assert_allclose(measure.probability, np.full(5, 0.2), rtol=1e-15)
+    periods = [2.0, 4.0, 10.0]
+    table = exceedance_curves(
+        annual,
+        Portfolio(),
+        portfolio_results(),
+        basis=Basis.EVENT,
+        run_id="r",
+        return_periods=periods,
+    )
+    assert set(table["curve"]) == {"event"}
+    assert np.all(col(table, "basis") == "event")
+    got = {t: at(table, "event", "uncovered", t) for t in periods}
+    assert got == {2.0: 0.0, 4.0: 2.0, 10.0: 3.0}
+    # 1/T is an annual rate: events per year whose value exceeds the level
+    # (at most 1/T) or reaches it (at least 1/T, for a level above 0).
+    rates = annual.rates
+    uncovered = np.maximum(annual.loss[:, 0] - ANNUAL_PAYOUT_A, 0.0)
+    for period, level in got.items():
+        assert float(rates @ (uncovered > level)) <= 1 / period
+        if level > 0:
+            assert 1 / period <= float(rates @ (uncovered >= level))
+    # Year 0 holds two uncovered events (3 and 2): 0.4 events per year leave
+    # loss uncovered, but only 0.2 of years do. So the event curve's 4-year
+    # level (2) is above the annual OEP's (0), the approximation at work.
+    oep = exceedance_curves(
+        annual,
+        Portfolio(),
+        portfolio_results(),
+        basis=Basis.ANNUAL,
+        run_id="r",
+        return_periods=[4.0],
+    )
+    assert at(oep, "oep", "uncovered", 4.0) == 0.0
 
 
 # --------------------------------------------------------------------------
