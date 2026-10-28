@@ -39,6 +39,19 @@ A problem is a QP when its objective is quadratic but not piecewise linear
 and cvxpy recognises the whole problem as a QP; every other problem goes to
 the LP list.
 
+The premium of a solution (MAR-143)
+    Given the pricing the problem was built with (``solve(built, policy,
+    pricing=pricing)``, as the runner does), :func:`solve` records
+    ``SolveResult.premium`` as ``pricing.premium_value`` of the realised
+    payout: ``payout_structure.evaluate(index, theta)`` in loss units,
+    summed over the entities as ``evaluate.kpis`` sums them, under the
+    problem's measure. That is exact, needs no solver, and equals the
+    in-sample ``premium`` KPI of the design problem bit for bit. Without the
+    pricing it is the value of the premium term at the solution: the same
+    for the pure premium up to rounding, but for a loaded premium
+    (``pricing.CostOfCapitalLoad``) the Rockafellar-Uryasev bound at the
+    solver's ``zeta``, exact only where the budget binds.
+
 Solvers that are not installed are not called, but they are still recorded
 as an attempt with status ``error`` and the message
 :data:`NOT_INSTALLED`, so the attempt log shows every solver the policy
@@ -78,14 +91,17 @@ import cvxpy as cp
 import cvxpy.settings
 import numpy as np
 from cvxpy.error import SolverError
+from numpy.typing import NDArray
 
 from parametric_insurance_design.errors import (
+    ComponentConfigError,
     ConfigError,
     InfeasibleError,
     SolveError,
     UnboundedError,
 )
 from parametric_insurance_design.interfaces import (
+    Pricing,
     SolverAttempt,
     SolveResult,
     SolveStatus,
@@ -358,19 +374,40 @@ def _diagnostics(built: BuiltProblem) -> dict[str, float]:
     return out
 
 
-def _result(built: BuiltProblem, attempts: list[SolverAttempt]) -> SolveResult:
+def _premium(
+    built: BuiltProblem, theta: NDArray[np.float64], pricing: Pricing | None
+) -> float:
+    """Premium of the solution in loss units (module docstring).
+
+    ``theta`` is in loss units. With a pricing, ``premium_value`` of the
+    realised objective-level payout, summed over the entities one vector
+    after the other as ``evaluate`` does; otherwise the premium term's value
+    times ``scale``.
+    """
+    ctx = built.context
+    if pricing is None:
+        return _value(built.premium.expression) * ctx.scale
+    entity_payout = ctx.payout_structure.evaluate(ctx.problem.index, theta)
+    payout = np.vstack(list(entity_payout.T)).sum(axis=0)
+    return float(pricing.premium_value(payout, ctx.measure))
+
+
+def _result(
+    built: BuiltProblem, attempts: list[SolverAttempt], pricing: Pricing | None
+) -> SolveResult:
     """Package the accepted solution in loss units."""
     ctx, term = built.context, built.objective
-    theta = built.context.theta.value
-    assert theta is not None  # guarded by _has_finite_solution
+    value = built.context.theta.value
+    assert value is not None  # guarded by _has_finite_solution
+    theta = np.asarray(value, dtype=np.float64) * ctx.scale
     accepted = attempts[-1]
     return SolveResult(
         spec=built.spec,
         payout_structure=ctx.payout_structure,
-        theta=np.asarray(theta, dtype=np.float64) * ctx.scale,
+        theta=theta,
         status=accepted.status,
         objective_value=_value(term.expression) * ctx.scale**term.homogeneity,
-        premium=_value(built.premium.expression) * ctx.scale,
+        premium=_premium(built, theta, pricing),
         scale=ctx.scale,
         solver=accepted.solver,
         attempts=tuple(attempts),
@@ -399,7 +436,12 @@ def _failure(problem_id: str, attempts: list[SolverAttempt]) -> SolveError:
     return cls(message, problem_id=problem_id, status=final, attempts=attempts)
 
 
-def solve(built: BuiltProblem, policy: SolverPolicy = DEFAULT_POLICY) -> SolveResult:
+def solve(
+    built: BuiltProblem,
+    policy: SolverPolicy = DEFAULT_POLICY,
+    *,
+    pricing: Pricing | None = None,
+) -> SolveResult:
     """Solve a built design problem.
 
     Parameters
@@ -408,13 +450,19 @@ def solve(built: BuiltProblem, policy: SolverPolicy = DEFAULT_POLICY) -> SolveRe
         From ``problem.build_problems``.
     policy : SolverPolicy, optional
         Solver order and acceptance rule.
+    pricing : Pricing, optional
+        The pricing ``built`` was built with (MAR-143). If given, the premium
+        is ``pricing.premium_value`` of the solution's realised payout,
+        exact and without a solver call; otherwise the premium term's value
+        (module docstring, "The premium of a solution"). Not checked against
+        the problem: pass the same pricing.
 
     Returns
     -------
     SolveResult
         The accepted solution, in loss units: ``theta * scale``, the
-        objective value times ``scale ** homogeneity``, the premium times
-        ``scale``. ``solve_seconds`` is the wall time of every attempt,
+        objective value times ``scale ** homogeneity``, and the premium
+        (``pricing``). ``solve_seconds`` is the wall time of every attempt,
         including cvxpy's compilation. ``diagnostics`` holds the objective
         components (loss units), the accepted solver's statistics
         (``solver_solve_time``, ``solver_setup_time``, ``solver_num_iters``
@@ -428,7 +476,11 @@ def solve(built: BuiltProblem, policy: SolverPolicy = DEFAULT_POLICY) -> SolveRe
         list is installed. :class:`InfeasibleError` and
         :class:`UnboundedError` for those final statuses. ``attempts`` holds
         every solver of the list, in order.
+    ComponentConfigError
+        If ``pricing`` is given but is not a :class:`Pricing`.
     """
+    if pricing is not None and not isinstance(pricing, Pricing):
+        raise ComponentConfigError(f"pricing must be a Pricing, got {pricing!r}")
     problem_id = built.spec.problem_id
     solvers = policy.solvers_for(built.problem)
     installed = set(cp.installed_solvers())
@@ -456,5 +508,5 @@ def solve(built: BuiltProblem, policy: SolverPolicy = DEFAULT_POLICY) -> SolveRe
             )
         attempts.append(attempt)
         if attempt.status in policy.accepted:
-            return _result(built, attempts)
+            return _result(built, attempts, pricing)
     raise _failure(problem_id, attempts)

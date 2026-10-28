@@ -38,11 +38,7 @@ from parametric_insurance_design.bootstrap import (  # pyright: ignore[reportPri
     resample_years,
 )
 from parametric_insurance_design.errors import InputMismatchError
-from parametric_insurance_design.evaluate import (
-    _evaluate,  # pyright: ignore[reportPrivateUsage]
-    kpis,
-    var_cvar,
-)
+from parametric_insurance_design.evaluate import evaluate_results, kpis, var_cvar
 from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.interfaces import Sample, SolveResult
 from parametric_insurance_design.objectives import MSE, WeightedCVaR
@@ -549,7 +545,7 @@ def test_loaded_premium_is_priced_on_each_replicate(
         data, scope, results, basis=basis, beta=BETA, run_id="r", pricing=pricing
     )
     np.testing.assert_array_equal(col(boot.table, "value"), col(expected, "value"))
-    ev = _evaluate(data, scope, results, basis, None)
+    ev = evaluate_results(data, scope, results, basis=basis)
     (portfolio,) = [s for s in ev.subjects if s.level.value == "portfolio"]
     (row,) = np.flatnonzero(
         (col(boot.table, "level") == "portfolio")
@@ -609,7 +605,9 @@ def test_var_on_a_step_of_the_distribution() -> None:
     beta = float(np.cumsum(prob[0])[6]) + 5e-13
     var, _ = _var_cvar_rows(values, prob, beta)
     assert var[0] == 6.0  # the exact-arithmetic 0.7-quantile
-    assert var_cvar(values, prob[0], beta)[0] == 7.0  # strict comparison
+    # var_cvar applies the same tolerance since MAR-143 (it compared strictly
+    # before and gave 7.0 here).
+    assert var_cvar(values, prob[0], beta)[0] == 6.0
     assert _is_quantile_step(values, prob[0], beta, 6.0, 7.0)
     assert not _is_quantile_step(values, prob[0], beta, 6.0, 8.0)
     assert not _is_quantile_step(values, prob[0], 0.65, 6.0, 7.0)
@@ -629,7 +627,7 @@ def test_point_check_accepts_the_other_side_of_a_step(
     rs = resample_years(np.arange(20), 20, np.random.default_rng(0))
     real = bootstrap_module.kpis  # pyright: ignore[reportPrivateImportUsage]
     table = real(data, scope, results, basis=Basis.ANNUAL, beta=0.8, run_id="r")
-    ev = _evaluate(data, scope, results, Basis.ANNUAL, None)
+    ev = evaluate_results(data, scope, results, basis=Basis.ANNUAL)
     (portfolio,) = [s for s in ev.subjects if s.level.value == "portfolio"]
     u = ev.measure.aggregate(np.maximum(portfolio.loss - portfolio.payout, 0.0))
     p = ev.measure.probability
