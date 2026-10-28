@@ -39,15 +39,20 @@ CVaR - MSE and weighted CVaR - E[U]. It checks that its intervals at the
 config's evaluation beta equal the ones the runner stored.
 
 Outputs, portfolio-level KPIs only (no per-asset KPIs of joint designs:
-MAR-98, MAR-100), in ``research/data/c1/``:
+MAR-98, MAR-100). The full tables (every KPI, with config hash and run id on
+every row) go to ``results/c1/full/`` (not committed). The committed ones,
+each under the 500 kB pre-commit limit, go to ``research/data/c1/``
+(:func:`write_slim`):
 
 * ``runs.csv``: one row per run (variant, scope, design, config hash, run id,
-  solvers, budget use, solve time);
-* ``kpis.csv``: test KPIs with 90 % intervals at each evaluation beta, and the
-  runner's train and test KPIs at the config's evaluation beta;
-* ``paired.csv``: the paired differences on the test years;
+  statuses, solvers, budget use, solve time);
+* ``kpis_<family>.csv``: test KPIs with 90 % intervals at each evaluation
+  beta (beta-free KPIs once), and the runner's train KPIs;
+* ``paired_<family>.csv``: the paired differences on the test years;
 * ``summary.json``: inputs, EventSet checksums, versions, solver policy,
   counts and timings.
+
+``--slim-only`` rewrites the committed tables from the full ones.
 
 Run from the repository root (after ``c1_build_eventsets.sh`` for ``f12``)::
 
@@ -106,6 +111,7 @@ REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 BASE_CONFIG: Final[Path] = REPO_ROOT / "research" / "configs" / "c1" / "c1_main.yaml"
 OUT_DIR: Final[Path] = REPO_ROOT / "research" / "data" / "c1"
 STORE: Final[Path] = REPO_ROOT / "results" / "c1" / "store"
+FULL_DIR: Final[Path] = REPO_ROOT / "results" / "c1" / "full"
 EVENTSETS: Final[Path] = Path(
     os.environ.get("C1_EVENTSETS", REPO_ROOT / "results" / "c1" / "eventsets")
 )
@@ -513,6 +519,95 @@ def _variant_columns(frame: pd.DataFrame, by_key: dict[str, Variant]) -> pd.Data
     return frame
 
 
+SLIM_KPIS: Final[tuple[str, ...]] = (
+    "expected_loss",
+    "expected_payout",
+    "expected_uncovered",
+    "var_uncovered",
+    "cvar_uncovered",
+    "rmse_residual",
+    "correlation",
+    "premium",
+)
+SLIM_PAIRED_KPIS: Final[tuple[str, ...]] = (
+    "expected_payout",
+    "expected_uncovered",
+    "var_uncovered",
+    "cvar_uncovered",
+    "rmse_residual",
+    "premium",
+)
+TAIL_KPIS: Final[tuple[str, ...]] = ("var_uncovered", "cvar_uncovered")
+GROUP_KEY: Final[list[str]] = [
+    "family",
+    "eventset",
+    "basis",
+    "pricing",
+    "kappa",
+    "scope",
+]
+
+
+def _one_beta(frame: pd.DataFrame) -> pd.DataFrame:
+    """Keep the beta-free KPIs once (at the group's lowest evaluation beta)."""
+    keys = [*GROUP_KEY, *(c for c in ("source", "eval_split") if c in frame)]
+    first = frame.groupby(keys)["eval_beta"].transform("min")
+    keep = frame["kpi"].isin(TAIL_KPIS) | (frame["eval_beta"] == first)
+    return pd.DataFrame(frame.loc[keep])
+
+
+def write_slim(full: Path, out: Path) -> None:
+    """Write the committed tables, each under the 500 kB pre-commit limit.
+
+    The full tables in ``full`` (not committed) hold every KPI, with run ids
+    and config hashes on every row. The committed ones keep the
+    portfolio-level KPIs the checkpoint uses (test rows of the C1 bootstrap,
+    train rows of the runner), the beta-free KPIs once, one file per family;
+    ``runs.csv`` maps every (family, eventset, basis, pricing, kappa, scope,
+    design) to its config hash and run id.
+    """
+    out.mkdir(parents=True, exist_ok=True)
+    runs = pd.read_csv(full / "runs.csv")
+    runs.to_csv(out / "runs.csv", index=False, float_format="%.10g")
+    kpis = pd.read_csv(full / "kpis.csv")
+    kpis = kpis.loc[
+        kpis["kpi"].isin(SLIM_KPIS)
+        & (
+            (kpis["source"] == "c1_bootstrap")
+            | ((kpis["source"] == "runner") & (kpis["eval_split"] == "train"))
+        )
+    ]
+    kpis = _one_beta(kpis).drop(
+        columns=["beta", "ci_level", "n_bootstrap", "run_id", "config_hash"]
+    )
+    paired = pd.read_csv(full / "paired.csv")
+    paired = _one_beta(paired.loc[paired["kpi"].isin(SLIM_PAIRED_KPIS)]).drop(
+        columns=[
+            "relative",
+            "ci_low_relative",
+            "ci_high_relative",
+            "ci_level",
+            "n_bootstrap",
+            "config_hash_a",
+            "config_hash_b",
+            "run_id_a",
+            "run_id_b",
+        ]
+    )
+    for family in sorted(set(runs["family"])):
+        for name, frame in (("kpis", kpis), ("paired", paired)):
+            part = frame.loc[frame["family"] == family]
+            part.to_csv(out / f"{name}_{family}.csv", index=False, float_format="%.7g")
+    summary = json.loads((full / "summary.json").read_text())
+    summary["committed_tables"] = {
+        "runs.csv": "every run: config_hash, run_id, solvers, statuses, budget use",
+        "kpis_<family>.csv": "portfolio KPIs: test (C1 bootstrap), train (runner)",
+        "paired_<family>.csv": "paired differences on the test years",
+        "full tables": "results/c1/full/ (not committed), written by this script",
+    }
+    (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+
+
 def main(argv: list[str] | None = None) -> int:
     """Plan, solve, bootstrap and write the C1 tables."""
     parser = argparse.ArgumentParser(description="Checkpoint C1 runs (MAR-29).")
@@ -525,8 +620,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--store", type=Path, default=STORE)
     parser.add_argument("--out", type=Path, default=OUT_DIR)
+    parser.add_argument("--full", type=Path, default=FULL_DIR, help="full tables")
     parser.add_argument("--plan-only", action="store_true", help="print counts")
+    parser.add_argument(
+        "--slim-only",
+        action="store_true",
+        help="only rewrite the committed tables from the full ones",
+    )
     args = parser.parse_args(argv)
+    if args.slim_only:
+        write_slim(args.full, args.out)
+        return 0
 
     t0 = time.perf_counter()
     specs, checksums = plan(args.families)
@@ -709,10 +813,10 @@ def main(argv: list[str] | None = None) -> int:
         )
     runs = pd.DataFrame(run_rows)
 
-    args.out.mkdir(parents=True, exist_ok=True)
-    runs.to_csv(args.out / "runs.csv", index=False, float_format="%.10g")
-    kpis.to_csv(args.out / "kpis.csv", index=False, float_format="%.10g")
-    paired.to_csv(args.out / "paired.csv", index=False, float_format="%.10g")
+    args.full.mkdir(parents=True, exist_ok=True)
+    runs.to_csv(args.full / "runs.csv", index=False, float_format="%.10g")
+    kpis.to_csv(args.full / "kpis.csv", index=False, float_format="%.10g")
+    paired.to_csv(args.full / "paired.csv", index=False, float_format="%.10g")
     manifest = store.manifest(run_ids[0])
     summary = {
         "issue": "MAR-29",
@@ -747,8 +851,12 @@ def main(argv: list[str] | None = None) -> int:
         },
         "bootstrap_seconds_per_group": group_seconds,
     }
-    (args.out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
-    print(f"wrote {args.out} in {time.perf_counter() - t0:.0f}s", flush=True)
+    (args.full / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    write_slim(args.full, args.out)
+    print(
+        f"wrote {args.full} and {args.out} in {time.perf_counter() - t0:.0f}s",
+        flush=True,
+    )
     return 0
 
 

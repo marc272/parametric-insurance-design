@@ -517,15 +517,54 @@ def f12_table(paired: pd.DataFrame, summary_hashes: dict[str, str]) -> list[str]
     return out
 
 
+def _every_beta(frame: pd.DataFrame, key: list[str]) -> pd.DataFrame:
+    """Repeat the beta-free KPI rows (stored once) at every evaluation beta."""
+    tail = frame["kpi"].isin(("var_uncovered", "cvar_uncovered"))
+    betas = frame.loc[tail, [*key, "eval_beta"]].drop_duplicates()
+    free = frame.loc[~tail].drop(columns="eval_beta").merge(betas, on=key)
+    return pd.concat([frame.loc[tail], free], ignore_index=True)
+
+
+def load(data: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Read the committed tables; join config hashes and run ids from runs.csv."""
+    runs = pd.read_csv(data / "runs.csv")
+    kpis = pd.concat(
+        [pd.read_csv(p) for p in sorted(data.glob("kpis_*.csv"))], ignore_index=True
+    )
+    paired = pd.concat(
+        [pd.read_csv(p) for p in sorted(data.glob("paired_*.csv"))], ignore_index=True
+    )
+    key = ["family", "eventset", "basis", "pricing", "kappa", "scope"]
+    kpis = _every_beta(kpis, [*key, "source", "eval_split"])
+    paired = _every_beta(paired, [*key, "eval_split"])
+    ids = runs[[*key, "design", "config_hash", "run_id"]]
+    kpis = kpis.merge(ids, on=[*key, "design"], how="left", validate="many_to_one")
+    for side in ("a", "b"):
+        renamed = ids.rename(
+            columns={
+                "design": f"design_{side}",
+                "config_hash": f"config_hash_{side}",
+                "run_id": f"run_id_{side}",
+            }
+        )
+        paired = paired.merge(
+            renamed, on=[*key, f"design_{side}"], how="left", validate="many_to_one"
+        )
+    if kpis["config_hash"].isna().any() or paired["config_hash_a"].isna().any():
+        raise RuntimeError("a KPI row has no run in runs.csv")
+    paired["relative"] = paired["difference"] / paired["value_b"]
+    paired["ci_low_relative"] = paired["ci_low"] / paired["value_b"]
+    paired["ci_high_relative"] = paired["ci_high"] / paired["value_b"]
+    return kpis, paired, runs
+
+
 def main(argv: list[str] | None = None) -> int:
     """Write the figures and ``tables.md``."""
     parser = argparse.ArgumentParser(description="C1 figures and tables (MAR-29).")
     parser.add_argument("--data", type=Path, default=DATA)
     parser.add_argument("--figures", type=Path, default=FIGURES)
     args = parser.parse_args(argv)
-    kpis = pd.read_csv(args.data / "kpis.csv")
-    paired = pd.read_csv(args.data / "paired.csv")
-    runs = pd.read_csv(args.data / "runs.csv")
+    kpis, paired, runs = load(args.data)
     args.figures.mkdir(parents=True, exist_ok=True)
 
     fig_headline(paired, args.figures / "c1_headline.png")
@@ -557,7 +596,7 @@ def main(argv: list[str] | None = None) -> int:
     lines += ["## event_conditional reference", *reference_table(paired), ""]
     if (paired["family"] == "f12").any():
         lines += ["## F-12 provisional", *f12_table(paired, {}), ""]
-    text = "\n".join(lines) + "\n"
+    text = "\n".join(lines).rstrip("\n") + "\n"
     for rid, use in budget.items():
         text = text.replace(f"{{budget:{rid}}}", f"{use:.4f}")
     (args.data / "tables.md").write_text(text)
