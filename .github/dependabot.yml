@@ -1,6 +1,6 @@
-# Dependabot version updates (MAR-77). Dependabot opens the PRs on this repo;
-# the orchestrator reviews and merges them like any agent PR (runbook "Merge
-# policy"), once CI is green.
+# Dependabot version updates (MAR-77, MAR-147). Dependabot opens the PRs on
+# this repo; the orchestrator reviews and merges them once CI is green
+# (docs/ORCHESTRATION.md, "Merge policy", "Dependabot PRs").
 #
 # Reference: https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference
 version: 2
@@ -60,3 +60,20 @@ updates:
           - "pre-commit"
     commit-message:
       prefix: "deps"
+
+  # Hook repos pinned by `rev:` in .pre-commit-config.yaml (MAR-147). Only
+  # pre-commit/pre-commit-hooks is pinned; the ruff hooks are `repo: local`
+  # and run from uv.lock, so ruff is bumped by the uv entry above, never here.
+  # versioning-strategy doesn't apply to this ecosystem.
+  - package-ecosystem: pre-commit
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    groups:
+      pre-commit-hooks:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
