@@ -64,6 +64,7 @@ from pydantic import (
 )
 
 from parametric_insurance_design.basis import Basis
+from parametric_insurance_design.bootstrap import DEFAULT_LEVEL, DEFAULT_N_BOOTSTRAP
 from parametric_insurance_design.clustering import ThesisWardClustering
 from parametric_insurance_design.constraints import Budget
 from parametric_insurance_design.errors import ComponentConfigError, ConfigError
@@ -88,8 +89,10 @@ from parametric_insurance_design.scopes import Cluster, Individual, Portfolio
 __all__ = [
     "CONFIG_HASH_DOMAIN",
     "CONFIG_HASH_EXCLUDED",
+    "OMITTED_WHEN_ABSENT",
     "SCHEMA_VERSION",
     "SWEEP_PARAMETERS",
+    "BootstrapConfig",
     "BudgetConfig",
     "ClusterScopeConfig",
     "Components",
@@ -688,6 +691,41 @@ class EvaluationConfig(_Model):
     beta: UnitOpen
 
 
+class BootstrapConfig(_Model):
+    """Block-bootstrap confidence intervals of the KPIs (MAR-23, SPEC §6.1).
+
+    The runner resamples the years of every evaluation sample
+    (``bootstrap.resample_years``) and fills the ``ci_*`` columns of the
+    ``kpis`` table (``bootstrap.bootstrap_kpis``). Point estimates do not
+    change. Each sample gets a fresh generator from ``seed``, so runs with
+    the same seed and the same evaluation sample draw the same years: their
+    intervals are computed on the same resamples (paired).
+
+    Parameters
+    ----------
+    seed : int
+        Seed of :meth:`rng`, >= 0.
+    n_bootstrap : int, default 1000
+        Number of replicates ``B``, >= 1.
+    level : float, default 0.9
+        Confidence level of the intervals, in ``(0, 1)``.
+    """
+
+    seed: Seed
+    n_bootstrap: PositiveInt = DEFAULT_N_BOOTSTRAP
+    level: UnitOpen = DEFAULT_LEVEL
+
+    def rng(self) -> np.random.Generator:
+        """Return a fresh generator, ``numpy.random.default_rng(seed)``.
+
+        Returns
+        -------
+        numpy.random.Generator
+            A new generator on every call.
+        """
+        return np.random.default_rng(self.seed)
+
+
 class SweepConfig(_Model):
     """One one-factor-at-a-time sweep.
 
@@ -831,6 +869,10 @@ class ExperimentConfig(_Model):
         Extra constraints; no repeated kind.
     evaluation : EvaluationConfig
         KPI settings.
+    bootstrap : BootstrapConfig or None, default None
+        Confidence intervals of the KPIs; None for none (null ``ci_*``
+        columns). Opt-in: when None it is left out of :func:`config_hash` and
+        :func:`to_dict`, so configs without it keep their hashes.
     sweeps : tuple of SweepConfig, default ()
         One-factor-at-a-time sweeps; one per parameter, each applicable to
         this config.
@@ -860,6 +902,7 @@ class ExperimentConfig(_Model):
     pricing: PricingConfig = PurePremiumConfig(kind="pure")
     constraints: tuple[ConstraintConfig, ...] = ()
     evaluation: EvaluationConfig
+    bootstrap: BootstrapConfig | None = None
     sweeps: tuple[SweepConfig, ...] = ()
     output: OutputConfig
 
@@ -1244,7 +1287,7 @@ def to_dict(config: ExperimentConfig) -> dict[str, Any]:
     Every field is written, defaults included, so the output is complete.
     Paths are written as POSIX strings.
     """
-    data = config.model_dump(mode="json", round_trip=True)
+    data = _drop_absent(config.model_dump(mode="json", round_trip=True))
     data["eventset"]["path"] = config.eventset.path.as_posix()
     data["output"]["directory"] = config.output.directory.as_posix()
     return data
@@ -1285,6 +1328,23 @@ def _represent_list(dumper: yaml.SafeDumper, data: list[Any]) -> yaml.Node:
 _ConfigDumper.add_representer(list, _represent_list)
 
 
+OMITTED_WHEN_ABSENT: Final[tuple[str, ...]] = ("bootstrap",)
+"""Optional top-level sections left out of :func:`canonical_json` and
+:func:`to_dict` when they are None.
+
+They were added after configs were hashed and cached (``bootstrap``: MAR-23).
+Leaving an absent section out keeps the hash, and the YAML, of every config
+without it exactly as before; a config that sets it hashes the section.
+"""
+
+
+def _drop_absent(data: dict[str, Any]) -> dict[str, Any]:
+    """Remove the :data:`OMITTED_WHEN_ABSENT` keys whose value is None."""
+    return {
+        k: v for k, v in data.items() if not (k in OMITTED_WHEN_ABSENT and v is None)
+    }
+
+
 def _normalise(value: Any) -> Any:  # noqa: ANN401 (JSON tree)
     """Write ``-0.0`` as ``0.0`` throughout a JSON tree.
 
@@ -1311,8 +1371,9 @@ def canonical_json(config: ExperimentConfig) -> str:
     Returns
     -------
     str
-        The config without :data:`CONFIG_HASH_EXCLUDED`, every remaining
-        field included (defaults too), as JSON with sorted keys, no
+        The config without :data:`CONFIG_HASH_EXCLUDED` and without the
+        absent :data:`OMITTED_WHEN_ABSENT` sections, every remaining field
+        included (defaults too), as JSON with sorted keys, no
         whitespace (``(",", ":")`` separators) and ASCII escapes. Floats are
         written with Python's ``repr`` (the shortest string that round-trips,
         e.g. ``0.1``, ``1.0``, ``1e-05``) and ``-0.0`` as ``0.0``; integers
@@ -1320,7 +1381,9 @@ def canonical_json(config: ExperimentConfig) -> str:
         so ``1`` and ``1.0`` in a file give the same JSON. List order is
         content (scopes, objectives and constraints run in that order).
     """
-    payload = config.model_dump(mode="json", exclude=dict(CONFIG_HASH_EXCLUDED))
+    payload = _drop_absent(
+        config.model_dump(mode="json", exclude=dict(CONFIG_HASH_EXCLUDED))
+    )
     return json.dumps(
         _normalise(payload),
         sort_keys=True,
@@ -1349,13 +1412,20 @@ def config_hash(config: ExperimentConfig) -> str:
     -----
     Left out (:data:`CONFIG_HASH_EXCLUDED`): ``name``, ``description``,
     ``eventset.path``, ``output`` and ``sweeps``. Two configs that differ only
-    there have the same hash. ``eventset.checksum`` is included, so a run
-    pinned to a checksum has a hash that names its data. A config without a
-    checksum does not identify its data: the runner keys its cache on the
-    pair (config hash, ``EventSet.content_hash()``).
+    there have the same hash. An absent ``bootstrap`` section (None) is also
+    left out (:data:`OMITTED_WHEN_ABSENT`), so the opt-in bootstrap did not
+    change the hash of any existing config. A set ``bootstrap`` section is
+    hashed: the confidence intervals are part of the run's stored ``kpis``
+    table, so a run with other (or no) intervals is another cache entry.
+    ``eventset.checksum`` is included, so a run pinned to a checksum has a
+    hash that names its data. A config without a checksum does not identify
+    its data: the runner keys its cache on the pair (config hash,
+    ``EventSet.content_hash()``).
 
     Any change to the canonical form or the exclusions changes
-    :data:`CONFIG_HASH_DOMAIN`. Adding a schema field with a default changes
+    :data:`CONFIG_HASH_DOMAIN`. (Omitting an absent ``bootstrap`` did not:
+    the canonical JSON of every config that existed before it is unchanged.)
+    Adding a schema field with a default changes
     the hash of every config, because defaults are hashed; that is a schema
     version change.
     """

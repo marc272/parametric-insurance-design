@@ -36,4 +36,4 @@ Both return `Sample` objects (`train`, `test`) whose `years` include the years w
 
 ## Not covered here
 
-Block-bootstrap confidence intervals over years (SPEC §6.1, `ci_low`/`ci_high` in `kpis`) are MAR-23.
+Block-bootstrap confidence intervals over years (SPEC §6.1, `ci_low`/`ci_high` in `kpis`) are MAR-23: see [`bootstrap.md`](bootstrap.md).
