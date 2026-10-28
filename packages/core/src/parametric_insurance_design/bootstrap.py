@@ -128,6 +128,19 @@ cells, which bounds the memory of the probability matrices (16 MB each)."""
 _POINT_RTOL: Final[float] = 1e-9
 """Relative tolerance of the check against ``evaluate.kpis``."""
 
+_CDF_ATOL: Final[float] = 1e-12
+"""A cumulative probability within this of ``beta`` counts as reaching it.
+
+VaR is the smallest value whose cumulative probability reaches ``beta``.
+When ``beta`` falls exactly on a step of the distribution (e.g. ``beta = 0.8``
+with 40 equally likely years), the summed probabilities land a rounding
+error above or below ``beta`` depending on the summation order, which differs
+between platforms (``numpy.argsort`` of tied values). Treating a shortfall of
+at most this much as reaching ``beta`` gives the exact-arithmetic answer."""
+
+_TIE_ATOL: Final[float] = 1e-9
+"""Tolerance of the knife-edge check in :func:`_is_quantile_step`."""
+
 _KEY_COLUMNS: Final[tuple[str, ...]] = ("problem_id", "level", "subject_id", "kpi")
 """Columns that identify a KPI row within one ``evaluate.kpis`` call."""
 
@@ -407,13 +420,15 @@ def _var_cvar_rows(
 
     The sort order of the values does not depend on the weights, so the
     values are sorted once and only the cumulative weights differ per row.
+    A cumulative probability within :data:`_CDF_ATOL` below ``beta`` counts
+    as reaching it (the exact-arithmetic VaR on a step of the distribution).
     """
     order = np.argsort(values)
     xs = values[order]
     ps = prob[:, order]
     n = xs.size
     cdf = np.cumsum(ps, axis=1)
-    pos = np.minimum((cdf < beta).sum(axis=1), n - 1)
+    pos = np.minimum((cdf < beta - _CDF_ATOL).sum(axis=1), n - 1)
     var = xs[pos]
     first_tail = np.searchsorted(xs, var, side="right")
     # Suffix sums from position k to the end; column n is 0.
@@ -772,6 +787,7 @@ def bootstrap_kpis(
 
     reps: dict[tuple[str, str, str, str], NDArray[np.float64]] = {}
     point: dict[tuple[str, str, str, str], float] = {}
+    uncovered: dict[tuple[str, str, str, str], NDArray[np.float64]] = {}
     ones = YearResample(
         years=resample.years,
         indices=np.arange(resample.n_years, dtype=np.int32)[None, :],
@@ -788,6 +804,7 @@ def bootstrap_kpis(
         for kpi, arr in values.items():
             reps[key(subject, kpi)] = arr
             point[key(subject, kpi)] = float(at_point[kpi][0])
+        uncovered[key(subject, KpiName.VAR_UNCOVERED)] = o.uncovered
 
     if pricing is not None:
         priced: list[tuple[_Subject, NDArray[np.float64]]] = [
@@ -818,7 +835,15 @@ def bootstrap_kpis(
                 f"the bootstrap cannot replicate KPI {k[3]!r} of subject {k[2]!r} "
                 f"({k[1]}); add it to bootstrap.py"
             )
-        _check_point(k, point[k], float(expected[i]))
+        ours, theirs = point[k], float(expected[i])
+        if k in uncovered and _is_quantile_step(
+            uncovered[k], ones_prob[0], level_beta, ours, theirs
+        ):
+            # VaR on a step of the distribution: both values are the
+            # beta-quantile up to rounding (see _CDF_ATOL); keep evaluate's.
+            pass
+        else:
+            _check_point(k, ours, theirs)
         replicates[i] = reps[k]
 
     low = np.empty(len(table))
@@ -836,6 +861,31 @@ def bootstrap_kpis(
         resample=resample,
         level=ci_level,
     )
+
+
+def _is_quantile_step(
+    values: NDArray[np.float64],
+    prob: NDArray[np.float64],
+    beta: float,
+    a: float,
+    b: float,
+) -> bool:
+    """Whether ``a`` and ``b`` are adjacent atoms split exactly at ``beta``.
+
+    True if both are values of the distribution, no probability lies strictly
+    between them, and the cumulative probability of the lower one equals
+    ``beta`` within :data:`_TIE_ATOL`: then either is the ``beta``-quantile
+    up to rounding in the summation.
+    """
+    if a == b or math.isnan(a) or math.isnan(b):
+        return False
+    lo, hi = min(a, b), max(a, b)
+    if not (np.any(values == lo) and np.any(values == hi)):
+        return False
+    p = prob / prob.sum()
+    between = float(p[(values > lo) & (values < hi)].sum())
+    below = float(p[values <= lo].sum())
+    return between <= _TIE_ATOL and abs(below - beta) <= _TIE_ATOL
 
 
 def _check_point(key: tuple[str, str, str, str], ours: float, theirs: float) -> None:

@@ -23,12 +23,14 @@ import pytest
 from numpy.typing import NDArray
 
 from parametric_insurance_design.basis import Basis, OutcomeMeasure, outcome_measure
-from parametric_insurance_design.bootstrap import (
+from parametric_insurance_design.bootstrap import (  # pyright: ignore[reportPrivateUsage]
     DEFAULT_LEVEL,
     DEFAULT_N_BOOTSTRAP,
     BootstrapError,
     KpiBootstrap,
     YearResample,
+    _is_quantile_step,
+    _var_cvar_rows,
     bootstrap_kpis,
     kpi_replicates,
     paired_difference,
@@ -51,7 +53,10 @@ from parametric_insurance_design.records import KPIS, KpiName
 from parametric_insurance_design.scopes import Individual, Portfolio
 from parametric_insurance_design.solve import solve
 
-BETA = 0.8
+BETA = 0.83
+"""KPI level. Not a multiple of the toy probabilities (1/12, 1/36, 1/40, ...),
+so no VaR falls exactly on a step of a distribution; see
+``test_var_on_a_step_of_the_distribution`` for that case."""
 
 # --------------------------------------------------------------------------
 # Helpers
@@ -528,7 +533,7 @@ def test_loaded_premium_is_priced_on_each_replicate(
     data = random_rows(toy_eventset, n_years=20, n_draws=2, seed=12)
     scope = Individual()
     results = solved(data, scope, MSE(), basis)
-    pricing = CostOfCapitalLoad(rate=0.3, q=0.8)
+    pricing = CostOfCapitalLoad(rate=0.3, q=BETA)
     rs = resample_years(np.arange(20), 30, np.random.default_rng(2))
     boot = bootstrap_kpis(
         data,
@@ -556,7 +561,7 @@ def test_loaded_premium_is_priced_on_each_replicate(
             data, basis, rs.years, rs.indices[b], loss, portfolio.payout
         )
         p = prob / prob.sum()
-        _, cvar = var_cvar(pay, p, 0.8)
+        _, cvar = var_cvar(pay, p, BETA)
         premium = 0.7 * float(p @ pay) + 0.3 * cvar
         assert boot.replicates[row, b] == pytest.approx(premium, rel=1e-9)
     # A loaded premium exceeds the expected payout in every replicate here.
@@ -595,6 +600,66 @@ def test_undefined_replicates_give_null_bounds(toy_eventset: EventSet) -> None:
     assert np.all(np.isnan(col(t, "ci_low")[rows]))
     assert not np.any(np.isnan(col(t, "value")[rows]))
     np.testing.assert_array_equal(col(t, "n_bootstrap")[rows], 300)
+
+
+def test_var_on_a_step_of_the_distribution() -> None:
+    # Ten equally likely values; beta a rounding error above the 7th step.
+    values = np.arange(10.0)
+    prob = np.full((1, 10), 0.1)
+    beta = float(np.cumsum(prob[0])[6]) + 5e-13
+    var, _ = _var_cvar_rows(values, prob, beta)
+    assert var[0] == 6.0  # the exact-arithmetic 0.7-quantile
+    assert var_cvar(values, prob[0], beta)[0] == 7.0  # strict comparison
+    assert _is_quantile_step(values, prob[0], beta, 6.0, 7.0)
+    assert not _is_quantile_step(values, prob[0], beta, 6.0, 8.0)
+    assert not _is_quantile_step(values, prob[0], 0.65, 6.0, 7.0)
+
+
+def test_point_check_accepts_the_other_side_of_a_step(
+    toy_eventset: EventSet, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import parametric_insurance_design.bootstrap as bootstrap_module
+
+    # 40 equally likely (year, draw) slots and beta = 0.8: the portfolio VaR
+    # falls on a step, where evaluate and the bootstrap may round to the two
+    # adjacent atoms on different platforms (seen on Linux CI).
+    data = random_rows(toy_eventset, n_years=20, n_draws=2, seed=12)
+    scope = Portfolio()
+    results = solved(data, scope, MSE(), Basis.ANNUAL)
+    rs = resample_years(np.arange(20), 20, np.random.default_rng(0))
+    real = bootstrap_module.kpis  # pyright: ignore[reportPrivateImportUsage]
+    table = real(data, scope, results, basis=Basis.ANNUAL, beta=0.8, run_id="r")
+    ev = _evaluate(data, scope, results, Basis.ANNUAL, None)
+    (portfolio,) = [s for s in ev.subjects if s.level.value == "portfolio"]
+    u = ev.measure.aggregate(np.maximum(portfolio.loss - portfolio.payout, 0.0))
+    p = ev.measure.probability
+    is_var = (col(table, "level") == "portfolio") & (
+        col(table, "kpi") == "var_uncovered"
+    )
+    var = float(col(table, "value")[is_var][0])
+    atoms = np.unique(u)
+    below = float(p[u <= var].sum())
+    other = atoms[atoms > var][0] if abs(below - 0.8) < 1e-9 else atoms[atoms < var][-1]
+    assert _is_quantile_step(u, p, 0.8, var, float(other))
+
+    def replaced(value: float) -> object:
+        def fake(*args: object, **kwargs: object) -> pd.DataFrame:
+            out = real(*args, **kwargs)  # type: ignore[arg-type]
+            out.loc[is_var, "value"] = value
+            return out
+
+        return fake
+
+    monkeypatch.setattr(bootstrap_module, "kpis", replaced(float(other)))
+    boot = bootstrap_kpis(
+        data, scope, results, basis=Basis.ANNUAL, beta=0.8, run_id="r", resample=rs
+    )
+    assert float(col(boot.table, "value")[is_var][0]) == float(other)
+    monkeypatch.setattr(bootstrap_module, "kpis", replaced(var + 1e3))
+    with pytest.raises(BootstrapError, match="drifted"):
+        bootstrap_kpis(
+            data, scope, results, basis=Basis.ANNUAL, beta=0.8, run_id="r", resample=rs
+        )
 
 
 def test_a_kpi_the_bootstrap_does_not_know_is_refused(
