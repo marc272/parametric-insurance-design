@@ -23,8 +23,9 @@ The pooled rule
       default_rng(seed))`` (the config's ``bootstrap`` section) is drawn
       once and shared by every design, so differences between designs are
       paired (:func:`pooled_difference`). The replicates are
-      ``bootstrap.kpi_replicates`` of the pooled loss and payout, and the
-      intervals ``bootstrap.percentile_interval``.
+      ``bootstrap.kpi_replicates`` of the pooled loss and payout, and, for
+      the premium, ``bootstrap.premium_replicates`` of the pooled payout
+      (MAR-153); the intervals are ``bootstrap.percentile_interval``.
     * **Rejected: the mean of the per-fold KPIs.** A tail KPI (VaR, CVaR)
       from ``1/k`` of the years is noisier than one from all years, and the
       mean of ``k`` CVaRs is not the CVaR of any distribution.
@@ -54,8 +55,6 @@ No silent failures
     * A KPI undefined in some replicate gets null bounds, with ``ci_level``
       and ``n_bootstrap`` set (as in the ``kpis`` table);
       :attr:`PooledKpis.n_undefined` counts its undefined replicates.
-    * The pooled ``premium`` has no interval (``ci_level`` null): the
-      bootstrap module replicates premiums only inside ``bootstrap_kpis``.
 """
 
 from __future__ import annotations
@@ -76,6 +75,7 @@ from parametric_insurance_design.bootstrap import (
     YearResample,
     kpi_replicates,
     percentile_interval,
+    premium_replicates,
     resample_years,
 )
 from parametric_insurance_design.errors import InputMismatchError
@@ -276,9 +276,8 @@ class PooledKpis:
         scope-major, then objective) the KPIs :data:`POOLED_KPIS`.
     replicates : numpy.ndarray or None
         Shape ``(len(table), B)``: row ``i`` holds the bootstrap replicates
-        of ``table.iloc[i]`` (NaN where undefined, and on the ``premium``
-        rows, which are not bootstrapped). None without a ``bootstrap``
-        section in the config.
+        of ``table.iloc[i]`` (NaN where undefined). None without a
+        ``bootstrap`` section in the config.
     resample : YearResample or None
         The one resample of all years shared by every design.
     level : float or None
@@ -837,10 +836,13 @@ def pooled_kpis(
         values = _point_kpis(
             design.loss, design.payout, measure, beta, components.pricing
         )
-        reps: Mapping[KpiName, NDArray[np.float64]] = {}
+        reps: dict[KpiName, NDArray[np.float64]] = {}
         if resample is not None:
             reps = kpi_replicates(
                 design.loss, design.payout, measure, row_years, resample, beta=beta
+            )
+            reps[KpiName.PREMIUM] = premium_replicates(
+                design.payout, measure, row_years, resample, components.pricing
             )
         for kpi in POOLED_KPIS:
             value = values[kpi]
@@ -848,14 +850,13 @@ def pooled_kpis(
             ci_level: float | None = None
             n_bootstrap: int | None = None
             if resample is not None and level is not None:
-                if kpi in reps:
-                    replicate_rows.append(reps[kpi])
-                    low, high = percentile_interval(reps[kpi], level)
-                    ci_level, n_bootstrap = level, resample.n_bootstrap
-                else:  # premium: not bootstrapped (module docstring)
-                    replicate_rows.append(
-                        np.full(resample.n_bootstrap, np.nan, dtype=np.float64)
+                if kpi not in reps:  # pragma: no cover - POOLED_KPIS invariant
+                    raise PooledKFoldError(
+                        f"the bootstrap cannot replicate pooled KPI {kpi.value!r}"
                     )
+                replicate_rows.append(reps[kpi])
+                low, high = percentile_interval(reps[kpi], level)
+                ci_level, n_bootstrap = level, resample.n_bootstrap
             rows.append(
                 {
                     "scope_position": design.scope_position,
@@ -932,8 +933,8 @@ def pooled_difference(
     pandas.DataFrame
         One row per KPI of :data:`POOLED_KPIS`: ``kpi``, ``beta``,
         ``value_a``, ``value_b``, ``difference = value_a - value_b``,
-        ``ci_low``, ``ci_high`` (null if a replicate is undefined, and for
-        ``premium``), ``ci_level`` and ``n_bootstrap``.
+        ``ci_low``, ``ci_high`` (null if a replicate is undefined),
+        ``ci_level`` and ``n_bootstrap``.
 
     Raises
     ------
