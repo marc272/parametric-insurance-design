@@ -22,10 +22,23 @@ repos:
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    # Keep equal to the ruff version in uv.lock.
-    rev: v0.17.2
+  # ruff runs from uv.lock, not from a pinned hook repo, so pre-commit and
+  # `uv run ruff` can never use different ruff versions (MAR-77). The hooks
+  # mirror astral-sh/ruff-pre-commit's; they need uv on PATH, as the rest of
+  # the repository does. scripts/check_ruff_single_source.py (CI, job lint)
+  # fails if a hook runs ruff any other way.
+  - repo: local
     hooks:
       - id: ruff-check
+        name: ruff check (uv.lock)
+        entry: uv run --locked ruff check --force-exclude
         args: [--fix]
+        language: system
+        types_or: [python, pyi, jupyter]
+        require_serial: true
       - id: ruff-format
+        name: ruff format (uv.lock)
+        entry: uv run --locked ruff format --force-exclude
+        language: system
+        types_or: [python, pyi, jupyter, markdown]
+        require_serial: true

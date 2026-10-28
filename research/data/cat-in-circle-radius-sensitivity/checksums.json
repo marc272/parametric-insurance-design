@@ -1,0 +1,55 @@
+{
+  "eventsets": {
+    "florida-counties-iris-cat-in-circle-50km": {
+      "radius_km": 50.0,
+      "n_draws": 1,
+      "provisional": false,
+      "eventset_content_hash": "sha256:81a739dbc5aaa72833d7153f5f771f158059f79613ece437dc1ea2b75a41136a",
+      "index_table_hash": "sha256:06d8ef4e36b75e3ced4ff1cb149e09131c45d0968b321b9bf3984a0dcfa40af7",
+      "loss_matrix_hash": "sha256:a417c756df582e02456254bfd65de210f303a66e0d1e72cee0b6ac2fab2a4873",
+      "config_sha256": "374a0e3c78da774a2f67739d53751a43e7d1455765ef0a11fbe15b38ff6d25c1"
+    },
+    "florida-counties-iris-cat-in-circle-75km": {
+      "radius_km": 75.0,
+      "n_draws": 1,
+      "provisional": false,
+      "eventset_content_hash": "sha256:d62faf2ef7a9ba3575da005432be7d8122f3c728e12e34994a331f9b2b531e4c",
+      "index_table_hash": "sha256:89d5290cb6d4635b216221e738d9ca6e2c2445e2081a37986150ec0764307a7b",
+      "loss_matrix_hash": "sha256:a417c756df582e02456254bfd65de210f303a66e0d1e72cee0b6ac2fab2a4873",
+      "config_sha256": "5b2b02a62f6f265bf8f820fa9537b5c8df4a2e10da6f6f4d20f24c684985ac26"
+    },
+    "florida-counties-iris-cat-in-circle-100km": {
+      "radius_km": 100.0,
+      "n_draws": 1,
+      "provisional": false,
+      "eventset_content_hash": "sha256:31bd914c9a86e680a6193dd4440a7e5e8be2449efab8192cbd8968536cf7fa57",
+      "index_table_hash": "sha256:b46334a6ab9a0208b0df1604894f150bacf32fa6be75941afb04d8e8befc1c24",
+      "loss_matrix_hash": "sha256:a417c756df582e02456254bfd65de210f303a66e0d1e72cee0b6ac2fab2a4873",
+      "config_sha256": "04583a0fffc790fa97b0f786256e67271fc5e21f483c14eadc3e6938ee2bb46b"
+    },
+    "florida-counties-iris-cat-in-circle-150km": {
+      "radius_km": 150.0,
+      "n_draws": 1,
+      "provisional": false,
+      "eventset_content_hash": "sha256:45843d0e3ac788599f3677983cc0872aeff3e109767f649ab3a73a521afcd74b",
+      "index_table_hash": "sha256:5d07310a836895763eada78c9662016898aa99385f2ccafc26537869066e8200",
+      "loss_matrix_hash": "sha256:a417c756df582e02456254bfd65de210f303a66e0d1e72cee0b6ac2fab2a4873",
+      "config_sha256": "33e55ca8c6a3b9f7bab8acc6a5984498da66918421272eb76fc6c89ef60be2d0"
+    },
+    "florida-counties-iris-cat-in-circle-50km-vulnerability (provisional)": {
+      "radius_km": 50.0,
+      "n_draws": 10,
+      "provisional": true,
+      "eventset_content_hash": "sha256:c7d6b76519d88bba4143d999bed81c78a0ff213777528aed3d7cea5ff2dfa67f",
+      "index_table_hash": "sha256:bd9a1a8ef2dd340386e3f7e5a9ff0a91b9642d35d7bc94a4ea7da4c580f1d658",
+      "loss_matrix_hash": "sha256:60e1ca76e16efda022ecc1bc19b4aa87ebc46a8f8a7648f76c87f3da82ebc057",
+      "config_sha256": ""
+    }
+  },
+  "index_table_hash": "sha256 over '<rows>x<cols>\\n' and the index matrix as C-order little-endian float64 bytes (matrix_hash); same for the loss matrix",
+  "outputs": {
+    "summary.csv": "67748fba875633ccccfb86710cf31f541b8006b2a8603802bb632bc6ddd0a3d8",
+    "counties.csv": "e1faf4bdc6332bdb379256cc7d12b32934e65f34f162df1ac19d1488d9b7ed14",
+    "radius_sensitivity.png": "1eff5b0c1839752bc7bccf05bfa5723db0d831e45305c29297b96137ec4ac85e"
+  }
+}
