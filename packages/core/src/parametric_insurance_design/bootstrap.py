@@ -128,7 +128,7 @@ cells, which bounds the memory of the probability matrices (16 MB each)."""
 _POINT_RTOL: Final[float] = 1e-9
 """Relative tolerance of the check against ``evaluate.kpis``."""
 
-_CDF_ATOL: Final[float] = 1e-12
+_CDF_ATOL: Final[float] = 1e-10
 """A cumulative probability within this of ``beta`` counts as reaching it.
 
 VaR is the smallest value whose cumulative probability reaches ``beta``.
@@ -431,15 +431,14 @@ def _var_cvar_rows(
     pos = np.minimum((cdf < beta - _CDF_ATOL).sum(axis=1), n - 1)
     var = xs[pos]
     first_tail = np.searchsorted(xs, var, side="right")
-    # Suffix sums from position k to the end; column n is 0.
-    zeros = np.zeros((ps.shape[0], 1))
-    tail_p = np.concatenate([np.cumsum(ps[:, ::-1], axis=1)[:, ::-1], zeros], axis=1)
-    tail_px = np.concatenate(
-        [np.cumsum((ps * xs)[:, ::-1], axis=1)[:, ::-1], zeros], axis=1
-    )
-    rows = np.arange(ps.shape[0])
-    tp = tail_p[rows, first_tail]
-    tpx = tail_px[rows, first_tail]
+    # Tail sums over the values above the VaR, direct (no cancellation). The
+    # tail is short (about 1 - beta of the mass), so only the columns from
+    # the smallest tail start on are touched.
+    start = int(first_tail.min())
+    in_tail = np.arange(start, n)[None, :] >= first_tail[:, None]
+    tail = ps[:, start:] * in_tail
+    tp = tail.sum(axis=1)
+    tpx = tail @ xs[start:]
     with np.errstate(invalid="ignore", divide="ignore"):
         cvar = np.where(tp > 0, (tpx + (1.0 - beta - tp) * var) / (1.0 - beta), var)
     return var, cvar
@@ -448,14 +447,29 @@ def _var_cvar_rows(
 def _correlation_rows(
     x: NDArray[np.float64], y: NDArray[np.float64], prob: NDArray[np.float64]
 ) -> NDArray[np.float64]:
-    """Weighted Pearson correlation per row of ``prob``; NaN at zero variance."""
-    dx = x[None, :] - (prob @ x)[:, None]
-    dy = y[None, :] - (prob @ y)[:, None]
-    cov = np.sum(prob * dx * dy, axis=1)
-    sx = np.sqrt(np.sum(prob * dx * dx, axis=1))
-    sy = np.sqrt(np.sum(prob * dy * dy, axis=1))
+    """Weighted Pearson correlation per row of ``prob``; NaN at zero variance.
+
+    Moments are taken about the means under the average of the rows' weights
+    (one shift for every row, close to each row's own mean), which removes
+    the cancellation of raw moments while keeping the work to matrix-vector
+    products.
+    """
+    average = prob.mean(axis=0)
+    xc = x - average @ x
+    yc = y - average @ y
+    mx = prob @ xc
+    my = prob @ yc
+    cov = prob @ (xc * yc) - mx * my
+    vx = np.maximum(prob @ (xc * xc) - mx * mx, 0.0)
+    vy = np.maximum(prob @ (yc * yc) - my * my, 0.0)
+    sx = np.sqrt(vx)
+    sy = np.sqrt(vy)
+    scale_x = np.sqrt(prob @ (xc * xc))
+    scale_y = np.sqrt(prob @ (yc * yc))
+    # A variance at rounding level of the shifted second moment is zero.
+    defined = (sx > 1e-7 * scale_x) & (sy > 1e-7 * scale_y)
     with np.errstate(invalid="ignore", divide="ignore"):
-        return np.where((sx > 0) & (sy > 0), cov / (sx * sy), np.nan)
+        return np.where(defined, cov / (sx * sy), np.nan)
 
 
 @dataclass(frozen=True, eq=False)
