@@ -16,8 +16,8 @@ lint = ["ruff>=0.17", "pyright[nodejs]>=1.1.400", "pre-commit>=4"]
 dev = [{ include-group = "test" }, { include-group = "lint" }]
 
 # --- ruff -------------------------------------------------------------------
-# Keep the ruff rev in .pre-commit-config.yaml equal to the ruff version in
-# uv.lock.
+# pre-commit runs this ruff from uv.lock (local hooks in .pre-commit-config.yaml,
+# checked by scripts/check_ruff_single_source.py), so there is one ruff version.
 
 [tool.ruff]
 line-length = 88

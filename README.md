@@ -47,6 +47,8 @@ uv run pyright                   # type-check (basic mode)
 uv run pre-commit install        # run the hooks on every commit
 ```
 
+The ruff hooks run the ruff in `uv.lock` through `uv run`, so uv must be on your PATH when you commit.
+
 CI (GitHub Actions) runs ruff, pyright, the pre-commit hooks, the tests on Python 3.11, 3.12 and 3.13, a coverage gate of 85 % for the core, and a build of all four packages. See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## Licences
