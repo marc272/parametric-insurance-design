@@ -21,7 +21,8 @@ Owner: MAR-64. Executes one configured run end to end and persists it in a
    test samples (``splits.year_block_kfold``).
 5. **Build, solve, evaluate.** ``problem.build_problems``, then
    ``solve.solve`` for every design problem, then ``evaluate.kpis`` and
-   ``evaluate.exceedance_curves`` when every design problem was solved.
+   ``evaluate.exceedance_curves`` (at ``evaluation.return_periods``, MAR-117)
+   when every design problem was solved.
    With a ``bootstrap`` config section (MAR-23), ``bootstrap.bootstrap_kpis``
    replaces ``evaluate.kpis``: the same point values plus block-bootstrap
    confidence intervals in the ``ci_*`` columns, with a fresh generator
@@ -923,6 +924,7 @@ def execute(
                     results,
                     basis=components.basis,
                     run_id=run_id,
+                    return_periods=config.evaluation.return_periods,
                     sample=sample,
                 )
             )

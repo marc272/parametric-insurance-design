@@ -64,6 +64,7 @@
 #   pricing: pure: budget on the expected payout
 #   scopes[cluster].strategy: thesis_ward, linkage ward (notebook clustering)
 #   sweeps[n_assets].max_combinations: 25: max_combos_per_n of the notebook's n_assets sensitivity cell
+#   evaluation.return_periods: 2, 5, 10, 20, 50, 100, 200, 500: plot_exceedance_curves default (src/utils/plotting.py, Figure 5.6)
 #   output.directory: ../../results/thesis (relative to parity/configs)
 # Relative paths are relative to this file's directory.
 schema_version: 1
@@ -118,6 +119,7 @@ constraints:
   loading: 1.0
 evaluation:
   beta: 0.95
+  return_periods: [2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0]
 sweeps:
 - parameter: alpha
   values: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
