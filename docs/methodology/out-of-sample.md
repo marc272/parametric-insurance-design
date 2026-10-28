@@ -34,6 +34,19 @@ Both return `Sample` objects (`train`, `test`) whose `years` include the years w
 
 `splits.kpi_gap(kpis)` pairs each KPI's `train` and `test` values of one run and fold, with `gap = test − train`. Joined with `runs` (scope, `parameters.n_bins`), it gives the gap as a function of `n_bins` and scope. `research/scripts/out_of_sample_rerun.py` does this for the thesis configuration. Its observations are in `research/notes/out-of-sample-rerun.md`.
 
+## Figures
+
+The KPI figures draw `full` and `holdout` runs, with their bootstrap intervals where the config has them (MAR-148, [`bootstrap.md`](bootstrap.md#figures)). They refuse k-fold runs (`KFoldRunsError`, MAR-137 and MAR-142). A k-fold experiment has one run per fold, so each scope × objective has k test values, and no rule for combining them is implemented yet.
+
+The proposed rule is **pooled out-of-sample KPIs**. Its implementation is a follow-up of MAR-148:
+
+- The k test blocks partition the years, so every year is evaluated by the design of the fold that held it out.
+- The pooled KPIs are computed over all years, from each row's loss and that design's payout.
+- The intervals come from a block bootstrap over the pooled years, with one resample shared by every design, so that comparisons stay paired.
+- The alternative, the mean of the per-fold KPIs with a bootstrap spread, would be documented as rejected or offered as an option.
+
+Where the pooled rows live (a store table, a pseudo-fold in `kpis`, or computed for the figures on demand) is an ADR 0002 decision.
+
 ## Not covered here
 
 Block-bootstrap confidence intervals over years (SPEC §6.1, `ci_low`/`ci_high` in `kpis`) are MAR-23: see [`bootstrap.md`](bootstrap.md).
