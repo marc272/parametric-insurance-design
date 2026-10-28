@@ -32,12 +32,35 @@ Which rows are read
   refused with :class:`KFoldRunsError` (MAR-137). A k-fold experiment is a
   run per fold (MAR-22), so one scope x objective has ``k`` test values; a
   figure that drew one of them, or their mean without the spread, would
-  misstate the result. The figures accept k-fold runs once the rule for
-  combining folds is decided together with the confidence intervals
-  (MAR-23).
+  misstate the result. The figures accept k-fold runs once pooled k-fold
+  KPIs exist (follow-up of MAR-148: every year evaluated by its own fold's
+  design, bootstrapped over the pooled years).
 * **VaR/CVaR level:** the rows at the runs' ``evaluation_beta`` parameter.
 * **Curve:** ``event`` on the event bases (return periods count events, the
   thesis convention), ``aep`` on the ``annual`` basis.
+
+Confidence intervals
+--------------------
+A run whose config has a ``bootstrap`` section (MAR-23) stores a
+block-bootstrap interval over years with every KPI (``kpis.ci_low``,
+``ci_high``, ``ci_level``, ``n_bootstrap``; ``docs/methodology/bootstrap.md``).
+The figures draw it where it exists (MAR-148):
+
+* :func:`performance_overview`: an interval bar from ``ci_low`` to
+  ``ci_high`` on each bar, and a legend entry with the level and ``B``.
+* :func:`kpi_heatmap`: the interval as a third line in each cell, in
+  brackets, and a footnote with the level and ``B``.
+* A row with null bounds (no bootstrap in the config, or a KPI undefined in
+  some replicate) is drawn without an interval, and the figure data say so
+  (``ci_drawn``). Without any bounds the figures are the figures drawn
+  before MAR-148. Runs whose intervals differ in level or ``B`` are refused
+  with :class:`~parametric_insurance_design_viz.errors.InconsistentRunsError`
+  (:func:`interval_note`): one legend cannot describe both.
+* The interval is drawn as stored. It need not contain the point estimate:
+  a percentile interval of a biased statistic, such as CVaR, can lie beside
+  it.
+* :func:`exceedance_curves` draws no intervals: the ``exceedance`` table
+  has no interval columns (``records.EXCEEDANCE``).
 
 Differences from the thesis code, all deliberate:
 
@@ -78,6 +101,7 @@ from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.patches import FancyBboxPatch, Rectangle
 from matplotlib.ticker import FuncFormatter
+from numpy.typing import NDArray
 
 from parametric_insurance_design.basis import Basis
 from parametric_insurance_design.records import (
@@ -112,6 +136,7 @@ __all__ = [
     "Baseline",
     "KFoldRunsError",
     "exceedance_curves",
+    "interval_note",
     "kpi_figures",
     "kpi_heatmap",
     "kpi_label",
@@ -138,9 +163,8 @@ class KFoldRunsError(InconsistentRunsError):
 
     A k-fold experiment stores a run per fold (MAR-22), so one scope x
     objective has ``k`` out-of-sample values. The KPI figures don't combine
-    folds yet (MAR-137): the rule, e.g. the mean over folds with the
-    per-fold spread, is decided with the confidence intervals (MAR-23).
-    Draw the figures from a ``holdout`` (or ``full``) run instead.
+    folds yet (MAR-137): pooled k-fold KPIs with intervals are a follow-up of
+    MAR-148. Draw the figures from a ``holdout`` (or ``full``) run instead.
     """
 
 
@@ -185,8 +209,11 @@ KPI_COLUMNS: Final[tuple[str, ...]] = (
     "value",
     "ci_low",
     "ci_high",
+    "ci_level",
+    "n_bootstrap",
 )
-"""Columns of :func:`kpi_table`."""
+"""Columns of :func:`kpi_table`. The interval columns are the store's: null
+without a bootstrap (MAR-23)."""
 
 CURVE_COLUMNS: Final[tuple[str, ...]] = (
     "scope_key",
@@ -219,6 +246,9 @@ _DARK_TEXT: Final[str] = "#0a2540"
 _BAR_WIDTH: Final[float] = 0.1
 _BAR_SPACING: Final[float] = 0.1
 _GROUP_GAP: Final[float] = 0.25
+_CI_COLOR: Final[str] = "black"
+_CI_LINEWIDTH: Final[float] = 1.0
+_CI_CAPSIZE: Final[float] = 3.0
 _TAIL_SHADE: Final[str] = "#565758"
 _TAIL_ALPHA: Final[float] = 0.15
 _EVENT_BASES: Final[frozenset[str]] = frozenset(
@@ -434,12 +464,68 @@ def kpi_table(
                     "value": row["value"],
                     "ci_low": row["ci_low"],
                     "ci_high": row["ci_high"],
+                    "ci_level": row["ci_level"],
+                    "n_bootstrap": row["n_bootstrap"],
                 }
             )
     table = pd.DataFrame(rows, columns=list(KPI_COLUMNS))
-    for column in ("beta", "value", "ci_low", "ci_high"):
+    for column in ("beta", "value", "ci_low", "ci_high", "ci_level"):
         table[column] = table[column].astype(np.float64)
+    table["n_bootstrap"] = table["n_bootstrap"].astype("Int64")
     return table
+
+
+def _has_interval(table: pd.DataFrame) -> NDArray[np.bool_]:
+    """Rows of a :func:`kpi_table` frame whose two bounds are finite."""
+    low = table["ci_low"].to_numpy(dtype=np.float64)
+    high = table["ci_high"].to_numpy(dtype=np.float64)
+    return np.isfinite(low) & np.isfinite(high)
+
+
+def interval_note(table: pd.DataFrame) -> str | None:
+    """Describe the confidence intervals of a :func:`kpi_table` frame.
+
+    Parameters
+    ----------
+    table : pandas.DataFrame
+        Rows with the :data:`KPI_COLUMNS`.
+
+    Returns
+    -------
+    str or None
+        E.g. ``"90% block-bootstrap interval over years (B = 1000)"``; None
+        if no row has both bounds.
+
+    Raises
+    ------
+    InconsistentRunsError
+        If the rows with bounds differ in ``ci_level`` or ``n_bootstrap``,
+        or lack one of them.
+    """
+    drawn = _where(table, _has_interval(table))
+    if drawn.empty:
+        return None
+    levels = drawn["ci_level"].to_numpy(dtype=np.float64)
+    sizes = (
+        drawn["n_bootstrap"]
+        .astype("Float64")
+        .to_numpy(dtype=np.float64, na_value=np.nan)
+    )
+    if (
+        not np.all(np.isfinite(levels))
+        or not np.all(np.isfinite(sizes))
+        or np.unique(levels).size != 1
+        or np.unique(sizes).size != 1
+    ):
+        raise InconsistentRunsError(
+            "the runs' confidence intervals differ in level or number of "
+            f"replicates (ci_level {sorted(set(levels.tolist()))}, n_bootstrap "
+            f"{sorted(set(sizes.tolist()))}); draw runs bootstrapped alike"
+        )
+    return (
+        f"{float(levels[0]) * 100:g}% block-bootstrap interval over years "
+        f"(B = {int(sizes[0])})"
+    )
 
 
 @dataclass(frozen=True)
@@ -529,6 +615,11 @@ def _fmt_sci(value: float) -> str:
     return f"{value / 10**exp:.2f}e{exp}"
 
 
+def _fmt_interval(low: float, high: float) -> str:
+    """Interval text of a heatmap cell, e.g. ``[1.52e6, 1.80e6]``."""
+    return f"[{_fmt_sci(low)}, {_fmt_sci(high)}]"
+
+
 def _fmt_pct(pct: float) -> str:
     """Signed change in percent with a true minus sign (thesis)."""
     if not np.isfinite(pct):
@@ -601,7 +692,9 @@ def kpi_heatmap(
 
     Thesis ``plot_kpi_heatmap``: rows are scopes, columns objectives. Each
     cell shows the value and its change against the baseline in percent;
-    the colour is that change, green for better and red for worse.
+    the colour is that change, green for better and red for worse. A cell
+    whose KPI row has bootstrap bounds also shows the interval in brackets,
+    explained in a footnote (module docstring, "Confidence intervals").
 
     Parameters
     ----------
@@ -630,13 +723,15 @@ def kpi_heatmap(
     -------
     FigureOutput
         The figure; main table :data:`KPI_COLUMNS` plus ``baseline_value``,
-        ``pct_vs_baseline``, ``is_baseline``, ``row`` and ``col``; and the
-        ``legend`` table (colour-class edges in percent).
+        ``pct_vs_baseline``, ``is_baseline``, ``row``, ``col`` and
+        ``ci_drawn`` (the cell shows the stored interval); and the ``legend``
+        table (colour-class edges in percent).
 
     Raises
     ------
     IncompleteRunError, InconsistentRunsError
-        As :func:`kpi_table`, or if the baseline is not in the grid.
+        As :func:`kpi_table` and :func:`interval_note`, or if the baseline is
+        not in the grid.
     FigureDataError
         If ``n_legend_bins`` is not positive.
     """
@@ -650,7 +745,9 @@ def kpi_heatmap(
     table = table.assign(
         row=[keys.index(k) for k in table["scope_key"]],
         col=[objectives.index(o) for o in table["objective"]],
+        ci_drawn=_has_interval(table),
     )
+    note = interval_note(table)
     pct = table["pct_vs_baseline"].to_numpy(dtype=np.float64)
     finite = pct[np.isfinite(pct)]
     max_abs = float(np.max(np.abs(finite))) if finite.size else 1.0
@@ -707,6 +804,16 @@ def kpi_heatmap(
                     va="center",
                     fontsize=_HEATMAP_FONT,
                     fontstyle="italic",
+                    color=text_color,
+                )
+            if record["ci_drawn"]:
+                ax.text(
+                    cx,
+                    cy - 0.28,
+                    _fmt_interval(float(record["ci_low"]), float(record["ci_high"])),
+                    ha="center",
+                    va="center",
+                    fontsize=_HEATMAP_FONT - 1,
                     color=text_color,
                 )
         ax.set_xlim(-0.5, n_cols - 0.5)
@@ -796,6 +903,16 @@ def kpi_heatmap(
             loc="left",
             pad=8,
         )
+        if note:
+            fig.text(
+                0.5,
+                0.015,
+                f"In brackets: {note}",
+                ha="center",
+                va="bottom",
+                fontsize=_HEATMAP_FONT - 1,
+                color=_AXIS_TEXT_COLOR,
+            )
         _titles(fig, title, subtitle)
 
     legend = pd.DataFrame(
@@ -826,7 +943,9 @@ def performance_overview(
 
     Thesis ``plot_portfolio_performance_overview`` (Figure 5.5): within each
     scope group one bar per objective in its colour; a dotted line marks the
-    baseline's value.
+    baseline's value. A bar whose KPI row has bootstrap bounds carries an
+    interval bar from ``ci_low`` to ``ci_high`` (module docstring,
+    "Confidence intervals").
 
     Parameters
     ----------
@@ -851,17 +970,21 @@ def performance_overview(
     -------
     FigureOutput
         The figure; main table :data:`KPI_COLUMNS` plus ``baseline_value``,
-        ``pct_vs_baseline``, ``is_baseline`` and ``bar_x`` (bar position).
+        ``pct_vs_baseline``, ``is_baseline``, ``bar_x`` (bar position) and
+        ``ci_drawn`` (the bar carries the stored interval).
 
     Raises
     ------
     IncompleteRunError, InconsistentRunsError
-        As :func:`kpi_table`, or if the baseline is not in the grid.
+        As :func:`kpi_table` and :func:`interval_note`, or if the baseline is
+        not in the grid.
     """
     keys, objectives = _grid(scopes)
     baseline = baseline or Baseline.default(scopes)
     labels = labels or AxisLabels()
     table = kpi_table(scopes, kpis, eval_split=eval_split)
+    note = interval_note(table)
+    interval_handle: Any = None
     span = (len(objectives) - 1) * _BAR_SPACING
     centres = np.arange(len(keys)) * (span + _GROUP_GAP)
     offsets = (np.arange(len(objectives)) - (len(objectives) - 1) / 2) * _BAR_SPACING
@@ -877,7 +1000,7 @@ def performance_overview(
                 float(centres[keys.index(k)] + offsets[objectives.index(o)])
                 for k, o in zip(rows["scope_key"], rows["objective"], strict=True)
             ]
-            rows = rows.assign(bar_x=x)
+            rows = rows.assign(bar_x=x, ci_drawn=_has_interval(rows))
             panels.append(rows)
             ax.bar(
                 rows["bar_x"],
@@ -886,6 +1009,9 @@ def performance_overview(
                 color=[style.objective_color(o) for o in rows["objective"]],
                 edgecolor="none",
             )
+            with_ci = _where(rows, rows["ci_drawn"])
+            if not with_ci.empty:
+                interval_handle = _interval_bars(ax, with_ci)
             if np.isfinite(ref):
                 ax.axhline(y=ref, color="black", linestyle=":", linewidth=1.0, zorder=0)
             ax.set_xticks(centres)
@@ -915,17 +1041,46 @@ def performance_overview(
             frameon=False,
             fontsize=style.FONT.legend_size,
         )
+        reference_handles: list[Any] = [
+            Line2D([0], [0], color="grey", linestyle=":", linewidth=1.0)
+        ]
+        reference_labels = [f"Baseline ({baseline.label(scopes)})"]
+        if interval_handle is not None and note is not None:
+            reference_handles.append(interval_handle)
+            reference_labels.append(note)
         fig.legend(
-            [Line2D([0], [0], color="grey", linestyle=":", linewidth=1.0)],
-            [f"Baseline ({baseline.label(scopes)})"],
+            reference_handles,
+            reference_labels,
             loc="upper center",
             bbox_to_anchor=(0.5, 0.035),
+            ncol=1 if len(reference_handles) == 1 else 2,
             frameon=False,
             fontsize=style.FONT.legend_size,
         )
 
     main = pd.concat(panels, ignore_index=True)
     return FigureOutput(name=name, figure=fig, data={MAIN_TABLE: main})
+
+
+def _interval_bars(ax: Axes, rows: pd.DataFrame) -> Any:  # noqa: ANN401
+    """Draw the stored intervals of ``rows`` at their ``bar_x``.
+
+    Drawn as a symmetric error bar about the interval's midpoint, so that the
+    whole interval ``[ci_low, ci_high]`` is shown whether or not it contains
+    the point estimate. Returns the matplotlib container, a legend handle.
+    """
+    low = rows["ci_low"].to_numpy(dtype=np.float64)
+    high = rows["ci_high"].to_numpy(dtype=np.float64)
+    return ax.errorbar(
+        rows["bar_x"].to_numpy(dtype=np.float64),
+        (low + high) / 2.0,
+        yerr=(high - low) / 2.0,
+        fmt="none",
+        ecolor=_CI_COLOR,
+        elinewidth=_CI_LINEWIDTH,
+        capsize=_CI_CAPSIZE,
+        zorder=3,
+    )
 
 
 def _default_curve(basis: str) -> str:

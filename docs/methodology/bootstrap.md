@@ -67,6 +67,18 @@ bootstrap:
 - **Generators.** The runner gives each evaluation sample (train, test, full) a fresh generator `np.random.default_rng(seed)`. Two runs with the same seed and the same evaluation sample therefore draw the same years, so their stored intervals rest on the same resamples, and `paired_difference` can be recomputed exactly from the seed.
 - **Manifest.** The manifest's `bootstrap` entry records the settings, the time per sample and the KPIs whose bounds are null.
 
+## Figures
+
+The KPI figures (`packages/viz/.../kpi_figures.py`, MAR-148) draw the stored intervals. They read `ci_low`, `ci_high`, `ci_level` and `n_bootstrap` from the `kpis` table and compute nothing.
+
+- **Performance overview** (thesis Figure 5.5): an interval bar from `ci_low` to `ci_high` on each bar. The legend names the level and B, e.g. "90% block-bootstrap interval over years (B = 1000)".
+- **KPI heatmaps:** the interval in brackets as a third line in each cell, with the same text as a footnote.
+- **Rows without bounds** are drawn without an interval. These are the rows of a config without a `bootstrap` section, and KPIs undefined in some replicate. Without any bounds the figures are the same as before MAR-148. The figure data's `ci_drawn` column says which rows carry an interval.
+- **One level per figure.** Runs whose intervals differ in level or B are refused (`InconsistentRunsError`), because one legend can't describe both.
+- **The interval is drawn as stored.** A percentile interval doesn't have to contain the point estimate. The bar is drawn from `ci_low` to `ci_high` either way.
+- **Not drawn:** exceedance curves (no interval columns), and paired differences between designs (not stored; see above). The heatmap's percentage against the baseline therefore has no interval.
+- **k-fold stores** are still refused (`KFoldRunsError`), until pooled k-fold KPIs exist ([`out-of-sample.md`](out-of-sample.md)).
+
 ## Not covered
 
 - Exceedance curves have no interval columns (`records.EXCEEDANCE`).
