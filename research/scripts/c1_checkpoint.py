@@ -503,6 +503,8 @@ def group_worker(
 def _variant_columns(frame: pd.DataFrame, by_key: dict[str, Variant]) -> pd.DataFrame:
     """Add the variant's fields as columns."""
     v = frame["variant"].map(by_key)
+    # the kpis table has its own evaluation ``basis`` column: the variant's
+    frame = frame.drop(columns=["basis"], errors="ignore")
     frame.insert(0, "kappa", v.map(lambda x: x.kappa))
     frame.insert(0, "pricing", v.map(lambda x: x.pricing))
     frame.insert(0, "basis", v.map(lambda x: x.basis))
