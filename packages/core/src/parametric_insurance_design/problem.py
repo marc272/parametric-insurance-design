@@ -12,7 +12,10 @@ Owner: MAR-14. Replaces the thesis's nine near-duplicate solver methods
    constraints = ``payout_structure.constraints(ctx.theta, ctx.cap)`` +
    ``objective_term.constraints`` + ``premium.constraints`` +
    ``c.build(ctx, premium)`` for each extra constraint.
-6. ``cp.Problem(cp.Minimize(objective_term.expression), constraints)``.
+6. ``cp.Problem(cp.Minimize(objective_term.expression), constraints)``,
+   wrapped in a :class:`BuiltProblem` that also carries ``pricing``
+   (MAR-171), so that ``solve.solve`` records the exact premium of the
+   solution without being given the pricing again.
 
 Loss scaling and the payout cap are decided in :func:`build_context` (thesis:
 scale by the maximum objective-level loss, or 1 if it is <= 1e-6; cap each
@@ -84,6 +87,19 @@ class BuiltProblem:
         The assembled problem.
     build_seconds : float
         Wall time of the assembly.
+    pricing : Pricing, optional
+        The pricing that built ``premium`` (MAR-171). :func:`build_problems`
+        always sets it; ``solve.solve`` then records ``SolveResult.premium``
+        as ``pricing.premium_value`` of the solution's realised payout, and
+        refuses a ``pricing`` argument that differs from it. Default
+        ``None``: not known, for a problem assembled by hand (e.g. the
+        walking skeleton); ``solve`` then records the premium term's value,
+        or ``premium_value`` under the ``pricing`` it is given.
+
+    Raises
+    ------
+    ComponentConfigError
+        If ``pricing`` is neither ``None`` nor a :class:`Pricing`.
     """
 
     context: ProblemContext
@@ -91,6 +107,14 @@ class BuiltProblem:
     premium: Term
     problem: cp.Problem
     build_seconds: float
+    pricing: Pricing | None = None
+
+    def __post_init__(self) -> None:
+        """Refuse a ``pricing`` that is not a :class:`Pricing`."""
+        if self.pricing is not None and not isinstance(self.pricing, Pricing):
+            raise ComponentConfigError(
+                f"pricing must be a Pricing or None, got {self.pricing!r}"
+            )
 
     @property
     def spec(self) -> ProblemSpec:
@@ -298,7 +322,8 @@ def build_problems(
     objective : Objective
         Objective.
     pricing : Pricing
-        Pricing used for the premium term.
+        Pricing used for the premium term. Every :class:`BuiltProblem`
+        carries it as ``pricing`` (the same object).
     constraints : sequence of Constraint, optional
         Extra constraints, e.g. ``(Budget(1.0),)``.
     basis : Basis
@@ -341,6 +366,7 @@ def build_problems(
                 premium=premium,
                 problem=cvx_problem,
                 build_seconds=time.perf_counter() - start,
+                pricing=pricing,
             )
         )
     return tuple(built)
