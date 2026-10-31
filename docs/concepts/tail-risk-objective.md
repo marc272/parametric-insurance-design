@@ -12,6 +12,7 @@ A **design problem** calibrates the payout functions of one or more payout entit
 
 - **Rows.** An EventSet row e is an event, or one draw of an event (noise copies, vulnerability draws). $L_e \ge 0$ is the loss of the row and $\pi_e \ge 0$ the payout, both summed over the entities of the design problem.
 - **Outcomes.** The basis groups rows into outcomes o with probabilities $p_o$ that sum to one ([evaluation basis](../methodology/annual-basis.md)). On `annual`, an outcome is a simulated year (and draw), and the years without rows are outcomes with zero loss. On `event_conditional`, every row is an outcome; `event` adds one "no event" outcome. Per-row quantities add up within an outcome: $L_o = \sum_{e\in o} L_e$ and $\pi_o = \sum_{e\in o} \pi_e$.
+
 **Step payout.** Entity j pays $\theta_{j,k}$ when its index $\xi_{e,j}$ falls in bin $B_k$:
 
 $$\pi_{e,j} = \sum_k \theta_{j,k}\,\mathbf{1}[\xi_{e,j}\in B_k], \qquad 0 \le \theta_{j,0} \le \theta_{j,1} \le \dots \le \theta_{j,K-1} \le c_j,$$
@@ -112,7 +113,7 @@ The budget is an inequality without a risk loading. The thesis text writes it as
 **A theorem** (review F4). Let $P(L_o = 0)$ be the probability of the outcomes in which the design problem has no loss. If $\beta \le P(L_o = 0)$, then for every design:
 
 1. $P(U_o = 0) \ge P(L_o = 0) \ge \beta$, because $0 \le U_o \le L_o$;
-2. so $\mathrm{VaR}_\beta(U) = 0$ and $\mathrm{CVaR}_\beta(U) = \mathbb{E}[U]/(1-\beta)$;
+2. so the VaR of U at level β is 0, and its CVaR is $\mathbb{E}[U]/(1-\beta)$;
 3. so $F_{\alpha,\beta} = \big(\tfrac{\alpha}{1-\beta} + 1 - \alpha\big)\,\mathbb{E}[U]$, a positive multiple of E[U] for α > 0, and the weighted-CVaR designs are the E[U] designs.
 
 The condition is per design problem, and it depends on the basis. On the annual basis the years without loss belong to the measure, so $P(L_o = 0)$ can be large. On the thesis data:
