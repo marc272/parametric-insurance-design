@@ -59,7 +59,7 @@ The thesis text agrees with the intended semantics: §3.3 (3) calls the attachme
 | E[U], `Budget(0.5)` | all events | (0, 7) | 0.7 | 0.7 | 0.7 |
 | E[U], `Budget(0.5)` | filtered | (1.86, 5.14) | 0.7 | **0.89** | 0.7 (**broken**) |
 
-"Premium on all events" is the portfolio `premium` of `evaluate.kpis(full, Individual(), [result], basis=…, pricing=PurePremium())`, i.e. the design evaluated on the unfiltered EventSet. "Budget" is κ·E[L], which is the same on both EventSets because the dropped event has zero loss.
+"Premium on all events" is the portfolio `premium` of `evaluate.kpis(full, Individual(), [result], basis=…, pricing=PurePremium())`, i.e. the design evaluated on the unfiltered EventSet. "Budget" is κ·E[L], which is the same on both EventSets because the dropped event has zero loss. On the filtered data, the E[U] optimum isn't unique: every θ with θ₀ + θ₁ = 7 and θ₀ ≤ 4 is optimal. Every one of them with θ₀ > 0 breaks the budget on all events; the solver returned (1.86, 5.14).
 
 **Impact.**
 - **Thesis data: small, one design over budget.** The Emanuel function gives zero loss below 25.7 m/s, so bin 0 [20, 23.3) carries no loss, and the 20 m/s filter drops no loss (`expected_loss_dropped` = 0). Only the MSE designs pay noticeably in bin 0. On the annual basis, MSE pays on zero-loss events to fit multi-event years. I priced the filtered designs on the unfiltered noisy EventSet: 78,741 rows instead of 13,897.
