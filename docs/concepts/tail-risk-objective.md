@@ -11,11 +11,11 @@ This page states the objective as the code implements it, as checked in the [cor
 A **design problem** calibrates the payout functions of one or more payout entities: one asset, or several assets calibrated jointly ([portfolio calibration](portfolio-calibration.md)).
 
 - **Rows.** An EventSet row e is an event, or one draw of an event (noise copies, vulnerability draws). $L_e \ge 0$ is the loss of the row and $\pi_e \ge 0$ the payout, both summed over the entities of the design problem.
-- **Outcomes.** The basis groups rows into outcomes o with probabilities $p_o$ that sum to one ([evaluation basis](../methodology/annual-basis.md)). On `annual`, an outcome is a simulated year (and draw), and the years without rows are outcomes with zero loss. On `event_conditional`, every row is an outcome; `event` adds one "no event" outcome. Per-row quantities add up within an outcome: $L_o = \sum_{e\in o} L_e$ and $\pi_o = \sum_{e\in o} \pi_e$.
+- **Outcomes.** The basis groups rows into outcomes o with probabilities $p_o$ that sum to one ([evaluation basis](../methodology/annual-basis.md)). On `annual`, an outcome is a simulated year (and draw), and the years without rows are outcomes with zero loss. On `event_conditional`, every row is an outcome  `event` adds one "no event" outcome. Per-row quantities add up within an outcome: $L_o = \sum_{e\in o} L_e$ and $\pi_o = \sum_{e\in o} \pi_e$.
 
 **Step payout.** Entity j pays $\theta_{j,k}$ when its index $\xi_{e,j}$ falls in bin $B_k$:
 
-$$\pi_{e,j} = \sum_k \theta_{j,k}\,\mathbf{1}[\xi_{e,j}\in B_k], \qquad 0 \le \theta_{j,0} \le \theta_{j,1} \le \dots \le \theta_{j,K-1} \le c_j,$$
+$$\pi_{e,j} = \sum_k \theta_{j,k} \mathbf{1}[\xi_{e,j}\in B_k], \qquad 0 \le \theta_{j,0} \le \theta_{j,1} \le \dots \le \theta_{j,K-1} \le c_j,$$
 
 where the cap $c_j$ is the entity's largest loss in the calibration rows. The bins are uniform on [attachment, limit] by default, and an index at or above the limit falls into the last bin.
 
@@ -34,7 +34,7 @@ This is thesis eq. (2.7) and (3.6), and the `ExpectedUncovered` objective's $U$.
 
 ## The objective
 
-$$F_{\alpha,\beta}(\theta) = \alpha\,\mathrm{CVaR}_\beta(U) + (1-\alpha)\,\mathbb{E}[U], \qquad \alpha\in[0,1],\ \beta\in(0,1).$$
+$$F_{\alpha,\beta}(\theta) = \alpha \mathrm{CVaR}_\beta(U) + (1-\alpha) \mathbb{E}[U], \qquad \alpha\in[0,1],\ \beta\in(0,1).$$
 
 **α weights the CVaR term**, as in `objectives.WeightedCVaR`, thesis eq. (2.4) and (3.9), and SPEC §6.7.
 
@@ -50,7 +50,7 @@ $$F_{\alpha,\beta}(\theta) = \alpha\,\mathrm{CVaR}_\beta(U) + (1-\alpha)\,\mathb
 |---|---|---|
 | `annual` (paper default) | simulated years (and draws) | the mean of the worst 1 % of years: the 100-year level and beyond |
 | `event` | annual event probability | about the 100-year occurrence level, when years rarely hold several bad events |
-| `event_conditional` (thesis parity) | the events above the threshold filter | no return period; it depends on the filter and the catalogue |
+| `event_conditional` (thesis parity) | the events above the threshold filter | no return period  it depends on the filter and the catalogue |
 
 [The evaluation basis](../methodology/annual-basis.md) has the full return-period table. Three edge cases:
 
@@ -70,7 +70,7 @@ $$\mathrm{CVaR}_\beta(X) = \min_{\zeta\in\mathbb{R}} \Big\lbrace \zeta + \frac{\
 
 For a discrete X the minimum is attained at $\zeta = \mathrm{VaR}_\beta(X)$, the lower β-quantile (the smallest $v$ with $P(X \le v) \ge \beta$). The value is the mean of the worst $1-\beta$ of the mass, taking only as much of the atom at the VaR as it needs:
 
-$$\mathrm{CVaR}_\beta(X) = \frac{1}{1-\beta}\Big(\sum_{x > \mathrm{VaR}_\beta} p_x\,x + \big(1 - \beta - P(X > \mathrm{VaR}_\beta)\big)\,\mathrm{VaR}_\beta\Big).$$
+$$\mathrm{CVaR}_\beta(X) = \frac{1}{1-\beta}\Big(\sum_{x > \mathrm{VaR}_\beta} p_x x + \big(1 - \beta - P(X > \mathrm{VaR}_\beta)\big) \mathrm{VaR}_\beta\Big).$$
 
 ![Schematic, not data: the quantile function of the uncovered loss, with VaR and CVaR at level β](figures/tail-quantile.svg)
 
@@ -82,12 +82,12 @@ $$\mathrm{CVaR}_\beta(X) = \frac{1}{1-\beta}\Big(\sum_{x > \mathrm{VaR}_\beta} p
 
 For one design problem with the weighted-CVaR objective, the code builds this problem. cvxpy creates the auxiliary variables v, w and s when it compiles the positive parts (`cvxpy.pos`).
 
-- **Payout**, linear in θ: $\pi_e(\theta) = \sum_j \sum_k \theta_{j,k}\,\mathbf{1}[\xi_{e,j}\in B_k]$. The index is data, so the bin indicators are a fixed 0/1 matrix (`StepPayout.basis_matrix`).
+- **Payout**, linear in θ: $\pi_e(\theta) = \sum_j \sum_k \theta_{j,k} \mathbf{1}[\xi_{e,j}\in B_k]$. The index is data, so the bin indicators are a fixed 0/1 matrix (`StepPayout.basis_matrix`).
 - **Uncovered loss:** $v_e \ge L_e - \pi_e(\theta)$, $v_e \ge 0$, and $U_o = \sum_{e\in o} v_e$.
 - **CVaR auxiliaries:** $w_o \ge U_o - \zeta$, $w_o \ge 0$, with ζ free.
 - **Objective:** minimise $\alpha\big(\zeta + \tfrac{1}{1-\beta}\sum_o p_o w_o\big) + (1-\alpha)\sum_o p_o U_o$ over θ, ζ, v and w.
 - **Payout shape:** $0 \le \theta_{j,0} \le \dots \le \theta_{j,K-1} \le c_j$.
-- **Budget:** $\mathrm{Premium}(\pi) \le \kappa\,\mathbb{E}[L]$ ([below](#the-budget)).
+- **Budget:** $\mathrm{Premium}(\pi) \le \kappa \mathbb{E}[L]$ ([below](#the-budget)).
 
 Every line is linear, so the problem is an LP, and it solves the original problem exactly:
 
@@ -99,22 +99,22 @@ The builder checks that the assembled problem is convex under cvxpy's rules (DCP
 
 ## The budget
 
-$$\mathrm{Premium}(\pi) \le \kappa\,\mathbb{E}[L].$$
+$$\mathrm{Premium}(\pi) \le \kappa \mathbb{E}[L].$$
 
-$\mathbb{E}[L]$ is taken on the same outcome measure as the premium and the objective. κ is the budget loading (`constraints.Budget(loading)`, the thesis's `budget_loading`). The premium is a separate component (`pricing.py`; [pricing](../methodology/pricing.md)):
+$\mathbb{E}[L]$ is taken on the same outcome measure as the premium and the objective. κ is the budget loading (`constraints.Budget(loading)`, the thesis's `budget_loading`). The premium is a separate component (`pricing.py`  [pricing](../methodology/pricing.md)):
 
 - `PurePremium`: $\mathrm{Premium} = \mathbb{E}[\pi] = \sum_o p_o \pi_o$.
-- `CostOfCapitalLoad(rate=r, q=q)`: $\mathrm{Premium} = (1-r)\,\mathbb{E}[\pi] + r\,\mathrm{CVaR}_q(\pi)$ with $r\in[0,1]$. It is convex in the payout, so the problem stays an LP. In the problem it reads $(1-r)\sum_o p_o \pi_o + r\big(\eta + \tfrac{1}{1-q}\sum_o p_o s_o\big)$, with $s_o \ge \pi_o - \eta$ and $s_o \ge 0$.
+- `CostOfCapitalLoad(rate=r, q=q)`: $\mathrm{Premium} = (1-r) \mathbb{E}[\pi] + r \mathrm{CVaR}_q(\pi)$ with $r\in[0,1]$. It is convex in the payout, so the problem stays an LP. In the problem it reads $(1-r)\sum_o p_o \pi_o + r\big(\eta + \tfrac{1}{1-q}\sum_o p_o s_o\big)$, with $s_o \ge \pi_o - \eta$ and $s_o \ge 0$.
 
-The budget is an inequality without a risk loading. The thesis text writes it as an equality with a loading λ, $(1+\lambda)\sum p\,\pi = \kappa \sum p\,L$ (eq. (3.15)). The thesis code, which the parity runs reproduce, uses the inequality without λ. The two differ only where the budget doesn't bind, for example for MSE designs with κ ≥ 1 (review F5).
+The budget is an inequality without a risk loading. The thesis text writes it as an equality with a loading λ, $(1+\lambda)\sum p \pi = \kappa \sum p L$ (eq. (3.15)). The thesis code, which the parity runs reproduce, uses the inequality without λ. The two differ only where the budget doesn't bind, for example for MSE designs with κ ≥ 1 (review F5).
 
 ## When the weighted-CVaR design is the E[U] design
 
 **A theorem** (review F4). Let $P(L_o = 0)$ be the probability of the outcomes in which the design problem has no loss. If $\beta \le P(L_o = 0)$, then for every design:
 
-1. $P(U_o = 0) \ge P(L_o = 0) \ge \beta$, because $0 \le U_o \le L_o$;
-2. so the VaR of U at level β is 0, and its CVaR is $\mathbb{E}[U]/(1-\beta)$;
-3. so $F_{\alpha,\beta} = \big(\tfrac{\alpha}{1-\beta} + 1 - \alpha\big)\,\mathbb{E}[U]$, a positive multiple of E[U] for α > 0, and the weighted-CVaR designs are the E[U] designs.
+1. $P(U_o = 0) \ge P(L_o = 0) \ge \beta$, because $0 \le U_o \le L_o$ 
+2. so the VaR of U at level β is 0, and its CVaR is $\mathbb{E}[U]/(1-\beta)$ 
+3. so $F_{\alpha,\beta} = \big(\tfrac{\alpha}{1-\beta} + 1 - \alpha\big) \mathbb{E}[U]$, a positive multiple of E[U] for α > 0, and the weighted-CVaR designs are the E[U] designs.
 
 The condition is per design problem, and it depends on the basis. On the annual basis the years without loss belong to the measure, so $P(L_o = 0)$ can be large. On the thesis data:
 
@@ -123,11 +123,11 @@ The condition is per design problem, and it depends on the basis. On the annual 
 | `portfolio`: the portfolio and cluster scopes | 0.930 |
 | each of the 9 assets: the individual scope | 0.943 to 0.947 |
 
-Setup: the thesis fixture `parity/tests/data/thesis_eventset` (9 Miami assets, IRIS, 10,000 years; content hash `sha256:404b0c3a…294df`), prepared as in `parity/configs/thesis.yaml`: heteroscedastic noise 0.3 with 13 copies and seed 42, then the 20 m/s threshold filter. The prepared EventSet has 13,897 rows and content hash `sha256:008057c84ba2541847f1c447c19a201c3d4951320610625e246a7a4bbd5eafdf`. Annual basis over all 10,000 years (no train/test split). The values are definitional: they depend on the data, not on any design. The thesis default β = 0.95 lies above all of them, so the theorem doesn't cover it on these data.
+Setup: the thesis fixture `parity/tests/data/thesis_eventset` (9 Miami assets, IRIS, 10,000 years  content hash `sha256:404b0c3a…294df`), prepared as in `parity/configs/thesis.yaml`: heteroscedastic noise 0.3 with 13 copies and seed 42, then the 20 m/s threshold filter. The prepared EventSet has 13,897 rows and content hash `sha256:008057c84ba2541847f1c447c19a201c3d4951320610625e246a7a4bbd5eafdf`. Annual basis over all 10,000 years (no train/test split). The values are definitional: they depend on the data, not on any design. The thesis default β = 0.95 lies above all of them, so the theorem doesn't cover it on these data.
 
-**Above $P(L_o = 0)$ it is not a rule.** On these data the two designs still coincided a little above it. In a β sweep of the portfolio-scope weighted-CVaR design (α = 0.9, pure premium, κ = 1, 15 bins on [20, 70] m/s, annual basis, in sample), the design gave the same KPIs as the E[U] design for β from 0.90 to 0.96, and a different design from β = 0.97 (`research/notes/annual-basis-rerun.md`, observation 6; config hashes `6cdc86585a9c` at β = 0.96 and `4b973e4cf17f` at β = 0.97). That is an observation on these data, not a property of the method. Another EventSet, payout or budget can separate the designs at any β above $P(L_o = 0)$.
+**Above $P(L_o = 0)$ it is not a rule.** On these data the two designs still coincided a little above it. In a β sweep of the portfolio-scope weighted-CVaR design (α = 0.9, pure premium, κ = 1, 15 bins on [20, 70] m/s, annual basis, in sample), the design gave the same KPIs as the E[U] design for β from 0.90 to 0.96, and a different design from β = 0.97 (`research/notes/annual-basis-rerun.md`, observation 6  config hashes `6cdc86585a9c` at β = 0.96 and `4b973e4cf17f` at β = 0.97). That is an observation on these data, not a property of the method. Another EventSet, payout or budget can separate the designs at any β above $P(L_o = 0)$.
 
-**A zero VaR at the E[U] design is not enough.** If the E[U] design happens to leave a shortfall in at most $1-\beta$ of the outcomes, its own VaR is 0 and its CVaR is E[U]/(1 − β). That doesn't make it the weighted-CVaR design, because another design can have a positive VaR and a lower CVaR. A worked toy example, not data: one asset, 100 equally likely years. 40 years have no event; 50 have an event in the low bin with loss 1; in the high bin, 9 have loss 10 and 1 has loss 0. So $P(L_o = 0) = 0.41$. Two bins, a budget of 0.8 a year (pure premium), β = 0.9:
+**A zero VaR at the E[U] design is not enough.** If the E[U] design happens to leave a shortfall in at most $1-\beta$ of the outcomes, its own VaR is 0 and its CVaR is E[U]/(1 − β). That doesn't make it the weighted-CVaR design, because another design can have a positive VaR and a lower CVaR. A worked toy example, not data: one asset, 100 equally likely years. 40 years have no event  50 have an event in the low bin with loss 1  in the high bin, 9 have loss 10 and 1 has loss 0. So $P(L_o = 0) = 0.41$. Two bins, a budget of 0.8 a year (pure premium), β = 0.9:
 
 | | E[U] design | Weighted-CVaR design (α = 1 or 0.9) |
 |---|---|---|
@@ -140,8 +140,8 @@ Setup: the thesis fixture `parity/tests/data/thesis_eventset` (9 Miami assets, I
 
 When the budget binds, it fixes the premium, and with it parts of the KPIs, whichever objective calibrated the design.
 
-- **Pure premium.** Every design whose budget binds has $\mathbb{E}[\pi] = \kappa\,\mathbb{E}[L]$. Since $(L_e - \pi_e)^+ = (L_e - \pi_e) + (\pi_e - L_e)^+$, its E[U] is $(1-\kappa)\,\mathbb{E}[L]$ plus its expected over-payment.
-- **Cost-of-capital load.** Take a design that pays only in outcomes of total probability at most $1-q$. Then $\mathrm{CVaR}_q(\pi) = \mathbb{E}[\pi]/(1-q)$, and its premium is $\big(1 - r + \tfrac{r}{1-q}\big)\,\mathbb{E}[\pi]$. A binding budget then fixes $\mathbb{E}[\pi] = \kappa\,\mathbb{E}[L] \big/ \big(1 - r + \tfrac{r}{1-q}\big)$, whatever the payout's shape. Suppose, in addition, that those outcomes are the worst $1-q$ of the loss, that the payout never exceeds the loss in them, and that they stay the worst $1-q$ of U. Then $\mathrm{CVaR}_q(U) = \mathrm{CVaR}_q(L) - \mathbb{E}[\pi]/(1-q)$, the same for every such design.
+- **Pure premium.** Every design whose budget binds has $\mathbb{E}[\pi] = \kappa \mathbb{E}[L]$. Since $(L_e - \pi_e)^+ = (L_e - \pi_e) + (\pi_e - L_e)^+$, its E[U] is $(1-\kappa) \mathbb{E}[L]$ plus its expected over-payment.
+- **Cost-of-capital load.** Take a design that pays only in outcomes of total probability at most $1-q$. Then $\mathrm{CVaR}_q(\pi) = \mathbb{E}[\pi]/(1-q)$, and its premium is $\big(1 - r + \tfrac{r}{1-q}\big) \mathbb{E}[\pi]$. A binding budget then fixes $\mathbb{E}[\pi] = \kappa \mathbb{E}[L] \big/ \big(1 - r + \tfrac{r}{1-q}\big)$, whatever the payout's shape. Suppose, in addition, that those outcomes are the worst $1-q$ of the loss, that the payout never exceeds the loss in them, and that they stay the worst $1-q$ of U. Then $\mathrm{CVaR}_q(U) = \mathrm{CVaR}_q(L) - \mathbb{E}[\pi]/(1-q)$, the same for every such design.
 
 So when the KPI level equals the load's q, the tail KPI can't tell such designs apart in sample: the budget alone fixes it. Out of sample, or read at another level, they can differ.
 
@@ -156,7 +156,7 @@ The implementation follows the thesis code, which the parity gate reproduces, an
 | CVaR | E[X ∣ X ≥ VaR] (eq. (2.3)) | the RU CVaR (eq. (3.8)), [above](#cvar-as-implemented) |
 | Budget | (1 + λ)·E[π] = κ·E[L] (eq. (3.15)) | Premium ≤ κ·E[L], no λ |
 | Probabilities | 1/T per event (eq. (3.3)): the `event` basis | the thesis code and the parity runs: the rates rescaled to sum to one after the threshold filter, the `event_conditional` basis. The core v1 features and the paper: `annual` |
-| Index below the attachment | pays nothing (§3.3) | pays the first bin's $\theta_{j,0}$ (§3.3.1), [above](#setting); MAR-170 |
+| Index below the attachment | pays nothing (§3.3) | pays the first bin's $\theta_{j,0}$ (§3.3.1), [above](#setting)  MAR-170 |
 
 Between `event` and `event_conditional`, E[U], MSE and the budget change by one constant factor, so their designs agree. The weighted-CVaR designs don't: on `event_conditional`, β is a share of the events above the threshold, not the annual level the thesis text gives it.
 
@@ -166,20 +166,20 @@ All modules are in `packages/core/src/parametric_insurance_design/`, reached as 
 
 | Concept | Code |
 |---|---|
-| α·CVaR_β(U) + (1 − α)·E[U] | `objectives.WeightedCVaR(alpha, beta)`; config `objectives: [{kind: weighted_cvar, alpha, beta}]` |
-| E[U]; MSE | `objectives.ExpectedUncovered`; `objectives.MSE` |
+| α·CVaR_β(U) + (1 − α)·E[U] | `objectives.WeightedCVaR(alpha, beta)`  config `objectives: [{kind: weighted_cvar, alpha, beta}]` |
+| E[U]  MSE | `objectives.ExpectedUncovered`  `objectives.MSE` |
 | RU form in the design problem | `objectives.rockafellar_uryasev(values, probability, beta)` |
 | VaR and CVaR of a realised distribution | `riskmeasures.var_cvar(values, probability, beta)`, `riskmeasures.lower_quantile` |
-| Premium | `pricing.PurePremium`, `pricing.CostOfCapitalLoad(rate, q)`; config `pricing` |
-| Budget | `constraints.Budget(loading)`; config `constraints: [{kind: budget, loading}]` |
-| Basis and outcome measure | `basis.Basis`, `basis.outcome_measure`, `basis.OutcomeMeasure`; config `basis` |
-| Step payout | `payout.StepPayout(attachment, limit, n_bins)`; config `payout` |
+| Premium | `pricing.PurePremium`, `pricing.CostOfCapitalLoad(rate, q)`  config `pricing` |
+| Budget | `constraints.Budget(loading)`  config `constraints: [{kind: budget, loading}]` |
+| Basis and outcome measure | `basis.Basis`, `basis.outcome_measure`, `basis.OutcomeMeasure`  config `basis` |
+| Step payout | `payout.StepPayout(attachment, limit, n_bins)`  config `payout` |
 | Assembly, caps, DCP check | `problem.build_problems`, `problem.build_context` |
 | KPIs | `evaluate.kpis`: `expected_uncovered`, `var_uncovered`, `cvar_uncovered` at the KPI β |
 
 ## Proven properties
 
-Tests in `packages/core/tests/`; each runs on the bases named.
+Tests in `packages/core/tests/`  each runs on the bases named.
 
 | Statement | Test |
 |---|---|
@@ -188,7 +188,7 @@ Tests in `packages/core/tests/`; each runs on the bases named.
 | `var_cvar` is the RU minimum | `test_evaluate.py::test_var_cvar_is_the_rockafellar_uryasev_minimum` |
 | E[U] and weighted CVaR are LPs, MSE a QP | `test_objectives.py::test_problem_classes` |
 | The objective value equals its problem-level KPI | `test_design_properties.py::test_objective_value_equals_its_problem_level_kpi` (all three bases) |
-| β ≤ P(L_o = 0): the weighted-CVaR design is an E[U] design, objective (α/(1 − β) + 1 − α)·min E[U] | `test_design_properties.py::test_weighted_cvar_reproduces_expected_uncovered_below_the_zero_loss_mass` (all three bases; individual and portfolio scopes; α ∈ {0.5, 0.9, 1}) |
+| β ≤ P(L_o = 0): the weighted-CVaR design is an E[U] design, objective (α/(1 − β) + 1 − α)·min E[U] | `test_design_properties.py::test_weighted_cvar_reproduces_expected_uncovered_below_the_zero_loss_mass` (all three bases  individual and portfolio scopes  α ∈ {0.5, 0.9, 1}) |
 | A zero VaR at the E[U] design is not enough (the toy table) | `test_design_properties.py::test_var_zero_at_the_expected_uncovered_design_is_not_enough` (`annual`, `event`) |
 | The CVaR on an exact step doesn't depend on the order of ties | `test_design_properties.py::test_cvar_on_an_exact_step_does_not_depend_on_the_order_of_ties` |
 | A loaded design meets its budget on its exact loaded premium | `test_engine_properties_loaded.py::test_loaded_solution_is_feasible_and_meets_the_loaded_budget` |
