@@ -3,7 +3,7 @@
 - Status: **Proposed**. This is a draft for the owner's decision. Nothing in it is decided.
 - Date: 2026-10-31
 - Decision issue: MAR-162 (D8). It feeds MAR-163 (concept docs), MAR-164 (READMEs), MAR-165 (examples) and MAR-168 (the location of the petals prototype).
-- Prepared by a worker agent from `main` at `f74f123`. **Q2 and Q3 were revised after the design review MAR-161** (PR #99, `docs/reviews/core-design-review.md`; findings cited as "review F<n>"). The review settles both, so they are no longer provisional.
+- Prepared by a worker agent from `main` at `f74f123`. **Q2 and Q3 were revised after the design review MAR-161** (PR #99, squash commit `dafa8ec` on `main`, `docs/reviews/core-design-review.md`; findings cited as "review F<n>"). The review settles both, so they are no longer provisional.
 
 ## Context
 
@@ -261,7 +261,7 @@ The adapters stay unpublished under both options: CLIMADA comes from conda-forge
 - The example runtime is an estimate from the parity timings.
 - Whether a core version bump needs a `pixi lock` in `packages/climada`. The core is an editable path dependency there.
 - Whether `docs/concepts/` can be rendered into the Quarto site without copying (4C).
-- MAR-161's review is still on PR #99 (not merged). The "review F<n>" citations are to its head, `b144b43`.
+- The "review F<n>" citations are to `docs/reviews/core-design-review.md` at `dafa8ec` on `main`.
 
 ## Decisions (owner)
 
@@ -279,13 +279,15 @@ One answer per question. "As recommended" is enough.
 
 The steps are PR-sized and ordered by dependency. Steps 2, 4 and 5 can run in parallel. Changes to `pyproject.toml`, the lockfiles and CI are serialised (ORCHESTRATION.md).
 
-The review's other follow-ups (F1, F13 and the rest) are filed from MAR-161 and aren't steps here:
+Two steps are review follow-ups that are already filed: step 2 is MAR-171 and step 9 is MAR-176. The orchestrator files issues for the other steps only.
 
-- Review F13 and step 2 both edit `problem.py`, so they are sequenced.
-- Review F1 edits `payout.py`, which no step here touches.
+The review's other filed follow-ups aren't steps here: F1 = MAR-170, F9 = MAR-172, F4/F15 = MAR-173, F13 = MAR-177.
+
+- MAR-177 (F13) and step 2 (MAR-171) both edit `problem.py`, so they are sequenced.
+- MAR-170 (F1) edits `payout.py`, which no step here touches. It blocks step 11.
 
 1. **Record D8.** Files: this ADR (status and answers), `docs/SPEC.md` §4 (the tree gains `examples/`, `docs/concepts/` and `research/configs/`) and §11 (a D8 row), and ADR 0001's licence table (an `examples/` row). Acceptance: SPEC §11 lists D8 with its outcome.
-2. **`BuiltProblem` carries its pricing (review F16).** It comes first, so that `design` never passes the pricing twice.
+2. **`BuiltProblem` carries its pricing (MAR-171, review F16; already filed).** It comes first, so that `design` never passes the pricing twice.
    - Files: `problem.py`, `solve.py`, their tests, and the ADR 0002 amendment (the `BuiltProblem` fields are contract).
    - Acceptance: `solve(built)` records `pricing.premium_value` without a `pricing` argument, and a `pricing` argument that differs from the built one raises `ComponentConfigError`.
 3. **Public API (Q2, including review F10).** Blocked by steps 1 and 2. Review F10's acceptance is folded in here, with no separate issue.
@@ -295,7 +297,7 @@ The review's other follow-ups (F1, F13 and the rest) are filed from MAR-161 and 
    - Files: `research/configs/climada/` (the four moved configs and a README), and the two deleted `packages/climada/configs/florida_counties_storm*.yaml`.
    - Also: two tests in `packages/climada/tests/test_storm.py`; the header of `florida_counties_no_draws.yaml`; `packages/climada/README.md`; the docstring path in `scripts/cat_in_circle_radius_sensitivity.py`; `research/data/cat-in-circle-radius-sensitivity/README.md`, `research/notes/cat-in-circle-radius-sensitivity.md`, `research/data/p06-storm-eventset/README.md` and `research/notes/p06-storm-eventset.md`; ADR 0002's MAR-32 row.
    - Acceptance: the moved configs' SHA256s equal the recorded ones, and `test (climada, pixi)` is green.
-5. **Docs index (Q4).** Files: a new `docs/README.md`. Acceptance: every file in `docs/` is linked from it. MAR-161 adds `docs/reviews/` (PR #99), and MAR-163 adds its pages to the index.
+5. **Docs index (Q4).** Files: a new `docs/README.md`. Acceptance: every file in `docs/` is linked from it. MAR-161 added `docs/reviews/` (PR #99, merged), and MAR-163 adds its pages to the index.
 6. **Concept docs (MAR-163).** Blocked by step 3, because the code maps name the public API.
    - Files: `docs/concepts/*.md`.
    - Includes review F12's glossary of "portfolio", "loading" and "weighted CVaR".
@@ -305,14 +307,15 @@ The review's other follow-ups (F1, F13 and the rest) are filed from MAR-161 and 
 8. **READMEs (MAR-164, Q1).** Blocked by steps 6 and 7.
    - Files: the root and package READMEs; the `site/`, `research/` and `showcase/crc/` READMEs. One test is appended to `examples/test_examples.py`.
    - Acceptance: the README quickstart equals `examples/quickstart.py` (that test), there's a "How this repository is built" section, and no README claims a false status.
-9. **Docstring pass (review F11).**
-   - Order: blocked by steps 2 and 3 and by the review's F13 follow-up, so that it reads the final code. It comes before steps 10 and 11, because the reference renders the docstrings and 0.1.0 ships them.
+9. **Docstring pass (MAR-176, review F11; already filed).**
+   - Order: blocked by steps 2 and 3 and by MAR-177 (review F13), so that it reads the final code. It comes before steps 10 and 11, because the reference renders the docstrings and 0.1.0 ships them.
    - Files: the docstrings of the core's top-level modules only. This needs an orchestrator waiver across owners.
    - Acceptance: no Linear IDs or decision history in the core's docstrings, except pointers to ADRs and `docs/methodology/`; the stale statements the review lists are fixed; ruff and pyright are clean.
 10. **API reference (Q4, R1).** Blocked by MAR-53 and steps 3 and 9.
     - Files: `site/_quarto.yml` (the quartodoc section); the root `pyproject.toml` (a `docs` group with a pinned quartodoc) and `uv.lock`; one step in the site workflow.
     - Acceptance: the site preview has a reference page for every public name of Q2, grouped by story.
-11. **Version 0.1.0 (Q7).** Blocked by steps 3, 8 and 9, and by MAR-158's runs.
+11. **Version 0.1.0 (Q7).** Blocked by steps 3, 8 and 9, by MAR-158's runs, and by MAR-170 (review F1).
+    - Why MAR-170: 0.1.0 must not ship a known correctness defect. Today a step payout below the attachment pays on kept rows but not on filtered rows or empty years.
     - Files: the versions in `packages/core/pyproject.toml` and `packages/viz/pyproject.toml`; `uv.lock` (and `packages/climada/pixi.lock` if needed); `CHANGELOG.md`; optionally `CITATION.cff`; the regenerated `parity/REPORT.md` and `parity/reports/`.
     - Acceptance: CI's wheels carry 0.1.0, and the regenerated parity report has the committed report's findings.
 12. **Release workflow (Q7).** Blocked by step 11.
