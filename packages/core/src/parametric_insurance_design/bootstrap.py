@@ -46,6 +46,13 @@ From year counts to a resampled measure
     vectorised KPI formulas reproduce ``evaluate.kpis`` (a guard against
     drift; a mismatch raises :class:`BootstrapError`).
 
+Array-level replicates
+    :func:`kpi_replicates` gives the eight ``evaluate`` KPIs of per-row loss
+    and payout, and :func:`premium_replicates` the premium of a payout
+    (``pricing.premium_value`` on each replicate's measure), without an
+    EventSet. :func:`bootstrap_kpis` builds on the same code, and
+    ``experiment.kfold`` uses both for the pooled k-fold KPIs (MAR-153).
+
 Intervals
     Percentile intervals: the ``(1 - level) / 2`` and ``(1 + level) / 2``
     quantiles (``numpy.quantile``, linear interpolation) of the replicate
@@ -78,15 +85,12 @@ from parametric_insurance_design.basis import (
     Basis,
     OutcomeMeasure,
 )
-from parametric_insurance_design.errors import InputMismatchError
-from parametric_insurance_design.evaluate import (
-    _evaluate,  # pyright: ignore[reportPrivateUsage]
-    _Subject,  # pyright: ignore[reportPrivateUsage]
-    kpis,
-)
+from parametric_insurance_design.errors import ComponentConfigError, InputMismatchError
+from parametric_insurance_design.evaluate import KpiSubject, evaluate_results, kpis
 from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.interfaces import Pricing, Sample, Scope, SolveResult
 from parametric_insurance_design.records import KPIS, KpiLevel, KpiName
+from parametric_insurance_design.riskmeasures import CDF_ATOL
 
 __all__ = [
     "DEFAULT_LEVEL",
@@ -99,6 +103,7 @@ __all__ = [
     "kpi_replicates",
     "paired_difference",
     "percentile_interval",
+    "premium_replicates",
     "resample_years",
 ]
 
@@ -127,16 +132,6 @@ cells, which bounds the memory of the probability matrices (16 MB each)."""
 
 _POINT_RTOL: Final[float] = 1e-9
 """Relative tolerance of the check against ``evaluate.kpis``."""
-
-_CDF_ATOL: Final[float] = 1e-10
-"""A cumulative probability within this of ``beta`` counts as reaching it.
-
-VaR is the smallest value whose cumulative probability reaches ``beta``.
-When ``beta`` falls exactly on a step of the distribution (e.g. ``beta = 0.8``
-with 40 equally likely years), the summed probabilities land a rounding
-error above or below ``beta`` depending on the summation order, which differs
-between platforms (``numpy.argsort`` of tied values). Treating a shortfall of
-at most this much as reaching ``beta`` gives the exact-arithmetic answer."""
 
 _TIE_ATOL: Final[float] = 1e-9
 """Tolerance of the knife-edge check in :func:`_is_quantile_step`."""
@@ -416,19 +411,21 @@ class _Reweighting:
 def _var_cvar_rows(
     values: NDArray[np.float64], prob: NDArray[np.float64], beta: float
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    """``evaluate.var_cvar`` for every row of ``prob`` over the same values.
+    """``riskmeasures.var_cvar`` for every row of ``prob`` over the same values.
 
     The sort order of the values does not depend on the weights, so the
     values are sorted once and only the cumulative weights differ per row.
-    A cumulative probability within :data:`_CDF_ATOL` below ``beta`` counts
-    as reaching it (the exact-arithmetic VaR on a step of the distribution).
+    A cumulative probability within ``riskmeasures.CDF_ATOL`` below ``beta``
+    counts as reaching it (the exact-arithmetic VaR on a step of the
+    distribution); ``var_cvar`` compares strictly, so on a step the two can
+    give adjacent atoms (see :func:`_is_quantile_step`).
     """
     order = np.argsort(values)
     xs = values[order]
     ps = prob[:, order]
     n = xs.size
     cdf = np.cumsum(ps, axis=1)
-    pos = np.minimum((cdf < beta - _CDF_ATOL).sum(axis=1), n - 1)
+    pos = np.minimum((cdf < beta - CDF_ATOL).sum(axis=1), n - 1)
     var = xs[pos]
     first_tail = np.searchsorted(xs, var, side="right")
     # Tail sums over the values above the VaR, direct (no cancellation). The
@@ -578,8 +575,9 @@ def kpi_replicates(
     Returns
     -------
     dict
-        For each of the eight ``evaluate`` KPIs (not ``premium``), an array
-        of shape ``(B,)``; NaN where the KPI is undefined in a replicate.
+        For each of the eight ``evaluate`` KPIs (not ``premium``; see
+        :func:`premium_replicates`), an array of shape ``(B,)``; NaN where
+        the KPI is undefined in a replicate.
 
     Raises
     ------
@@ -726,6 +724,60 @@ def _replicate_premiums(
     return out
 
 
+def premium_replicates(
+    payout: ArrayLike,
+    measure: OutcomeMeasure,
+    row_years: ArrayLike,
+    resample: YearResample,
+    pricing: Pricing,
+) -> NDArray[np.float64]:
+    """Bootstrap replicates of the premium of one payout (array level).
+
+    The premium counterpart of :func:`kpi_replicates`, usable without an
+    EventSet: ``pricing.premium_value`` of the payout on each replicate's
+    measure (the evaluation measure reweighted by the replicate's year
+    counts, module docstring). :func:`bootstrap_kpis` replicates its
+    ``premium`` rows the same way, so on the same rows, measure and resample
+    the two give the same values.
+
+    Parameters
+    ----------
+    payout : array_like of float
+        Per-row payout to price, shape ``(n_rows,)``: the objective-level
+        payout (the portfolio payout for the ``premium`` KPI).
+    measure : OutcomeMeasure
+        Evaluation measure over the same rows.
+    row_years : array_like of int
+        Year of each row, all among ``resample.years``.
+    resample : YearResample
+        The replicates.
+    pricing : Pricing
+        The pricing rule, e.g. ``pricing.PurePremium()``.
+
+    Returns
+    -------
+    numpy.ndarray of float
+        Shape ``(B,)``: the premium in each replicate.
+
+    Raises
+    ------
+    BootstrapError
+        If the rows, years and measure do not fit together (module
+        docstring), or ``resample`` is not a :class:`YearResample`.
+    InputMismatchError
+        If ``payout`` does not have one finite value per row.
+    ComponentConfigError
+        If ``pricing`` is not a ``Pricing``.
+    """
+    if not isinstance(pricing, Pricing):
+        raise ComponentConfigError(f"pricing must be a Pricing, got {pricing!r}")
+    if not isinstance(resample, YearResample):
+        raise BootstrapError(f"resample must be a YearResample, got {resample!r}")
+    pay = _row_values(payout, measure, "payout")
+    reweighting = _Reweighting.build(measure, row_years, resample.years)
+    return _replicate_premiums(reweighting, resample, [("", pay)], pricing)[0]
+
+
 def bootstrap_kpis(
     eventset: EventSet,
     scope: Scope,
@@ -786,7 +838,7 @@ def bootstrap_kpis(
         sample=sample,
         pricing=pricing,
     )
-    ev = _evaluate(eventset, scope, results, basis, sample)
+    ev = evaluate_results(eventset, scope, results, basis=basis, sample=sample)
     if not np.array_equal(resample.years, ev.sample.years):
         raise BootstrapError(
             f"the resample covers {resample.n_years} years "
@@ -808,7 +860,7 @@ def bootstrap_kpis(
     )
     ones_prob = reweighting.probabilities(ones.counts())
 
-    def key(subject: _Subject, kpi: KpiName) -> tuple[str, str, str, str]:
+    def key(subject: KpiSubject, kpi: KpiName) -> tuple[str, str, str, str]:
         return (subject.problem_id, subject.level.value, subject.subject_id, kpi.value)
 
     outcomes = [_Outcomes.of(s.loss, s.payout, measure) for s in ev.subjects]
@@ -821,7 +873,7 @@ def bootstrap_kpis(
         uncovered[key(subject, KpiName.VAR_UNCOVERED)] = o.uncovered
 
     if pricing is not None:
-        priced: list[tuple[_Subject, NDArray[np.float64]]] = [
+        priced: list[tuple[KpiSubject, NDArray[np.float64]]] = [
             (s, s.payout)
             for s in ev.subjects
             if s.level in (KpiLevel.PROBLEM, KpiLevel.PORTFOLIO)
@@ -854,7 +906,7 @@ def bootstrap_kpis(
             uncovered[k], ones_prob[0], level_beta, ours, theirs
         ):
             # VaR on a step of the distribution: both values are the
-            # beta-quantile up to rounding (see _CDF_ATOL); keep evaluate's.
+            # beta-quantile up to rounding (see CDF_ATOL); keep evaluate's.
             pass
         else:
             _check_point(k, ours, theirs)

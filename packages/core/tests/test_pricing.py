@@ -15,6 +15,7 @@ from numpy.typing import ArrayLike, NDArray
 from parametric_insurance_design.errors import ComponentConfigError, InputMismatchError
 from parametric_insurance_design.interfaces import ProblemContext
 from parametric_insurance_design.pricing import CostOfCapitalLoad, PurePremium
+from parametric_insurance_design.riskmeasures import var_cvar
 
 from ._doubles import FreePayout, event_measure, grouped_measure, make_context
 
@@ -100,10 +101,25 @@ PAYOUT_CVAR = {0.5: 1.6, 0.8: 2.5, 0.95: 4.0}
 
 
 def loaded_premium_at(
-    pricing: CostOfCapitalLoad, ctx: ProblemContext, payout: ArrayLike
+    pricing: CostOfCapitalLoad,
+    ctx: ProblemContext,
+    payout: ArrayLike,
+    zeta: float | None = None,
 ) -> float:
+    """Value of the loaded premium term at ``payout`` and the auxiliary ``zeta``.
+
+    Default ``zeta``: the VaR of the outcome payouts, a minimiser of the
+    Rockafellar-Uryasev function, where the term equals the loaded premium.
+    """
     term = pricing.premium(ctx)
-    ctx.theta.value = np.asarray(payout, dtype=np.float64)[None, :]
+    values = np.asarray(payout, dtype=np.float64)
+    ctx.theta.value = values[None, :]
+    if zeta is None:
+        measure = ctx.measure
+        zeta, _ = var_cvar(measure.aggregate(values), measure.probability, pricing.q)
+    for variable in term.expression.variables():
+        if variable.id != ctx.theta.id:
+            variable.value = np.asarray(zeta)
     v = term.expression.value
     assert v is not None
     return float(np.asarray(v))
@@ -117,8 +133,11 @@ def test_loaded_premium_matches_hand_computed_values(rate: float, q: float) -> N
     measure = event_measure()
     assert pricing.premium_value(PAYOUT, measure) == pytest.approx(expected, rel=1e-12)
     ctx = make_context(FreePayout(), measure=measure)
-    # The expression's value solves the inner Rockafellar-Uryasev LP.
-    assert loaded_premium_at(pricing, ctx, PAYOUT) == pytest.approx(expected, rel=1e-7)
+    # The term is the Rockafellar-Uryasev function: the loaded premium at the
+    # minimising zeta (the VaR), more at any other zeta (MAR-143).
+    assert loaded_premium_at(pricing, ctx, PAYOUT) == pytest.approx(expected, rel=1e-12)
+    for zeta in (-1.0, 0.0, 0.5, 2.0, 5.0):
+        assert loaded_premium_at(pricing, ctx, PAYOUT, zeta) >= expected - 1e-12
 
 
 def test_rate_zero_is_the_pure_premium() -> None:
@@ -165,7 +184,7 @@ def test_loaded_premium_aggregates_rows_into_outcomes() -> None:
     expected = 0.8 * 7 / 4 + 0.2 * 3
     assert pricing.premium_value(PAYOUT, measure) == pytest.approx(expected)
     ctx = make_context(FreePayout(), measure=measure)
-    assert loaded_premium_at(pricing, ctx, PAYOUT) == pytest.approx(expected, rel=1e-7)
+    assert loaded_premium_at(pricing, ctx, PAYOUT) == pytest.approx(expected, rel=1e-12)
 
 
 def test_loaded_premium_lies_between_mean_and_cvar_and_is_homogeneous() -> None:
@@ -185,7 +204,7 @@ def test_loaded_premium_lies_between_mean_and_cvar_and_is_homogeneous() -> None:
         )
         ctx = make_context(FreePayout(), measure=measure)
         assert loaded_premium_at(loaded, ctx, payout) == pytest.approx(
-            value, rel=1e-7, abs=1e-9
+            value, rel=1e-12, abs=1e-12
         )
 
 

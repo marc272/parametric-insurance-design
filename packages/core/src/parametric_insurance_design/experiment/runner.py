@@ -20,8 +20,11 @@ Owner: MAR-64. Executes one configured run end to end and persists it in a
    calibrate on the fold's training years, evaluate on its training and
    test samples (``splits.year_block_kfold``).
 5. **Build, solve, evaluate.** ``problem.build_problems``, then
-   ``solve.solve`` for every design problem, then ``evaluate.kpis`` and
-   ``evaluate.exceedance_curves`` when every design problem was solved.
+   ``solve.solve`` for every design problem, with the run's pricing, so the
+   recorded premium is ``pricing.premium_value`` of the realised payout
+   (MAR-143), then ``evaluate.kpis`` and
+   ``evaluate.exceedance_curves`` (at ``evaluation.return_periods``, MAR-117)
+   when every design problem was solved.
    With a ``bootstrap`` config section (MAR-23), ``bootstrap.bootstrap_kpis``
    replaces ``evaluate.kpis``: the same point values plus block-bootstrap
    confidence intervals in the ``ci_*`` columns, with a fresh generator
@@ -826,7 +829,7 @@ def execute(
             for location_id in entity.location_ids
         )
         try:
-            result = solve(problem, policy)
+            result = solve(problem, policy, pricing=components.pricing)
         except SolveError as exc:
             _log.warning("run %s: %s", run_id, exc)
             runs.append(
@@ -923,6 +926,7 @@ def execute(
                     results,
                     basis=components.basis,
                     run_id=run_id,
+                    return_periods=config.evaluation.return_periods,
                     sample=sample,
                 )
             )

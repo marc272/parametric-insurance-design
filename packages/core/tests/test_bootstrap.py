@@ -35,14 +35,11 @@ from parametric_insurance_design.bootstrap import (  # pyright: ignore[reportPri
     kpi_replicates,
     paired_difference,
     percentile_interval,
+    premium_replicates,
     resample_years,
 )
-from parametric_insurance_design.errors import InputMismatchError
-from parametric_insurance_design.evaluate import (
-    _evaluate,  # pyright: ignore[reportPrivateUsage]
-    kpis,
-    var_cvar,
-)
+from parametric_insurance_design.errors import ComponentConfigError, InputMismatchError
+from parametric_insurance_design.evaluate import evaluate_results, kpis, var_cvar
 from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.interfaces import Sample, SolveResult
 from parametric_insurance_design.objectives import MSE, WeightedCVaR
@@ -549,7 +546,7 @@ def test_loaded_premium_is_priced_on_each_replicate(
         data, scope, results, basis=basis, beta=BETA, run_id="r", pricing=pricing
     )
     np.testing.assert_array_equal(col(boot.table, "value"), col(expected, "value"))
-    ev = _evaluate(data, scope, results, basis, None)
+    ev = evaluate_results(data, scope, results, basis=basis)
     (portfolio,) = [s for s in ev.subjects if s.level.value == "portfolio"]
     (row,) = np.flatnonzero(
         (col(boot.table, "level") == "portfolio")
@@ -570,6 +567,69 @@ def test_loaded_premium_is_priced_on_each_replicate(
         & (col(boot.table, "kpi") == "expected_payout")
     )
     assert np.all(boot.replicates[row] >= boot.replicates[pay_row] - 1e-9)
+
+
+@pytest.mark.parametrize("basis", [Basis.EVENT_CONDITIONAL, Basis.ANNUAL])
+@pytest.mark.parametrize(
+    "pricing", [PurePremium(), CostOfCapitalLoad(rate=0.3, q=BETA)], ids=str
+)
+def test_premium_replicates_equal_those_of_bootstrap_kpis(
+    toy_eventset: EventSet, basis: Basis, pricing: PurePremium | CostOfCapitalLoad
+) -> None:
+    # MAR-153: the array-level helper gives bootstrap_kpis' premium
+    # replicates, bit for bit, on the same rows, measure and resample.
+    data = random_rows(toy_eventset, n_years=20, n_draws=2, seed=13)
+    scope = Individual()
+    results = solved(data, scope, MSE(), basis)
+    rs = resample_years(np.arange(20), 40, np.random.default_rng(5))
+    boot = bootstrap_kpis(
+        data,
+        scope,
+        results,
+        basis=basis,
+        beta=BETA,
+        run_id="r",
+        resample=rs,
+        pricing=pricing,
+    )
+    ev = evaluate_results(data, scope, results, basis=basis)
+    row_years = data.events["year"].to_numpy()[ev.sample.rows]
+    level, kpi = col(boot.table, "level"), col(boot.table, "kpi")
+    subject = col(boot.table, "subject_id")
+    for s in ev.subjects:
+        if s.level.value not in ("problem", "portfolio"):
+            continue
+        (row,) = np.flatnonzero(
+            (level == s.level.value) & (subject == s.subject_id) & (kpi == "premium")
+        )
+        reps = premium_replicates(s.payout, ev.measure, row_years, rs, pricing)
+        assert reps.shape == (rs.n_bootstrap,)
+        np.testing.assert_array_equal(reps, boot.replicates[row])
+
+
+def test_premium_replicates_refuse_bad_input() -> None:
+    measure = OutcomeMeasure(
+        basis=Basis.EVENT_CONDITIONAL,
+        outcome_of_row=np.array([0, 1]),
+        probability=np.array([0.5, 0.5]),
+    )
+    rs = resample_years([0, 1], 5, np.random.default_rng(0))
+    pure = PurePremium()
+    np.testing.assert_allclose(
+        premium_replicates([1.0, 3.0], measure, [0, 1], rs, pure),
+        kpi_replicates([0.0, 0.0], [1.0, 3.0], measure, [0, 1], rs, beta=BETA)[
+            KpiName.EXPECTED_PAYOUT
+        ],
+        rtol=1e-12,
+    )
+    with pytest.raises(ComponentConfigError, match="Pricing"):
+        premium_replicates([1.0, 3.0], measure, [0, 1], rs, "pure")  # type: ignore[arg-type]
+    with pytest.raises(BootstrapError, match="YearResample"):
+        premium_replicates([1.0, 3.0], measure, [0, 1], "rs", pure)  # type: ignore[arg-type]
+    with pytest.raises(InputMismatchError, match="payout"):
+        premium_replicates([1.0], measure, [0, 1], rs, pure)
+    with pytest.raises(BootstrapError, match="outside the resampled years"):
+        premium_replicates([1.0, 3.0], measure, [0, 5], rs, pure)
 
 
 def test_undefined_replicates_give_null_bounds(toy_eventset: EventSet) -> None:
@@ -629,7 +689,7 @@ def test_point_check_accepts_the_other_side_of_a_step(
     rs = resample_years(np.arange(20), 20, np.random.default_rng(0))
     real = bootstrap_module.kpis  # pyright: ignore[reportPrivateImportUsage]
     table = real(data, scope, results, basis=Basis.ANNUAL, beta=0.8, run_id="r")
-    ev = _evaluate(data, scope, results, Basis.ANNUAL, None)
+    ev = evaluate_results(data, scope, results, basis=Basis.ANNUAL)
     (portfolio,) = [s for s in ev.subjects if s.level.value == "portfolio"]
     u = ev.measure.aggregate(np.maximum(portfolio.loss - portfolio.payout, 0.0))
     p = ev.measure.probability

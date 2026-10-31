@@ -131,6 +131,9 @@ def test_thesis_yaml_holds_the_thesis_values(config: ExperimentConfig) -> None:
     assert config.pricing.kind == "pure"
     assert [(c.kind, c.loading) for c in config.constraints] == [("budget", 1.0)]
     assert config.evaluation.beta == 0.95
+    # Thesis plot_exceedance_curves default (Figure 5.6), MAR-117.
+    assert config.evaluation.return_periods == mt.THESIS_RETURN_PERIODS
+    assert mt.THESIS_RETURN_PERIODS == (2, 5, 10, 20, 50, 100, 200, 500)
     sweeps = {s.parameter: s for s in config.sweeps}
     assert list(sweeps) == [
         "alpha",

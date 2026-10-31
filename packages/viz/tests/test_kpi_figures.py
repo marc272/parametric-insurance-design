@@ -26,14 +26,18 @@ from parametric_insurance_design.experiment.config import (
     config_hash,
     load_config,
 )
+from parametric_insurance_design.experiment.kfold import PooledKpis, pooled_kpis
 from parametric_insurance_design.experiment.runner import (
     load_input,
+    prepare_eventset,
     run_config,
     run_key,
 )
 from parametric_insurance_design.experiment.store import ResultStore
+from parametric_insurance_design_viz import command
 from parametric_insurance_design_viz.command import (
     FIGURE_SETS,
+    FigureContext,
     SkippedFigure,
     payout_figures,
     write_figures,
@@ -43,11 +47,13 @@ from parametric_insurance_design_viz.errors import (
     IncompleteRunError,
     InconsistentRunsError,
 )
-from parametric_insurance_design_viz.figure_data import write_figure
+from parametric_insurance_design_viz.figure_data import FigureOutput, write_figure
 from parametric_insurance_design_viz.kpi_figures import (
     CURVE_COLUMNS,
     KPI_COLUMNS,
     OVERVIEW_KPIS,
+    POOLED_EXCEEDANCE_REASON,
+    POOLED_KPI_COLUMNS,
     Baseline,
     KFoldRunsError,
     _fmt_sci,  # pyright: ignore[reportPrivateUsage]
@@ -58,6 +64,8 @@ from parametric_insurance_design_viz.kpi_figures import (
     kpi_label,
     kpi_table,
     performance_overview,
+    pooled_kpi_table,
+    return_period_label,
 )
 from parametric_insurance_design_viz.payout_functions import AxisLabels
 from parametric_insurance_design_viz.reader import ResultReader, RunResult
@@ -688,9 +696,13 @@ def test_exceedance_data(toy_grid: dict, tmp_path: Path) -> None:
             "marker": "var_return_period",
             "beta": 0.9,
             "return_period": 10.0,
+            "unit": "events",  # event_conditional basis (MAR-139)
             "drawn": True,
         }
     ]
+    ax = output.figure.axes[0]
+    assert ax.get_xlabel() == r"Return period $RP$ [events]"
+    assert any("10$ events)" in t.get_text() for t in ax.texts)
 
 
 def test_exceedance_adds_the_var_point(beta95: Variant) -> None:
@@ -715,7 +727,11 @@ def test_exceedance_adds_the_var_point(beta95: Variant) -> None:
 
 def test_exceedance_curve_kinds(annual: dict, toy_grid: dict) -> None:
     runs = annual["portfolio"]
-    main = exceedance_curves(runs).data[""]
+    output = exceedance_curves(runs)
+    main = output.data[""]
+    # the annual basis counts years (MAR-117, MAR-139)
+    assert output.figure.axes[0].get_xlabel() == r"Return period $RP$ [years]"
+    assert output.data["markers"]["unit"].tolist() == ["years"]
     assert set(main["curve"]) == {"aep"}
     assert set(main["basis"]) == {"annual"}
     store = stored_curve(runs[0], "aep")
@@ -895,8 +911,10 @@ def test_kfold_runs_are_refused(kfold: Variant, holdout: dict) -> None:
     assert issubclass(KFoldRunsError, InconsistentRunsError)
 
 
-def test_figures_command_refuses_a_kfold_store(kfold: Variant, tmp_path: Path) -> None:
-    with pytest.raises(KFoldRunsError, match=r"k-fold sample \(k=2\)"):
+def test_a_kfold_store_without_pooled_kpis_is_refused(
+    kfold: Variant, tmp_path: Path
+) -> None:
+    with pytest.raises(KFoldRunsError, match=r"k-fold sample \(k=2\)") as info:
         write_figures(
             kfold.config,
             kfold.run_ids,
@@ -904,7 +922,198 @@ def test_figures_command_refuses_a_kfold_store(kfold: Variant, tmp_path: Path) -
             out_dir=tmp_path,
             figure_sets=(kpi_figures,),
         )
+    assert "pooled out-of-sample KPIs (MAR-151)" in str(info.value)
     assert not list(tmp_path.iterdir())  # nothing is drawn
+
+
+# -- k-fold stores: pooled KPIs (MAR-151) -----------------------------------------
+
+
+@pytest.fixture(scope="module")
+def kfold_ci(toy: Fixture, tmp_path_factory: pytest.TempPathFactory) -> Variant:
+    """A real k-fold store (k = 2) with a bootstrap section (MAR-151)."""
+    return variant(
+        toy,
+        tmp_path_factory.mktemp("kfold_ci"),
+        sample={"kind": "kfold", "k": 2},
+        bootstrap=BOOTSTRAP,
+    )
+
+
+def pooled_of(v: Variant) -> PooledKpis:
+    """The core's pooled KPIs of a k-fold store, as the figures command computes."""
+    prepared = prepare_eventset(v.config, load_input(v.config).eventset)
+    return pooled_kpis(v.config, v.store, prepared, v.run_ids)
+
+
+def capture_kpi_figures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[FigureOutput | SkippedFigure]:
+    """Keep the outputs of ``kpi_figures`` when ``write_figures`` runs it."""
+    outputs: list[FigureOutput | SkippedFigure] = []
+
+    def capture(context: FigureContext) -> list[FigureOutput | SkippedFigure]:
+        out = kpi_figures(context)
+        outputs.extend(out)
+        return out
+
+    monkeypatch.setattr(command, "KFOLD_FIGURE_SETS", (capture,))
+    return outputs
+
+
+def test_kfold_figures_draw_one_pooled_row_per_design(
+    kfold_ci: Variant, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pooled = pooled_of(kfold_ci)
+    outputs = capture_kpi_figures(monkeypatch)
+    report = write_figures(
+        kfold_ci.config,
+        kfold_ci.run_ids,
+        store=kfold_ci.store,
+        out_dir=tmp_path,
+        figure_sets=(command.KFOLD_FIGURE_SETS[0],),
+        pooled_kpis=pooled.table,
+    )
+    assert report.ok
+    assert [w.name for w in report.written] == KPI_NAMES
+    assert [(s.name, s.failed, s.reason) for s in report.skipped] == [
+        (f"exceedance_{s}", False, POOLED_EXCEEDANCE_REASON)
+        for s in ("individual", "portfolio")
+    ]
+    table = pooled.table
+    designs = [
+        (s, o) for s in ("individual", "portfolio") for o in ("mse", "weighted_cvar")
+    ]
+    for kpi in ("cvar_uncovered", "expected_uncovered"):
+        heatmap = pd.read_csv(tmp_path / f"kpi_heatmap_{kpi}.csv")
+        assert list(heatmap.columns[: len(POOLED_KPI_COLUMNS)]) == list(
+            POOLED_KPI_COLUMNS
+        )
+        # one pooled row per scope x objective, not one per fold
+        assert list(zip(heatmap["scope_key"], heatmap["objective"], strict=True)) == (
+            designs
+        )
+        assert set(heatmap["eval_split"]) == {"pooled"}
+        assert bool(heatmap["fold"].isna().all())
+        assert set(heatmap["k"]) == {2}
+        assert drawn(heatmap).all()
+        for row in heatmap.to_dict("records"):
+            ids = str(row["run_id"]).split(";")
+            assert len(ids) == 2
+            assert set(ids) <= set(kfold_ci.run_ids)
+            core = where(
+                table,
+                (table["scope"] == row["scope"])
+                & (table["objective"] == row["objective"])
+                & (table["kpi"] == kpi),
+            ).iloc[0]
+            for column in ("value", "ci_low", "ci_high", "ci_level"):
+                assert row[column] == pytest.approx(core[column], rel=1e-12)
+            assert row["n_bootstrap"] == BOOTSTRAP["n_bootstrap"]
+    overview = pd.read_csv(tmp_path / "performance_overview.csv")
+    assert len(overview) == len(designs) * len(OVERVIEW_KPIS)
+    assert drawn(overview).all()
+    # the setup of every number is stated (publication rule)
+    texts = {
+        o.name: [t.get_text() for t in o.figure.texts]
+        for o in outputs
+        if isinstance(o, FigureOutput)
+    }
+    for name in KPI_NAMES:
+        assert any("pooled out of sample over k = 2 folds" in t for t in texts[name])
+    assert any("(B = 200)" in t for t in texts["kpi_heatmap_cvar_uncovered"])
+
+
+def test_kfold_figures_without_bootstrap_have_no_intervals(
+    kfold: Variant, tmp_path: Path
+) -> None:
+    pooled = pooled_of(kfold)
+    assert pooled.resample is None
+    report = write_figures(
+        kfold.config,
+        kfold.run_ids,
+        store=kfold.store,
+        out_dir=tmp_path,
+        figure_sets=(kpi_figures,),
+        pooled_kpis=pooled.table,
+    )
+    assert [w.name for w in report.written] == KPI_NAMES
+    heatmap = pd.read_csv(tmp_path / "kpi_heatmap_cvar_uncovered.csv")
+    assert not drawn(heatmap).any()
+    assert set(heatmap["eval_split"]) == {"pooled"}
+
+
+def test_pooled_kpi_table_checks_its_input(kfold_ci: Variant) -> None:
+    table = pooled_of(kfold_ci).table
+    keys = ["individual", "portfolio"]
+    out = pooled_kpi_table(table, keys, ["cvar_uncovered"])
+    assert len(out) == 4
+    assert out["n_bootstrap"].dtype == "Int64"
+    with pytest.raises(InconsistentRunsError, match="unknown KPIs"):
+        pooled_kpi_table(table, keys, ["nope"])
+    with pytest.raises(InconsistentRunsError, match="lacks the columns"):
+        pooled_kpi_table(table.drop(columns=["run_ids"]), keys, ["cvar_uncovered"])
+    with pytest.raises(InconsistentRunsError, match="has no rows"):
+        pooled_kpi_table(table.iloc[:0], keys, ["cvar_uncovered"])
+    with pytest.raises(InconsistentRunsError, match="'pooled' portfolio rows"):
+        pooled_kpi_table(table.assign(eval_split="test"), keys, ["cvar_uncovered"])
+    with pytest.raises(InconsistentRunsError, match="the config has 1 scopes"):
+        pooled_kpi_table(table, keys[:1], ["cvar_uncovered"])
+    no_cvar = where(table, table["kpi"] != "cvar_uncovered")
+    with pytest.raises(InconsistentRunsError, match="0 rows of KPI 'cvar_uncovered'"):
+        pooled_kpi_table(no_cvar, keys, ["cvar_uncovered"])
+
+
+def test_pooled_kpis_must_fit_the_config(
+    kfold_ci: Variant, kfold: Variant, tmp_path: Path
+) -> None:
+    table = pooled_of(kfold_ci).table
+    one_objective = where(table, table["objective"] == "mse")
+    with pytest.raises(InconsistentRunsError, match="cover the objectives"):
+        write_figures(
+            kfold.config,
+            kfold.run_ids,
+            store=kfold.store,
+            out_dir=tmp_path,
+            figure_sets=(kpi_figures,),
+            pooled_kpis=one_objective,
+        )
+    with pytest.raises(InconsistentRunsError, match="the config has k = 2"):
+        write_figures(
+            kfold.config,
+            kfold.run_ids,
+            store=kfold.store,
+            out_dir=tmp_path,
+            figure_sets=(kpi_figures,),
+            pooled_kpis=table.assign(k=3),
+        )
+    with pytest.raises(InconsistentRunsError, match="cover the scopes"):
+        write_figures(
+            kfold.config,
+            kfold.run_ids,
+            store=kfold.store,
+            out_dir=tmp_path,
+            figure_sets=(kpi_figures,),
+            pooled_kpis=where(table, table["scope_position"] == 0),
+        )
+    with pytest.raises(InconsistentRunsError, match="not a complete"):
+        write_figures(
+            kfold.config,
+            kfold.run_ids,
+            store=kfold.store,
+            out_dir=tmp_path,
+            figure_sets=(kpi_figures,),
+            pooled_kpis=where(
+                table,
+                ~((table["scope_position"] == 1) & (table["objective"] == "mse")),
+            ),
+        )
+
+
+def test_return_period_label_per_basis() -> None:
+    assert return_period_label("event_conditional") == r"Return period $RP$ [events]"
+    assert return_period_label("annual") == r"Return period $RP$ [years]"
+    assert return_period_label("event") == r"Return period $RP$ [years]"
 
 
 def test_failed_runs_skip_the_kpi_figures(failed: Fixture, tmp_path: Path) -> None:

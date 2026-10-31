@@ -31,7 +31,13 @@ Commands
     are skipped and listed as ``MISSING`` (exit code 1); the single runs
     must still be in the store. ``--transaction-costs TAU,...`` sets the
     costs per contract of the cluster net-advantage figure (default: the
-    thesis' 25000,50000,75000,100000,125000). The figures live in the
+    thesis' 25000,50000,75000,100000,125000). For a k-fold config (MAR-151)
+    it first computes the pooled out-of-sample portfolio KPIs from the store
+    (:func:`~parametric_insurance_design.experiment.kfold.pooled_kpis`, with
+    its drift guard; nothing is solved), passes them as ``pooled_kpis=``,
+    reads no sweep points and prints a ``pooled k-fold KPIs`` line (and a
+    ``not pooled`` line per scope x objective with a failed fold). The
+    figures live in the
     optional package ``parametric-insurance-design-viz``, imported only by
     this command; if it is not installed, the command fails with
     :class:`VizNotInstalledError` (exit code 3). Accepts ``--policy``, ``-v``
@@ -106,6 +112,11 @@ from parametric_insurance_design.experiment.config import (
     SweepConfig,
     config_hash,
     load_config,
+)
+from parametric_insurance_design.experiment.kfold import (
+    KFOLD_SAMPLE,
+    PooledKpis,
+    pooled_kpis,
 )
 from parametric_insurance_design.experiment.runner import (
     PACKAGE,
@@ -404,10 +415,19 @@ def _label(config: ExperimentConfig) -> str:
 
 
 def _point_label(point: SweepPoint) -> str:
-    """Describe a sweep point: its value (and subset), scope and objective."""
+    """Describe a sweep point: its value (and subset), scope and objective.
+
+    A point whose cluster count was capped at its subset size (MAR-131) also
+    shows the cap, e.g. ``n_assets=2 [A,B] (n_clusters 3->2) cluster x mse``
+    (MAR-150), so a dry run never hides it.
+    """
     value = f"{point.parameter}={point.value!r}"
     if point.location_ids is not None:
         value += f" [{','.join(point.location_ids)}]"
+    if point.n_clusters_capped:
+        value += (
+            f" (n_clusters {point.n_clusters_requested}->{point.n_clusters_effective})"
+        )
     return f"{value} {point.scope} x {point.objective}"
 
 
@@ -685,25 +705,49 @@ def _figures(config: ExperimentConfig, args: argparse.Namespace) -> ExitCode:
         run_key(config_hash(single), data.checksum, policy=policy)
         for single in config.single_runs()
     ]
-    sweeps = _sweep_runs(viz, config, data, policy)
+    kfold = config.sample.kind == KFOLD_SAMPLE
+    # A k-fold config's figures read no sweep points (MAR-151).
+    sweeps = [] if kfold else _sweep_runs(viz, config, data, policy)
     out_dir: Path = (
         args.out if args.out is not None else config.output.directory / "figures"
     )
+    store = ResultStore(config.output.directory)
+    prepared = prepare_eventset(config, data.eventset)
     options: dict[str, object] = {}
     if args.skip_missing_sweeps:
         options["skip_missing_sweeps"] = True
     if args.transaction_costs is not None:
         options["transaction_costs"] = args.transaction_costs
+    pooled: PooledKpis | None = None
+    if kfold:
+        pooled = pooled_kpis(config, store, prepared, run_ids)
+        options["pooled_kpis"] = pooled.table
     report = viz.write_figures(
         config,
         run_ids,
-        store=ResultStore(config.output.directory),
+        store=store,
         out_dir=out_dir,
-        eventset=prepare_eventset(config, data.eventset),
+        eventset=prepared,
         sweeps=sweeps,
         **options,
     )
     _out(f"figures {config.name!r} from {config.output.directory} into {out_dir}:")
+    if pooled is not None:
+        n_designs = len(config.scopes) * len(config.objectives)
+        intervals = (
+            "no intervals (no bootstrap section)"
+            if pooled.resample is None
+            else f"B = {pooled.resample.n_bootstrap}, level {pooled.level:g}"
+        )
+        _out(
+            f"  pooled k-fold KPIs (k = {pooled.k}): "
+            f"{n_designs - len(pooled.failed)} of {n_designs} scope x objective "
+            f"pooled over every fold's test block; {intervals}"
+        )
+        for failure in pooled.failed:
+            _out(
+                f"  not pooled: {failure.scope} x {failure.objective}: {failure.reason}"
+            )
     if sweeps:
         n_missing = len(report.missing_sweeps)
         _out(

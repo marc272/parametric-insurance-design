@@ -8,8 +8,9 @@ components and tolerances it reuses through the public engine API
   ``PurePremium``, so the same ``theta`` and premium, bit for bit.
 * Loaded pricing: the solution is feasible, the budget holds under the
   *loaded* premium recomputed in numpy (``(1 - r) E[pi] + r CVaR_q(pi)``,
-  ``evaluate.var_cvar``), ``SolveResult.premium`` equals that premium whether
-  the budget binds or not, and the optimum is no worse than the zero payout.
+  ``riskmeasures.var_cvar``), ``SolveResult.premium`` (``solve`` given the
+  pricing, MAR-143) equals that premium whether the budget binds or not, and
+  the optimum is no worse than the zero payout.
 * Loading tightens the budget: the loaded premium of a payout is at least its
   pure premium, so the optimum with a loaded budget is no better than with
   the pure one, and no better at a higher ``rate``.
@@ -38,7 +39,6 @@ from numpy.typing import NDArray
 
 from parametric_insurance_design.basis import Basis
 from parametric_insurance_design.constraints import Budget
-from parametric_insurance_design.evaluate import var_cvar
 from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.interfaces import (
     Constraint,
@@ -52,6 +52,7 @@ from parametric_insurance_design.objectives import MSE
 from parametric_insurance_design.payout import StepPayout
 from parametric_insurance_design.pricing import CostOfCapitalLoad, PurePremium
 from parametric_insurance_design.problem import build_problems
+from parametric_insurance_design.riskmeasures import var_cvar
 from parametric_insurance_design.solve import solve
 
 from .test_engine_properties import (
@@ -143,7 +144,7 @@ def design(
     probability = eventset.rates / eventset.rates.sum()
     out = []
     for problem in built:
-        result = solve(problem)
+        result = solve(problem, pricing=pricing)
         out.append(
             Solved(result, scope.materialise(eventset, result.spec), probability)
         )
@@ -348,7 +349,7 @@ def design_on_basis(
             grouping,
             probability,
         )
-        for result in (solve(problem) for problem in built)
+        for result in (solve(problem, pricing=pricing) for problem in built)
     ]
 
 
