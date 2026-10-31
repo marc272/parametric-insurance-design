@@ -2,6 +2,8 @@
 
 Issue MAR-27 (F-11), SPEC §6.4 (thesis issue M4). Code: `packages/core/src/parametric_insurance_design/pricing.py`; the portfolio premium in `evaluate.kpis`. Config section `pricing` (`kind: pure` or `kind: cost_of_capital` with `rate` and `q`).
 
+See also: [the tail-risk objective](../concepts/tail-risk-objective.md) (the budget in the design problem) and [portfolio calibration](../concepts/portfolio-calibration.md) (which premium each scope's budget constrains).
+
 ## Why
 
 The thesis budget is on the pure premium, `E[π] ≤ κ·E[L]`. A writer of a tail-heavy cover has to hold more risk capital than one of a cover that pays often and little, and charges for that capital. A pure-premium budget therefore makes tail cover look cheaper than it is. The cost-of-capital load prices the payout tail.
