@@ -19,7 +19,12 @@ $$\pi_{e,j} = \sum_k \theta_{j,k} \mathbf{1}[\xi_{e,j}\in B_k], \qquad 0 \le \th
 
 where the cap $c_j$ is the entity's largest loss in the calibration rows. The bins are uniform on [attachment, limit] by default, and an index at or above the limit falls into the last bin.
 
-**Below the attachment (today's behaviour).** An index below the attachment falls into the first bin and pays $\theta_{j,0}$ (`payout.StepPayout`, as in the thesis code). Nothing forces $\theta_{j,0} = 0$. A row that the threshold filter dropped, and a year without rows, pays nothing. So a design with $\theta_{j,0} > 0$ depends on which rows the EventSet holds (review finding F1). [MAR-170](https://linear.app/marc-prinzing/issue/MAR-170) tracks the fix.
+**Below the attachment.** `StepPayout` has two modes, set by its `below_attachment` parameter (config `payout.below_attachment`), added in [PR #103](https://github.com/marc272/parametric-insurance-design/pull/103):
+
+- `first_bin`, the default and the thesis code: an index below the attachment falls into the first bin and pays $\theta_{j,0}$. Nothing forces $\theta_{j,0} = 0$. On the `event` and `annual` bases, a row that the threshold filter dropped, and a year without rows, pays nothing. So a design with $\theta_{j,0} > 0$ depends on which rows the EventSet holds ([review finding F1](../reviews/core-design-review.md#f1-a-payout-below-the-attachment-is-θ_j0-but-the-event-and-annual-bases-count-dropped-rows-and-empty-years-as-paying-nothing-defect)).
+- `zero`, as the thesis text describes the attachment (§3.3): an index strictly below the attachment is in no bin and pays nothing. A row with zero loss whose index is below the attachment at every location then adds nothing to any outcome on the `event` and `annual` bases. Dropping such rows leaves the objective, the premium and the budget unchanged, so a threshold filter at the attachment only saves time (`tests/test_filter_invariance.py`).
+
+An index equal to the attachment is in the first bin in both modes. Every configuration in this repository, including the thesis and parity configs, uses `first_bin`. Which mode new designs should use is the owner's decision, pending.
 
 ## The uncovered loss
 
@@ -76,7 +81,7 @@ $$\mathrm{CVaR}_\beta(X) = \frac{1}{1-\beta}\Big(\sum_{x > \mathrm{VaR}_\beta} p
 
 **The thesis text defines another CVaR.** Its eq. (2.3) is $\mathbb{E}[X \mid X \ge \mathrm{VaR}_\beta(X)]$, but it solves the RU form, eq. (3.8). The two differ when X has an atom at its VaR, and the uncovered loss usually has one at 0. If $P(U = 0) \ge \beta$, for example, then $\mathbb{E}[U \mid U \ge 0] = \mathbb{E}[U]$, while the RU value is $\mathbb{E}[U]/(1-\beta)$. The RU value is the coherent CVaR, and it is what every CVaR from this library means (review F5).
 
-**VaR on a step.** When β falls exactly on a step of a discrete distribution, the VaR can be either of the two adjacent atoms, depending on rounding. On the annual basis this is the normal case (review F2, [MAR-155](https://linear.app/marc-prinzing/issue/MAR-155)). The CVaR doesn't depend on which atom is chosen, so no design or premium does. The `var_uncovered` KPI and the exceedance curves do.
+**VaR on a step.** When β falls exactly on a step of a discrete distribution, the VaR can be either of the two adjacent atoms, depending on rounding. On the annual basis this is the normal case ([review finding F2](../reviews/core-design-review.md#f2-on-the-annual-basis-a-var-at-a-standard-β-is-always-on-a-step-unclear-raises-mar-155s-priority)). The CVaR doesn't depend on which atom is chosen, so no design or premium does. The `var_uncovered` KPI and the exceedance curves do, until a planned change gives them one atom convention.
 
 ## The design problem is a linear program
 
@@ -156,7 +161,7 @@ The implementation follows the thesis code, which the parity gate reproduces, an
 | CVaR | E[X ∣ X ≥ VaR] (eq. (2.3)) | the RU CVaR (eq. (3.8)), [above](#cvar-as-implemented) |
 | Budget | (1 + λ)·E[π] = κ·E[L] (eq. (3.15)) | Premium ≤ κ·E[L], no λ |
 | Probabilities | 1/T per event (eq. (3.3)): the `event` basis | the thesis code and the parity runs: the rates rescaled to sum to one after the threshold filter, the `event_conditional` basis. The core v1 features and the paper: `annual` |
-| Index below the attachment | pays nothing (§3.3) | pays the first bin's $\theta_{j,0}$ (§3.3.1), [above](#setting); MAR-170 |
+| Index below the attachment | pays nothing (§3.3) | the thesis code pays the first bin's $\theta_{j,0}$ (§3.3.1). This library has both: `below_attachment="first_bin"`, the default, used by every configuration here, and `"zero"`, which pays nothing ([above](#setting)) |
 
 Between `event` and `event_conditional`, E[U], MSE and the budget change by one constant factor, so their designs agree. The weighted-CVaR designs don't: on `event_conditional`, β is a share of the events above the threshold, not the annual level the thesis text gives it.
 

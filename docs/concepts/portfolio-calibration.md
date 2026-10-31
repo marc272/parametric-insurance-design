@@ -122,7 +122,7 @@ with $x_{e,i}$ the index at asset i and $v_i$ its value (`locations.value`). A c
 It z-scores the features and cuts a Ward-linkage tree into `n_clusters` clusters. Two caveats (review F9):
 
 - The features weight rows by `rate / Σ rate`, the `event_conditional` measure, whatever the run's basis.
-- The tail is the rows whose portfolio loss is at or above its `beta_tail` quantile. If at least `beta_tail` of the row probability has no portfolio loss, that quantile is 0, and the "tail" is every row. The code doesn't flag this ([MAR-172](https://linear.app/marc-prinzing/issue/MAR-172)).
+- The tail is the rows whose portfolio loss is at or above its `beta_tail` quantile. If at least `beta_tail` of the row probability has no portfolio loss, that quantile is 0, and the "tail" is every row. The code doesn't flag this yet; a check is planned ([review finding F9](../reviews/core-design-review.md#f9-clustering-features-ignore-the-basis-and-their-tail-can-silently-be-the-whole-sample-clarity)).
 
 **It changes the index, not only the granularity** (review F7). The thesis describes the cluster scope as changing only the granularity at which cover is allocated (§2.3.3). In the code, it also changes the trigger: a cluster pays on the mean index of its assets, not on each asset's own index. So the cluster scope is neither a restriction nor a relaxation of the portfolio scope:
 
@@ -134,11 +134,11 @@ So a difference between the cluster and portfolio scopes mixes a change of trigg
 
 ## Per-asset results of joint designs are not unique
 
-A joint design is identified only through the portfolio (review F8; MAR-98, MAR-100):
+A joint design is identified only through the portfolio ([review finding F8](../reviews/core-design-review.md#f8-per-asset-kpis-and-payout-functions-of-joint-designs-are-not-identified-defect-known-mar-100-mar-91)):
 
 - The MSE objective of a joint scope depends only on the summed payout of each row. Any other split of the same row sums across the entities that meets the payout constraints is optimal too.
 - E[U] and weighted CVaR have the same freedom wherever the LP has more than one optimal solution.
-- The thesis allocates a cluster's payout to its assets by value weight (eq. (3.23)). This library doesn't ([MAR-91](https://linear.app/marc-prinzing/issue/MAR-91)).
+- The thesis allocates a cluster's payout to its assets by value weight (eq. (3.23)). This library doesn't; an allocation rule is open work.
 
 So the per-entity results of a joint design show one member of a set of optimal designs, picked by the solver. That covers the `evaluate.kpis` rows at `level = "entity"`, the per-entity θ in the `payouts` table, and per-entity payout-function figures. Read the portfolio-level KPIs. In the toy example above the optimum is unique, so its per-asset θ are meaningful; that isn't true in general.
 

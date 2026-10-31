@@ -42,7 +42,7 @@ Consequences:
 
 - `kind: pure`: the portfolio premium is the sum of the problem premiums, as before (up to floating-point summation order).
 - A run with one design problem (the portfolio scope): the portfolio premium is the problem premium.
-- Individual and cluster scopes under a load: the portfolio premium is at most the sum of the problem premiums. Each design problem's budget constrains its own loaded premium, so the separately priced covers together cost the sum, and the portfolio row shows what the same payouts cost as one cover.
+- The individual scope under a load: the portfolio premium is at most the sum of the problem premiums. Each design problem's budget constrains its own loaded premium, so the separately priced covers together cost the sum, and the portfolio row shows what the same payouts cost as one cover. The cluster scope, like the portfolio scope, is one design problem (`problem_id = "portfolio"`, one entity per cluster) with its budget on the aggregate payout, so its portfolio premium is the problem premium.
 
 This does not change how designs are calibrated. Each design problem keeps its own budget on its own premium (ADR 0002).
 
