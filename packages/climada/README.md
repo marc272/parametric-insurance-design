@@ -153,10 +153,13 @@ vulnerability:
                            # slide/other damage; false keeps them (sensitivity)
     basins: [NA]           # default (MAR-132): North Atlantic genesis basin only;
                            # null keeps every basin (sensitivity)
+    recentre: median       # opt-in (MAR-160); default null: the calibrated values
   # or: prior: {kind: uniform, low: 60, high: 110, source: "..."}
 ```
 
 With both defaults the NA2 prior has 17 events (`v_half` 58.6–232.4 m/s). `basins: null` gives the 19 wind-only events of the MAR-103 prior, including the East Pacific storms Iwa (1982, 25.8 m/s) and Iselle (2014, 37.0 m/s) that hit Hawaii. `wind_only: false` with `basins: null` gives all 43 events, the published distribution.
+
+`recentre: median` (MAR-160, MAR-118 Q5) rescales the values multiplicatively, `v_half_i × (impact_function.v_half / median)`, so that their median is the base `v_half`; ratios between values are kept. For the 17 default events that is a factor 74.7 / 113.5 and a range of 38.6–153.0 m/s. A rescaled value at or below `v_thresh` raises `RecentringError` at build time and is never clipped, so the 19-, 40- and 43-event priors can't be recentred on 74.7. The Florida and thesis draws configs set it; `thesis_vulnerability_all_events.yaml` does not. The median is recentred, not the expected loss: see the methodology page.
 
 The hook works as follows:
 

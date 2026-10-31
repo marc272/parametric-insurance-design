@@ -1,0 +1,228 @@
+{
+  "issue": "MAR-160 (F-12): recentre the v_half prior on the base impact function (MAR-118 Q5 = b)",
+  "licence": "CC-BY-4.0",
+  "inputs": {
+    "catalogue": {
+      "file": "data/iris/transformed/IRIS_NA_10000Y_merged.txt",
+      "sha256": "7f7b224d87db743b5653ebfaa8d9ed1e9e8e7cffc1483643fc9a085f155606bd"
+    },
+    "locations": {
+      "file": "data/litpop-florida/locations/locations.yaml",
+      "sha256": "d0aed5d286a2db2472bd046a1a01a0d894ee72fbb8d4ef20b5e943b154a1cdb2"
+    },
+    "cells": {
+      "file": "data/litpop-florida/locations/cells.parquet",
+      "sha256": "7a3ac58782aa4a160d4ff804d8171abb505872a89a97a75e05a6af28c5d73ca6"
+    }
+  },
+  "builds": [
+    {
+      "eventset_dir": "data/eventsets/florida-counties-iris-vulnerability",
+      "content_hash": "sha256:f95553d91f4dfe417838c5b4632ab86f9dde312e4b70f3b14632fc68a26c07d3",
+      "config": {
+        "file": "packages/climada/configs/florida_counties.yaml",
+        "sha256": "6f3d39abb38d4835975104edf04ddf3697222025693844a73c3a3204bb143c10"
+      },
+      "files": {
+        "events.parquet": {
+          "bytes": 161591,
+          "sha256": "b021e0a2b06193fc2ed0600776684dc56c17d8a3f888d9c1f4e13e61a3fb508d"
+        },
+        "locations.parquet": {
+          "bytes": 5794,
+          "sha256": "48c1b93451afa16bf3687eeba0374d5e84e15a636fd9f45c993c0792684eb832"
+        },
+        "metadata.json": {
+          "bytes": 12049,
+          "sha256": "1124fb13576c98af41a33872427026d6769bc7c30a8f2e3e548db6fba53a2512"
+        },
+        "values.parquet": {
+          "bytes": 10596423,
+          "sha256": "1920faaaebb15d23359a9d4c6d8ddb33ab9a2844efbbb30c18c75bb80c76d20f"
+        }
+      },
+      "n_rows": 139020,
+      "n_events": 13902,
+      "n_draws": 10,
+      "n_locations": 67,
+      "rate_sum": 1.3902,
+      "portfolio_expected_annual_loss": 14869621885.363081,
+      "prior_recentre": {
+        "statistic": "median",
+        "method": "multiplicative",
+        "target_v_half": 74.7,
+        "calibrated_median": 113.50000000000124,
+        "factor": 0.6581497797356757
+      },
+      "prior_support": [
+        38.567577092510895,
+        152.95400881057296
+      ],
+      "build": {
+        "command": "pixi run --locked build-eventset --config configs/florida_counties.yaml",
+        "pipeline_runtime_s": 1114.9,
+        "wall_time_s": 1130.93,
+        "max_resident_set_size_bytes": 1376813056,
+        "measured_with": "/usr/bin/time -l around pixi run; the four builds and a scratch run ran at the same time",
+        "machine": "osx-arm64 (owner's Apple-silicon Mac), CLIMADA 6.1.0, Python 3.12",
+        "date": "2026-10-31"
+      }
+    },
+    {
+      "eventset_dir": "data/eventsets/florida-counties-iris-cat-in-circle-50km-vulnerability",
+      "content_hash": "sha256:198573bbd5dfb4d958d379712e14559d50f26c28171fc9fc4e0bd2c8827396d8",
+      "config": {
+        "file": "packages/climada/configs/florida_counties_cat_in_circle.yaml",
+        "sha256": "af666320e4d58614cdffee0f2c33fc4a5fe02505c388c90e1b88a3eb85c56075"
+      },
+      "files": {
+        "events.parquet": {
+          "bytes": 161591,
+          "sha256": "b021e0a2b06193fc2ed0600776684dc56c17d8a3f888d9c1f4e13e61a3fb508d"
+        },
+        "locations.parquet": {
+          "bytes": 5794,
+          "sha256": "48c1b93451afa16bf3687eeba0374d5e84e15a636fd9f45c993c0792684eb832"
+        },
+        "metadata.json": {
+          "bytes": 12735,
+          "sha256": "abe6890093ef48f17469823fb0bae158a6e5d6ad4e1857bc5af1a0df3c668719"
+        },
+        "values.parquet": {
+          "bytes": 8635897,
+          "sha256": "8ab8770333989ca6609c83b941ab4bcfec66fdb2d6976c9bd617d441675b2399"
+        }
+      },
+      "n_rows": 139020,
+      "n_events": 13902,
+      "n_draws": 10,
+      "n_locations": 67,
+      "rate_sum": 1.3902,
+      "portfolio_expected_annual_loss": 14869621885.363081,
+      "prior_recentre": {
+        "statistic": "median",
+        "method": "multiplicative",
+        "target_v_half": 74.7,
+        "calibrated_median": 113.50000000000124,
+        "factor": 0.6581497797356757
+      },
+      "prior_support": [
+        38.567577092510895,
+        152.95400881057296
+      ],
+      "build": {
+        "command": "pixi run --locked build-eventset --config configs/florida_counties_cat_in_circle.yaml",
+        "pipeline_runtime_s": 1091.6,
+        "wall_time_s": 1105.16,
+        "max_resident_set_size_bytes": 1504919552,
+        "measured_with": "/usr/bin/time -l around pixi run; the four builds and a scratch run ran at the same time",
+        "machine": "osx-arm64 (owner's Apple-silicon Mac), CLIMADA 6.1.0, Python 3.12",
+        "date": "2026-10-31"
+      }
+    },
+    {
+      "eventset_dir": "data/eventsets/thesis-iris-vulnerability",
+      "content_hash": "sha256:b4fa0f61485ceb414ef0fb2a31289d1b6c5a94adecdc75451e46617d4797f32d",
+      "config": {
+        "file": "packages/climada/configs/thesis_vulnerability.yaml",
+        "sha256": "0818e0fcef637fdf272601a2eabd1a85a1c335d17f11f9378f34f282f832eeb0"
+      },
+      "files": {
+        "events.parquet": {
+          "bytes": 83050,
+          "sha256": "6e80b569beaefb47f9839ff87ffebd56fb3da8545acf2c29b8bea1fe3ba10ace"
+        },
+        "locations.parquet": {
+          "bytes": 2247,
+          "sha256": "5908436c6e1e5d589201b9295f102c1bcc6ac038e195603b0370f22b3062e3d1"
+        },
+        "metadata.json": {
+          "bytes": 9746,
+          "sha256": "88c3f3f0439db9a31225262fdaf2a70e956ef5fec2b93167dbc3e2fcaa6f2f5f"
+        },
+        "values.parquet": {
+          "bytes": 778234,
+          "sha256": "9fc26029cdc1cb64dc1d4a6d42404fe58505dd7eadf7ce3b91eb6da1f34720a1"
+        }
+      },
+      "n_rows": 60570,
+      "n_events": 6057,
+      "n_draws": 10,
+      "n_locations": 9,
+      "rate_sum": 0.6056999999999999,
+      "portfolio_expected_annual_loss": 413131.1150410494,
+      "prior_recentre": {
+        "statistic": "median",
+        "method": "multiplicative",
+        "target_v_half": 74.7,
+        "calibrated_median": 113.50000000000124,
+        "factor": 0.6581497797356757
+      },
+      "prior_support": [
+        38.567577092510895,
+        152.95400881057296
+      ],
+      "build": {
+        "command": "pixi run --locked build-eventset --config configs/thesis_vulnerability.yaml",
+        "pipeline_runtime_s": 74.6,
+        "wall_time_s": 84.15,
+        "max_resident_set_size_bytes": 1028685824,
+        "measured_with": "/usr/bin/time -l around pixi run; the four builds and a scratch run ran at the same time",
+        "machine": "osx-arm64 (owner's Apple-silicon Mac), CLIMADA 6.1.0, Python 3.12",
+        "date": "2026-10-31"
+      }
+    },
+    {
+      "eventset_dir": "data/eventsets/thesis-iris-cat-in-circle-50km-vulnerability",
+      "content_hash": "sha256:bbaa0b95a3c9dbd5cdd6056d17d4940ac1ef73596cb958022414d4f4b552ead6",
+      "config": {
+        "file": "packages/climada/configs/thesis_cat_in_circle_vulnerability.yaml",
+        "sha256": "9e7592c312731eae6f5ef3e71cc1f9b91941adcb7101e1e224cc29c145e0095c"
+      },
+      "files": {
+        "events.parquet": {
+          "bytes": 83050,
+          "sha256": "6e80b569beaefb47f9839ff87ffebd56fb3da8545acf2c29b8bea1fe3ba10ace"
+        },
+        "locations.parquet": {
+          "bytes": 2247,
+          "sha256": "5908436c6e1e5d589201b9295f102c1bcc6ac038e195603b0370f22b3062e3d1"
+        },
+        "metadata.json": {
+          "bytes": 10432,
+          "sha256": "2b27dccd5d2be37d611ecf13beee1a7c6088978481be8416785fe32f40a2a8e0"
+        },
+        "values.parquet": {
+          "bytes": 610410,
+          "sha256": "6374c5bd48b64ec5ee3163846e72b48f5d0b3d693888a1135eb3bd174f988c96"
+        }
+      },
+      "n_rows": 60570,
+      "n_events": 6057,
+      "n_draws": 10,
+      "n_locations": 9,
+      "rate_sum": 0.6056999999999999,
+      "portfolio_expected_annual_loss": 413131.1150410494,
+      "prior_recentre": {
+        "statistic": "median",
+        "method": "multiplicative",
+        "target_v_half": 74.7,
+        "calibrated_median": 113.50000000000124,
+        "factor": 0.6581497797356757
+      },
+      "prior_support": [
+        38.567577092510895,
+        152.95400881057296
+      ],
+      "build": {
+        "command": "pixi run --locked build-eventset --config configs/thesis_cat_in_circle_vulnerability.yaml",
+        "pipeline_runtime_s": 78.6,
+        "wall_time_s": 90.04,
+        "max_resident_set_size_bytes": 939442176,
+        "measured_with": "/usr/bin/time -l around pixi run; the four builds and a scratch run ran at the same time",
+        "machine": "osx-arm64 (owner's Apple-silicon Mac), CLIMADA 6.1.0, Python 3.12",
+        "date": "2026-10-31"
+      }
+    }
+  ]
+}

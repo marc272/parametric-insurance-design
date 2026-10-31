@@ -43,6 +43,7 @@ vulnerability:
     region: NA2
     wind_only: true
     basins: [NA]   # MAR-132 default: North Atlantic events only (17 NA2 events)
+    recentre: median  # MAR-160: median v_half = impact_function.v_half (74.7)
 loss:
   kind: cells
   cells: ../../../data/litpop-florida/locations/cells.parquet
