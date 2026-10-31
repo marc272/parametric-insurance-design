@@ -1,6 +1,6 @@
 # Portfolio calibration
 
-The second idea of the thesis this library comes from[^thesis]: when one owner holds several assets, calibrate their payout functions **jointly**, on the owner's total loss, instead of one asset at a time. Each asset keeps its own payout function of its own index, but the objective and the budget are on the sum. So a payout at one asset can cover a shortfall at another in the same event.
+The second idea of the thesis this library comes from[^thesis]: when one owner holds several assets, calibrate their payout functions **jointly**, on the owner's total loss, instead of one asset at a time. In the portfolio scope, each asset keeps its own payout function of its own index, but the objective and the budget are on the sum. So a payout at one asset can cover a shortfall at another in the same event.
 
 This page describes the method and the code (`scopes.py`, `problem.py`, `clustering.py`), as checked in the [core design review](../reviews/core-design-review.md). It makes no claim that joint calibration outperforms individual calibration. In sample, the joint problem does at least as well on its own objective, which is a property of the optimisation ([below](#joint-versus-individual-calibration-at-the-same-budget)). Out of sample, whether it lowers the owner's shortfall is an open question of this project.
 
@@ -96,7 +96,7 @@ Under `CostOfCapitalLoad`, a joint scope differs from the individual scope in tw
 | `Individual` | each asset's stand-alone premium, $\mathrm{Premium}(\pi_i) \le \kappa \mathbb{E}[L_i]$ |
 | `Portfolio`, `Cluster` | the premium of the aggregate payout, $\mathrm{Premium}(\sum_j \pi_j) \le \kappa \mathbb{E}[\sum_i L_i]$ |
 
-The loaded premium is sub-additive, $\mathrm{Premium}(\sum_i \pi_i) \le \sum_i \mathrm{Premium}(\pi_i)$, and strictly so when the payout tails of the parts fall in different outcomes. So at the same total budget, a joint scope can buy payouts whose stand-alone premiums would add up to more than the budget. Under the pure premium the expectation is additive and this credit is zero, which leaves cross-coverage alone.
+The loaded premium is sub-additive, $\mathrm{Premium}(\sum_i \pi_i) \le \sum_i \mathrm{Premium}(\pi_i)$, and lower when the payout tails of the parts fall in different outcomes. So at the same total budget, a joint scope can buy payouts whose stand-alone premiums would add up to more than the budget. Under the pure premium the expectation is additive and this credit is zero, which leaves cross-coverage alone.
 
 The KPIs use the same definitions ([pricing](../methodology/pricing.md), "Portfolio premium"). The `premium` KPI at `level = "portfolio"` is the pricing applied to the run's aggregate payout:
 
@@ -114,9 +114,9 @@ with $x_{e,i}$ the index at asset i and $v_i$ its value (`locations.value`). A c
 **The clustering** (`clustering.ThesisWardClustering`, a port of the thesis code) computes five features per asset on the calibration rows:
 
 - the log of its value;
-- its share of the portfolio loss in the portfolio's loss tail;
+- its mean share of the portfolio loss in the portfolio's loss tail;
 - its tail beta to the portfolio loss;
-- the spread of its loss-correlation distances to the other assets;
+- the standard deviation of its loss-correlation distances to the other assets;
 - the mean of its index-correlation distances to them.
 
 It z-scores the features and cuts a Ward-linkage tree into `n_clusters` clusters. Two caveats (review F9):
@@ -137,7 +137,7 @@ So a difference between the cluster and portfolio scopes mixes a change of trigg
 A joint design is identified only through the portfolio (review F8; MAR-98, MAR-100):
 
 - The MSE objective of a joint scope depends only on the summed payout of each row. Any other split of the same row sums across the entities that meets the payout constraints is optimal too.
-- E[U] and weighted CVaR have the same freedom wherever the LP is degenerate, that is, where its optimum isn't a single point.
+- E[U] and weighted CVaR have the same freedom wherever the LP has more than one optimal solution.
 - The thesis allocates a cluster's payout to its assets by value weight (eq. (3.23)). This library doesn't ([MAR-91](https://linear.app/marc-prinzing/issue/MAR-91)).
 
 So the per-entity results of a joint design show one member of a set of optimal designs, picked by the solver. That covers the `evaluate.kpis` rows at `level = "entity"`, the per-entity θ in the `payouts` table, and per-entity payout-function figures. Read the portfolio-level KPIs. In the toy example above the optimum is unique, so its per-asset θ are meaningful; that isn't true in general.

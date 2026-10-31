@@ -8,10 +8,10 @@ This page states the objective as the code implements it, as checked in the [cor
 
 ## Setting
 
-A **design problem** calibrates the payout functions of one or more payout entities: one asset, or several assets calibrated jointly ([portfolio calibration](portfolio-calibration.md)).
+A **design problem** calibrates the payout functions of its payout entities: one asset in the individual scope, or every asset or every cluster of assets in a joint scope ([portfolio calibration](portfolio-calibration.md)).
 
 - **Rows.** An EventSet row e is an event, or one draw of an event (noise copies, vulnerability draws). $L_e \ge 0$ is the loss of the row and $\pi_e \ge 0$ the payout, both summed over the entities of the design problem.
-- **Outcomes.** The basis groups rows into outcomes o with probabilities $p_o$ that sum to one ([evaluation basis](../methodology/annual-basis.md)). On `annual`, an outcome is a simulated year (and draw), and the years without rows are outcomes with zero loss. On `event_conditional`, every row is an outcome; `event` adds one "no event" outcome. Per-row quantities add up within an outcome: $L_o = \sum_{e\in o} L_e$ and $\pi_o = \sum_{e\in o} \pi_e$.
+- **Outcomes.** The basis groups rows into outcomes o with probabilities $p_o$ that sum to one ([evaluation basis](../methodology/annual-basis.md)). On `annual`, an outcome is a simulated year (and draw), and the years without rows are outcomes with zero loss. On `event` and `event_conditional`, every row is an outcome, and `event` adds one "no event" outcome. Per-row quantities add up within an outcome: $L_o = \sum_{e\in o} L_e$ and $\pi_o = \sum_{e\in o} \pi_e$.
 
 **Step payout.** Entity j pays $\theta_{j,k}$ when its index $\xi_{e,j}$ falls in bin $B_k$:
 
@@ -91,7 +91,7 @@ For one design problem with the weighted-CVaR objective, the code builds this pr
 
 Every line is linear, so the problem is an LP, and it solves the original problem exactly:
 
-1. Each positive part is replaced by a variable bounded below by both of its arguments. These variables enter the minimised objective only with non-negative coefficients (α, 1 − α and $p_o$ are all ≥ 0), so for a given θ, setting them to their lower bounds, the positive parts, is optimal.
+1. Each positive part is replaced by a variable bounded below by both of its arguments. The minimised objective is non-decreasing in each of these variables, directly or through the lower bounds on w (α, 1 − α and $p_o$ are all ≥ 0). So for a given θ, setting each to its lower bound, the positive part, is optimal.
 2. The RU minimisation over ζ merges with the minimisation over θ. So the LP has the optimal value and the optimal θ of $\min_\theta F_{\alpha,\beta}(\theta)$.
 3. The cost-of-capital premium has its own RU variable η and auxiliaries s (below). In the budget, "some η and s meet the bound" is the same as "the minimum over η meets it". So the feasible set is exactly the set of payouts whose loaded premium meets the budget.
 
@@ -114,7 +114,7 @@ The budget is an inequality without a risk loading. The thesis text writes it as
 
 1. $P(U_o = 0) \ge P(L_o = 0) \ge \beta$, because $0 \le U_o \le L_o$;
 2. so the VaR of U at level β is 0, and its CVaR is $\mathbb{E}[U]/(1-\beta)$;
-3. so $F_{\alpha,\beta} = \big(\tfrac{\alpha}{1-\beta} + 1 - \alpha\big) \mathbb{E}[U]$, a positive multiple of E[U] for α > 0, and the weighted-CVaR designs are the E[U] designs.
+3. so $F_{\alpha,\beta} = \big(\tfrac{\alpha}{1-\beta} + 1 - \alpha\big) \mathbb{E}[U]$, a positive multiple of E[U], and the weighted-CVaR designs are the E[U] designs.
 
 The condition is per design problem, and it depends on the basis. On the annual basis the years without loss belong to the measure, so $P(L_o = 0)$ can be large. On the thesis data:
 
@@ -141,7 +141,7 @@ Setup: the thesis fixture `parity/tests/data/thesis_eventset` (9 Miami assets, I
 When the budget binds, it fixes the premium, and with it parts of the KPIs, whichever objective calibrated the design.
 
 - **Pure premium.** Every design whose budget binds has $\mathbb{E}[\pi] = \kappa \mathbb{E}[L]$. Since $(L_e - \pi_e)^+ = (L_e - \pi_e) + (\pi_e - L_e)^+$, its E[U] is $(1-\kappa) \mathbb{E}[L]$ plus its expected over-payment.
-- **Cost-of-capital load.** Take a design that pays only in outcomes of total probability at most $1-q$. Then $\mathrm{CVaR}_q(\pi) = \mathbb{E}[\pi]/(1-q)$, and its premium is $\big(1 - r + \tfrac{r}{1-q}\big) \mathbb{E}[\pi]$. A binding budget then fixes $\mathbb{E}[\pi] = \kappa \mathbb{E}[L] \big/ \big(1 - r + \tfrac{r}{1-q}\big)$, whatever the payout's shape. Suppose, in addition, that those outcomes are the worst $1-q$ of the loss, that the payout never exceeds the loss in them, and that they stay the worst $1-q$ of U. Then $\mathrm{CVaR}_q(U) = \mathrm{CVaR}_q(L) - \mathbb{E}[\pi]/(1-q)$, the same for every such design.
+- **Cost-of-capital load.** Take a design that pays only in outcomes of total probability at most $1-q$. Then $\mathrm{CVaR}_q(\pi) = \mathbb{E}[\pi]/(1-q)$, and its premium is $\big(1 - r + \tfrac{r}{1-q}\big) \mathbb{E}[\pi]$. A binding budget then fixes $\mathbb{E}[\pi] = \kappa \mathbb{E}[L] \big/ \big(1 - r + \tfrac{r}{1-q}\big)$, whatever the payout's shape. Suppose, in addition, that those outcomes lie within the worst $1-q$ of the loss, that the payout never exceeds the loss there, and that the worst $1-q$ of the loss stays the worst $1-q$ of U. Then $\mathrm{CVaR}_q(U) = \mathrm{CVaR}_q(L) - \mathbb{E}[\pi]/(1-q)$, the same for every such design.
 
 So when the KPI level equals the load's q, the tail KPI can't tell such designs apart in sample: the budget alone fixes it. Out of sample, or read at another level, they can differ.
 
@@ -179,7 +179,7 @@ All modules are in `packages/core/src/parametric_insurance_design/`, reached as 
 
 ## Proven properties
 
-Tests in `packages/core/tests/`; each runs on the bases named.
+Tests in `packages/core/tests/`.
 
 | Statement | Test |
 |---|---|
