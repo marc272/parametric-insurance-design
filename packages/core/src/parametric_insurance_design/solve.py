@@ -39,16 +39,23 @@ A problem is a QP when its objective is quadratic but not piecewise linear
 and cvxpy recognises the whole problem as a QP; every other problem goes to
 the LP list.
 
-The premium of a solution (MAR-143)
-    Given the pricing the problem was built with (``solve(built, policy,
-    pricing=pricing)``, as the runner does), :func:`solve` records
-    ``SolveResult.premium`` as ``pricing.premium_value`` of the realised
-    payout: ``payout_structure.evaluate(index, theta)`` in loss units,
-    summed over the entities as ``evaluate.kpis`` sums them, under the
-    problem's measure. That is exact, needs no solver, and equals the
-    in-sample ``premium`` KPI of the design problem bit for bit. Without the
-    pricing it is the value of the premium term at the solution: the same
-    for the pure premium up to rounding, but for a loaded premium
+The premium of a solution (MAR-143, MAR-171)
+    :func:`solve` records ``SolveResult.premium`` as ``pricing.premium_value``
+    of the realised payout, with the pricing the problem was built with
+    (``BuiltProblem.pricing``, which ``problem.build_problems`` sets):
+    ``payout_structure.evaluate(index, theta)`` in loss units, summed over
+    the entities as ``evaluate.kpis`` sums them, under the problem's
+    measure. That is exact, needs no solver, and equals the in-sample
+    ``premium`` KPI of the design problem bit for bit. ``solve(built)`` is
+    enough; the ``pricing`` keyword (MAR-143) stays for compatibility, and a
+    pricing that differs from the built one (``!=``: the pricing components
+    are frozen dataclasses, equal when their class and fields are) raises
+    :class:`~parametric_insurance_design.errors.ComponentConfigError` before
+    any solver runs. Only a problem assembled by hand without a pricing
+    (``BuiltProblem.pricing is None``) falls back: to ``premium_value``
+    under the ``pricing`` given, unchecked since there is nothing to check
+    it against, or else to the value of the premium term at the solution.
+    That value is the pure premium up to rounding, but for a loaded premium
     (``pricing.CostOfCapitalLoad``) the Rockafellar-Uryasev bound at the
     solver's ``zeta``, exact only where the budget binds.
 
@@ -374,15 +381,41 @@ def _diagnostics(built: BuiltProblem) -> dict[str, float]:
     return out
 
 
+def _pricing(built: BuiltProblem, pricing: Pricing | None) -> Pricing | None:
+    """Return the pricing whose ``premium_value`` :func:`solve` records, if any.
+
+    ``built.pricing`` unless ``pricing`` is given; a given ``pricing`` must
+    equal it (module docstring, "The premium of a solution").
+
+    Raises
+    ------
+    ComponentConfigError
+        If ``pricing`` is not a :class:`Pricing`, or differs from
+        ``built.pricing``.
+    """
+    if pricing is None:
+        return built.pricing
+    if not isinstance(pricing, Pricing):
+        raise ComponentConfigError(f"pricing must be a Pricing, got {pricing!r}")
+    built_with = built.pricing
+    if built_with is not None and pricing is not built_with and pricing != built_with:
+        raise ComponentConfigError(
+            f"problem {built.spec.problem_id!r} was built with pricing "
+            f"{built_with!r}, not {pricing!r}; solve(built) records the premium "
+            "under the built pricing"
+        )
+    return pricing
+
+
 def _premium(
     built: BuiltProblem, theta: NDArray[np.float64], pricing: Pricing | None
 ) -> float:
     """Premium of the solution in loss units (module docstring).
 
-    ``theta`` is in loss units. With a pricing, ``premium_value`` of the
-    realised objective-level payout, summed over the entities one vector
-    after the other as ``evaluate`` does; otherwise the premium term's value
-    times ``scale``.
+    ``theta`` is in loss units. With a pricing (from :func:`_pricing`),
+    ``premium_value`` of the realised objective-level payout, summed over
+    the entities one vector after the other as ``evaluate`` does; otherwise
+    the premium term's value times ``scale``.
     """
     ctx = built.context
     if pricing is None:
@@ -451,20 +484,23 @@ def solve(
     policy : SolverPolicy, optional
         Solver order and acceptance rule.
     pricing : Pricing, optional
-        The pricing ``built`` was built with (MAR-143). If given, the premium
-        is ``pricing.premium_value`` of the solution's realised payout,
-        exact and without a solver call; otherwise the premium term's value
-        (module docstring, "The premium of a solution"). Not checked against
-        the problem: pass the same pricing.
+        Not needed (MAR-171): the premium is ``premium_value`` of the
+        solution's realised payout under ``built.pricing``, the pricing
+        ``build_problems`` built it with, exact and without a solver call.
+        Kept for compatibility (MAR-143); if given, it must equal
+        ``built.pricing``. For a problem without a pricing
+        (``built.pricing is None``, assembled by hand) it is the pricing of
+        the premium, unchecked; without either, the premium is the premium
+        term's value (module docstring, "The premium of a solution").
 
     Returns
     -------
     SolveResult
         The accepted solution, in loss units: ``theta * scale``, the
         objective value times ``scale ** homogeneity``, and the premium
-        (``pricing``). ``solve_seconds`` is the wall time of every attempt,
-        including cvxpy's compilation. ``diagnostics`` holds the objective
-        components (loss units), the accepted solver's statistics
+        (``pricing`` above). ``solve_seconds`` is the wall time of every
+        attempt, including cvxpy's compilation. ``diagnostics`` holds the
+        objective components (loss units), the accepted solver's statistics
         (``solver_solve_time``, ``solver_setup_time``, ``solver_num_iters``
         where it reports them) and the largest constraint violation in scaled
         units (``max_constraint_violation_scaled``).
@@ -477,10 +513,10 @@ def solve(
         :class:`UnboundedError` for those final statuses. ``attempts`` holds
         every solver of the list, in order.
     ComponentConfigError
-        If ``pricing`` is given but is not a :class:`Pricing`.
+        If ``pricing`` is given but is not a :class:`Pricing`, or differs
+        from ``built.pricing``; raised before any solver runs.
     """
-    if pricing is not None and not isinstance(pricing, Pricing):
-        raise ComponentConfigError(f"pricing must be a Pricing, got {pricing!r}")
+    pricing = _pricing(built, pricing)
     problem_id = built.spec.problem_id
     solvers = policy.solvers_for(built.problem)
     installed = set(cp.installed_solvers())
