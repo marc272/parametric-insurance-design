@@ -32,7 +32,7 @@ public engine API (``problem.build_problems``, ``solve.solve``,
   the same minimisers, for any ``alpha`` in ``(0, 1]``. This is the
   explanation of the annual-basis "coincidence" (``research/notes/
   annual-basis-rerun.md``, observations 4 and 6) as far as it is a theorem.
-* **... and only then.** A counterexample where the E[U] design has
+* **... but not beyond it in general.** A counterexample where the E[U] design has
   ``VaR_beta(U) = 0`` (so ``CVaR_beta = E[U] / (1 - beta)`` *at that design*)
   but ``beta > P(L_o = 0)``, and the weighted-CVaR design is a different,
   lower-CVaR design. ``VaR_beta = 0`` at the E[U] optimum does not make it the
@@ -673,8 +673,9 @@ def test_weighted_cvar_reproduces_expected_uncovered_below_the_zero_loss_mass(
 ) -> None:
     """``beta <= P(L_o = 0)`` on every design problem: the weighted-CVaR design
     is an E[U] design, and its objective is ``(alpha / (1 - beta) + 1 -
-    alpha) * min E[U]``. With ``alpha = 1`` this is the issue's "wCVaR with
-    alpha = 1 reproduces the E[U] design", under its necessary condition."""
+    alpha) * min E[U]``. With ``alpha = 1`` this is MAR-161's "wCVaR with
+    alpha = 1 reproduces the E[U] design", under the condition that makes it
+    a theorem (sufficient, not necessary)."""
     constraints = () if budget is None else (budget,)
     measure = Measure.of(eventset, basis)
     zero_mass = min(
