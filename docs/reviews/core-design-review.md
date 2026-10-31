@@ -59,10 +59,10 @@ The thesis text agrees with the intended semantics: §3.3 (3) calls the attachme
 | E[U], `Budget(0.5)` | all events | (0, 7) | 0.7 | 0.7 | 0.7 |
 | E[U], `Budget(0.5)` | filtered | (1.86, 5.14) | 0.7 | **0.89** | 0.7 (**broken**) |
 
-The last two columns are `evaluate.kpis(full, Individual(), [result], basis=…, pricing=PurePremium())`, i.e. the filtered design evaluated on the unfiltered EventSet.
+"Premium on all events" is the portfolio `premium` of `evaluate.kpis(full, Individual(), [result], basis=…, pricing=PurePremium())`, i.e. the design evaluated on the unfiltered EventSet. "Budget" is κ·E[L], which is the same on both EventSets because the dropped event has zero loss.
 
 **Impact.**
-- **Thesis data: small, one design over budget.** The Emanuel function gives zero loss below 25.7 m/s, so bin 0 [20, 23.3) carries no loss, and the 20 m/s filter drops no loss (`expected_loss_dropped` = 0). Only the annual MSE designs pay in bin 0: MSE pays on zero-loss events to fit multi-event years. I priced the filtered designs on the unfiltered noisy EventSet: 78,741 rows instead of 13,897.
+- **Thesis data: small, one design over budget.** The Emanuel function gives zero loss below 25.7 m/s, so bin 0 [20, 23.3) carries no loss, and the 20 m/s filter drops no loss (`expected_loss_dropped` = 0). Only the MSE designs pay noticeably in bin 0. On the annual basis, MSE pays on zero-loss events to fit multi-event years. I priced the filtered designs on the unfiltered noisy EventSet: 78,741 rows instead of 13,897.
   - Annual individual MSE design (`e2cbcc3abdd5`, θ_{j,0} up to 2,507): premium 221,568 instead of the recorded 220,257, which is **0.5 % over its budget** of 220,363.
   - Portfolio MSE designs on `annual` and `event`: +0.0035 %.
   - E[U] and weighted-CVaR designs: unchanged.
@@ -70,7 +70,7 @@ The last two columns are `evaluate.kpis(full, Individual(), [result], basis=…,
 - **D2 cat-in-a-circle: material, not measured here** (the EventSet isn't on this machine).
   - `research/data/d2-florida-eventset/README.md:22` recommends "attachment 0" on the category index, which makes bin 0 the category-0 bin.
   - Category-0 (event, county) pairs are 98 % of the pairs and carry 36 % of the loss (`research/notes/d2-florida-eventset.md`).
-  - So the MSE design certainly sets θ_{j,0} > 0: its per-row optimum is the bin-wise conditional mean. E[U] and CVaR designs probably do too.
+  - So the MSE design sets θ_{j,0} > 0: with a slack budget its per-row optimum is the bin-wise conditional mean, which is positive in bin 0. E[U] and CVaR designs probably do too.
   - θ_{j,0} then pays on every storm that the adapter's `proximity_km` kept, and on none of the others. The adapter's proximity filter becomes part of the contract.
 
 **Follow-up (new issue).** *[F-13] Step payout: pay nothing below the attachment, and make the threshold filter exact on the event and annual bases.*
@@ -84,7 +84,7 @@ The last two columns are `evaluate.kpis(full, Individual(), [result], basis=…,
 - `riskmeasures.py:188` (strict `searchsorted`) and `riskmeasures.py:197-198`: "VaR is the lower β-quantile: the smallest v with P(X ≤ v) ≥ β".
 - `bootstrap.py:428` uses `CDF_ATOL` instead.
 
-**Observation.** Every (year, draw) slot has probability 1/(|S|·D). With |S|·D slots, β·|S|·D is an integer for every usual β and sample size, so the β-quantile lies exactly on a step. The strict comparison then returns whichever atom the rounding of the cumulative sum lands on.
+**Observation.** Every (year, draw) slot has probability 1/(|S|·D). When |S|·D is a multiple of 1,000, as for 10,000, 7,000 or 3,000 years, β·|S|·D is an integer for every β with three decimals, so the β-quantile lies exactly on a step. The strict comparison then returns whichever atom the rounding of the cumulative sum lands on.
 
 - With 10,000 × 13 equally likely slots, it is the upper atom at every β in {0.9, 0.95, 0.99, 0.995, 0.999}.
 - Annual portfolio E[U] design on thesis data (`9cf92ce6c1e7`), strict vs exact-arithmetic VaR:
@@ -131,12 +131,12 @@ Read literally (α = 1 is the pure CVaR), it is false in general. It holds exact
 
 **Beyond it.** Observation 6 found the same design for β = 0.90 to 0.96, and a different one from β = 0.97. So for 0.93 < β ≤ 0.96 the coincidence is a property of these data, not a theorem. That range includes the thesis default β = 0.95 (loaded-pricing A4). "β ≤ 0.97" is off by one grid point.
 
-Observation 4 reasons that "VaR₀.₉₅ ≈ 0 at the design, so CVaR = E[U]/0.05 there, so weighted CVaR has the same minimisers". That doesn't follow. `test_var_zero_at_the_expected_uncovered_design_is_not_enough` is a counterexample (β = 0.9, P(L_o = 0) = 0.41):
+Observation 4 reasons that VaR₀.₉₅ is about 0 at the design, so CVaR = E[U]/0.05 there, so weighted CVaR has the same minimisers. The last step doesn't follow. `test_var_zero_at_the_expected_uncovered_design_is_not_enough` is a counterexample (β = 0.9, P(L_o = 0) = 0.41):
 
 | | E[U] design | Weighted-CVaR design (α = 1 or 0.9) |
 |---|---|---|
 | θ | (1, 3), unique | (0, 8) |
-| VaR₀.₉(U) | 0 | |
+| VaR₀.₉(U) | 0 | 1 |
 | CVaR₀.₉(U) | 6.3 | 1.9 |
 | E[U] | 0.63 | 0.68 |
 
@@ -195,7 +195,7 @@ So the cluster scope is neither a restriction nor a relaxation of the portfolio 
 ### F8. Per-asset KPIs and payout functions of joint designs are not identified (defect, known: MAR-100, MAR-91)
 
 **Where.**
-- `evaluate.py:358-372` writes `level = "entity"` rows for every entity of a portfolio-scope design.
+- `evaluate.py:358-372` writes `level = "entity"` rows for every entity of a joint design (assets in the portfolio scope, clusters in the cluster scope).
 - The `payouts` table stores per-entity θ.
 - `packages/viz/.../payout_functions.py` draws one panel per entity.
 
@@ -221,7 +221,7 @@ So the cluster scope is neither a restriction nor a relaxation of the portfolio 
 - Owns `clustering.py`, `tests/test_clustering.py`.
 - Acceptance: when VaR_β_tail(L_port) = 0, `features` raises a typed error (or records the fact, if the owner prefers), and the docstring states that the features use row probabilities on every basis.
 
-### F10. The public API exports two `NotImplementedError` stubs (cleanliness, needed for F6 "public-ready")
+### F10. The public API exports two `NotImplementedError` stubs (cleanliness; matters for the public-ready milestone)
 
 **Where.** `__init__.py:20-41` imports `noise` and `robust`. `robust.py:82` (`build_scenario_robust`) and `robust.py:107` (`DistributionallyRobust.build`) raise `NotImplementedError`. `DistributionallyRobust` validates neither `radius` nor `ball`.
 
@@ -246,7 +246,7 @@ So the cluster scope is neither a restriction nor a relaxation of the portfolio 
 
 **Follow-up (new issue).** *[F-13] Public-readiness pass on the core docstrings.*
 - Owns the docstrings only (no code) of the core's top-level modules, which needs an orchestrator waiver across owners.
-- Acceptance: no Linear IDs or decision history in the core's docstrings, except pointers to ADRs and `docs/methodology/`; the six statements above are fixed; ruff and pyright are clean.
+- Acceptance: no Linear IDs or decision history in the core's docstrings, except pointers to ADRs and `docs/methodology/`; the stale statements above are fixed; ruff and pyright are clean.
 
 ### F12. "portfolio", "loading" and "weighted CVaR" each mean more than one thing (cleanliness)
 
@@ -305,7 +305,9 @@ So the cluster scope is neither a restriction nor a relaxation of the portfolio 
 - Owns `problem.py`, `solve.py`, their tests, and an ADR 0002 amendment (the `BuiltProblem` fields are contract).
 - Acceptance: `solve(built)` records `pricing.premium_value` without a `pricing` argument; a `pricing` argument that differs from the built one raises `ComponentConfigError`.
 
-**Module boundaries (ADR 0002).** The import graph matches the ownership map. `pricing → objectives.rockafellar_uryasev` is sanctioned (ADR 0002 §10, `objectives.py` row). SPEC §4.2's module table lacks `bootstrap.py`, `riskmeasures.py` and `experiment/kfold.py` (add to MAR-159).
+### Module boundaries (ADR 0002): sound
+
+The import graph matches the ownership map. `pricing → objectives.rockafellar_uryasev` is sanctioned (ADR 0002 §10, `objectives.py` row). SPEC §4.2's module table lacks `bootstrap.py`, `riskmeasures.py` and `experiment/kfold.py` (add to MAR-159).
 
 ## Sound, with the evidence
 
