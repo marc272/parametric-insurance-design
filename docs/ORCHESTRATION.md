@@ -29,6 +29,8 @@ These steps are done by Marc, because agents may not change their own permission
    }
    ```
 
+   While Actions minutes are exhausted, "all CI checks are green" in this text is met by the local-CI fallback (see "Merge policy", "Fallback: local CI while Actions minutes are exhausted"). The block itself doesn't need to change.
+
 2. **Start sessions in auto mode.** Otherwise every command prompts and the loop stalls.
 3. **Optional: phone alerts.** Connect Remote Control, so that `PushNotification` reaches your phone as well as the desktop.
 4. **Guardrails, already checked in.** `.claude/settings.json` denies force pushes, pushes to `main`, admin merges and repository edits or deletes, in every mode.
@@ -113,11 +115,11 @@ The Program hub sets these rules:
 2. **Pick.** Leaf issues in Todo without the Human label, ordered by the scheduling rules above, then priority, then milestone. Constraints:
    - at most **3 workers** at once (4 when the lanes are clearly independent);
    - no two concurrent issues may own the same module (ADR 0002 ownership map);
-   - serialise anything that touches `pyproject.toml`, lockfiles or CI config.
+   - serialise anything that touches `pyproject.toml`, lockfiles (`uv.lock`, `packages/climada/pixi.lock`) or CI config. A change to the core's dependencies must also run `pixi lock` in `packages/climada` and commit `pixi.lock`, because the climada CI job installs with `--locked` (ADR 0002 §10, MAR-71).
 3. **Check size.** If an issue is clearly more than one PR (several modules, or more than about a day of work), first split it into sub-issues with goal, scope, acceptance and blockers. The original becomes a container. Don't pre-split far-future work; split when it becomes ready.
 4. **Delegate** (see below). Set the issue to In Progress and post a **dispatch record** on it.
 5. **Review.** When a worker reports back, check:
-   - CI is green;
+   - CI is green (or the local-CI fallback, see "Merge policy");
    - every acceptance criterion is evidenced in the PR body;
    - the diff stays within the owned files, with no stray interface or dependency changes;
    - tests exercise the behaviour, beyond a smoke test;
@@ -138,7 +140,7 @@ The Program hub sets these rules:
 
 Workers may not have the Linear connector. You stay responsible for Linear in both cases.
 
-**Brief template.** Paste the issue text verbatim; don't paraphrase acceptance criteria.
+**Brief template.** Paste the issue text verbatim; don't paraphrase acceptance criteria. Keep the line on logs and drafts: workers write them inside their own worktree, never in the shared session scratchpad, where concurrent workers overwrote each other's files on 2026-10-27.
 
 ```text
 You are a worker on the parametric-insurance-design program. AGENTS.md is binding.
@@ -154,6 +156,7 @@ Read first: docs/SPEC.md §<…>; docs/adr/0002 (ownership map); <merged PRs of 
 You own: <files from the ownership map>. Import anything; edit nothing else.
 Branch: <Linear gitBranchName>, from the latest main, in your own worktree.
 Push early: push the branch after your first commit, open a draft PR, and push after every meaningful commit, so your work survives an interrupted session.
+Keep logs and PR-body drafts inside your own worktree (the gitignored results/), never in the shared session scratchpad.
 Done means: PR open (marked ready), CI green, every acceptance criterion evidenced in the PR body.
 Report back: PR link, summary, anything unverified, follow-ups you discovered, open questions.
 Don't change Linear; the orchestrator keeps it current. Never merge.
@@ -193,6 +196,27 @@ Marc authorised agent merges on 2026-10-25 ("PR should be merged automatically i
 - it doesn't merge into, or past, a gate that isn't Done (e.g. no F5 method change before MAR-18).
 
 Otherwise, set the issue to In Review, assign it to Marc, and alert him. Never use `--admin`, never force-push, and never push to `main` directly. Branch protection (MAR-78) may require status checks, but must **not** require approving reviews: that would block every agent merge.
+
+### Dependabot PRs
+
+Dependabot ([`.github/dependabot.yml`](../.github/dependabot.yml), MAR-77, MAR-147) opens PRs every Monday: commit prefix `ci` for GitHub Actions and pre-commit hooks, `deps` for `uv.lock`. They have no Linear issue, and their bodies don't follow the agent PR template. Handle them as follows:
+
+- **Review the diff.** It may touch only `uv.lock`, `.github/workflows/*` or `.pre-commit-config.yaml`. Merge it with `gh pr merge <n> --squash` when every check is green, as for an agent PR.
+- **A `deps` PR that touches a `pyproject.toml` is refused.** The uv entry is `lockfile-only`, so such a PR shouldn't exist. Close it with a comment saying why. A change to a requirement or floor is an issue of its own, and comes with `pixi lock` in `packages/climada`.
+- **A bump that turns a job red on its merits isn't fixed on the bot's branch.** Close the PR, or leave it open, and file an issue for the incompatibility. A check that is red for an unrelated reason (a flaky job, an outage) is re-run, not treated as a failed bump.
+- **No Linear issue per Dependabot PR.** List the ones merged, closed or left open in the next Program hub status update.
+
+### Fallback: local CI while Actions minutes are exhausted
+
+This is a fallback, not the current state. The repository is public since 2026-10-27 evening, and the GitHub checks are the merge gate again (MAR-80). Use this section only when GitHub Actions can't run for billing reasons again, as happened while the repository was private (2026-10-27, Marc, MAR-80 comment). Then [`scripts/ci_local.sh`](../scripts/ci_local.sh) is the merge gate, and it replaces "every CI check is green" above:
+
+- **Local CI on the PR head replaces the GitHub checks.** `scripts/ci_local.sh <checkout> [job ...]` runs the jobs of `ci.yml` and `climada.yml` (lint, workspace-3.12, workspace-3.13, core-3.11-highest, core-3.11-lowest-direct, build, climada), prints a PASS/FAIL line per job and a summary with the commit, keeps its logs in a temp directory outside the checkout, and exits non-zero on any failure. It also says when the tree is dirty, which doesn't count as a run of the PR head.
+- **The worker** runs every job on the final PR head and pastes the summary into the PR body under a heading "Local CI (GitHub Actions minutes exhausted)".
+- **The orchestrator re-runs it before merging**, in the PR's worktree, on the head it is about to merge: at least `lint` plus the test jobs of the packages the diff touches (`workspace-3.12` and `workspace-3.13` for `core`, `viz`, `crc` or `parity`; also the `core-3.11-*` jobs and `climada` for `core`; `climada` for `packages/climada`; `build` for any `pyproject.toml` or packaging change). Run all jobs when in doubt. Merge only if that run passes.
+- **Checks that are red only for billing reasons are ignored.** They fail within seconds with no steps run, and their annotation reads "The job was not started because recent account payments have failed or your spending limit needs to be increased" (`gh api repos/marc272/parametric-insurance-design/check-runs/<job id>/annotations`). A check that ran and failed on its merits still blocks.
+- **The Python 3.11 gap is noted on every PR.** The `core-3.11-*` jobs need a clean Python 3.11. uv can't download Pythons on the owner's machine, so `scripts/ci_local.sh --setup` makes one with pixi from `scripts/ci_local/py311/pixi.toml` (osx-arm64 and linux-64); `CI_LOCAL_PY311=<path>` overrides it. There is one such env, in the main checkout: `--setup` builds it there even when run from a worktree, and runs from agent worktrees reuse it (MAR-150, MAR-157). When the script finds no env, its output starts with a loud warning that lists the paths it looked in. Without either, the jobs fall back to Python 3.12 and the summary warns about it. On that fallback `core-3.11-lowest-direct` can't install at all (pandas 2.1.0 has no cp312 wheel), so it fails for that reason alone. Each PR states which Python the `core-3.11-*` jobs used (the summary shows it), and that the run was on macOS rather than CI's Ubuntu.
+
+When Actions runs again, return to the GitHub checks, and say so in the next Program hub status update.
 
 ## Resuming after an interruption
 

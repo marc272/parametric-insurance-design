@@ -11,13 +11,13 @@ members = ["packages/core", "packages/viz", "packages/crc"]
 exclude = ["packages/climada"]
 
 [dependency-groups]
-test = ["pytest>=9", "pytest-cov>=7"]
+test = ["pytest>=9", "pytest-cov>=7", "hypothesis>=6.100"]
 lint = ["ruff>=0.17", "pyright[nodejs]>=1.1.400", "pre-commit>=4"]
 dev = [{ include-group = "test" }, { include-group = "lint" }]
 
 # --- ruff -------------------------------------------------------------------
-# Keep the ruff rev in .pre-commit-config.yaml equal to the ruff version in
-# uv.lock.
+# pre-commit runs this ruff from uv.lock (local hooks in .pre-commit-config.yaml,
+# checked by scripts/check_ruff_single_source.py), so there is one ruff version.
 
 [tool.ruff]
 line-length = 88
@@ -56,17 +56,21 @@ known-first-party = [
 
 [tool.pyright]
 typeCheckingMode = "basic"
-include = ["packages/core", "packages/viz", "packages/crc"]
+include = ["packages/core", "packages/viz", "packages/crc", "parity"]
 # packages/climada is type-checked in its own pixi env (CLIMADA adapter work).
 exclude = ["**/__pycache__", "**/.*", "packages/climada"]
 executionEnvironments = [
     { root = "packages/core", pythonVersion = "3.11" },
     { root = "packages/viz", pythonVersion = "3.11" },
     { root = "packages/crc", pythonVersion = "3.12" },
+    # parity/ runs on the uv workspace env, which starts at Python 3.12.
+    { root = "parity", pythonVersion = "3.12" },
 ]
 
 # --- pytest and coverage ----------------------------------------------------
 
+# parity/tests is not in testpaths: CI runs it in its own step (see
+# .github/workflows/ci.yml); run it locally with `uv run pytest parity/tests`.
 [tool.pytest]
 minversion = "9.0"
 testpaths = ["packages/core/tests", "packages/viz/tests", "packages/crc/tests"]

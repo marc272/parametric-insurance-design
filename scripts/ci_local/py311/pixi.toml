@@ -1,0 +1,12 @@
+# A clean Python 3.11 for scripts/ci_local.sh (MAR-116). The core supports
+# 3.11 to 3.13, but uv cannot download Pythons on the owner's machine, so the
+# core-3.11-* jobs of the local CI use this env. Set it up with
+# `scripts/ci_local.sh --setup` (or `pixi install --locked` in this folder).
+# The env lives in .pixi/, which .gitignore excludes.
+[workspace]
+name = "ci-local-py311"
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "linux-64"]
+
+[dependencies]
+python = "3.11.*"

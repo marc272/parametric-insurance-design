@@ -1,6 +1,6 @@
-# Not a uv workspace member: this package gets its own pixi env with CLIMADA
-# from conda-forge (SPEC §4.1). Dependencies and the env are added by the
-# CLIMADA adapter work (MAR-19). It must never depend on or import
+# Not a uv workspace member: this package has its own pixi env with CLIMADA
+# from conda-forge (SPEC §4.1), defined in pixi.toml next to this file, with
+# the core installed from ../core. It must never depend on or import
 # parametric-insurance-design-crc.
 
 [project]
@@ -12,7 +12,8 @@ license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
 authors = [{ name = "Marc Prinzing" }]
 requires-python = ">=3.11"
-dependencies = []
+# climada: the pixi env pins the exact version (pixi.toml).
+dependencies = ["climada>=6.1,<7", "parametric-insurance-design"]
 classifiers = [
     "Development Status :: 1 - Planning",
     "Intended Audience :: Science/Research",
@@ -23,6 +24,30 @@ classifiers = [
 
 [project.urls]
 Repository = "https://github.com/marc272/parametric-insurance-design"
+
+# Run with `pixi run test` from this folder. This table makes the package's
+# test config independent of the uv workspace's root config.
+[tool.pytest]
+minversion = "9.0"
+testpaths = ["tests"]
+addopts = ["-ra", "--import-mode=importlib"]
+strict = true
+
+# --- ruff: import boundaries (AGENTS.md "Hard boundaries") ------------------
+# This [tool.ruff] table makes ruff use this file, which extends the root
+# config, for every file under packages/climada/ (src, tests and scripts).
+# TID251 bans any static import, at any scope, of the package below. This
+# package is not a uv member, but the root `ruff check` (CI job lint, and
+# scripts/ci_local.sh lint) lints it with this config.
+# scripts/check_import_boundaries.sh proves the ban fires (MAR-76).
+[tool.ruff]
+extend = "../../pyproject.toml"
+
+[tool.ruff.lint]
+extend-select = ["TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"parametric_insurance_design_crc".msg = "the CLIMADA stream is CRC-free: never import the CRC adapter (AGENTS.md, MAR-76)"
 
 [build-system]
 requires = ["uv_build>=0.13.5,<0.14"]

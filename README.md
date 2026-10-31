@@ -47,6 +47,8 @@ uv run pyright                   # type-check (basic mode)
 uv run pre-commit install        # run the hooks on every commit
 ```
 
+The ruff hooks run the ruff in `uv.lock` through `uv run`, so uv must be on your PATH when you commit.
+
 CI (GitHub Actions) runs ruff, pyright, the pre-commit hooks, the tests on Python 3.11, 3.12 and 3.13, a coverage gate of 85 % for the core, and a build of all four packages. See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## Licences
@@ -56,11 +58,15 @@ The licence boundary is the package boundary ([ADR 0001](docs/adr/0001-name-and-
 | Part | Licence | Licence file |
 |---|---|---|
 | `packages/core`, `packages/viz` | BSD-3-Clause | [`LICENSE`](LICENSE) (copied into each package) |
-| `research/`, `site/`, repository tooling | BSD-3-Clause | [`LICENSE`](LICENSE) |
+| `research/`, `site/`, `docs/`, repository tooling | BSD-3-Clause | [`LICENSE`](LICENSE) |
+| `parity/` code | BSD-3-Clause | [`parity/LICENSE`](parity/LICENSE) |
+| `parity/golden/` (the thesis result tables, computed from IRIS-derived losses) | CC-BY-4.0 (MAR-94, revised 2026-10-27) | [`parity/golden/LICENSE`](parity/golden/LICENSE) |
+| `parity/tests/data/thesis_eventset/` (derived from IRIS) | CC-BY-4.0: IRIS-derived data is treated as CC BY 4.0, the stricter of its two licence records (MAR-94) | recorded in its `metadata.json` |
+| `showcase/crc/` code | BSD-3-Clause; the AGPL applies to the combined work with the CRC adapter | [`showcase/crc/LICENSE`](showcase/crc/LICENSE) |
 | `packages/crc` | AGPL-3.0-or-later, because it imports the AGPL-licensed CRC SDK | [`packages/crc/LICENSE`](packages/crc/LICENSE) |
 | `packages/climada` | GPL-3.0-or-later, because it imports GPLv3 CLIMADA | [`packages/climada/LICENSE`](packages/climada/LICENSE) |
 
-The core and viz packages never import an adapter, so they stay under the permissive licence. Data comes with its own terms, recorded in [`docs/data-sources.md`](docs/data-sources.md); no data is committed to this repository.
+The core and viz packages never import an adapter, so they stay under the permissive licence. Data comes with its own terms, recorded in [`docs/data-sources.md`](docs/data-sources.md). The only data committed are small fixtures: the CC BY 4.0 parity fixture, the CC BY 4.0 thesis results in `parity/golden/`, and the CC BY 4.0 Florida tables of the paper portfolio in `research/data/` (D2).
 
 ## Thesis code
 

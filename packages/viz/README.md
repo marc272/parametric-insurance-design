@@ -1,12 +1,74 @@
 # parametric-insurance-design-viz
 
-Figures for [parametric-insurance-design](https://github.com/marc272/parametric-insurance-design). Plots read the core's result store; they never re-run an optimisation.
+Figures for [parametric-insurance-design](https://github.com/marc272/parametric-insurance-design). Plots read the core's result store; they never re-run an optimisation (SPEC §3.1 C6).
 
-```python
-import parametric_insurance_design_viz
+From the command line, after the runs are in the store:
+
+```console
+parametric-insurance-design run CONFIG      # or `sweep CONFIG` if the config has sweeps
+parametric-insurance-design figures CONFIG [--out DIR]
 ```
 
-Status: pre-alpha skeleton.
+If the config has `sweeps`, `figures` also needs every sweep point in the store (run `parametric-insurance-design sweep CONFIG` first); a missing point is an error that names it (exit 3). To draw the figures before every sweep has run, pass `--skip-missing-sweeps`: the sweep figures whose points are missing are skipped and listed as `MISSING` with the command that runs them, everything else is drawn, and the command exits 1. The single runs (`run CONFIG`) must still be in the store.
 
-- Depends on the core package only, and never imports an adapter (ADR 0001).
+The cluster net-advantage figure needs transaction costs per contract, which are not part of the config (as in the thesis). The default is the thesis' 25,000 to 125,000 (loss units), which is the setting of the parity config; set others with `--transaction-costs 1000,5000,10000`. The figure's CSV records the cost of every row (`transaction_cost`). The break-even figure does not depend on them.
+
+Runs are read in bulk: `ResultReader.runs` reads each store table once for all the runs it is given, and the sweep figures read all the points of one sweep at once. `ResultReader.kpis` reads the `kpis` table of many runs.
+
+`figures` is a core command that imports this package only when it runs. Each figure is written as `<name>.png` with its figure data next to it: `<name>.csv` and, for some figures, `<name>.<part>.csv`.
+
+From Python:
+
+```python
+from parametric_insurance_design_viz.reader import ResultReader
+from parametric_insurance_design_viz.payout_functions import payout_grid
+from parametric_insurance_design_viz.figure_data import write_figure
+
+reader = ResultReader("results/thesis")
+runs = reader.runs([run_id_mse, run_id_uncovered, run_id_cvar])  # one scope
+write_figure(payout_grid(runs), "figures/")
+```
+
+| Module | What it holds |
+|---|---|
+| `style` | Fonts, palette and labels of the thesis `global_settings` |
+| `reader` | Result-store reader: runs (one at a time or in bulk), the `kpis` table of many runs, entities, event data under each entity |
+| `figure_data` | `FigureOutput` and `write_figure`: the image plus its figure-data CSVs |
+| `payout_functions` | Payout-function grid and normalised payout figure |
+| `kpi_figures` | KPI heatmaps, performance overview and exceedance curves |
+| `sweep_figures` | Sweep figures (thesis 5.7 to 5.14, A.3): premium reallocation, payout functions along a sweep, tail-basis-risk sensitivity, tail-vs-total trade-off, cluster net advantage and break-even cost |
+| `command` | The figure set of the `figures` command |
+| `errors` | Typed errors, all `ParametricInsuranceDesignError` |
+
+### Sweep figures
+
+`figures` draws these from the config's sweeps (MAR-112; names as written, `<param>` the swept parameter):
+
+| Figure | Thesis | Shows |
+|---|---|---|
+| `premium_reallocation` | 5.7 | Premium share per location, individual vs. portfolio scope (weighted-CVaR objective), over the insured values |
+| `payout_sweep_<scope>_<entity>_<param>` | 5.8 | The first entity's payout function at every value of `alpha`, `beta`, `budget_loading`, `n_bins`, `noise_level` (weighted CVaR), over the event data and the residual-loss baseline |
+| `sensitivity_<param>` | 5.9, 5.10, 5.12 | Portfolio tail basis risk (`cvar_uncovered`) against every swept parameter, per scope x objective; `n_assets` averages its location subsets |
+| `tradeoff_<scope>_<param>` | 5.11, A.3 | Tail against total basis risk along `alpha`, `beta`, `n_bins`, `budget_loading` (portfolio scope, weighted CVaR) |
+| `net_advantage_<scope>`, `breakeven_cost_<scope>` | 5.13, 5.14 | Transaction-cost saving minus the tail-risk penalty of `C` clusters against the portfolio scope (`n_clusters` sweep), and the break-even cost per contract |
+
+Sweep points whose run failed are not drawn, but each figure's CSV lists them with `ok = False`, and the command reports the figure as `FAILED` (exit 1). On the thesis config that happens for `sensitivity_n_assets`: subsets smaller than the three clusters cannot be clustered.
+
+- Depends on the core package only, and never imports an adapter (ADR 0001), the solver or the problem builder (checked in `tests/test_imports.py`).
 - Licence: BSD-3-Clause.
+
+### KPI figures (`kpi_figures`)
+
+`figures` also draws, from the `kpis` and `exceedance` tables of the store:
+
+| Figure | Thesis | What it shows |
+|---|---|---|
+| `kpi_heatmap_cvar_uncovered`, `kpi_heatmap_expected_uncovered` | Notebook "Portfolio-level performance comparison" | One portfolio KPI per scope x objective, coloured by its change against the baseline (green lower, red higher) |
+| `performance_overview` | Figure 5.5, Table A.2 | Tail and total basis risk, bars grouped by scope, dotted baseline |
+| `exceedance_<scope>` | Figure 5.6 (portfolio) | Portfolio uncovered loss per return period, one curve per objective, VaR return period `1/(1-beta)` marked |
+
+- The baseline is the first scope with the `mse` objective (the thesis' individual scope and residual loss objective), or the first scope's first objective without `mse`.
+- KPIs are read on the `test` split when every run has one (a `holdout` sample: out of sample), else `full`; VaR/CVaR at the runs' `evaluation_beta`. Curves are `event` on the event bases and `aep` on the annual basis. The figure CSVs record the split (`eval_split`).
+- **k-fold stores are refused** (MAR-137). A `kfold` sample is a run per fold (MAR-22), so each scope x objective has `k` out-of-sample values, and drawing one of them, or their mean without the spread, would misstate the result. `kpi_figures`, `kpi_table`, `kpi_heatmap`, `performance_overview` and `exceedance_curves` raise `KFoldRunsError` (an `InconsistentRunsError`) for a k-fold config or any k-fold run, and draw nothing. Draw the figures from a `holdout` config. The `figures` command (`write_figures`) refuses a k-fold config up front with the same `KFoldRunsError` (MAR-142), naming the config, before it reads the store or runs any figure set, so no figure is written (exit code 3): the payout and sweep figures also show one run per scope x objective. How folds are combined is decided with the confidence intervals (MAR-23).
+- The curves use the return periods the runner stored. The portfolio `var_uncovered` KPI is the same quantile at `1/(1-beta)`, so it is added as that point (`source = "kpis"` in the CSV) when the store has none there.
+- If any run failed, the heatmaps and the overview are skipped and reported (exit 1), as is the exceedance figure of the failed scope.

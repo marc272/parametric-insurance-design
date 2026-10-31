@@ -97,7 +97,7 @@ New repository (D1). The old repository is tagged `thesis-v1` and archived read-
 parametric-insurance-design/
 ├── packages/
 │   ├── core/            # parametric-insurance-design: numpy, scipy, pandas, pyarrow, cvxpy, pydantic. NO hazard libraries
-│   ├── viz/             # parametric-insurance-design-viz: matplotlib figures, reading only the result store
+│   ├── viz/             # parametric-insurance-design-viz: matplotlib figures, reading the result store and the runs' content-hashed input EventSets; never solving or re-optimising (C6)
 │   ├── crc/             # parametric-insurance-design-crc: CRC/VELO adapter (py>=3.12)
 │   └── climada/         # parametric-insurance-design-climada: tracks → CLIMADA → EventSet (own pixi env, NOT a uv member)
 ├── research/            # paper: configs, run scripts, figure scripts, manuscript
@@ -131,8 +131,16 @@ The adapter and viz distributions import as `parametric_insurance_design_viz`, `
 | `evaluate.py` | KPIs: VaR/CVaR(U), E[U], RMSE, E[π]/E[L], correlation, exceedance curves on an event or annual basis |
 | `splits.py` | Year-block train/test and k-fold. Copies of an event (noise/vulnerability draws) never cross folds |
 | `robust.py` | Scenario-robust (R1) and distributionally robust (R2) wrappers (§6.5) |
-| `experiment.py` | Config schema, runner, sweeps (one factor at a time), content-hashed caching, result store |
+| `experiment/` | Subpackage (ADR 0002 §8): `config.py` config schema, `runner.py` run executor and content-hashed caching, `store.py` result store, `sweeps.py` one-factor-at-a-time sweeps |
+| `cli.py` | The `parametric-insurance-design` command (run, sweep, and later figures and export-site) |
 | `noise.py` | Thesis noise layer (homo/heteroscedastic lognormal), bit-identical port for parity |
+| `interfaces.py` | Shared contract types and ABCs: `Sample`, `Entity`, `ProblemSpec`, `DesignProblem`, `ProblemContext`, `PayoutStructure`, `Scope`, `Objective`, `Pricing`, `Constraint`, `SolveResult` (ADR 0002) |
+| `basis.py` | `Basis` (`event_conditional`, `event`, `annual`) and `OutcomeMeasure`, the probability measure over outcomes shared by objectives, pricing and evaluation |
+| `errors.py` | Error hierarchy under `ParametricInsuranceDesignError` |
+| `records.py` | Typed result-store tables: `runs`, `entities`, `payouts`, `kpis`, `exceedance` |
+| `constraints.py` | Extra constraints, e.g. the premium budget |
+
+The contracts between these modules, and which Linear issue owns which file, are fixed in ADR 0002 (`docs/adr/0002-core-interfaces.md`).
 
 ### 4.3 Engineering standards
 
@@ -158,12 +166,14 @@ Stored as one directory with Parquet tables and `metadata.json`.
 
 | Table | Columns |
 |---|---|
-| `events` | `event_id` (str), `year` (int, simulation year), `rate` (float, annual frequency; default 1/Y), `draw_id` (int, noise/vulnerability draw; 0 if none), `scenario_id` (str) |
+| `events` | `event_id` (str), `year` (int, simulation year, 0-based: `year ∈ [0, n_years)`), `rate` (float, annual frequency; default 1/Y), `draw_id` (int, noise/vulnerability draw; 0 if none), `scenario_id` (str) |
 | `locations` | `location_id`, `lat`, `lon`, `value`, `name`, free metadata columns |
 | `values` | long format: `event_id`, `draw_id`, `location_id`, `index` (float), `loss` (float) |
 | `metadata.json` | schema version, hazard source and release, index definition and unit, loss unit/currency, `n_years`, scenario description, provenance (source checksums, producer package and version, created_at), licence |
 
 In memory, an EventSet is a dense `(n_rows, n_locations)` index matrix and loss matrix, plus aligned event metadata. A threshold filter may drop rows only for speed. Rates are **never** rescaled, so dropped rows count as zero-loss mass.
+
+**Draw rows.** When an event is expanded into `n` noise or vulnerability draws (`draw_id` 0 … n−1), each draw row carries `rate / n`, so the draws of one event together keep the event's rate. This is the thesis convention (1/(Y·n) per row when the event rate is 1/Y; confirmed bit-identical in MAR-10), and it makes `rates @ loss` the expected annual loss with no extra normalisation. On the annual basis, outcomes are per (year, `draw_id`): each draw is one simulated version of that year.
 
 Migration: `parity/` holds the thesis `climada_transformed_loss_data.csv`, converted to an EventSet with a recorded checksum.
 
@@ -173,7 +183,7 @@ Migration: `parity/` holds the thesis `climada_transformed_loss_data.csv`, conve
 
 §6.1–6.4 are implemented as **core v1 features** in Foundation (F-09 to F-12) and used by every output. Checkpoint C1 and §6.5 onwards are Paper work.
 
-Notation: events e with rate w_e; years y = 1..Y; locations i with index x_{e,i} and loss L_{e,i}; payout entities j with index ξ_{e,j}.
+Notation: events e with rate w_e; years y = 1..Y (notation only: stored years are 0-based, `year ∈ [0, n_years)`, as in IRIS and the thesis; owner-confirmed 2026-10-25, MAR-89); locations i with index x_{e,i} and loss L_{e,i}; payout entities j with index ξ_{e,j}.
 Step payout: π_{e,j} = Σ_k θ_{j,k}·1[ξ_{e,j} ∈ B_k], with θ ≥ 0, θ_{j,k} ≤ θ_{j,k+1} and θ_{j,k} ≤ cap_j. Breakpoints are uniform on [attachment, limit] (thesis default).
 Scopes:
 - individual: one problem per asset;
@@ -181,7 +191,7 @@ Scopes:
 - cluster: entities are clusters with ξ_{e,c} = value-weighted mean index.
 
 ### 6.1 Evaluation protocol (M1)
-- Default split: years 1–0.7Y train, the rest test. Option: 5-fold by year blocks. Every draw of an event goes to the same fold.
+- Default split: the first 70 % of years train (stored years 0 … 0.7Y − 1), the rest test. Option: 5-fold by year blocks. Every draw of an event goes to the same fold.
 - Report in-sample and out-of-sample KPIs, and their gap as a function of `n_bins` (overfitting diagnostic).
 - CIs: block bootstrap over years (B = 1000 by default) for every reported KPI.
 - **Acceptance:** each headline comparison reports out-of-sample KPI values with 90 % CIs.
@@ -231,7 +241,7 @@ Uncertainty is represented as scenario EventSets S_0 (reference) … S_K. Each i
   - results cover at least uncertainty sources (i) and (iii);
   - a price-of-robustness figure exists for each scope.
 
-### 6.6 Portfolio (D2, decided by spike P-05)
+### 6.6 Portfolio (D2, decided 2026-10-27 after spike P-05)
 - **Requirements:**
   - single risk owner;
   - 25–200 assets inside the IRIS North Atlantic domain (US Gulf/East coast, Caribbean, Central America);
@@ -240,6 +250,14 @@ Uncertainty is represented as scenario EventSets S_0 (reference) … S_K. Each i
   - (a) a real company's assets from the **VELO/CDT database**: real coordinates and asset types; values need a proxy; may be anonymised in the paper;
   - (b) CLIMADA LitPop municipal/sovereign portfolio (fully open, which the CLIMADA tutorial needs anyway);
   - (c) Overture candidate locations.
+- **Decision (D2, MAR-30, 2026-10-27; note in `research/notes/d2-paper-portfolio.md`):**
+  - **Source:** (b) LitPop now; revisit (a) VELO/CDT after MAR-41.
+  - **Region and owner:** Florida's 67 counties, with the State of Florida as the single risk owner. Each county's value is the sum of the cells of the pinned CLIMADA data-API file `LitPop_150arcsec_USA` v3 (uuid and MD5 in the note).
+  - **Single risk owner:** a government whose loss is the modelled LitPop asset loss in its territory, stated as a documented proxy.
+  - **Index for an aggregated unit:** wind at the value-weighted centroid, plus cat-in-a-circle around it. Both are already in §6.3.
+  - **Publication constraints:** CC BY 4.0 attribution on every output, no anonymisation, and the derived EventSet recorded as `CC-BY-4.0`.
+  - **K-04 tutorial:** reuses the paper portfolio (the same data).
+  - **Fallback:** Puerto Rico's 78 municipalities.
 - The thesis 9-asset Miami portfolio stays as the illustrative and parity case.
 
 ### 6.7 Testing the method
@@ -303,7 +321,7 @@ Positioning: Steinmann et al. 2023 (CLIMADA parametric framework), Maier & Scher
 **Website & Blog**
 
 v1, an early release that needs F-09 and F-10:
-- W-01 Export bundle format: JSON/Parquet slices of the result store. Site skeleton (stack D5; static hosting)
+- W-01 Export bundle format: JSON slices for small grids and uncompressed Arrow IPC for larger tables (Quarto OJS reads both; Parquet is not a documented OJS format). Site skeleton in Quarto, deployed to GitHub Pages (D5, ADR 0003)
 - W-02 Explorers from precomputed grids:
   - α/β → payout shape and exceedance curves;
   - portfolio cross-coverage map.
@@ -352,12 +370,12 @@ Each decision's status and outcome is recorded on its **Linear issue**, which is
 | ID | Decision | Linear issue |
 |---|---|---|
 | D1 | Repository and package name: `parametric-insurance-design` (decided; ADR 0001) | MAR-5 |
-| D2 | Paper portfolio source | MAR-30 |
+| D2 | Paper portfolio source: CLIMADA LitPop (revisit VELO/CDT after MAR-41), Florida's 67 counties with the State of Florida as the single risk owner (a documented proxy); county values from the pinned `LitPop_150arcsec_USA` v3; CC BY 4.0 attribution, no anonymisation; fallback Puerto Rico's 78 municipalities (decided 2026-10-27; §6.6; note in `research/notes/d2-paper-portfolio.md`) | MAR-30 |
 | D3 | Licences: BSD-3-Clause core/viz, GPL-3.0-or-later CLIMADA adapter, AGPL-3.0-or-later CRC adapter (decided; ADR 0001, §4.3) | MAR-5 |
 | D4 | Target venue (e.g. NHESS / Environment Systems and Decisions vs. Insurance: Mathematics and Economics / ASTIN) | MAR-29 (C1) |
-| D5 | Website stack (e.g. Observable Framework vs. Vite + Plotly/D3 vs. Quarto) | MAR-52 |
+| D5 | Website stack: Quarto + OJS on GitHub Pages (decided 2026-10-25; ADR 0003) | MAR-52 |
 | D6 | Include R2 (distributionally robust) in the paper | MAR-29 (C1) |
-| D7 | Second hazard catalogue: STORM vs. CLIMADA synthetic tracks | MAR-62 |
+| D7 | Second hazard catalogue: STORM, present climate v4, North Atlantic, CC0 (decided 2026-10-25; note in `research/notes/d7-second-hazard-catalogue.md`) | MAR-62 |
 
 ---
 

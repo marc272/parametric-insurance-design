@@ -1,0 +1,40 @@
+# EventSet for the thesis portfolio (9 Miami assets) with the cat-in-a-circle
+# index (MAR-26, SPEC §6.3 index (b)) instead of the wind at the asset. Every
+# other setting is configs/thesis.yaml's, so the loss column is the same.
+#
+#   pixi run iris                                    # once: download + merge IRIS
+#   pixi run build-eventset --config configs/thesis_cat_in_circle.yaml
+#
+# Paths are relative to this file. The catalogue and the output live under the
+# git-ignored data/ at the repository root; nothing here is committed data.
+catalogue: ../../../data/iris/transformed/IRIS_NA_10000Y_merged.txt
+n_years: 10000
+locations:
+  eventset: ../../../parity/tests/data/thesis_eventset
+proximity_km: 500         # the circle radius must not exceed proximity_km / 2
+batch_size: 500
+wind:
+  model: H08
+  intensity_thres: 17.5
+  max_dist_eye_km: 300
+  max_latitude: 61
+  max_dist_inland_km: null
+impact_function:
+  kind: emanuel_usa
+  impf_id: 1
+  v_thresh: 25.7
+  v_half: 74.7
+  scale: 1.0
+index:
+  kind: cat_in_circle
+  # Steinmann et al. (2023) use radii of 10-50 km around each site in CLIMADA;
+  # MAR-26 compares 30, 50 and 100 km on this portfolio.
+  radius_km: 50
+  metric: category        # Saffir-Simpson category 0-5; or max_wind (m/s)
+  # NHC Saffir-Simpson lower bounds of categories 1-5, 1-minute sustained wind
+  # in kn (the default; IRIS vmax is a 1-minute sustained wind).
+  breakpoints_kn: [64, 83, 96, 113, 137]
+  track_step_hours: 0.5   # interpolate the 3-hourly IRIS tracks; null = raw points
+scenario_id: iris-present-climate
+licence: CC-BY-4.0
+output: ../../../data/eventsets/thesis-iris-cat-in-circle-50km
