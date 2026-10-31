@@ -300,6 +300,16 @@ class EberenzEdrPriorConfig(_Model):
         the sensitivity option; with ``wind_only: false`` too it is the
         published distribution (43 NA2 events). A region event with no known
         basin raises :class:`.vulnerability.UnknownBasinError` at build time.
+    recentre : {"median"} or None
+        Recentre the prior on the base impact function (MAR-160, the owner's
+        answer to MAR-118 Q5). ``median`` rescales the event-wise values
+        multiplicatively, ``v_half_i * (impact_function.v_half / median_i
+        v_half_i)``, so that their median is ``impact_function.v_half``; ratios
+        between values are kept (:meth:`.vulnerability.EberenzEdrPrior.recentred`).
+        A rescaled value at or below ``v_thresh`` raises
+        :class:`.vulnerability.RecentringError` at build time; nothing is
+        clipped. Default None: the calibrated values, so that a config without
+        the key builds what it built before.
     """
 
     kind: Literal["eberenz2021_edr"] = "eberenz2021_edr"
@@ -308,6 +318,7 @@ class EberenzEdrPriorConfig(_Model):
     basins: tuple[Literal["NA", "SA", "EP", "WP", "NI", "SI", "SP"], ...] | None = (
         Field(default=("NA",), min_length=1)  # vulnerability.DEFAULT_BASINS
     )
+    recentre: Literal["median"] | None = None
 
     @field_validator("basins")
     @classmethod
@@ -397,22 +408,26 @@ class EmanuelVHalfDrawsConfig(_Model):
         Raises
         ------
         VulnerabilityError
-            If the prior cannot be loaded or does not fit the impact function.
+            If the prior cannot be loaded or does not fit the impact function,
+            e.g. :class:`.vulnerability.RecentringError` if recentring would
+            put a ``v_half`` at or below ``v_thresh``.
         """
         prior_config = self.prior
-        prior = (
-            EberenzEdrPrior.from_climada(
+        prior: EberenzEdrPrior | UniformPrior
+        if isinstance(prior_config, EberenzEdrPriorConfig):
+            prior = EberenzEdrPrior.from_climada(
                 prior_config.region,
                 wind_only=prior_config.wind_only,
                 basins=prior_config.basins,
             )
-            if isinstance(prior_config, EberenzEdrPriorConfig)
-            else UniformPrior(
+            if prior_config.recentre == "median":
+                prior = prior.recentred(impact_function.v_half)
+        else:
+            prior = UniformPrior(
                 low=prior_config.low,
                 high=prior_config.high,
                 source=prior_config.source,
             )
-        )
         return EmanuelVHalfDraws(
             prior=prior,
             n_draws=self.n_draws,
