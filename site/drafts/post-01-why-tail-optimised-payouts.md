@@ -2,8 +2,9 @@
 title: "Why tail-optimised parametric payouts?"
 subtitle: "Designing a cover for the storms that matter most"
 author: Marc Prinzing
-status: draft for owner review
+status: revised draft for owner review
 date: 2026-10-25
+revised: 2026-10-31
 issue: MAR-57 (W-03, post 1)
 channels: [blog, LinkedIn]
 figures:
@@ -13,11 +14,14 @@ figures:
 
 <!--
 Draft prepared by an agent for MAR-57. Marc Prinzing edits, approves and publishes.
-Do not publish before owner approval. Publication rule (AGENTS.md, SPEC §1): until
-checkpoint C1 (MAR-29) is Done, present the method and the tool, state the setup of
-every number, and make no general claim that tail optimisation outperforms.
-Notes for the owner are in HTML comments like this one and in the "Notes for the
-owner" section at the end. Remove both before publishing.
+Do not publish before owner approval, and not before the README refresh (MAR-164).
+Publication rule (Program hub): until checkpoint C1 (MAR-29) is Done, present the
+method and the tool, state the setup of every number, make no general claim that tail
+optimisation outperforms, and make no general claim that joint (portfolio or cluster)
+calibration outperforms individual calibration.
+Revised on 2026-10-31 with the owner's answers on MAR-57. Notes for the owner are in
+this comment and in the "Notes for the owner" section at the end. Remove both before
+publishing.
 -->
 
 # Why tail-optimised parametric payouts?
@@ -74,12 +78,9 @@ subject to a premium budget, a payout that never decreases as the index rises, a
 
 Two technical points make this practical. First, the payout is a step function of the index, so the design reduces to choosing one payout level per index band. Second, a result by Rockafellar and Uryasev (2000) turns CVaR minimisation over a set of simulated events into a **linear program**, which solves exactly and quickly, even for large event sets.
 
-That second point matters for portfolios. A single owner with several sites, such as a city with a hospital, a water plant and a port, cares about its total shortfall, not about each site on its own. The same linear program can calibrate a separate payout for each site jointly against the owner's total uncovered loss, under one shared budget. That is the subject of the next post.
+The thesis had a second idea, about portfolios. A single owner with several sites, such as a city with a hospital, a water plant and a port, cares about its total shortfall, not about each site on its own. The same linear program can calibrate a separate payout for each site jointly, against the owner's total uncovered loss and under one shared budget. Because only the total counts, a payout at one site can make up for a shortfall at another. Joint calibration does not depend on the tail objective: it can be paired with an average fit too. That is the subject of the next post.
 
-<!-- OWNER: the paragraph above describes positioning claim A without calling it new.
-Keep "without calling it new" until MAR-28's positioning is approved. -->
-
-Neither CVaR nor tail-risk objectives are new. CVaR is a standard risk measure in finance and insurance, and tail measures have been used before to design index insurance (for example Fan, Tan and Zhang, 2023). What this work combines is a weighted tail objective on the uncovered loss, exact linear-program calibration, and joint calibration across one owner's sites.
+Neither CVaR nor tail-risk objectives are new. CVaR is a standard risk measure in finance and insurance, and tail measures have been used before to design index insurance (for example Fan, Tan and Zhang, 2023). Asymmetric criteria have been used too: Maier and Scherer (2026) design expectile-based payments for a single risk, weighting under- and over-compensation differently. The first design choice in this work is the objective: a weighted tail objective on the buyer's uncovered loss, solved exactly as one linear program. The second, a design choice in its own right, is the scope: one owner's sites are calibrated jointly, against their total uncovered loss, rather than each site on its own. This post does not claim that either choice protects the buyer better; that is what the tests described below are for.
 
 ## What a tail focus costs
 
@@ -89,36 +90,34 @@ There is a second risk. The tail of a simulated event set contains few events, a
 
 ## Where this comes from, and what we are testing now
 
-The idea comes from my master's thesis at the Technical University of Munich, which built the method and tried it on a small illustrative portfolio of nine sites in Miami, with synthetic hurricanes from the IRIS catalogue and losses from the open-source CLIMADA platform.
+Both ideas come from my master's thesis at the Technical University of Munich, which built the method and tried it on a small illustrative portfolio of nine sites in Miami, with synthetic hurricanes from the IRIS catalogue and losses from the open-source CLIMADA platform. It calibrated the sites one by one, in clusters and all together.
 
-The thesis was a first, deliberately simple test. Its evaluation used the same simulated events for design and for scoring. The gap between index and loss came from a synthetic noise layer on top of a wind-based loss. Shortfall and budget were measured per event rather than per year, and the premium carried no risk load. These simplifications are reasonable for a thesis, but not enough to say whether the tail focus helps in practice.
+The thesis was a first, deliberately simple test. Its evaluation used the same simulated events for design and for scoring. The gap between index and loss came from a synthetic noise layer on top of a wind-based loss. Shortfall and budget were measured per event rather than per year, and the premium carried no risk load. These simplifications are reasonable for a thesis, but not enough to say whether the tail focus, or joint calibration, helps in practice.
 
-<!-- OWNER: no thesis numbers are quoted on purpose. If you want one, label it
-"thesis result, in-sample, 9-asset Miami portfolio, IRIS/CLIMADA, synthetic noise
-basis risk, per-event basis, pure premium" and add it to the setup box below. -->
+So there are two open questions, one for each idea:
 
-So the open question is the one that matters: **does the tail-weighted design still lower the buyer's tail shortfall, compared with average-fit designs, when it is tested properly?** "Properly" means:
+- **Does the tail-weighted design still lower the buyer's tail shortfall, compared with average-fit designs, when it is tested properly?**
+- **When does calibrating one owner's sites jointly pay off, compared with calibrating each site on its own, for each objective?**
+
+"Properly" means:
 
 - out of sample, on simulated years the design has not seen, with confidence intervals;
 - on an annual basis, so that β has a return-period meaning;
 - with realistic basis risk: an index computed from the storm track (cat-in-a-circle), and losses that include uncertainty in how buildings respond to wind;
 - with a premium that includes a cost-of-capital load, not just the expected payout.
 
-We are running that test now, and we will publish the answer whichever way it goes. Until then, this series presents the method and the tool, not a verdict.
+We are running those tests now, and we will publish the answers whichever way they go. Until then, this series presents the method and the tool, not a verdict.
 
 ## What comes next
 
-We are rebuilding the thesis code as an open, tested Python library, `parametric-insurance-design`. Interactive explorers will let you move the α and β dials and watch the payout shape and the shortfall distribution respond. The next post looks at portfolios: what happens when one owner's sites are calibrated together, and why an optimiser may choose to leave one of them uncovered.
-
-<!-- OWNER: decide whether to link the public repository here
-(https://github.com/marc272/parametric-insurance-design). The CLIMADA module is not
-mentioned on purpose, because the maintainer discussion (K-01) has not started. -->
+We are rebuilding the thesis code as an open, tested Python library, [`parametric-insurance-design`](https://github.com/marc272/parametric-insurance-design). Interactive explorers will let you move the α and β dials and watch the payout shape and the shortfall distribution respond. The next post looks at portfolios: what happens when one owner's sites are calibrated together, and why an optimiser may choose to leave one of them uncovered.
 
 ### References
 
 - Rockafellar, R. T. and Uryasev, S. (2000). Optimization of conditional value-at-risk. *Journal of Risk*. doi:10.21314/JOR.2000.038
 - Steinmann, C. B., Guillod, B. P., Fairless, C. and Bresch, D. N. (2023). A generalized framework for designing open-source natural hazard parametric insurance. *Environment Systems and Decisions*. doi:10.1007/s10669-023-09934-x
 - Fan, Q., Tan, K. S. and Zhang, J. (2023). Empirical tail risk management with model-based annealing random search. *Insurance: Mathematics and Economics*. doi:10.1016/j.insmatheco.2023.02.005
+- Maier, M. J. and Scherer, M. (2026). Expectiles as basis risk-optimal payment schemes in parametric insurance. *European Actuarial Journal*. doi:10.1007/s13385-026-00447-w
 - Prinzing, M. (2026). *Tail-risk-optimized payout design in parametric insurance*. Master's thesis, Technical University of Munich.
 
 > **Setup of every number in this post**
@@ -137,17 +136,17 @@ mentioned on purpose, because the maintainer discussion (K-01) has not started. 
 
 ## LinkedIn version
 
-<!-- 1,237 characters including spaces and line breaks (limit 1,300). -->
+<!-- 1,549 characters including spaces and line breaks (LinkedIn's limit is 3,000). -->
 
 Parametric insurance pays on an index, such as the wind speed at a site, not on a damage assessment. That makes it fast. It also means the payout never matches the loss exactly. That gap is basis risk.
 
 Payouts are often calibrated to fit modelled losses on average, for example by minimising the mean squared gap. That is a sensible start, but it averages over all events, most of them moderate, and treats paying too much in a mild storm like paying too little in a severe one. For the buyer, they are not the same.
 
-In my master's thesis I explored a different objective: calibrate the payout against the buyer's uncovered loss, with a weight on its tail (CVaR, the average of the worst outcomes). A dial sets the balance between average and tail. The problem stays a linear program, so many sites can be calibrated jointly for one owner under one budget.
+My master's thesis explored two design choices. The first is the objective: calibrate the payout against the buyer's uncovered loss, with a weight on its tail (CVaR, the average of the worst outcomes). A dial sets the balance between average and tail, and the problem stays an exact linear program. The second, a choice in its own right, is the scope: when one owner has many sites, calibrate their payouts jointly against the owner's total shortfall, under one budget, rather than site by site.
 
-The thesis was a simple first test. The real question is open: does the tail focus still help out of sample, with realistic basis risk and loaded premiums? We are testing that now and will publish the answer either way.
+The thesis was a simple first test, and this post does not claim that either choice is better. Two questions are open. Does the tail focus still help out of sample, with realistic basis risk and loaded premiums? And when does joint calibration pay off, compared with calibrating each site on its own? We are testing both now and will publish the answers either way.
 
-New post: why tail-optimised parametric payouts, and what we still need to find out. [link]
+The full post is on my blog. The code is open: https://github.com/marc272/parametric-insurance-design
 
 #ParametricInsurance #ClimateRisk #RiskManagement #CatModelling
 
@@ -173,12 +172,20 @@ Ideas not made, for the owner to decide:
 
 Remove this section before publishing.
 
-- **Positioning (MAR-28, still a draft).** The post makes no novelty claim. It says CVaR and tail objectives are not new, cites Fan, Tan and Zhang (2023) as prior tail-objective index design, and describes the joint multi-asset calibration (claim A) without calling it new. The sentence "What this work combines is ..." is the closest the post comes to positioning. Adjust it once the positioning is approved.
+Revised on 2026-10-31 with your answers on MAR-57:
+
+- **Positioning:** two sentences in the "not new" paragraph, one per idea. The first is the weighted tail objective as an exact LP; the second is joint calibration across one owner's sites, as a design choice in its own right (RQ2). The paragraph ends by saying the post does not claim that either choice protects the buyer better. Joint calibration is now presented as the thesis's second idea, with its own open question in "Where this comes from, and what we are testing now" and in the LinkedIn version.
+- **Maier and Scherer:** one neutral sentence in the same paragraph, next to Fan, Tan and Zhang (2023), citing `maier2026expectiles` (European Actuarial Journal, 2026). Their 2026 arXiv preprint on the expectile weight (`maier2026weighting`) is not cited.
+- **Thesis:** cited by title and institution only, with no link. No thesis numbers.
+- **Links:** the public repository is linked in "What comes next" and at the end of the LinkedIn version.
+- **Post 2 teaser:** kept.
+
+Still true from the first draft:
+
+- **No novelty claim.** The post says CVaR and tail objectives are not new and describes both design choices without calling them new.
 - **One-sided measure.** The post presents the uncovered loss as the buyer's natural quantity, but does not claim that the one-sidedness is what makes the tail term distinctive (see observation O1 in `research/lit/notes.md`).
-- **Maier and Scherer.** Their work on asymmetric (expectile) payouts is not mentioned or cited, because positioning against the thesis chair's line of work is your call (MAR-28).
 - **Average-fit criteria treated fairly.** Following observation O5, the post says that RMSE already weights large errors and that Steinmann et al. chose it partly for that reason. It does not present MSE as wrong, only as an average.
-- **Thesis numbers.** None are used. The thesis is described by its setup and its simplifications (SPEC §3.2, M1 to M4), not by its results.
-- **Thesis title.** The reference keeps the submitted title's spelling ("Optimized"), while the post otherwise uses British spelling like the repository docs. Check the exact form you want to cite.
-- **Links to decide:** the public repository, the thesis (if it will be available), and the LinkedIn post link.
-- **Teaser for post 2.** The last paragraph says "an optimiser may choose to leave one of them uncovered". That is a qualitative thesis observation (the planned post 2 topic), not a number. Drop it if you prefer no thesis findings at all in post 1.
-- **Not mentioned on purpose:** the CLIMADA module (maintainer discussion not yet opened), the CRC showcase, the paper and any timeline.
+- **Thesis title.** The reference keeps the submitted title's spelling ("Optimized"), while the post otherwise uses British spelling like the repository docs.
+- **LinkedIn and the blog post.** The LinkedIn version says the full post is on the blog but gives only the repository link. Add the blog post's URL when you publish, if you want one.
+- **Publishing order.** Publish only after the README refresh (MAR-164), because both versions link the repository.
+- **Not mentioned on purpose:** the CLIMADA module (posting K-01 is on hold), the CRC collaboration, the paper and any timeline.
