@@ -382,7 +382,7 @@ def _diagnostics(built: BuiltProblem) -> dict[str, float]:
 
 
 def _pricing(built: BuiltProblem, pricing: Pricing | None) -> Pricing | None:
-    """The pricing whose ``premium_value`` :func:`solve` records, if any.
+    """Return the pricing whose ``premium_value`` :func:`solve` records, if any.
 
     ``built.pricing`` unless ``pricing`` is given; a given ``pricing`` must
     equal it (module docstring, "The premium of a solution").

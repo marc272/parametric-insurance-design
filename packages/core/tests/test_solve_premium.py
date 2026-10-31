@@ -1,14 +1,20 @@
 """The premium of a solution is ``premium_value`` of its realised payout (MAR-143).
 
-``solve.solve(built, policy, pricing=...)`` records ``SolveResult.premium``
-as ``pricing.premium_value`` of the realised payout in numpy, exact and
-without a solver call; the runner passes the run's pricing. Checked for both
-pricings, with the budget binding and slack, on two bases, against
-``premium_value`` and the in-sample ``premium`` KPI, bit for bit.
+``solve.solve(built)`` records ``SolveResult.premium`` as
+``pricing.premium_value`` of the realised payout in numpy, exact and without
+a solver call, with the pricing the problem was built with
+(``BuiltProblem.pricing``, MAR-171); the runner passes no pricing. Checked
+for both pricings, with the budget binding and slack, on two bases, against
+``premium_value`` and the in-sample ``premium`` KPI, bit for bit. The
+``pricing`` keyword stays (MAR-143): an equal pricing gives the same premium,
+a different one raises ``ComponentConfigError`` before any solver runs.
 """
 
 from __future__ import annotations
 
+import copy
+import dataclasses
+import pickle
 from collections.abc import Callable
 from pathlib import Path
 
@@ -88,7 +94,8 @@ def test_recorded_premium_is_premium_value_of_the_realised_payout(
     p = PRICINGS[pricing]
     constraints = {"tight": (TIGHT,), "slack": (SLACK,), "none": ()}[budget]
     (built,) = build(data, p, OBJECTIVES[objective], constraints, basis)
-    result = solve(built, pricing=p)
+    assert built.pricing is p
+    result = solve(built)  # no pricing argument (MAR-171)
     # Exactly premium_value of the realised payout: no rounding allowance.
     assert result.premium == realised_premium(built, result.theta, p)
     # ... which is the in-sample premium KPI of the design problem, bit for bit.
@@ -120,7 +127,7 @@ def test_individual_scope_records_each_problem_premium(
         (TIGHT,),
         basis=Basis.ANNUAL,
     )
-    results = [solve(b, pricing=p) for b in built]
+    results = [solve(b) for b in built]
     assert len(results) == 2
     for b, r in zip(built, results, strict=True):
         assert r.premium == realised_premium(b, r.theta, p)
@@ -154,7 +161,7 @@ def test_no_solver_call_when_reading_a_loaded_premium(
     constraints = (TIGHT,) if budget == "tight" else (SLACK,)
     (built,) = build(data, p, OBJECTIVES["wcvar"], constraints, Basis.ANNUAL)
     calls = counting_solves(monkeypatch)
-    result = solve(built, pricing=p)
+    result = solve(built)
     # One solver call: the accepted attempt. No inner solve for the premium,
     # the budget's constraint violation or anything else.
     assert len(result.attempts) == 1
@@ -168,13 +175,77 @@ def test_no_solver_call_when_reading_a_loaded_premium(
     assert float(bound) * result.scale >= result.premium - 1e-6 * result.scale
 
 
+def equal_copies(p: Pricing) -> dict[str, Pricing]:
+    """Pricings equal to ``p``: itself, copies and a fresh instance."""
+    fresh = (
+        CostOfCapitalLoad(rate=int(p.rate) if p.rate == 1.0 else p.rate, q=p.q)
+        if isinstance(p, CostOfCapitalLoad)
+        else PurePremium()
+    )
+    return {
+        "same": p,
+        "deepcopy": copy.deepcopy(p),
+        "pickled": pickle.loads(pickle.dumps(p)),
+        "fresh": fresh,
+    }
+
+
+@pytest.mark.parametrize("variant", ["same", "deepcopy", "pickled", "fresh"])
 @pytest.mark.parametrize("pricing", sorted(PRICINGS))
-def test_without_the_pricing_the_premium_is_the_term_value(
+def test_an_equal_pricing_keyword_records_the_same_premium(
+    data: EventSet, pricing: str, variant: str
+) -> None:
+    p = PRICINGS[pricing]
+    given = equal_copies(p)[variant]
+    # Frozen dataclasses compare by class and fields (``rate=1`` is stored
+    # as ``1.0``), so every variant equals the built pricing.
+    assert given == p
+    (built,) = build(data, p, OBJECTIVES["wcvar"], (TIGHT,), Basis.ANNUAL)
+    result = solve(built, pricing=given)
+    assert result.premium == realised_premium(built, result.theta, p)
+
+
+MISMATCHES: dict[str, tuple[Pricing, Pricing]] = {
+    "pure-vs-loaded": (PurePremium(), CostOfCapitalLoad(rate=0.1, q=0.9)),
+    "loaded-vs-pure": (CostOfCapitalLoad(rate=0.1, q=0.9), PurePremium()),
+    "other-rate": (
+        CostOfCapitalLoad(rate=0.1, q=0.9),
+        CostOfCapitalLoad(rate=0.2, q=0.9),
+    ),
+    "other-q": (
+        CostOfCapitalLoad(rate=0.1, q=0.9),
+        CostOfCapitalLoad(rate=0.1, q=0.95),
+    ),
+    # Same premium as PurePremium, but another pricing: refused all the same.
+    "zero-rate-vs-pure": (PurePremium(), CostOfCapitalLoad(rate=0.0, q=0.9)),
+}
+
+
+@pytest.mark.parametrize("case", sorted(MISMATCHES))
+def test_a_mismatched_pricing_is_refused_before_any_solve(
+    data: EventSet, case: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    built_with, given = MISMATCHES[case]
+    assert given != built_with
+    (built,) = build(data, built_with, OBJECTIVES["wcvar"], (TIGHT,), Basis.ANNUAL)
+    calls = counting_solves(monkeypatch)
+    with pytest.raises(ComponentConfigError, match="was built with pricing") as info:
+        solve(built, pricing=given)
+    assert repr(built_with) in str(info.value)
+    assert repr(given) in str(info.value)
+    assert calls == []  # refused before any solver ran
+    assert built.problem.status is None
+
+
+@pytest.mark.parametrize("pricing", sorted(PRICINGS))
+def test_a_problem_without_a_pricing_records_the_term_value(
     data: EventSet, pricing: str
 ) -> None:
     p = PRICINGS[pricing]
     (built,) = build(data, p, OBJECTIVES["wcvar"], (TIGHT,), Basis.EVENT_CONDITIONAL)
-    result = solve(built)
+    # A problem assembled by hand, without its pricing (the old behaviour).
+    bare = dataclasses.replace(built, pricing=None)
+    result = solve(bare)
     term = float(built.premium.expression.value) * result.scale  # type: ignore[arg-type]
     assert result.premium == term
     exact = realised_premium(built, result.theta, p)
@@ -184,6 +255,10 @@ def test_without_the_pricing_the_premium_is_the_term_value(
     else:
         # The Rockafellar-Uryasev bound: at least the loaded premium.
         assert result.premium >= exact - tol
+    # Given a pricing, such a problem records premium_value under it; there
+    # is no built pricing to check it against.
+    priced = solve(bare, pricing=p)
+    assert priced.premium == realised_premium(built, priced.theta, p)
 
 
 def test_solve_rejects_a_pricing_that_is_not_one(data: EventSet) -> None:
@@ -192,6 +267,9 @@ def test_solve_rejects_a_pricing_that_is_not_one(data: EventSet) -> None:
     )
     with pytest.raises(ComponentConfigError, match="pricing must be a Pricing"):
         solve(built, pricing="pure")  # type: ignore[arg-type]
+    bare = dataclasses.replace(built, pricing=None)
+    with pytest.raises(ComponentConfigError, match="pricing must be a Pricing"):
+        solve(bare, pricing="pure")  # type: ignore[arg-type]
 
 
 def test_runner_records_the_premium_value(data: EventSet, tmp_path: Path) -> None:
