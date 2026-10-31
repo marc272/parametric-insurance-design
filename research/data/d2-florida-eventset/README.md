@@ -19,7 +19,9 @@ pixi run --locked build-eventset --config configs/florida_counties_cat_in_circle
 | `florida-counties-iris-vulnerability` | `configs/florida_counties.yaml` (SHA256 `09ae6671…c2ed379`) | (a) wind at the value-weighted centroid, m/s | `sha256:cad398875afb467f5d1475e6a47952116391be18f249cc484990436f46a6cbe6` |
 | `florida-counties-iris-cat-in-circle-50km-vulnerability` | `configs/florida_counties_cat_in_circle.yaml` (SHA256 `4d6323d1…b0fbe1c0`) | (b) cat-in-a-circle, 50 km, Saffir-Simpson category 0-5 | `sha256:c7d6b76519d88bba4143d999bed81c78a0ff213777528aed3d7cea5ff2dfa67f` |
 
-Both: 139,020 rows (13,902 storms × 10 draws) × 67 counties, 9,314,340 `values` rows; the loss matrices are identical (same rows, seed and per-cell draws). With a step payout on the category index, use attachment 0 and integer category breakpoints.
+Both: 139,020 rows (13,902 storms × 10 draws) × 67 counties, 9,314,340 `values` rows; the loss matrices are identical (same rows, seed and per-cell draws).
+
+**A step payout on the category index (advice corrected in MAR-170).** Use integer category breakpoints. This README used to advise attachment 0, but then bin 0 is the category-0 bin, and category-0 pairs carry 36.0 % of the loss (`research/notes/d2-florida-eventset.md`), so the optimiser pays on category 0. Under the core's default `below_attachment: first_bin` (the thesis code), that level is paid on every storm that the adapter's 500 km `proximity_km` filter kept and on none of the others, so the design and its premium depend on the filter (design review MAR-161, finding F1). No attachment avoids this under `first_bin`: with attachment 1, category 0 is clipped into the category-1 bin. To pay nothing on category 0, set the payout's `below_attachment: zero` with attachment 1, e.g. `{attachment: 1, limit: 6, n_bins: 5}`: one bin per category 1 to 5, with category 5 in `[5, 6)`. The storms the filter dropped then change nothing. Which mode the D2 configs use is the owner's decision on MAR-170, due before the Florida runs (MAR-145, MAR-152).
 
 ## Files here
 

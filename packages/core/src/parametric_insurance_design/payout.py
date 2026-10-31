@@ -1,22 +1,41 @@
 """Payout structures (SPEC §4.2, §6 notation).
 
-Owner: MAR-11. The interface is
+Owner: MAR-11 → MAR-170 (``below_attachment``). The interface is
 :class:`~parametric_insurance_design.interfaces.PayoutStructure` (ADR 0002).
 
 :class:`StepPayout` pays ``theta[j, k]`` when entity ``j``'s index falls in
 bin ``k``: ``pi_{e,j} = sum_k theta_{j,k} * 1[xi_{e,j} in B_k]``, with
 ``theta >= 0``, non-decreasing in ``k`` and capped per entity. Index values
-outside ``[breakpoints[0], breakpoints[-1])`` are clipped into the first or
-last bin, as in the thesis ``_mapping``. Piecewise-linear payouts are parked
-(SPEC §9); they would be another subclass.
+at or above ``breakpoints[-1]`` are clipped into the last bin, as in the
+thesis ``_mapping``. Values below ``breakpoints[0]`` are clipped into the
+first bin (``below_attachment="first_bin"``, the default and the thesis code)
+or pay nothing (``below_attachment="zero"``). Piecewise-linear payouts are
+parked (SPEC §9); they would be another subclass.
 
 Bin semantics (thesis ``OptimizationConstructor._mapping`` and
-``get_payout_for_asset``, reproduced exactly):
+``get_payout_for_asset``, reproduced exactly under ``"first_bin"``):
 
 * Bins are half-open, ``B_k = [b_k, b_{k+1})`` for ``k = 0 .. n_bins - 1``.
-  A value equal to an interior breakpoint ``b_k`` belongs to bin ``k``.
-* Values below the attachment ``b_0`` fall into bin 0. In particular a zero
-  index (no hazard) pays ``theta[j, 0]``; the optimiser is free to set it to 0.
+  A value equal to an interior breakpoint ``b_k`` belongs to bin ``k``, and a
+  value equal to the attachment ``b_0`` to bin 0, in both modes.
+* Values below the attachment ``b_0``:
+
+  - ``"first_bin"`` (default; thesis code and thesis §3.3.1): they fall into
+    bin 0. In particular a zero index (no hazard) pays ``theta[j, 0]``; the
+    optimiser is free to set it to 0, and sets it positive whenever bin 0
+    carries loss.
+  - ``"zero"`` (thesis §3.3 (3): an attachment point "below which no payout
+    is triggered"): they are in no bin (:data:`NO_BIN`), pay 0, and have an
+    all-zero row in :meth:`StepPayout.basis_matrix`.
+
+  On the ``event`` and ``annual`` bases (``basis.py``), rows that a threshold
+  filter dropped and years without rows are outcomes that pay nothing. Under
+  ``"zero"`` a kept row whose index is below the attachment at every entity
+  pays nothing too, so dropping such rows with zero loss changes neither the
+  design nor its premium: the filter is then for speed only, as SPEC §5 says.
+  Under ``"first_bin"`` such a kept row pays ``theta[j, 0]`` and a dropped
+  one pays nothing, so the design depends on which rows the EventSet holds
+  (design review MAR-161, finding F1; ``tests/test_filter_invariance.py``).
 * Values at or above the limit ``b_n`` fall into the last bin. The thesis
   clips to ``b_n - 1e-12`` before the lookup; this module does the same and
   then clamps the bin number into ``[0, n_bins - 1]``, as
@@ -35,7 +54,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from numbers import Real
-from typing import ClassVar
+from typing import ClassVar, Final, Literal, get_args
 
 import cvxpy as cp
 import numpy as np
@@ -47,10 +66,32 @@ from parametric_insurance_design.errors import (
 )
 from parametric_insurance_design.interfaces import PayoutStructure
 
-__all__ = ["THESIS_UPPER_EPS", "PayoutStructure", "StepPayout", "uniform_breakpoints"]
+__all__ = [
+    "BELOW_ATTACHMENT_MODES",
+    "NO_BIN",
+    "THESIS_UPPER_EPS",
+    "BelowAttachment",
+    "PayoutStructure",
+    "StepPayout",
+    "uniform_breakpoints",
+]
 
 THESIS_UPPER_EPS: float = 1e-12
 """Offset below the limit that index values are clipped to (thesis ``eps``)."""
+
+BelowAttachment = Literal["first_bin", "zero"]
+"""What a :class:`StepPayout` pays for an index below the attachment.
+
+``"first_bin"``: the first bin's level ``theta[j, 0]`` (thesis code; the
+default). ``"zero"``: nothing (thesis text, §3.3 (3)). See the module
+docstring."""
+
+BELOW_ATTACHMENT_MODES: Final[tuple[str, ...]] = get_args(BelowAttachment)
+"""The values of :data:`BelowAttachment`, in order: ``("first_bin", "zero")``."""
+
+NO_BIN: Final[int] = -1
+"""Bin number :meth:`StepPayout.bin_index` gives an index value in no bin: a
+value below the attachment under ``below_attachment="zero"``."""
 
 
 def _check_range(attachment: object, limit: object, n_bins: object) -> None:
@@ -144,6 +185,11 @@ class StepPayout(PayoutStructure):
     breakpoints : tuple of float or None, optional
         Explicit breakpoints, strictly increasing, ``n_bins + 1`` values from
         ``attachment`` to ``limit``. Uniform if None.
+    below_attachment : {"first_bin", "zero"}, default "first_bin"
+        What an index value below ``attachment`` pays (:data:`BelowAttachment`).
+        ``"first_bin"``: the first bin's level, as the thesis code does.
+        ``"zero"``: nothing; the value is in no bin. A value equal to
+        ``attachment`` is in bin 0 either way.
 
     Raises
     ------
@@ -151,13 +197,16 @@ class StepPayout(PayoutStructure):
         If the parameters are invalid: ``n_bins < 1``, ``attachment >=
         limit``, non-finite values, or explicit breakpoints of the wrong
         length, not strictly increasing, or not starting at ``attachment``
-        and ending at ``limit`` exactly; or a last bin narrower than
-        :data:`THESIS_UPPER_EPS`.
+        and ending at ``limit`` exactly; a last bin narrower than
+        :data:`THESIS_UPPER_EPS`; or a ``below_attachment`` that is not one of
+        :data:`BELOW_ATTACHMENT_MODES`.
 
     Notes
     -----
-    See the module docstring for the bin semantics (half-open bins, clipping
-    below the attachment and at or above the limit).
+    See the module docstring for the bin semantics (half-open bins, values
+    below the attachment, clipping at or above the limit), and why
+    ``"zero"`` makes a threshold filter at the attachment exact on the
+    ``event`` and ``annual`` bases.
 
     Examples
     --------
@@ -166,6 +215,9 @@ class StepPayout(PayoutStructure):
     [20.0, 30.0, 40.0, 50.0, 60.0, 70.0]
     >>> payout.bin_index([0.0, 20.0, 29.9, 30.0, 69.9, 70.0, 99.0]).tolist()
     [0, 0, 0, 1, 4, 4, 4]
+    >>> zero = StepPayout(20.0, 70.0, 5, below_attachment="zero")
+    >>> zero.bin_index([0.0, 19.9, 20.0, 29.9, 30.0, 70.0]).tolist()
+    [-1, -1, 0, 0, 1, 4]
     """
 
     name: ClassVar[str] = "step"
@@ -174,11 +226,20 @@ class StepPayout(PayoutStructure):
     limit: float
     n_bins: int
     breakpoints: tuple[float, ...] | None = None
+    below_attachment: BelowAttachment = "first_bin"
     _edges: NDArray[np.float64] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         """Validate the parameters and store the breakpoints read-only."""
         _check_range(self.attachment, self.limit, self.n_bins)
+        if (
+            not isinstance(self.below_attachment, str)
+            or self.below_attachment not in BELOW_ATTACHMENT_MODES
+        ):
+            raise ComponentConfigError(
+                f"below_attachment must be one of {list(BELOW_ATTACHMENT_MODES)}, "
+                f"got {self.below_attachment!r}"
+            )
         if self.breakpoints is None:
             edges = uniform_breakpoints(self.attachment, self.limit, self.n_bins)
         else:
@@ -233,8 +294,11 @@ class StepPayout(PayoutStructure):
         -------
         lower, upper : numpy.ndarray
             ``edges[:-1]`` and ``edges[1:]``, shape ``(n_bins,)`` each. Bin
-            ``k`` is ``[lower[k], upper[k])``; the first and last bins also
-            take the clipped values below and above the range.
+            ``k`` is ``[lower[k], upper[k])``; the last bin also takes the
+            clipped values at or above the limit, and under
+            ``below_attachment="first_bin"`` the first bin the values below
+            the attachment (under ``"zero"`` they are in no bin). The same in
+            both modes.
         """
         return self._edges[:-1].copy(), self._edges[1:].copy()
 
@@ -249,7 +313,9 @@ class StepPayout(PayoutStructure):
         Returns
         -------
         numpy.ndarray of int
-            Same shape as ``index``, values in ``[0, n_bins - 1]``.
+            Same shape as ``index``, values in ``[0, n_bins - 1]``; under
+            ``below_attachment="zero"``, :data:`NO_BIN` (-1) for the values
+            below the attachment.
 
         Raises
         ------
@@ -260,7 +326,10 @@ class StepPayout(PayoutStructure):
         edges = self._edges
         clipped = np.clip(x, edges[0], edges[-1] - THESIS_UPPER_EPS)
         k = np.searchsorted(edges, clipped, side="right") - 1
-        return np.clip(k, 0, self.n_params - 1).astype(np.intp)
+        k = np.clip(k, 0, self.n_params - 1).astype(np.intp)
+        if self.below_attachment == "zero":
+            k = np.where(x < edges[0], NO_BIN, k).astype(np.intp)
+        return k
 
     def basis_matrix(self, index: ArrayLike) -> NDArray[np.float64]:
         """One-hot bin membership, see ``PayoutStructure``.
@@ -275,7 +344,10 @@ class StepPayout(PayoutStructure):
         numpy.ndarray
             ``M`` with shape ``(n_rows, n_bins)``: ``M[e, k] = 1`` if row
             ``e`` falls in bin ``k`` (after clipping), else 0. Every row has
-            exactly one 1 (thesis ``_mapping``).
+            at most one 1: exactly one under ``below_attachment="first_bin"``
+            (thesis ``_mapping``); under ``"zero"`` a row whose index is
+            below the attachment is all zeros, so it pays nothing for every
+            ``theta`` (ADR 0002 amendment MAR-170).
 
         Raises
         ------
@@ -285,7 +357,8 @@ class StepPayout(PayoutStructure):
         x = _finite_array(index, "index", 1)
         k = self.bin_index(x)
         m = np.zeros((x.shape[0], self.n_params), dtype=np.float64)
-        m[np.arange(x.shape[0]), k] = 1.0
+        rows = np.flatnonzero(k != NO_BIN)
+        m[rows, k[rows]] = 1.0
         return m
 
     def constraints(
@@ -338,7 +411,7 @@ class StepPayout(PayoutStructure):
         """Payout per row and entity, see ``PayoutStructure``.
 
         Thesis ``get_payout_for_asset(index[:, j], theta[j], edges)`` for
-        each entity ``j``.
+        each entity ``j`` under ``below_attachment="first_bin"``.
 
         Parameters
         ----------
@@ -351,9 +424,10 @@ class StepPayout(PayoutStructure):
         Returns
         -------
         numpy.ndarray
-            ``out[e, j] = theta[j, bin_index(index[e, j])]``, shape
-            ``(n_rows, n_entities)``. Equal to
-            ``basis_matrix(index[:, j]) @ theta[j]``.
+            ``out[e, j] = theta[j, bin_index(index[e, j])]``, and 0 where the
+            index is in no bin (below the attachment under
+            ``below_attachment="zero"``), shape ``(n_rows, n_entities)``.
+            Equal to ``basis_matrix(index[:, j]) @ theta[j]``.
 
         Raises
         ------
@@ -366,4 +440,8 @@ class StepPayout(PayoutStructure):
         if th.shape != want:
             raise InputMismatchError(f"theta must have shape {want}, got {th.shape}")
         k = self.bin_index(xi)
-        return th[np.arange(xi.shape[1])[None, :], k]
+        entity = np.arange(xi.shape[1])[None, :]
+        if self.below_attachment == "first_bin":
+            return th[entity, k]
+        unpaid = k == NO_BIN
+        return np.where(unpaid, 0.0, th[entity, np.where(unpaid, 0, k)])
