@@ -24,13 +24,13 @@ $$L_e = \sum_j L_{e,j}, \qquad \pi_e = \sum_j \pi_{e,j}.$$
 | Design problems | one per asset (`problem_id` = the asset's id) | one (`problem_id = "portfolio"`) | one (`problem_id = "portfolio"`) |
 | Payout entities | the asset | one per asset | one per cluster (`C1`, `C2`, …) |
 | Entity index | the index at the asset | the index at each asset | the value-weighted mean index of the cluster's assets |
-| Entity loss and cap | the asset's loss  cap: its largest loss | each asset's loss  cap: its largest loss | the cluster's summed loss  cap: its largest summed loss |
+| Entity loss and cap | the asset's loss; cap: its largest loss | each asset's loss; cap: its largest loss | the cluster's summed loss; cap: its largest summed loss |
 | Objective on | the asset's loss and payout | the summed loss and payout | the summed loss and payout |
 | Budget | $\mathrm{Premium}(\pi_i) \le \kappa \mathbb{E}[L_i]$ for each asset i | $\mathrm{Premium}(\sum_i \pi_i) \le \kappa \mathbb{E}[\sum_i L_i]$ | $\mathrm{Premium}(\sum_c \pi_c) \le \kappa \mathbb{E}[\sum_i L_i]$ |
 
-The portfolio and cluster scopes are the **joint** scopes  SPEC §1 calls the portfolio scope "integrated". The right-hand sides of the budgets add up to the same total, $\sum_i \kappa \mathbb{E}[L_i] = \kappa \mathbb{E}[\sum_i L_i]$, in every scope: the same total budget, as in thesis eq. (2.9)–(2.11).
+The portfolio and cluster scopes are the **joint** scopes; SPEC §1 calls the portfolio scope "integrated". The right-hand sides of the budgets add up to the same total, $\sum_i \kappa \mathbb{E}[L_i] = \kappa \mathbb{E}[\sum_i L_i]$, in every scope: the same total budget, as in thesis eq. (2.9)–(2.11).
 
-![Schematic, not data: the individual scope has one design problem and one budget per asset  the portfolio and cluster scopes sum the entities' payouts into one design problem with one budget on the aggregate](figures/scopes.svg)
+![Schematic, not data: the individual scope has one design problem and one budget per asset; the portfolio and cluster scopes sum the entities' payouts into one design problem with one budget on the aggregate](figures/scopes.svg)
 
 ## Cross-coverage
 
@@ -67,7 +67,7 @@ The joint design relies on A's index for B's losses. In a year where B loses whi
 
 ## Joint versus individual calibration at the same budget
 
-**In sample, the joint problem relaxes the individual one** (review F6  thesis eq. (2.9)–(2.11)). Take the individual designs and use them together as one portfolio design:
+**In sample, the joint problem relaxes the individual one** (review F6; thesis eq. (2.9)–(2.11)). Take the individual designs and use them together as one portfolio design:
 
 1. They meet the portfolio scope's payout constraints: the same payout structure and the same caps.
 2. They meet its budget: $\mathrm{Premium}(\sum_i \pi_i) \le \sum_i \mathrm{Premium}(\pi_i) \le \sum_i \kappa \mathbb{E}[L_i] = \kappa \mathbb{E}[\sum_i L_i]$. The first step is an equality under the pure premium. Under the cost-of-capital load it holds because CVaR is sub-additive.
@@ -78,8 +78,8 @@ The joint design relies on A's index for B's losses. In a year where B loses whi
 
 **Out of sample, nothing follows.** The relaxation compares optima on the calibration data. On other years:
 
-- neither design is optimal on the new data, so no ordering of their objectives is implied 
-- the joint design has more freedom to fit the calibration sample's joint pattern (which assets are hit together, and how hard), and more freedom can mean more overfitting, as the toy design's reliance on A's index shows 
+- neither design is optimal on the new data, so no ordering of their objectives is implied;
+- the joint design has more freedom to fit the calibration sample's joint pattern (which assets are hit together, and how hard), and more freedom can mean more overfitting, as the toy design's reliance on A's index shows;
 - the budget holds on the calibration sample only, and the premium differs on other years.
 
 Whether joint calibration lowers the shortfall on years it wasn't calibrated on is a question for the [out-of-sample evaluation](../methodology/out-of-sample.md), not for this argument.
@@ -100,7 +100,7 @@ The loaded premium is sub-additive, $\mathrm{Premium}(\sum_i \pi_i) \le \sum_i \
 
 The KPIs use the same definitions ([pricing](../methodology/pricing.md), "Portfolio premium"). The `premium` KPI at `level = "portfolio"` is the pricing applied to the run's aggregate payout:
 
-- for a joint scope, it is the premium that the single budget constrained 
+- for a joint scope, it is the premium that the single budget constrained;
 - for the individual scope, it is at most the sum of the problem premiums, which are what the budgets constrained. So under a load it can lie below the total budget even when every individual budget binds.
 
 ## The cluster scope
@@ -113,10 +113,10 @@ with $x_{e,i}$ the index at asset i and $v_i$ its value (`locations.value`). A c
 
 **The clustering** (`clustering.ThesisWardClustering`, a port of the thesis code) computes five features per asset on the calibration rows:
 
-- the log of its value 
-- its share of the portfolio loss in the portfolio's loss tail 
-- its tail beta to the portfolio loss 
-- the spread of its loss-correlation distances to the other assets 
+- the log of its value;
+- its share of the portfolio loss in the portfolio's loss tail;
+- its tail beta to the portfolio loss;
+- the spread of its loss-correlation distances to the other assets;
 - the mean of its index-correlation distances to them.
 
 It z-scores the features and cuts a Ward-linkage tree into `n_clusters` clusters. Two caveats (review F9):
@@ -127,20 +127,20 @@ It z-scores the features and cuts a Ward-linkage tree into `n_clusters` clusters
 **It changes the index, not only the granularity** (review F7). The thesis describes the cluster scope as changing only the granularity at which cover is allocated (§2.3.3). In the code, it also changes the trigger: a cluster pays on the mean index of its assets, not on each asset's own index. So the cluster scope is neither a restriction nor a relaxation of the portfolio scope:
 
 - With one asset per cluster, the value-weighted index is the asset's own index, and the cluster problem is the portfolio problem (`test_one_cluster_per_location_is_the_portfolio_scope`).
-- It can fit better in sample. Toy example: two assets of equal value, and a loss only when both indices are high. The mean index separates that event from the others  no sum of per-asset step payouts can. One cluster fits it exactly (MSE 0), while the portfolio scope's best fit has MSE 8.33 (`test_one_cluster_can_beat_the_portfolio_scope_in_sample`, all three bases).
+- It can fit better in sample. Toy example: two assets of equal value, and a loss only when both indices are high. The mean index separates that event from the others; no sum of per-asset step payouts can. One cluster fits it exactly (MSE 0), while the portfolio scope's best fit has MSE 8.33 (`test_one_cluster_can_beat_the_portfolio_scope_in_sample`, all three bases).
 - It can fit worse. If an asset loses only when its own index is high, the index pairs (60, 20) and (20, 60) have the same mean and get the same cluster payout, while the portfolio scope can pay on the first and not the second.
 
 So a difference between the cluster and portfolio scopes mixes a change of trigger, the thesis's zonal basis risk, with the change of calibration.
 
 ## Per-asset results of joint designs are not unique
 
-A joint design is identified only through the portfolio (review F8  MAR-98, MAR-100):
+A joint design is identified only through the portfolio (review F8; MAR-98, MAR-100):
 
 - The MSE objective of a joint scope depends only on the summed payout of each row. Any other split of the same row sums across the entities that meets the payout constraints is optimal too.
 - E[U] and weighted CVaR have the same freedom wherever the LP is degenerate, that is, where its optimum isn't a single point.
 - The thesis allocates a cluster's payout to its assets by value weight (eq. (3.23)). This library doesn't ([MAR-91](https://linear.app/marc-prinzing/issue/MAR-91)).
 
-So the per-entity results of a joint design show one member of a set of optimal designs, picked by the solver. That covers the `evaluate.kpis` rows at `level = "entity"`, the per-entity θ in the `payouts` table, and per-entity payout-function figures. Read the portfolio-level KPIs. In the toy example above the optimum is unique, so its per-asset θ are meaningful  that isn't true in general.
+So the per-entity results of a joint design show one member of a set of optimal designs, picked by the solver. That covers the `evaluate.kpis` rows at `level = "entity"`, the per-entity θ in the `payouts` table, and per-entity payout-function figures. Read the portfolio-level KPIs. In the toy example above the optimum is unique, so its per-asset θ are meaningful; that isn't true in general.
 
 ## Code map
 
@@ -148,12 +148,12 @@ All modules are in `packages/core/src/parametric_insurance_design/`, reached as 
 
 | Concept | Code |
 |---|---|
-| Scopes | `scopes.Individual`, `scopes.Portfolio`, `scopes.Cluster(strategy, n_clusters)`  config `scopes: [{kind: individual}, {kind: portfolio}, {kind: cluster, ...}]` |
+| Scopes | `scopes.Individual`, `scopes.Portfolio`, `scopes.Cluster(strategy, n_clusters)`; config `scopes: [{kind: individual}, {kind: portfolio}, {kind: cluster, ...}]` |
 | The `problem_id` of both joint scopes | `scopes.PORTFOLIO_PROBLEM_ID` (`"portfolio"`) |
 | Entity index | `index.PointIndex` (individual and portfolio scopes), `index.ValueWeightedIndex` (cluster scope) |
-| Clustering | `clustering.ThesisWardClustering(beta_tail, linkage="ward")`  the `clustering.ClusteringStrategy` protocol |
+| Clustering | `clustering.ThesisWardClustering(beta_tail, linkage="ward")`; the `clustering.ClusteringStrategy` protocol |
 | Sum over entities, caps, assembly | `problem.build_context`, `problem.build_problems` (one `BuiltProblem` per design problem) |
-| Budget and premiums | `constraints.Budget(loading)`  `pricing.PurePremium`, `pricing.CostOfCapitalLoad(rate, q)` |
+| Budget and premiums | `constraints.Budget(loading)`; `pricing.PurePremium`, `pricing.CostOfCapitalLoad(rate, q)` |
 | KPI levels | `evaluate.kpis`: `level` is `entity`, `problem` or `portfolio` |
 
 ## Proven properties
@@ -162,6 +162,6 @@ Tests in `packages/core/tests/test_design_properties.py`.
 
 | Statement | Test |
 |---|---|
-| At the same total budget, the individual designs fit the portfolio problem (caps  aggregate premium ≤ sum of premiums ≤ κ·E[ΣL]), so the portfolio optimum is at most their objective on the portfolio  for E[U] and weighted CVaR, that is at most the sum of the individual objectives | `test_portfolio_optimum_is_at_most_the_individual_designs_on_the_aggregate` (all three bases  three objectives  pure and loaded pricing) |
+| At the same total budget, the individual designs fit the portfolio problem (caps; aggregate premium ≤ sum of premiums ≤ κ·E[ΣL]), so the portfolio optimum is at most their objective on the portfolio; for E[U] and weighted CVaR, that is at most the sum of the individual objectives | `test_portfolio_optimum_is_at_most_the_individual_designs_on_the_aggregate` (all three bases; three objectives; pure and loaded pricing) |
 | One asset per cluster is the portfolio scope | `test_one_cluster_per_location_is_the_portfolio_scope` |
 | The cluster scope is not a restriction of the portfolio scope | `test_one_cluster_can_beat_the_portfolio_scope_in_sample` (all three bases) |
