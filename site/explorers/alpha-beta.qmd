@@ -19,7 +19,11 @@ filter from manifest.split_filter. Layout rules: explorer.css.
 
 A parametric cover pays an amount set by a hazard index, here the wind speed at a site, not by the loss itself. So it leaves part of the loss uncovered. This page shows how the design of a **step payout** (one payout level per wind-speed bin) changes with the objective it is calibrated for and with that objective's parameters. Every number comes from a precomputed bundle: the page never runs an optimisation.
 
-Each design minimises one of three objectives over the years it is calibrated on, where $L$ is a year's loss at the site, $\pi$ its payout and $U = \sum_{\text{events}} (L_e - \pi_e)^+$ its uncovered loss:
+Each design minimises one of three objectives over the years it is calibrated on. $L$ is a year's loss at the site and $\pi$ its payout; the year's uncovered loss $U$ adds up the shortfalls of its events $e$:
+
+$$U = \sum_{e} (L_e - \pi_e)^+.$$
+
+The three objectives:
 
 - **Residual loss (MSE):** $\mathbb{E}[(L - \pi)^2]$, which counts over-payment like under-payment.
 - **Expected uncovered loss, E[U]:** $\mathbb{E}[U]$.
