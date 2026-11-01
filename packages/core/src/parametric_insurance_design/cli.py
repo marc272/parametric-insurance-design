@@ -58,7 +58,14 @@ Commands
     size budget (default 2 MB per file, 10 MB of data files); over budget
     is an error (exit code 3) and nothing is written. ``--label TEXT`` says
     what the data are. A run with a failed design problem is listed and
-    left out (exit code 1). Accepts ``--policy``, ``-v`` and ``-q``.
+    left out (exit code 1). For a k-fold config (MAR-208) it first computes
+    the pooled out-of-sample portfolio KPIs from the store, as ``figures``
+    does (:func:`~parametric_insurance_design.experiment.kfold.pooled_kpis`,
+    with its drift guard; nothing is solved), passes them as
+    ``pooled_kpis=``, and prints a ``pooled k-fold KPIs`` line (and a ``not
+    pooled`` line per scope x objective with a failed fold); the bundle holds
+    no sweeps and no events, so ``--parameter`` and ``--events`` are refused
+    (exit code 3). Accepts ``--policy``, ``-v`` and ``-q``.
 
 Common options of ``run`` and ``sweep``:
 
@@ -919,33 +926,54 @@ def _export_site(config: ExperimentConfig, args: argparse.Namespace) -> ExitCode
         args.out if args.out is not None else config.output.directory / "site"
     )
     parameters: list[str] | None = [] if args.no_sweeps else args.parameter
+    kfold = config.sample.kind == KFOLD_SAMPLE
+    # A k-fold config's bundle holds no sweeps; asking for one is refused by
+    # export_site (MAR-208).
     sweeps = (
-        []
-        if parameters == [] or config.sample.kind == KFOLD_SAMPLE
-        else _sweep_runs(export, config, data, policy)
+        [] if parameters == [] or kfold else _sweep_runs(export, config, data, policy)
     )
     budget_options: dict[str, int] = {}
     if args.max_file_bytes is not None:
         budget_options["max_file_bytes"] = args.max_file_bytes
     if args.max_bundle_bytes is not None:
         budget_options["max_bundle_bytes"] = args.max_bundle_bytes
+    store = ResultStore(config.output.directory)
+    prepared = prepare_eventset(config, data.eventset)
+    options: dict[str, object] = {}
+    pooled: PooledKpis | None = None
+    if kfold and not parameters and not args.events:
+        # The pooled out-of-sample KPIs, as figures computes them (MAR-151).
+        pooled = pooled_kpis(config, store, prepared, run_ids)
+        options["pooled_kpis"] = pooled.table
     report = export.export_site(
         config,
         run_ids,
-        store=ResultStore(config.output.directory),
+        store=store,
         out_dir=out_dir,
-        eventset=prepare_eventset(config, data.eventset),
+        eventset=prepared,
         sweeps=sweeps,
         parameters=parameters,
         include_events=args.events,
         budget=export.SizeBudget(**budget_options),
         label=args.label,
+        **options,
     )
     manifest = report.manifest
     _out(
         f"site bundle {config.name!r} from {config.output.directory} into "
         f"{report.out_dir}:"
     )
+    if pooled is not None:
+        n_designs = len(config.scopes) * len(config.objectives)
+        _out(
+            f"  pooled k-fold KPIs (k = {pooled.k}): "
+            f"{n_designs - len(pooled.failed)} of {n_designs} scope x objective "
+            "pooled over every fold's test block"
+        )
+        for failure in pooled.failed:
+            _out(
+                f"  not pooled: {failure.scope} x {failure.objective}: {failure.reason}"
+            )
     for file in report.files:
         _out(f"  wrote   {file.path}  ({file.bytes:,} bytes)")
     for name in report.removed:
