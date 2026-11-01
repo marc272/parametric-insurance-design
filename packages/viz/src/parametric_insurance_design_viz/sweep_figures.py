@@ -35,7 +35,10 @@ Figure                                        Thesis
 * ``payout_sweep_*`` (:data:`PAYOUT_SWEEP_PARAMETERS`): the first entity's
   step payout function at every value of the sweep, for the scope's
   weighted-CVaR run, coloured by value, over the baseline run's event data
-  and the scope's residual-loss (``mse``) baseline.
+  and the scope's residual-loss (``mse``) baseline. Below the attachment
+  each run pays as its ``below_attachment`` mode says, drawn and tabulated
+  as in the payout grid (MAR-192; ``payout_functions``, "Below the
+  attachment").
 * ``sensitivity_<param>``: the portfolio tail basis risk (KPI
   ``cvar_uncovered`` at ``level = "portfolio"``, at the evaluation
   ``beta``) against the swept value, one line per scope x objective except
@@ -116,12 +119,16 @@ from matplotlib.ticker import FuncFormatter
 from numpy.typing import NDArray
 
 from parametric_insurance_design.eventset import EventSet
+from parametric_insurance_design.payout import BelowAttachment
 from parametric_insurance_design_viz import style
 from parametric_insurance_design_viz.errors import InconsistentRunsError, VizError
 from parametric_insurance_design_viz.figure_data import MAIN_TABLE, FigureOutput
 from parametric_insurance_design_viz.payout_functions import (
     STEP_COLUMNS,
     AxisLabels,
+    _grid_steps,  # pyright: ignore[reportPrivateUsage]
+    _step_xy,  # pyright: ignore[reportPrivateUsage]
+    below_attachment_mode,
     payout_steps,
 )
 from parametric_insurance_design_viz.reader import RunResult
@@ -244,7 +251,11 @@ SWEEP_STEP_COLUMNS: Final[tuple[str, ...]] = (
 """Main table of :func:`payout_sweep`: the steps of every drawn run.
 
 ``role`` is ``"sweep"`` for a sweep point or ``"baseline"`` for the
-residual-loss baseline (``parameter_value`` empty)."""
+residual-loss baseline (``parameter_value`` empty). A run that pays 0 below
+the attachment (``below_attachment = "zero"``) has one more row before its
+bins, as in the payout grid's figure data: ``param_index`` is
+:data:`~parametric_insurance_design.payout.NO_BIN` (-1), ``lower`` is
+``-inf``, ``upper`` is the attachment ``b_0`` and ``value`` is 0."""
 
 POINT_COLUMNS: Final[tuple[str, ...]] = (
     "parameter",
@@ -846,15 +857,17 @@ def _breakpoints(bins: pd.DataFrame) -> NDArray[np.float64]:
     return np.append(lower, float(bins["upper"].iloc[-1]))
 
 
-def _step_xy(
-    bins: pd.DataFrame, xlim: tuple[float, float]
+def _sweep_step_xy(
+    bins: pd.DataFrame, xlim: tuple[float, float], mode: BelowAttachment
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    """Step points over the whole axis (levels clip at the outer bins)."""
-    bp = _breakpoints(bins)
+    """Step points of one run's bins over the whole axis.
+
+    The payout grid's step points (``payout_functions._step_xy``): above the
+    limit the last level; below the attachment the first level under
+    ``"first_bin"`` and 0 under ``"zero"``, with a step at ``b_0``.
+    """
     levels = bins["value"].to_numpy(dtype=np.float64)
-    x = np.concatenate([[min(xlim[0], bp[0])], bp, [max(xlim[1], bp[-1])]])
-    y = np.concatenate([[levels[0]], levels, [levels[-1], levels[-1]]])
-    return x, y
+    return _step_xy(_breakpoints(bins), levels, xlim, mode)
 
 
 def _attachment_limit(runs: Sequence[RunResult]) -> tuple[float, float]:
@@ -886,6 +899,12 @@ def payout_sweep(
     viridis colour bar), over the entity's event data and the residual-loss
     baseline (red, dashed).
 
+    Below the attachment ``b_0`` each run is drawn as its step payout pays
+    there (:func:`~.payout_functions.below_attachment_mode`, MAR-192), as in
+    :func:`~.payout_functions.payout_grid`: the first bin's level under
+    ``"first_bin"`` (the default and the thesis), 0 under ``"zero"``, with a
+    step up to the first level at ``b_0``.
+
     Parameters
     ----------
     series : SweepSeries
@@ -907,14 +926,20 @@ def payout_sweep(
     Returns
     -------
     FigureOutput
-        Main table :data:`SWEEP_STEP_COLUMNS`; ``events`` with the scatter
-        when ``events`` is given.
+        Main table :data:`SWEEP_STEP_COLUMNS` (for a ``"zero"`` run also its
+        zero row below the attachment); ``events`` with the scatter when
+        ``events`` is given.
 
     Raises
     ------
     InconsistentRunsError
         If no point succeeded, the entity is missing from a drawn run, or the
-        runs differ in attachment and limit.
+        runs differ in attachment and limit; or a drawn run's parameters and
+        config disagree on what it pays below the attachment, e.g. a
+        ``"zero"`` run written before MAR-178
+        (:func:`~.payout_functions.below_attachment_mode`).
+    FigureDataError
+        If a drawn run records an unknown ``below_attachment`` mode.
     """
     labels = labels or AxisLabels()
     ok = [(p, r) for p, r in series.sorted_points() if r.complete]
@@ -926,6 +951,9 @@ def payout_sweep(
     runs = [r for _, r in ok]
     drawn = runs + ([benchmark] if benchmark is not None else [])
     attachment, limit = _attachment_limit(drawn)
+    modes: dict[str, BelowAttachment] = {
+        run.run_id: below_attachment_mode(run) for run in drawn
+    }
     margin = 0.2 * (limit - attachment)
     xlim = (attachment - margin, limit + margin)
     steps = payout_steps(drawn)
@@ -934,13 +962,14 @@ def payout_sweep(
     if lacking:
         raise InconsistentRunsError(f"entity {entity_id!r} is not in runs {lacking}")
     value_of = {r.run_id: p.value for p, r in ok}
-    table = steps.assign(
+    table = _grid_steps(steps, modes)
+    table = table.assign(
         role=[
             "baseline" if benchmark is not None and rid == benchmark.run_id else "sweep"
-            for rid in steps["run_id"]
+            for rid in table["run_id"]
         ],
         parameter=series.parameter,
-        parameter_value=[value_of.get(rid) for rid in steps["run_id"]],
+        parameter_value=[value_of.get(rid) for rid in table["run_id"]],
     ).loc[:, list(SWEEP_STEP_COLUMNS)]
     values = np.array([float(p.value) for p, _ in ok])
     aggregate = len(set(steps["location_ids"].iloc[0].split(";"))) > 1
@@ -963,7 +992,7 @@ def payout_sweep(
             )
         if benchmark is not None:
             bins = _where(steps, steps["run_id"] == benchmark.run_id)
-            x, y = _step_xy(bins, xlim)
+            x, y = _sweep_step_xy(bins, xlim, modes[benchmark.run_id])
             ax.step(
                 x,
                 y,
@@ -979,7 +1008,7 @@ def payout_sweep(
         norm = Normalize(vmin=float(values.min()), vmax=float(values.max()))
         for (point, run), value in zip(ok, values, strict=True):
             bins = _where(steps, steps["run_id"] == run.run_id)
-            x, y = _step_xy(bins, xlim)
+            x, y = _sweep_step_xy(bins, xlim, modes[run.run_id])
             ax.step(
                 x,
                 y,
