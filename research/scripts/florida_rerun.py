@@ -22,43 +22,53 @@ from the base config of its index (``florida_main.yaml``,
 ``florida_cic75.yaml``) by setting the pricing, kappa, one scope and one
 objective (and, for k-fold, the sample). Phases (``--phases``):
 
+Default phases:
+
 ``solve``
     Every holdout run and every k-fold fold run through the runner
-    (:func:`c1_checkpoint.solve_worker`) in ``--jobs`` processes; the parent
-    writes them to ``results/florida/store`` (not committed; cached).
-``rq1``
-    Per (index, pricing, kappa, scope): the C1 bootstrap of the test KPIs on
-    one resample of the holdout test years and the paired differences
-    weighted CVaR - MSE and - E[U] (:func:`c1_checkpoint.group_worker`).
-``rq2``
-    Per (index, pricing, kappa, design): the scopes against each other on
-    the same resample, with ``cluster_separate``
-    (:func:`c1_rq2.holdout_worker`; no ``_alt`` designs: those are MAR-198's
-    question). The pairing across scopes is C1 section 6b.1's
-    (``c1_rq2.portfolio_rows``): MAR-179 is not merged.
-``combination``
-    Per (index, pricing, kappa): the 3 scopes x 4 designs on one resample and
-    every contrast of MAR-182 (:func:`c1_combination.holdout_worker`).
+    (:func:`c1_checkpoint.solve_worker`) in ``--jobs`` processes, holdout
+    first and the longest runs first; the parent writes them to
+    ``results/florida/store`` (not committed; cached). Runs are submitted
+    lazily and checked against the store first, so processes can share it.
+``matched``
+    Under the load (r 0.06), for every kappa and design: the individual
+    design's aggregate premium ``A = P(sum_i pi_i)`` on the train years
+    against the sum ``S`` of its 67 stand-alone premiums, and the derived run
+    ``portfolio_matched``: the portfolio design problem with the budget
+    ``P(sum_j pi_j) <= A`` (loading ``A / E[L]``, a runner run with a config
+    hash of its own). Writes ``premiums.csv``.
+``holdout``
+    Per (index, pricing, kappa), one pass (:func:`holdout_worker`): the 3
+    scopes x 4 designs, ``cluster_separate`` per design (solved here) and
+    ``portfolio_matched`` per design (under the load), each bootstrapped
+    once on the C1 resample of the holdout test years. Then every contrast
+    of MAR-182 (RQ1 within a scope, RQ2 within a design, the combination,
+    the interaction; ``c1_combination.contrast_rows``), the cluster parts
+    (``cluster_separate`` - individual, cluster - ``cluster_separate``) and
+    the premium split (``portfolio_matched`` - individual: cross-coverage;
+    portfolio - ``portfolio_matched``: pricing diversification), and the
+    payout and loss per entity. The pairing across scopes is C1 section
+    6b.1's (``c1_rq2.portfolio_rows``); every joint - individual pair is
+    also computed with MAR-179's ``paired_difference(...,
+    across_scopes=True)`` and must agree.
 ``kfold``
     Pooled 5-fold out-of-sample KPIs (MAR-151) at kappa 1, pure and r 0.06,
     and the same contrasts on the one resample of all years (MAR-182's
     k-fold phase, parametrised by index), plus the per-fold KPIs.
-``premium``
-    Under the load (r 0.06), for every kappa and design: the individual
-    design's aggregate premium ``A = P(sum_i pi_i)`` on the train years
-    against the sum of its 67 stand-alone premiums, and the derived run
-    ``portfolio_matched``: the portfolio design problem with the budget
-    ``P(sum_j pi_j) <= A`` (loading ``A / E[L]``, a runner run with a config
-    hash of its own). Then portfolio - individual = (portfolio_matched -
-    individual: cross-coverage at the individual designs' own aggregate
-    premium) + (portfolio - portfolio_matched: the budget that pricing the
-    aggregate frees, pricing diversification), paired on the C1 resample.
 ``guard``
     The clustering's degenerate-tail guard (MAR-172) on every calibration
     sample (holdout train, each k-fold training block): the zero-loss share
-    of the row probability against ``beta_tail``; the threshold filter's
-    dropped expected loss; every stored run's statuses and solvers; the
-    manifest's MAR-173 flags if the manifest has them.
+    of the row probability against ``beta_tail``; MAR-173's per-problem
+    tail record (``p_zero_loss``, ``tail_outcomes``, ``degenerate_tail``)
+    recomputed for every weighted-CVaR design problem, and compared with the
+    manifests that carry it; every stored run's statuses.
+
+Cross-check phases (not default): ``rq1``, ``rq2``, ``combination`` and
+``premium`` run the C1 workers one by one (:func:`c1_checkpoint.group_worker`,
+:func:`c1_rq2.holdout_worker`, :func:`c1_combination.holdout_worker`,
+:func:`premium_worker`), bootstrapping the same designs several times. On
+the subset of the note (index (a), kappa 0.5, both pricings) they gave the
+same values and intervals as ``holdout``.
 
 Every phase writes its full tables to ``results/florida/full/`` (not
 committed). ``florida_rerun_tables.py`` writes the committed ones (each
@@ -70,7 +80,7 @@ cluster): no per-county uncovered-loss or premium KPI of a joint design
 Run from the repository root, with the two EventSets in
 ``results/florida/eventsets/`` (content hashes in the base configs)::
 
-    uv run python research/scripts/florida_rerun.py --jobs 3
+    uv run python research/scripts/florida_rerun.py --jobs 4
     uv run python research/scripts/florida_rerun_tables.py
 
 Observations only. The interpretation is the owner's.
