@@ -1456,7 +1456,11 @@ def exceedance_curves(
         VaR level of the marked return period; default the runs'
         ``evaluation_beta``.
     labels : AxisLabels, optional
-        Its ``payout_unit`` labels the value axis.
+        Its ``payout_unit`` labels the value axis, after the prefix of the
+        axis range: ``[M USD]`` from one million (the thesis), ``[k USD]``
+        from one thousand, else ``[USD]``. The ticks are labelled in that
+        prefix with the decimals they need (``style.MoneyFormatter``,
+        MAR-197).
     figsize : (float, float), default (8, 6)
         Figure size in inches (thesis notebook).
     name : str, optional
