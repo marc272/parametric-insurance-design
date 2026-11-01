@@ -27,6 +27,13 @@ from parametric_insurance_design.experiment.config import (
     config_hash,
     load_config,
 )
+from parametric_insurance_design.experiment.kfold import (
+    POOLED_COLUMNS,
+    POOLED_KPIS,
+    POOLED_SPLIT,
+    PooledKpis,
+    pooled_kpis,
+)
 from parametric_insurance_design.experiment.runner import load_input
 from parametric_insurance_design.experiment.store import ResultStore
 from parametric_insurance_design.experiment.sweeps import run_sweeps
@@ -598,12 +605,12 @@ def test_failed_runs_are_listed_not_dropped(failed: Fixture, tmp_path: Path) -> 
     assert set(events["scope"]) == {"portfolio"}
 
 
-def test_a_kfold_config_is_refused(tmp_path: Path) -> None:
+def test_a_kfold_config_without_pooled_kpis_is_refused(tmp_path: Path) -> None:
     path = tmp_path / "config.yaml"
     data = config_dict(sample={"kind": "kfold", "k": 2})
     path.write_text(yaml.safe_dump(data), encoding="utf-8")
     config = load_config(path)
-    with pytest.raises(KFoldRunsError, match="k-fold sample"):
+    with pytest.raises(KFoldRunsError, match="pooled out-of-sample KPIs"):
         export_site(
             config,
             [],
@@ -611,6 +618,231 @@ def test_a_kfold_config_is_refused(tmp_path: Path) -> None:
             out_dir=tmp_path / "b",
             eventset=make_eventset(),
         )
+    single = config.single_runs()[1]  # sample.fold = 1
+    with pytest.raises(KFoldRunsError, match="fixes k-fold fold 1"):
+        export_site(
+            single,
+            [],
+            store=ResultStore(tmp_path / "store"),
+            out_dir=tmp_path / "b",
+            eventset=make_eventset(),
+            pooled_kpis=pd.DataFrame(),
+        )
+    assert not (tmp_path / "b").exists()
+
+
+# -- k-fold configs: the pooled out-of-sample KPIs (MAR-208) ------------------------
+
+
+@dataclass(frozen=True)
+class Pooled:
+    toy: Fixture
+    pooled: PooledKpis
+    out: Path
+    report: ExportReport
+
+    @property
+    def manifest(self) -> dict[str, Any]:
+        return strict_json(self.out / MANIFEST)
+
+
+KFOLD_FILES = [
+    "runs.json",
+    "locations.json",
+    "baseline.payouts.arrow",
+    "baseline.pooled_kpis.arrow",
+]
+
+
+def pooled_fixture(directory: Path, **changes: Any) -> tuple[Fixture, PooledKpis]:  # noqa: ANN401
+    """A k = 2 toy store and its pooled KPIs, as ``export-site`` computes them."""
+    options: dict[str, Any] = {
+        "sample": {"kind": "kfold", "k": 2},
+        "bootstrap": {"seed": 0, "n_bootstrap": 20, "level": 0.9},
+        "sweeps": [{"parameter": "alpha", "values": [0.5]}],
+        **changes,
+    }
+    toy = build_fixture(directory, **options)
+    return toy, pooled_kpis(toy.config, toy.store, toy.eventset, toy.run_ids)
+
+
+@pytest.fixture(scope="module")
+def kfold(tmp_path_factory: pytest.TempPathFactory) -> Pooled:
+    toy, pooled = pooled_fixture(tmp_path_factory.mktemp("site-kfold"))
+    out = tmp_path_factory.mktemp("site-kfold-bundle") / "bundle"
+    report = export(toy, out, pooled_kpis=pooled.table, label="toy k-fold")
+    return Pooled(toy=toy, pooled=pooled, out=out, report=report)
+
+
+def test_kfold_bundle_holds_the_pooled_kpis(kfold: Pooled) -> None:
+    manifest = read_bundle(kfold.out)
+    assert kfold.report.ok
+    assert [f["path"] for f in manifest["files"]] == KFOLD_FILES
+    assert sorted(p.name for p in kfold.out.iterdir()) == sorted(
+        [*KFOLD_FILES, MANIFEST]
+    )
+    for entry in manifest["files"]:
+        data = (kfold.out / entry["path"]).read_bytes()
+        assert entry["sha256"] == f"sha256:{hashlib.sha256(data).hexdigest()}"
+    table = arrow(kfold.out / "baseline.pooled_kpis.arrow").to_pandas()
+    expected = kfold.pooled.table
+    assert len(table) == len(expected) == 9 * len(POOLED_KPIS)
+    assert list(table.columns) == [c.name for c in site_export._POOLED_KPI_COLUMNS]
+    assert set(POOLED_COLUMNS) <= set(table.columns)
+    assert set(table["eval_split"]) == {POOLED_SPLIT}
+    assert set(table["level"]) == {"portfolio"}
+    assert set(table["k"]) == {2}
+    assert table["scope_key"].tolist() == [
+        ["individual", "cluster", "portfolio"][p] for p in table["scope_position"]
+    ]
+    np.testing.assert_array_equal(
+        table["value"].to_numpy(dtype=float), expected["value"].to_numpy(dtype=float)
+    )
+    np.testing.assert_array_equal(
+        table["ci_low"].to_numpy(dtype=float), expected["ci_low"].to_numpy(dtype=float)
+    )
+    assert table["run_ids"].tolist() == expected["run_ids"].astype(str).tolist()
+    assert set(table["n_bootstrap"].dropna()) == {20}
+
+
+def test_kfold_bundle_states_the_pooled_rule_and_what_is_left_out(
+    kfold: Pooled,
+) -> None:
+    manifest = kfold.manifest
+    ids = list(kfold.toy.run_ids)
+    assert manifest["runs"]["baseline"] == ids
+    assert manifest["runs"]["sweeps"] == {}
+    assert manifest["runs"]["skipped"] == []
+    assert manifest["sweeps_not_exported"] == ["alpha"]
+    assert manifest["setup"]["split"] == {
+        "kind": "kfold",
+        "k": 2,
+        "fold": None,
+        "out_of_sample": True,
+    }
+    section = manifest["kfold"]
+    assert section["k"] == 2
+    assert section["eval_split"] == POOLED_SPLIT
+    assert "not the mean of the per-fold KPIs" in section["rule"]
+    assert section["not_pooled"] == []
+    assert [d["run_ids"] for d in section["pooled"]] == [
+        ids[i : i + 2] for i in range(0, len(ids), 2)
+    ]
+    assert section["pooled"][0] == {
+        "scope_key": "individual",
+        "objective": "mse",
+        "run_ids": ids[:2],
+    }
+    assert set(section["not_exported"]) == {"kpis", "exceedance", "map", "sweeps"}
+    runs = strict_json(kfold.out / "runs.json")["runs"]
+    assert [r["fold"] for r in runs] == [0, 1] * 9
+    assert all(r["calibration_split"] == "train" for r in runs)
+
+
+def test_kfold_payouts_carry_the_fold(kfold: Pooled) -> None:
+    payouts = arrow(kfold.out / "baseline.payouts.arrow").to_pandas()
+    assert list(payouts.columns[:5]) == [
+        "run_id",
+        "scope",
+        "scope_key",
+        "objective",
+        "fold",
+    ]
+    reader = ResultReader(kfold.toy.store)
+    for i, run_id in enumerate(kfold.toy.run_ids):
+        rows = payouts.loc[payouts["run_id"] == run_id]
+        assert set(rows["fold"]) == {i % 2}
+        stored = reader.run(run_id).payouts
+        assert len(rows) == len(stored)
+        np.testing.assert_allclose(
+            np.sort(rows["value"].to_numpy(dtype=float)),
+            np.sort(stored["value"].to_numpy(dtype=float)),
+        )
+
+
+def test_kfold_sweeps_and_events_are_refused(kfold: Pooled, tmp_path: Path) -> None:
+    table = kfold.pooled.table
+    with pytest.raises(BundleError, match="sweeps are not exported"):
+        export(kfold.toy, tmp_path / "b", pooled_kpis=table, parameters=["alpha"])
+    with pytest.raises(BundleError, match="events are not exported"):
+        export(kfold.toy, tmp_path / "b", pooled_kpis=table, include_events=True)
+    # A sweep point given anyway is not read: the bundle holds no sweeps.
+    report = export(kfold.toy, tmp_path / "c", pooled_kpis=table, sweeps=(SWEEP_POINT,))
+    assert report.manifest["runs"]["sweeps"] == {}
+    assert not (tmp_path / "b").exists()
+
+
+SWEEP_POINT = SweepRun(
+    parameter="alpha",
+    value=0.5,
+    run_id="sha256:" + "0" * 64,
+    single=0,
+    subset_index=None,
+    location_ids=None,
+)
+
+
+def test_a_pooled_table_that_does_not_fit_is_refused(
+    kfold: Pooled, toy: Fixture, tmp_path: Path
+) -> None:
+    table = kfold.pooled.table
+    out = tmp_path / "b"
+
+    def refused(bad: pd.DataFrame, match: str) -> None:
+        with pytest.raises(InconsistentRunsError, match=match):
+            export(kfold.toy, out, pooled_kpis=bad)
+
+    refused(table.drop(columns=["ci_low"]), "lacks the columns")
+    refused(table.iloc[:0], "at least one")
+    refused(table.assign(eval_split="test"), "pooled")
+    refused(table.assign(k=3), r"k = \[3\] folds")
+    refused(table.assign(run_ids="a;b"), "not the fold runs")
+    first = str(table["run_ids"].iloc[0])
+    refused(_where(table, table["run_ids"] != first), "lack individual x mse")
+    refused(pd.concat([table, table.iloc[[0]]]), "more than once")
+    refused(table.assign(scope_position=0), "another scope position")
+    assert not out.exists()
+    with pytest.raises(InconsistentRunsError, match="k-fold config only"):
+        export(toy, out, pooled_kpis=table)
+
+
+def _where(frame: pd.DataFrame, mask: object) -> pd.DataFrame:
+    return frame.loc[np.asarray(mask, dtype=bool)].reset_index(drop=True)
+
+
+def test_kfold_designs_with_a_failed_fold_are_listed(tmp_path: Path) -> None:
+    toy, pooled = pooled_fixture(
+        tmp_path / "store",
+        scopes=[
+            {"kind": "portfolio"},
+            {
+                "kind": "cluster",
+                "n_clusters": 4,
+                "strategy": {"kind": "thesis_ward", "beta_tail": 0.9},
+            },
+        ],
+        objectives=[{"kind": "mse"}],
+        sweeps=[],
+    )
+    assert len(pooled.failed) == 1
+    report = export(toy, tmp_path / "b", pooled_kpis=pooled.table)
+    assert not report.ok
+    cluster = list(toy.run_ids[2:])
+    assert [s.run_id for s in report.skipped] == cluster
+    manifest = strict_json(tmp_path / "b" / MANIFEST)
+    assert manifest["kfold"]["pooled"] == [
+        {"scope_key": "portfolio", "objective": "mse", "run_ids": list(toy.run_ids[:2])}
+    ]
+    [not_pooled] = manifest["kfold"]["not_pooled"]
+    assert not_pooled["scope_key"] == "cluster"
+    assert not_pooled["run_ids"] == cluster
+    assert "folds failed" in not_pooled["reason"]
+    payouts = arrow(tmp_path / "b" / "baseline.payouts.arrow").to_pandas()
+    assert set(payouts["run_id"]) == set(toy.run_ids[:2])
+    # A table that pools the failed design anyway is refused.
+    forged = pooled.table.assign(run_ids=";".join(cluster), scope_position=1)
+    with pytest.raises(InconsistentRunsError, match="whose folds failed"):
+        export(toy, tmp_path / "c", pooled_kpis=pd.concat([pooled.table, forged]))
 
 
 def test_another_setup_or_eventset_is_refused(toy: Fixture, tmp_path: Path) -> None:
