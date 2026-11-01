@@ -194,7 +194,8 @@ def test_existing_configs_keep_their_run_ids_and_parameters(path: str) -> None:
 
     def located(single: ExperimentConfig) -> EventSet:
         portfolio = single.portfolio
-        key = None if portfolio is None else tuple(portfolio.location_ids)
+        ids = None if portfolio is None else portfolio.location_ids
+        key = None if ids is None else tuple(ids)
         if key not in subsets:
             subsets[key] = loaded if key is None else loaded.select_locations(key)
         return subsets[key]
