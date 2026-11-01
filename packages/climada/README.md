@@ -204,7 +204,7 @@ scenario_notes:                   # optional sentences appended to the scenario 
 - **The proximity filter still tests the locations.** The build refuses a config where `wind.max_dist_eye_km` plus the farthest cell from its location exceeds `proximity_km`, because a removed storm could then have wind at a cell.
 - **Centroid builds are unchanged**, content hash included; the build record gains a `loss` object, and `source_checksums` the cells file, only in cells mode.
 
-Configs: `configs/florida_counties.yaml` (index a) and `configs/florida_counties_cat_in_circle.yaml` (index b, 50 km), the paper's main EventSets. Their scenario notes state Monroe County's exposure gap: LitPop has no cell west of 81.604° W in the Keys, so Key West and the Lower Keys carry no value (MAR-132; the county stays in the portfolio). `scripts/florida_exposure_summary.py` draws the exposure summary (map, Monroe County cells, value distribution, tail dependence of annual county losses) with its figure data; outputs and checksums are in `research/data/d2-florida-eventset/`.
+Configs: `configs/florida_counties.yaml` (index a) and `configs/florida_counties_cat_in_circle.yaml` (index b, 75 km), the paper's main EventSets. Their scenario notes state Monroe County's exposure gap: LitPop has no cell west of 81.604° W in the Keys, so Key West and the Lower Keys carry no value (MAR-132; the county stays in the portfolio). `scripts/florida_exposure_summary.py` draws the exposure summary (map, Monroe County cells, value distribution, tail dependence of annual county losses) with its figure data; outputs and checksums are in `research/data/d2-florida-eventset/`.
 
 ## Rules
 

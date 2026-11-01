@@ -8,7 +8,7 @@ It is built around the two ideas of a master's thesis. They can be used separate
 
 **Portfolio (joint) calibration.** When one owner holds several sites, their payouts can be calibrated jointly, on the owner's total loss, instead of one site at a time. In the portfolio scope, each site keeps its own payout on its own index, but the objective and the budget apply to the sum, so a payout at one site can cover a shortfall at another in the same event. The cluster scope does the same with one payout per cluster of sites, and the individual scope calibrates each site on its own. See [portfolio calibration](docs/concepts/portfolio-calibration.md).
 
-Any objective works with any scope, so the two ideas can be studied apart or together, depending on the owner. One site: the tail view, where the objective is the choice. Many sites with a mandate on the average fit: the portfolio view, where the scope is the choice. Many sites with a mandate on the tail: the combination, a weighted-CVaR objective calibrated jointly across the sites (see the [concepts](docs/concepts/README.md)). This README and the docs describe the method and the tool. They don't claim that either idea, or the two combined, outperforms the alternatives.
+Any objective works with any scope, so the two ideas can be studied apart or together, depending on the owner. One site: the tail view, where the objective is the choice. Many sites with a mandate on the average fit: the portfolio view, where the scope is the choice. Many sites with a mandate on the tail: the combination, a weighted-CVaR objective calibrated jointly across the sites (see [combining the two ideas](docs/concepts/combination.md)). This README and the docs describe the method and the tool. They don't claim that either idea, or the two combined, outperforms the alternatives.
 
 ![Schematic, not data: a step payout on a hazard index. It pays nothing below the attachment, has one non-decreasing level per bin up to the limit, stays below the cap, and leaves an uncovered loss where an event's loss exceeds the payout](docs/figures/step-payout-schematic.svg)
 
@@ -68,10 +68,11 @@ Run it from the root of the clone with `uv run python examples/quickstart.py`. I
 
 ## Concepts
 
-The [concepts index](docs/concepts/README.md) explains the two ideas as the code implements them:
+The [concepts index](docs/concepts/README.md) explains the two ideas and their combination as the code implements them:
 
 - [The tail-risk objective](docs/concepts/tail-risk-objective.md): the uncovered loss, the weighted-CVaR objective, why the design problem is a linear program, and the premium budget.
 - [Portfolio calibration](docs/concepts/portfolio-calibration.md): the individual, portfolio and cluster scopes, and cross-coverage for one risk owner with several sites.
+- [Combining the two ideas](docs/concepts/combination.md): the weighted-CVaR objective on the owner's total uncovered loss in one joint design problem, how the two ideas interact, and which view fits which owner.
 - [Glossary](docs/concepts/README.md#glossary): the words that carry more than one meaning in the code.
 
 How a design is evaluated (the bases, out-of-sample splits, the bootstrap, pricing and vulnerability uncertainty) is in the [methodology pages](docs/README.md#methodology). The [documentation index](docs/README.md) lists every page.
