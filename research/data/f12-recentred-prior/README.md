@@ -18,6 +18,8 @@ pixi run --locked build-eventset --config configs/thesis_vulnerability.yaml
 pixi run --locked build-eventset --config configs/thesis_cat_in_circle_vulnerability.yaml
 ```
 
+The Florida index (b) build here is at 50 km. Since MAR-145, `configs/florida_counties_cat_in_circle.yaml` is at 75 km and builds a different EventSet (`research/data/d2-florida-eventset/`). To rebuild the 50 km one, use the config as of `cecc667` (SHA256 `a9c030c3…8acca4ae01`, as in `checksums.json`), written next to the current one so that its relative paths resolve: `git show cecc667:packages/climada/configs/florida_counties_cat_in_circle.yaml > configs/florida_counties_cat_in_circle_cecc667.yaml`, then build that file, and delete it afterwards.
+
 Each build first builds its base without draws, then the draws. A rebuild must reproduce the content hashes in `checksums.json`. The Parquet file hashes may differ with another pyarrow version. Run the `pixi run` commands one after the other, or start them a minute apart: two `pixi run` processes that start together can race while pixi checks the environment.
 
 ## Files here

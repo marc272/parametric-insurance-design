@@ -5,6 +5,7 @@ The working area of the paper: the configs, scripts, notes and small derived dat
 | Folder | What it holds |
 |---|---|
 | `configs/` | Configs of the research runs |
+| `configs/climada/` | CLIMADA build configs of research EventSets (the cat-in-a-circle radius sensitivity), built from `packages/climada` ([README](configs/climada/README.md)) |
 | `scripts/` | Scripts that build the research EventSets, run the designs and write the tables and figures |
 | `data/` | Small tables and figures derived from the runs, some with their checksums. Raw downloads and built EventSets stay in the git-ignored `data/` at the repository root |
 | `notes/` | One note per study: its setup, its inputs and the observations |
