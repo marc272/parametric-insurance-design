@@ -180,6 +180,8 @@ This matches thesis (2.9)–(2.11): the same total budget in every scope.
 
 **Follow-up.** No new issue: MAR-163's portfolio page separates the two effects (cross-coverage; pricing diversification) and says which premium is budgeted in each scope.
 
+**Erratum (2026-11-02, MAR-174).** "Of an individual or cluster run" should read "of an individual run". The cluster scope (joint, the default) is one design problem (`problem_id` "portfolio"), with one entity per cluster, budgeted on the aggregate premium, so its portfolio `premium` KPI is the quantity its budget constrains. The C1 and loaded-pricing CSVs have one problem per cluster run.
+
 ### F7. The cluster scope changes the index, not only the granularity (clarity)
 
 **Where.** `index.py:118-155` (`ValueWeightedIndex`), `scopes.py:182-281`; thesis §2.3.3 ("What changes is only the granularity at which coverage is allocated") and (3.22).
