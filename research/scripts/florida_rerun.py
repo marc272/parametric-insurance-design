@@ -1919,7 +1919,7 @@ def _tail_records(plan: dict[str, Any]) -> pd.DataFrame:
                                 "scope": scope,
                                 "design": design,
                                 "beta": float(obj["beta"]),
-                                "problem_id": b.problem.spec.problem_id,
+                                "problem_id": b.context.problem.spec.problem_id,
                                 **rec,
                             }
                         )

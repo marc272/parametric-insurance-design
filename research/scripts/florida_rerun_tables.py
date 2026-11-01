@@ -187,6 +187,45 @@ CONTRAST_COLUMNS: Final[list[str]] = [
 ]
 
 
+PAIR_COLUMNS = [
+    "eventset",
+    "pricing",
+    "kappa",
+    "design",
+    "split",
+    "scope_a",
+    "scope_b",
+    "kpi",
+    "eval_beta",
+    "value_a",
+    "value_b",
+    "difference",
+    "ci_low",
+    "ci_high",
+    "rel",
+    "rel_ci_low",
+    "rel_ci_high",
+    "hash_a",
+    "hash_b",
+]
+
+
+def _pairs(
+    frame: pd.DataFrame, pairs: set[tuple[str, str]], kpis: list[str]
+) -> pd.DataFrame:
+    keep = [
+        (a, b) in pairs for a, b in zip(frame["scope_a"], frame["scope_b"], strict=True)
+    ]
+    out = frame.loc[keep]
+    out = _beta_free_once(out.loc[out["kpi"].isin(kpis)]).copy()
+    out["rel"] = out["difference"] / out["value_b"]
+    out["rel_ci_low"] = out["ci_low"] / out["value_b"]
+    out["rel_ci_high"] = out["ci_high"] / out["value_b"]
+    out["hash_a"] = out["config_hash_a"].map(_short)
+    out["hash_b"] = out["config_hash_b"].map(_short)
+    return out.reindex(columns=PAIR_COLUMNS)
+
+
 def build(full: Path) -> dict[str, pd.DataFrame]:
     """Return the committed tables, from the full ones.
 
@@ -201,32 +240,9 @@ def build(full: Path) -> dict[str, pd.DataFrame]:
         Name (file stem) to table.
     """
     out: dict[str, pd.DataFrame] = {}
-    # runs
-    hold = pd.read_csv(full / "combination_runs.csv")
-    hold["kind"] = "holdout"
-    rq2r = pd.read_csv(full / "rq2_runs.csv")
-    sep = rq2r.loc[rq2r["scope"] == "cluster_separate"].copy()
-    sep["kind"] = "derived"
-    sep["budget_use"] = np.nan
+    hold = pd.read_csv(full / "holdout_runs.csv")
     kf = _read(full / "kfold_runs.csv")
     prem = pd.read_csv(full / "premiums.csv")
-    matched = pd.DataFrame(
-        {
-            "kind": "derived_runner",
-            "eventset": prem["eventset"],
-            "pricing": prem["pricing"],
-            "kappa": prem["kappa"],
-            "scope": "portfolio_matched",
-            "design": prem["design"],
-            "n_problems": 1,
-            "statuses": prem["matched_status"],
-            "solvers": prem["matched_solver"],
-            "budget_use": prem["matched_budget_use"],
-            "config_hash": prem["matched_config_hash"],
-            "run_id": prem["matched_run_id"],
-            "matched_loading": prem["matched_loading"],
-        }
-    )
     cols = [
         "kind",
         "eventset",
@@ -239,17 +255,15 @@ def build(full: Path) -> dict[str, pd.DataFrame]:
         "statuses",
         "solvers",
         "budget_use",
+        "loading",
         "config_hash",
         "run_id",
         "experiment_config_hash",
         "base_config_hash",
-        "matched_loading",
     ]
-    runs = pd.concat([hold, sep, kf, matched], ignore_index=True)
-    out["runs"] = runs.reindex(columns=cols)
-    # grid
+    out["runs"] = pd.concat([hold, kf], ignore_index=True).reindex(columns=cols)
     grid = pd.concat(
-        [pd.read_csv(full / "combination_grid.csv"), _read(full / "kfold_grid.csv")],
+        [pd.read_csv(full / "holdout_grid.csv"), _read(full / "kfold_grid.csv")],
         ignore_index=True,
     )
     grid["hash"] = grid["config_hash"].map(_short)
@@ -269,10 +283,9 @@ def build(full: Path) -> dict[str, pd.DataFrame]:
             "hash",
         ]
     ]
-    # contrasts
     con = pd.concat(
         [
-            pd.read_csv(full / "combination_contrasts.csv"),
+            pd.read_csv(full / "holdout_contrasts.csv"),
             _read(full / "kfold_contrasts.csv"),
         ],
         ignore_index=True,
@@ -285,51 +298,20 @@ def build(full: Path) -> dict[str, pd.DataFrame]:
     out["contrasts_train"] = con.loc[con["split"] == "train"].drop(
         columns=["ci_low", "ci_high", "rel_ci_low", "rel_ci_high"]
     )
-    # cluster parts
-    rq2p = pd.read_csv(full / "rq2_paired.csv")
-    pairs = {("cluster_separate", "individual"), ("cluster", "cluster_separate")}
-    keep = [
-        (a, b) in pairs for a, b in zip(rq2p["scope_a"], rq2p["scope_b"], strict=True)
-    ]
-    parts = rq2p.loc[keep]
-    parts = parts.loc[
-        parts["kpi"].isin(["cvar_uncovered", "expected_uncovered", "expected_payout"])
-    ].copy()
-    parts = _beta_free_once(parts)
-    parts["rel"] = parts["difference"] / parts["value_b"]
-    parts["rel_ci_low"] = parts["ci_low"] / parts["value_b"]
-    parts["rel_ci_high"] = parts["ci_high"] / parts["value_b"]
-    parts["hash_a"] = parts["config_hash_a"].map(_short)
-    parts["hash_b"] = parts["config_hash_b"].map(_short)
-    out["cluster_parts"] = parts[
-        [
-            "eventset",
-            "pricing",
-            "kappa",
-            "design",
-            "split",
-            "scope_a",
-            "scope_b",
-            "kpi",
-            "eval_beta",
-            "value_a",
-            "value_b",
-            "difference",
-            "ci_low",
-            "ci_high",
-            "rel",
-            "rel_ci_low",
-            "rel_ci_high",
-            "hash_a",
-            "hash_b",
-        ]
-    ]
-    # entity payouts
-    k = pd.read_csv(full / "rq2_kpis.csv")
-    ent = k.loc[
-        (k["level"] == "entity") & k["kpi"].isin(["expected_payout", "expected_loss"])
-    ]
-    ent = ent.pivot_table(
+    pairs = pd.read_csv(full / "holdout_pairs.csv")
+    kpis = ["cvar_uncovered", "expected_uncovered", "expected_payout", "premium"]
+    out["cluster_parts"] = _pairs(
+        pairs,
+        {("cluster_separate", "individual"), ("cluster", "cluster_separate")},
+        kpis,
+    )
+    out["premium_split"] = _pairs(
+        pairs,
+        {("portfolio_matched", "individual"), ("portfolio", "portfolio_matched")},
+        kpis,
+    )
+    e = pd.read_csv(full / "holdout_entities.csv")
+    ent = e.pivot_table(
         index=[
             "eventset",
             "pricing",
@@ -346,106 +328,85 @@ def build(full: Path) -> dict[str, pd.DataFrame]:
     ent = ent.rename(columns={"subject_id": "entity_id"})
     ent["payout_to_loss"] = ent["expected_payout"] / ent["expected_loss"]
     out["entity_payouts"] = ent
-    clusters = k.loc[
-        (k["level"] == "entity") & k["scope"].isin(["cluster", "cluster_separate"])
-    ][["eventset", "subject_id", "entity_locations"]].drop_duplicates()
+    clusters = e.loc[e["scope"].isin(["cluster", "cluster_separate"])][
+        ["eventset", "subject_id", "entity_locations"]
+    ].drop_duplicates()
     groups = clusters.groupby(["eventset", "subject_id"])["entity_locations"].nunique()
     if (groups != 1).any():
         raise RuntimeError("a cluster has different counties across variants")
     clusters = clusters.drop_duplicates(["eventset", "subject_id"])
-    rows = [
-        {"eventset": r.eventset, "cluster_id": r.subject_id, "location_id": loc}
-        for r in clusters.itertuples()
-        for loc in str(r.entity_locations).split()
-    ]
-    out["clusters"] = pd.DataFrame(rows)
-    # premiums
+    out["clusters"] = pd.DataFrame(
+        [
+            {"eventset": r.eventset, "cluster_id": r.subject_id, "location_id": loc}
+            for r in clusters.itertuples()
+            for loc in str(r.entity_locations).split()
+        ]
+    )
     out["premiums"] = prem.drop(columns=["matched_run_id"]).assign(
         matched_config_hash=prem["matched_config_hash"].map(_short),
         individual_config_hash=prem["individual_config_hash"].map(_short),
         portfolio_config_hash=prem["portfolio_config_hash"].map(_short),
     )
-    ps = pd.read_csv(full / "premium_split.csv")
-    ps = (
-        ps.loc[ps["level"].isna() | (ps["level"] == "portfolio")]
-        if "level" in ps
-        else ps
-    )
-    ps = ps.loc[
-        ps["kpi"].isin(
-            ["cvar_uncovered", "expected_uncovered", "expected_payout", "premium"]
-        )
-    ]
-    ps = _beta_free_once(ps).copy()
-    ps["rel"] = ps["difference"] / ps["value_b"]
-    ps["rel_ci_low"] = ps["ci_low"] / ps["value_b"]
-    ps["rel_ci_high"] = ps["ci_high"] / ps["value_b"]
-    ps["hash_a"] = ps["config_hash_a"].map(_short)
-    ps["hash_b"] = ps["config_hash_b"].map(_short)
-    out["premium_split"] = ps[
-        [
-            "eventset",
-            "pricing",
-            "kappa",
-            "design",
-            "split",
-            "scope_a",
-            "scope_b",
-            "kpi",
-            "eval_beta",
-            "value_a",
-            "value_b",
-            "difference",
-            "ci_low",
-            "ci_high",
-            "rel",
-            "rel_ci_low",
-            "rel_ci_high",
-            "hash_a",
-            "hash_b",
-        ]
-    ]
-    # folds
     f = _read(full / "kfold_folds.csv")
+    fold_cols = [
+        "eventset",
+        "pricing",
+        "kappa",
+        "scope",
+        "design",
+        "fold",
+        "eval_split",
+        "kpi",
+        "beta",
+        "value",
+        "hash",
+    ]
     if f.empty:
-        f = pd.DataFrame(
-            columns=[
-                "kpi",
-                "level",
-                "config_hash",
-                "eval_split",
-                "beta",
-                "value",
-                "eventset",
-                "pricing",
-                "kappa",
-                "scope",
-                "design",
-                "fold",
-            ]
-        )
-    f = f.loc[
-        (f["kpi"].isin(["cvar_uncovered", "expected_uncovered"]))
-        & (f["level"] == "portfolio")
-    ]
-    f["hash"] = f["config_hash"].map(_short)
-    out["kfold_folds"] = f[
-        [
-            "eventset",
-            "pricing",
-            "kappa",
-            "scope",
-            "design",
-            "fold",
-            "eval_split",
-            "kpi",
-            "beta",
-            "value",
-            "hash",
-        ]
-    ]
+        out["kfold_folds"] = pd.DataFrame(columns=fold_cols)
+    else:
+        f = f.loc[
+            (f["kpi"].isin(["cvar_uncovered", "expected_uncovered"]))
+            & (f["level"] == "portfolio")
+        ].copy()
+        f["hash"] = f["config_hash"].map(_short)
+        out["kfold_folds"] = f[fold_cols]
     g = pd.read_csv(full / "guard_samples.csv")
     out["guard"] = g.drop(columns=["filters"])
+    t = _read(full / "guard_tails.csv")
+    if not t.empty:
+        out["guard_tails"] = (
+            t.groupby(
+                ["eventset", "split", "fold", "scope", "design", "beta"], dropna=False
+            )
+            .agg(
+                problems=("problem_id", "size"),
+                p_zero_loss_min=("p_zero_loss", "min"),
+                p_zero_loss_median=("p_zero_loss", "median"),
+                p_zero_loss_max=("p_zero_loss", "max"),
+                tail_outcomes=("tail_outcomes", "min"),
+                flagged_expected_uncovered=(
+                    "degenerate_tail",
+                    lambda s: int((s == "expected_uncovered").sum()),
+                ),
+                flagged_single_outcome=(
+                    "degenerate_tail",
+                    lambda s: int((s == "single_outcome").sum()),
+                ),
+            )
+            .reset_index()
+        )
+        out["guard_tail_counties"] = t.loc[t["scope"] == "individual"][
+            [
+                "eventset",
+                "split",
+                "fold",
+                "design",
+                "beta",
+                "problem_id",
+                "p_zero_loss",
+                "degenerate_tail",
+            ]
+        ]
     return out
 
 
