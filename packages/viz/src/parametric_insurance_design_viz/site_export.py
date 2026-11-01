@@ -31,7 +31,8 @@ File                            Content
 ``baseline.exceedance.arrow``   the ``exceedance`` rows of the single runs
 ``baseline.map.arrow``          per (run, location): its entity and its
                                 expected loss, payout and uncovered loss,
-                                where the store has them per location
+                                with their source (``kpi_level``,
+                                ``allocation``; "Map" below)
 ``baseline.events.arrow``       opt-in (``include_events``): the event data
                                 under each entity, the figures' ``events``
                                 table
@@ -74,6 +75,37 @@ reason: the per-fold ``kpis``, ``exceedance`` and ``map`` rows (each over
 ``1/k`` of the years; the pooled rule covers the portfolio KPIs only) and the
 sweeps (the pooled rule covers the single runs). Non-k-fold manifests have
 no ``kfold`` key.
+
+Map (MAR-216)
+-------------
+``evaluate`` writes per-location KPI rows only under an explicit allocation
+rule, which splits each design problem's payout across its locations, at
+``level = "location_by_value"`` or ``"location_by_loss"`` (MAR-100); it
+never writes the reserved plain ``location`` level. A location's numbers in
+``baseline.map.arrow`` come from
+
+* the run's ``location_by_<rule>`` rows, if it has them: ``kpi_level`` is
+  that level and ``allocation`` the rule (``value`` or ``loss``);
+* else, in the **individual scope only**, its entity's rows (one location
+  per design problem, so the payout is the location's own):
+  ``kpi_level = "entity"``, ``allocation = "none"``;
+* else nothing: a joint design (cluster or portfolio scope) without
+  allocation rows has null numbers, ``kpi_level`` and ``allocation`` for
+  every location. Its entity rows are one of several optimal splits of the
+  design problem's payout, the one the solver returned (MAR-100), and are
+  never shown as per-location cover (review finding F8). Its portfolio and
+  problem KPIs are in ``baseline.kpis.arrow`` as for every run.
+
+The manifest records the source of every run's numbers under ``map``:
+``rule`` (the text above), ``allocations`` (the rules of the per-location
+rows in the bundle, sorted) and ``runs`` (per baseline run: ``run_id``,
+``scope_key``, ``objective``, ``kpi_level``, ``allocation``; both null for a
+joint design without allocation rows). The key is additive, so the format
+version stays 1; a k-fold bundle, which has no map, has no ``map`` key. A run
+with plain ``location`` rows, with rows of several rules, or whose allocation
+rows miss a location in one of its evaluations is refused
+(:class:`BundleError`). The split filter applies to the map rows as to the
+other split slices; the ``map`` section is per run, so it is unaffected.
 
 Rules (stated in the manifest, under ``rules``)
 -----------------------------------------------
@@ -154,6 +186,7 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 
+from parametric_insurance_design.evaluate import ALLOCATION_LEVELS, Allocation
 from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.experiment.config import (
     ExperimentConfig,
@@ -167,6 +200,7 @@ from parametric_insurance_design.experiment.kfold import (
 from parametric_insurance_design.experiment.store import ResultStore
 from parametric_insurance_design.payout import NO_BIN
 from parametric_insurance_design.records import KpiLevel, Split
+from parametric_insurance_design.scopes import Individual
 from parametric_insurance_design_viz.command import SweepRun
 from parametric_insurance_design_viz.errors import (
     InconsistentRunsError,
@@ -292,8 +326,31 @@ _UNDEFINED: Final[str] = (
 _NO_CI: Final[str] = "no confidence bounds (the config has no bootstrap section)"
 _NO_BETA: Final[str] = "not a VaR/CVaR KPI"
 _NOT_PER_LOCATION: Final[str] = (
-    "not available per location: the location's entity covers several "
-    "locations (see the entity's rows in kpis)"
+    "not available per location: the run is a joint design (cluster or "
+    "portfolio scope) without per-location rows under an allocation rule, "
+    "and the solver's split of its payout across locations is not shown "
+    "(see the manifest's map section)"
+)
+
+_ALLOCATION_OF: Final[Mapping[str, str]] = {
+    level.value: rule.value for rule, level in ALLOCATION_LEVELS.items()
+}
+"""Allocation rule per per-location KPI level (``location_by_value``: ``value``)."""
+
+_MAP_RULE: Final[str] = (
+    "Per run, evaluation and location: the location's expected loss, payout "
+    "and uncovered loss. They come from the run's per-location KPI rows under "
+    "an allocation rule, which splits each design problem's payout across its "
+    "locations (kpi_level 'location_by_value', allocation 'value': pro rata "
+    "to insured value; kpi_level 'location_by_loss', allocation 'loss': pro "
+    "rata to loss; evaluate, MAR-100). Without them, a run of the individual "
+    "scope takes each location's entity rows (kpi_level 'entity', allocation "
+    "'none': one location per design problem, so the payout is the "
+    "location's own). A joint design (cluster or portfolio scope) without "
+    "them has no per-location numbers (null): its entity rows are one of "
+    "several optimal splits of the design problem's payout, the one the "
+    "solver returned, and are never shown as per-location cover. runs gives "
+    "the source of each run's numbers, allocations the rules in the bundle."
 )
 _NO_NAME: Final[str] = "the EventSet gives the location no name"
 _NO_POOLED_CI: Final[str] = (
@@ -771,6 +828,7 @@ _MAP_COLUMNS: Final[tuple[_Col, ...]] = (
     _Col("problem_id", "str"),
     _Col("entity_id", "str"),
     _Col("kpi_level", "str", null=_NOT_PER_LOCATION),
+    _Col("allocation", "str", null=_NOT_PER_LOCATION),
     *(_Col(k, "float", null=_NOT_PER_LOCATION) for k in _MAP_KPIS),
 )
 _EVENT_COLUMNS: Final[tuple[_Col, ...]] = (
@@ -1036,74 +1094,87 @@ def _pivot(kpis: pd.DataFrame, index: list[str], suffix: str) -> pd.DataFrame:
     return wide.reset_index()
 
 
-def _map(runs: Sequence[_Exported]) -> pd.DataFrame:
-    """Per (run, evaluation, location): its entity and its KPIs, where present.
+def _map(runs: Sequence[_Exported]) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+    """Per (run, evaluation, location): its entity and its KPIs, where defined.
 
-    A location's numbers come from the ``location`` rows of ``kpis`` if the
-    store has them, else from its entity's rows when the entity covers that
-    location alone (individual and portfolio scopes); else they are null
-    (``kpi_level`` null too).
+    A location's numbers come from the run's per-location rows under an
+    allocation rule (``location_by_value`` or ``location_by_loss``, MAR-100)
+    if the run has them; else, in the individual scope only, from its
+    entity's rows (one location per design problem); else they are null
+    (``kpi_level`` and ``allocation`` null too). The entity rows of a joint
+    design (cluster or portfolio scope) are the solver's split of its design
+    problem's payout and are never used (review finding F8). See
+    :data:`_MAP_RULE`.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The map rows, labelled with their run.
+    list of dict
+        Per run: ``run_id``, ``scope_key``, ``objective`` and the source of
+        its numbers, ``kpi_level`` and ``allocation`` (both null when the map
+        has no per-location numbers for the run): the manifest's
+        ``map.runs``.
 
     Raises
     ------
+    BundleError
+        If a run holds rows at the reserved plain ``location`` level or rows
+        of several allocation rules, if its allocation rows miss a location
+        in an evaluation, or if an individual-scope entity covers several
+        locations.
     BundleValueError
         If a location has a source of numbers but one of them is undefined:
         the map's nulls mean only "not available per location".
     """
     parts: list[pd.DataFrame] = []
+    sources: list[dict[str, Any]] = []
     evaluation = ["eval_split", "fold", "basis"]
     for item in runs:
         run = item.run
         members = run.entities.loc[:, ["problem_id", "entity_id", "location_id"]]
-        size = members.groupby(["problem_id", "entity_id"])["location_id"].transform(
-            "size"
-        )
         kpis = _rows(run.kpis, run.kpis["kpi"].isin(_MAP_KPIS))
-        evaluations = kpis.loc[:, evaluation].drop_duplicates()
-        grid = evaluations.merge(members.assign(_alone=(size == 1)), how="cross")
-        location = _pivot(
-            _rows(kpis, kpis["level"] == "location").rename(
-                columns={"subject_id": "location_id"}
-            ),
-            [*evaluation, "location_id"],
-            "location",
-        )
-        entity = _pivot(
-            _rows(kpis, kpis["level"] == "entity").rename(
-                columns={"subject_id": "entity_id"}
-            ),
-            [*evaluation, "problem_id", "entity_id"],
-            "entity",
-        )
-        rows = grid.merge(location, on=[*evaluation, "location_id"], how="left")
-        rows = rows.merge(
-            entity, on=[*evaluation, "problem_id", "entity_id"], how="left"
-        )
-
-        def values(frame: pd.DataFrame, kpi: str, suffix: str) -> pd.Series:
-            name = f"{kpi}@{suffix}"
-            if name in frame:
-                return cast(pd.Series, frame[name]).astype(np.float64)
-            return pd.Series(np.nan, index=frame.index, dtype=np.float64)
-
-        has_location = np.zeros(len(rows), dtype=bool)
-        for kpi in _MAP_KPIS:
-            has_location |= values(rows, kpi, "location").notna().to_numpy()
-        use_entity = ~has_location & rows["_alone"].to_numpy(dtype=bool)
-        out = rows.loc[:, [*evaluation, "location_id", "problem_id", "entity_id"]]
-        level = np.full(len(rows), None, dtype=object)
-        level[use_entity] = "entity"
-        level[has_location] = "location"
-        out["kpi_level"] = level
-        for kpi in _MAP_KPIS:
-            out[kpi] = np.where(
-                has_location,
-                values(rows, kpi, "location"),
-                np.where(use_entity, values(rows, kpi, "entity"), np.nan),
+        level, allocation = _map_source(item, kpis)
+        grid = kpis.loc[:, evaluation].drop_duplicates().merge(members, how="cross")
+        if level is None:
+            rows = grid
+        elif level == KpiLevel.ENTITY.value:
+            if members.duplicated(["problem_id", "entity_id"]).any():
+                raise BundleError(  # pragma: no cover - one location per entity
+                    f"baseline.map.arrow: run {run.run_id} is in the individual "
+                    "scope but an entity covers several locations"
+                )
+            subject, keys = "entity_id", [*evaluation, "problem_id", "entity_id"]
+        else:
+            subject, keys = "location_id", [*evaluation, "location_id"]
+        if level is not None:
+            source = _rows(kpis, kpis["level"] == level).rename(
+                columns={"subject_id": subject}
             )
-        sourced = out["kpi_level"].notna()
-        undefined = out.loc[sourced, list(_MAP_KPIS)].isna().to_numpy().any(axis=1)
-        if undefined.any():
+            present = source.loc[:, keys].drop_duplicates().assign(_present=True)
+            rows = grid.merge(_pivot(source, keys, "src"), on=keys, how="left")
+            rows = rows.merge(present, on=keys, how="left")
+            missing = int(rows["_present"].isna().sum())
+            if missing:
+                raise BundleError(
+                    f"baseline.map.arrow: run {run.run_id} ({item.scope_key} x "
+                    f"{run.objective}) has {level!r} rows for "
+                    f"{len(rows) - missing} of its {len(rows)} (evaluation, "
+                    "location) pairs; the map needs every location in every "
+                    "evaluation"
+                )
+        out = rows.loc[:, [*evaluation, "location_id", "problem_id", "entity_id"]]
+        out["kpi_level"] = level
+        out["allocation"] = allocation
+        for kpi in _MAP_KPIS:
+            name = f"{kpi}@src"
+            out[kpi] = (
+                cast(pd.Series, rows[name]).astype(np.float64)
+                if name in rows
+                else pd.Series(np.nan, index=rows.index, dtype=np.float64)
+            )
+        undefined = out.loc[:, list(_MAP_KPIS)].isna().to_numpy().any(axis=1)
+        if level is not None and undefined.any():
             raise BundleValueError(
                 f"baseline.map.arrow: run {run.run_id} has {int(undefined.sum())} "
                 "location rows with an undefined expected loss, payout or "
@@ -1111,7 +1182,52 @@ def _map(runs: Sequence[_Exported]) -> pd.DataFrame:
                 f"{_NOT_PER_LOCATION!r}"
             )
         parts.append(_labelled(out, item))
-    return _frame(parts, _MAP_COLUMNS)
+        sources.append(
+            {
+                "run_id": run.run_id,
+                "scope_key": item.scope_key,
+                "objective": run.objective,
+                "kpi_level": level,
+                "allocation": allocation,
+            }
+        )
+    return _frame(parts, _MAP_COLUMNS), sources
+
+
+def _map_source(item: _Exported, kpis: pd.DataFrame) -> tuple[str | None, str | None]:
+    """Return the ``(kpi_level, allocation)`` the map takes a run's numbers from.
+
+    ``(None, None)`` for a joint design without allocation rows (see
+    :func:`_map`).
+
+    Raises
+    ------
+    BundleError
+        If the run holds plain ``location`` rows or rows of several rules.
+    """
+    run = item.run
+    levels = {str(v) for v in kpis["level"].unique()}
+    if KpiLevel.LOCATION.value in levels:
+        raise BundleError(
+            f"baseline.map.arrow: run {run.run_id} ({item.scope_key} x "
+            f"{run.objective}) has KPI rows at level 'location', which is "
+            "reserved: the payout a location receives from a joint design is "
+            "not identified (MAR-100). Re-run it: evaluate writes per-location "
+            "rows only under an allocation rule ('location_by_value' or "
+            "'location_by_loss')"
+        )
+    allocated = sorted(levels & set(_ALLOCATION_OF))
+    if len(allocated) > 1:
+        raise BundleError(
+            f"baseline.map.arrow: run {run.run_id} ({item.scope_key} x "
+            f"{run.objective}) has per-location rows under several allocation "
+            f"rules ({allocated}); the map shows one rule per run"
+        )
+    if allocated:
+        return allocated[0], _ALLOCATION_OF[allocated[0]]
+    if run.scope == Individual.name:
+        return KpiLevel.ENTITY.value, Allocation.NONE.value
+    return None, None
 
 
 def _events(
@@ -1367,7 +1483,9 @@ def export_site(
         ``out_dir`` holds files that are not part of a bundle; for k-fold,
         if sweeps or events are asked for; if ``eval_split`` is not a split,
         is given for a k-fold config, or an exported run has no KPI rows of
-        it.
+        it; if a run's per-location rows are at the reserved plain
+        ``location`` level, under several allocation rules, or miss a
+        location in an evaluation (module docstring, "Map").
     BundleValueError
         If a value breaks the infinity, NaN or integer rule.
     BundleBudgetError
@@ -1387,8 +1505,10 @@ def export_site(
     ``events`` switch, the ``budget`` with the bundle's total, the
     ``files`` (:meth:`BundleFile.to_dict`), the ``split_filter`` (the
     split kept or null, the slices filtered, the rows removed per file) and
-    the ``rules``; a k-fold bundle also its ``kfold`` section (module
-    docstring).
+    the ``rules``; a non-k-fold bundle also its ``map`` section (the source
+    of each run's per-location numbers: allocation rule, entity rows of the
+    individual scope, or none), a k-fold bundle its ``kfold`` section
+    (module docstring).
     """
     k = _check_kfold(config, parameters, include_events, pooled_kpis)
     _check_split(config, eval_split, k)
@@ -1424,6 +1544,7 @@ def export_site(
     )
     builder.add_json("locations.json", "locations", {"locations": _locations(eventset)})
     kfold_section: dict[str, Any] | None = None
+    map_section: dict[str, Any] | None = None
     if k is not None:
         if pooled_kpis is None:  # pragma: no cover - _check_kfold invariant
             raise KFoldRunsError("a k-fold bundle needs pooled_kpis")
@@ -1443,13 +1564,25 @@ def export_site(
         ]
         split.check(baseline)
         _add_group(builder, baseline, split, group=_BASELINE)
+        map_rows, map_sources = _map(baseline)
         builder.add_table(
             "baseline.map.arrow",
             "map",
-            split.apply("baseline.map.arrow", _map(baseline)),
+            split.apply("baseline.map.arrow", map_rows),
             (*_RUN_COLUMNS, *_MAP_COLUMNS),
             group=_BASELINE,
         )
+        map_section = {
+            "rule": _MAP_RULE,
+            "allocations": sorted(
+                {
+                    str(s["allocation"])
+                    for s in map_sources
+                    if s["allocation"] not in (None, Allocation.NONE.value)
+                }
+            ),
+            "runs": map_sources,
+        }
     event_scopes: list[str] = []
     if include_events:
         scopes: list[tuple[int, _Exported]] = []
@@ -1516,6 +1649,8 @@ def export_site(
         "split_filter": split.section(),
         "rules": dict(_RULES),
     }
+    if map_section is not None:
+        manifest["map"] = map_section
     if kfold_section is not None:
         manifest["kfold"] = kfold_section
     manifest_bytes = _json_bytes(manifest, MANIFEST, indent=2)
