@@ -84,7 +84,13 @@ import json
 import math
 import time
 from collections.abc import Iterable
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import (
+    FIRST_COMPLETED,
+    Future,
+    ProcessPoolExecutor,
+    as_completed,
+    wait,
+)
 from dataclasses import dataclass
 from multiprocessing import get_context
 from pathlib import Path
@@ -118,11 +124,13 @@ from parametric_insurance_design.experiment.config import (
 )
 from parametric_insurance_design.experiment.runner import (
     RunOutcome,
+    _tail_record,
     package_versions,
     run_key,
 )
 from parametric_insurance_design.experiment.store import ResultStore
 from parametric_insurance_design.interfaces import Sample
+from parametric_insurance_design.problem import build_problems
 from parametric_insurance_design.scopes import Cluster
 from parametric_insurance_design.solve import DEFAULT_POLICY
 
@@ -357,16 +365,31 @@ def _label(key: tuple[Any, ...]) -> str:
     return "|".join(f"{x:g}" if isinstance(x, float) else str(x) for x in key)
 
 
-def _cost_rank(config: ExperimentConfig) -> tuple[int, int]:
-    """Sort key: individual before portfolio before cluster, loads first."""
+def _cost_rank(config: ExperimentConfig) -> tuple[int, int, int]:
+    """Sort key: holdout before k-fold, then the longest runs first.
+
+    Within a split: individual before portfolio before cluster (the
+    individual scope solves 67 problems), and the load before pure pricing.
+    Holdout first, so that the holdout phase can start while the k-fold runs
+    solve; the longest first, so that the pool does not end on one long run.
+    """
+    split = 0 if config.sample.kind == "holdout" else 1
     scope = {"individual": 0, "portfolio": 1}.get(config.scopes[0].kind, 2)
-    return (scope, 0 if config.pricing.kind != "pure" else 1)
+    load = 0 if config.pricing.kind != "pure" else 1
+    if split == 1:  # k-fold: pure before the load (the load is the long tail)
+        return (split, 1 - load, scope)
+    return (split, scope, load)
 
 
 def solve_all(
     todo: dict[str, ExperimentConfig], store: ResultStore, jobs: int
 ) -> dict[str, float]:
     """Solve the runs not yet in the store; the parent writes them.
+
+    Runs are submitted lazily, at most ``jobs`` at a time, in
+    :func:`_cost_rank` order, and each is checked against the store just
+    before it is submitted, so that several processes can share a store (a
+    run written by another one meanwhile is skipped, not solved again).
 
     Parameters
     ----------
@@ -383,26 +406,44 @@ def solve_all(
         Seconds per run (run id prefix).
     """
     missing = {rid: cfg for rid, cfg in todo.items() if not store.has_run(rid)}
-    # longest first (the individual scope solves 67 problems; the load makes
-    # them slower), so that the pool does not end on one long run
-    missing = dict(sorted(missing.items(), key=lambda kv: _cost_rank(kv[1])))
+    queue = sorted(missing.items(), key=lambda kv: _cost_rank(kv[1]))
+    queue.reverse()  # pop() from the end
     print(f"{len(todo)} runs, {len(missing)} to solve", flush=True)
     seconds: dict[str, float] = {}
     if not missing:
         return seconds
+    done = 0
     with _pool(jobs) as pool:
-        futs = {pool.submit(c1.solve_worker, cfg): rid for rid, cfg in missing.items()}
-        for i, fut in enumerate(as_completed(futs), 1):
-            tables, manifest, sec = fut.result()
-            rid = futs[fut]
-            if manifest["run_id"] != rid:
-                raise RuntimeError(f"run id mismatch: {manifest['run_id']} != {rid}")
-            if store.has_run(rid):  # written meanwhile by another process
-                print(f"[solve] {rid[7:19]} already in the store", flush=True)
-                continue
-            store.write_run(tables, manifest)
-            seconds[rid[7:19]] = round(sec, 1)
-            print(f"[solve {i}/{len(missing)}] {rid[7:19]} {sec:.0f}s", flush=True)
+        running: dict[Future[Any], str] = {}
+
+        def fill() -> None:
+            while queue and len(running) < jobs:
+                rid, cfg = queue.pop()
+                if store.has_run(rid):
+                    print(f"[solve] {rid[7:19]} already in the store", flush=True)
+                    continue
+                running[pool.submit(c1.solve_worker, cfg)] = rid
+
+        fill()
+        while running:
+            finished, _ = wait(running, return_when=FIRST_COMPLETED)
+            for fut in finished:
+                rid = running.pop(fut)
+                tables, manifest, sec = fut.result()
+                if manifest["run_id"] != rid:
+                    raise RuntimeError(
+                        f"run id mismatch: {manifest['run_id']} != {rid}"
+                    )
+                done += 1
+                if store.has_run(rid):  # written meanwhile by another process
+                    print(f"[solve] {rid[7:19]} already in the store", flush=True)
+                    continue
+                store.write_run(tables, manifest)
+                seconds[rid[7:19]] = round(sec, 1)
+                print(
+                    f"[solve {done}/{len(missing)}] {rid[7:19]} {sec:.0f}s", flush=True
+                )
+            fill()
     return seconds
 
 
@@ -1411,6 +1452,7 @@ def holdout_worker(
         loadings[(MATCHED, d)] = float(cfg.constraints[0].model_dump()["loading"])
 
     boots: dict[float, dict[comb.Design, KpiBootstrap]] = {b: {} for b in EVAL_BETAS}
+    native: dict[float, dict[comb.Design, KpiBootstrap]] = {b: {} for b in EVAL_BETAS}
     train_values: dict[float, dict[comb.Design, pd.Series]] = {
         b: {} for b in EVAL_BETAS
     }
@@ -1435,6 +1477,8 @@ def holdout_worker(
             )
             pb = rq2.portfolio_rows(boot)
             boots[beta][key] = pb
+            if key[0] in SCOPE_KINDS:
+                native[beta][key] = boot.portfolio_rows()
             tr = evaluate_kpis(
                 prepared,
                 d.scope,
@@ -1551,12 +1595,13 @@ def holdout_worker(
                         config_hash_b=hashes[b],
                     )
                 )
+    n_native = _check_across_scopes(boots, native)
     frames = {
         "grid": pd.concat(grid, ignore_index=True),
         "contrasts": pd.DataFrame(rows),
         "pairs": pd.concat(pairs, ignore_index=True),
         "entities": pd.concat(entities, ignore_index=True),
-        "runs": pd.DataFrame(run_rows),
+        "runs": pd.DataFrame(run_rows).assign(across_scopes_rows_checked=n_native),
     }
     for frame in frames.values():
         frame.insert(0, "kappa", kappa)
@@ -1567,6 +1612,40 @@ def holdout_worker(
 
 
 SCOPE_KINDS: Final[frozenset[str]] = frozenset({"individual", "cluster", "portfolio"})
+
+
+def _check_across_scopes(
+    boots: dict[float, dict[comb.Design, KpiBootstrap]],
+    native: dict[float, dict[comb.Design, KpiBootstrap]],
+) -> int:
+    """Raise unless C1's relabelled pairing equals MAR-179's native one.
+
+    The contrasts pair designs across scopes with C1 section 6b.1's method
+    (``c1_rq2.portfolio_rows``, then ``paired_difference``). MAR-179 merged
+    ``paired_difference(..., across_scopes=True)`` on
+    ``KpiBootstrap.portfolio_rows()``; this computes every joint - individual
+    pair both ways and requires the same differences and intervals.
+    """
+    n = 0
+    for beta, by in native.items():
+        for (scope, design), joint in by.items():
+            if scope == "individual":
+                continue
+            ind = by[("individual", design)]
+            lib = paired_difference(joint, ind, across_scopes=True)
+            c1way = paired_difference(
+                boots[beta][(scope, design)], boots[beta][("individual", design)]
+            )
+            m = lib.merge(c1way, on="kpi", suffixes=("", "_c1"), validate="one_to_one")
+            if len(m) != len(lib) or len(m) != len(c1way):
+                raise RuntimeError("across_scopes and C1 pairing have other KPI rows")
+            for col in ("difference", "ci_low", "ci_high"):
+                a = m[col].to_numpy(dtype=np.float64)
+                b = m[f"{col}_c1"].to_numpy(dtype=np.float64)
+                if not np.allclose(a, b, rtol=1e-12, atol=1e-9, equal_nan=True):
+                    raise RuntimeError(f"across_scopes differs from C1 pairing: {col}")
+            n += len(m)
+    return n
 
 
 def _check_pairs(con: pd.DataFrame, pairs: pd.DataFrame) -> int:
@@ -1747,15 +1826,146 @@ def run_guard(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any]:
     for rid in store.run_ids():
         m = store.manifest(rid)
         rows.append(_guard_row(rid, m))
+    tails = _tail_records(plan)
     args.full.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(samples).to_csv(args.full / "guard_samples.csv", index=False)
     runs = pd.DataFrame(rows)
     runs.to_csv(args.full / "guard_runs.csv", index=False)
+    tails.to_csv(args.full / "guard_tails.csv", index=False, float_format="%.10g")
+    n_agree = _check_manifest_tails(store, plan, tails)
+    flagged = tails.loc[tails["degenerate_tail"].notna()]
     return {
         "guard_samples": len(samples),
         "guard_fires": int(sum(s["guard_fires"] for s in samples)),
         "guard_runs_scanned": len(rows),
+        "tail_records": len(tails),
+        "tail_records_flagged": len(flagged),
+        "tail_flags_by_scope": {
+            _label(k): int(v)
+            for k, v in flagged.groupby(
+                ["eventset", "split", "scope", "beta", "degenerate_tail"]
+            )
+            .size()
+            .items()
+        },
+        "manifest_tail_records_equal_recomputed": n_agree,
     }
+
+
+def _tail_records(plan: dict[str, Any]) -> pd.DataFrame:
+    """MAR-173's per-problem tail record on every calibration sample.
+
+    The runs solved before MAR-173 merged have no ``p_zero_loss``,
+    ``tail_outcomes`` or ``degenerate_tail`` in their manifests. This
+    rebuilds every design problem of every scope (no solve) on each
+    calibration sample of the plan (holdout train, k-fold training blocks)
+    for each weighted-CVaR beta and applies the runner's own record
+    (``runner._tail_record``). It depends on the data, the sample, the scope
+    and beta only, not on the pricing or kappa.
+
+    Parameters
+    ----------
+    plan : dict
+        The plan.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per (index, split, fold, scope, beta, problem).
+    """
+    rows: list[dict[str, Any]] = []
+    for index in plan["indices"]:
+        base = base_config(plan, index)
+        prepared: EventSet | None = None
+        for design, obj in plan["designs"].items():
+            if obj["kind"] != "weighted_cvar":
+                continue
+            for scope in plan["scopes"]:
+                cfg = derive(
+                    base,
+                    plan,
+                    index=index,
+                    pricing="pure",
+                    kappa=1.0,
+                    scopes=[scope],
+                    designs=[design],
+                )
+                if prepared is None:
+                    prepared = c1._prepared(cfg)
+                comps = cfg.to_components()
+                samples = [
+                    ("holdout", -1, splits.holdout(prepared, train_fraction=0.7)[0])
+                ]
+                folds = splits.year_block_kfold(prepared, k=int(plan["kfold"]["k"]))
+                samples += [("kfold", f, tr) for f, (tr, _) in enumerate(folds)]
+                for split, fold, train in samples:
+                    built = build_problems(
+                        prepared,
+                        comps.scopes[0],
+                        comps.payout,
+                        comps.objectives[0],
+                        comps.pricing,
+                        comps.constraints,
+                        basis=comps.basis,
+                        sample=train,
+                    )
+                    for b in built:
+                        rec = _tail_record(b, comps.objectives[0])
+                        rows.append(
+                            {
+                                "eventset": index,
+                                "split": split,
+                                "fold": fold,
+                                "scope": scope,
+                                "design": design,
+                                "beta": float(obj["beta"]),
+                                "problem_id": b.problem.spec.problem_id,
+                                **rec,
+                            }
+                        )
+    return pd.DataFrame(rows)
+
+
+def _check_manifest_tails(
+    store: ResultStore, plan: dict[str, Any], tails: pd.DataFrame
+) -> int:
+    """Raise unless the runs' manifest tail records equal the recomputed ones.
+
+    Only the runs solved after MAR-173 merged carry the record; the others
+    are skipped. Returns the number of problem entries compared.
+    """
+    key = tails.set_index(
+        ["eventset", "split", "fold", "scope", "design", "problem_id"]
+    )
+    n = 0
+    singles: list[tuple[str, str, int, str, str, str]] = []
+    for r in holdout_runs(plan):
+        singles.append((r.run_id, r.index, -1, r.scope, r.design, "holdout"))
+    for (index, *_), cfg in kfold_configs(plan).items():
+        for s in cfg.single_runs():
+            fold = int(getattr(s.sample, "fold", -1))
+            design = design_of(s.objectives[0].model_dump(mode="json"))
+            singles.append((rid_of(s), index, fold, s.scopes[0].kind, design, "kfold"))
+    for rid, index, fold, scope, design, split in singles:
+        if design not in {
+            d for d, o in plan["designs"].items() if o["kind"] == "weighted_cvar"
+        }:
+            continue
+        if not store.has_run(rid):
+            continue
+        for p in store.manifest(rid).get("problems", []):
+            if "degenerate_tail" not in p:
+                continue
+            mine = key.loc[(index, split, fold, scope, design, p["problem_id"])]
+            same_flag = (p["degenerate_tail"] or None) == (
+                None if pd.isna(mine["degenerate_tail"]) else mine["degenerate_tail"]
+            )
+            if not same_flag or not math.isclose(
+                float(p["p_zero_loss"]), float(mine["p_zero_loss"]), abs_tol=1e-12
+            ):
+                raise RuntimeError(f"tail record of {rid} {p['problem_id']} differs")
+            n += 1
+    return n
 
 
 def _guard_row(rid: str, manifest: dict[str, Any]) -> dict[str, Any]:
