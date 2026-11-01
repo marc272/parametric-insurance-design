@@ -421,17 +421,6 @@ def _total_label(labels: AxisLabels) -> str:
     return rf"Total basis risk $E(UL^P)${_unit(labels)}"
 
 
-def _money(value: float, _pos: object = None) -> str:
-    """Compact tick label: ``-200k``, ``1.2M`` (thesis, without the "$")."""
-    sign = "-" if value < 0 else ""
-    size = abs(value)
-    if size >= 1e6:
-        return f"{sign}{size * 1e-6:.1f}M"
-    if size >= 1e3:
-        return f"{sign}{size * 1e-3:.0f}k"
-    return f"{sign}{size:.0f}"
-
-
 def _value_text(value: float) -> str:
     """Format a sweep value as the thesis annotated it (two decimals)."""
     return f"{float(value):.2f}"
@@ -1553,7 +1542,7 @@ def net_advantage(
         ax.set_xticks(range(1, k + 1))
         ax.set_xlabel(r"Number of clusters $C$")
         ax.set_ylabel(rf"Net advantage $\Delta(C;\tau)${_unit(labels)}")
-        ax.yaxis.set_major_formatter(FuncFormatter(_money))
+        ax.yaxis.set_major_formatter(style.MoneyFormatter())
         _frame(ax)
         bar = fig.colorbar(
             ScalarMappable(norm=norm, cmap=cmap),
@@ -1566,7 +1555,7 @@ def net_advantage(
         )
         bar.set_label(rf"Transaction cost $\tau$ per contract{_unit(labels)}")
         bar.set_ticks(costs)
-        bar.set_ticklabels([_money(t) for t in costs])
+        bar.set_ticklabels(style.MoneyFormatter().format_ticks(list(costs)))
         handle = Line2D(
             [0],
             [0],
@@ -1656,7 +1645,7 @@ def breakeven_cost(
         ax.set_xticks(range(1, k + 1))
         ax.set_xlabel(r"Number of clusters $C$")
         ax.set_ylabel(rf"Break-even cost per contract $\tau^*(C)${_unit(labels)}")
-        ax.yaxis.set_major_formatter(FuncFormatter(_money))
+        ax.yaxis.set_major_formatter(style.MoneyFormatter())
         _frame(ax)
         fig.tight_layout()
         handles = [

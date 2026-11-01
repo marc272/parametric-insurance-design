@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -21,7 +22,8 @@ import pyarrow as pa
 import pytest
 import yaml
 
-from parametric_insurance_design import cli
+from parametric_insurance_design import cli, evaluate
+from parametric_insurance_design.experiment import runner
 from parametric_insurance_design.experiment.config import (
     CostOfCapitalConfig,
     config_hash,
@@ -289,31 +291,54 @@ def test_column_types_follow_the_rules(swept: Swept) -> None:
         assert (swept.out / entry["path"]).read_bytes()[:6] == b"ARROW1"
 
 
-def test_map_has_per_location_numbers_where_present(swept: Swept) -> None:
+def test_map_without_allocation_rows_uses_individual_entity_rows_only(
+    swept: Swept,
+) -> None:
+    # The toy store has no allocation rows (MAR-217 adds the config field).
     map_ = arrow(swept.out / "baseline.map.arrow").to_pandas()
     columns = [c for c in swept.manifest["files"] if c["path"] == "baseline.map.arrow"]
     meaning = {c["name"]: c["null_means"] for c in columns[0]["columns"]}
-    for scope, level in [("individual", "entity"), ("portfolio", "entity")]:
+    individual = map_[map_["scope"] == "individual"]
+    assert set(individual["kpi_level"]) == {"entity"}
+    assert set(individual["allocation"]) == {"none"}
+    assert individual[list(site_export._MAP_KPIS)].notna().all().all()
+    assert sorted(set(individual["location_id"])) == ["A1", "A2", "A3"]
+    # Joint designs: every location of every run, and no numbers at all; the
+    # portfolio scope's single-location entities are the solver's split (F8).
+    for scope in ("cluster", "portfolio"):
         rows = map_[map_["scope"] == scope]
-        assert set(rows["kpi_level"]) == {level}
-        assert rows["expected_loss"].notna().all()
-        assert sorted(set(rows["location_id"])) == ["A1", "A2", "A3"]
-    cluster = map_[map_["scope"] == "cluster"]
-    clustered = cluster.groupby(["run_id", "entity_id"])["location_id"].transform(
-        "size"
-    )
-    multi = cluster[clustered > 1]
-    assert len(multi)
-    assert multi["kpi_level"].isna().all()
-    assert multi["expected_payout"].isna().all()
+        assert len(rows) == 3 * len(swept.toy.config.objectives), scope
+        assert rows["kpi_level"].isna().all(), scope
+        assert rows["allocation"].isna().all(), scope
+        assert rows[list(site_export._MAP_KPIS)].isna().all().all(), scope
+    for name in ("kpi_level", "allocation", *site_export._MAP_KPIS):
+        assert meaning[name] == site_export._NOT_PER_LOCATION
     assert meaning["expected_payout"].startswith("not available per location")
     toy = swept.toy
     run = ResultReader(toy.store).run(toy.run_id("individual", "mse"))
-    expected = run.kpis[
-        (run.kpis["level"] == "entity") & (run.kpis["kpi"] == "expected_loss")
-    ].set_index("subject_id")["value"]
-    mine = map_[map_["run_id"] == run.run_id].set_index("location_id")["expected_loss"]
-    assert {str(k): v for k, v in mine.items()} == expected.to_dict()
+    for kpi in site_export._MAP_KPIS:
+        expected = run.kpis[(run.kpis["level"] == "entity") & (run.kpis["kpi"] == kpi)]
+        mine = map_[map_["run_id"] == run.run_id].set_index("location_id")[kpi]
+        assert {str(k): v for k, v in mine.items()} == expected.set_index("subject_id")[
+            "value"
+        ].to_dict()
+
+
+def test_the_manifest_records_the_source_of_the_map(swept: Swept) -> None:
+    section = swept.manifest["map"]
+    assert section["rule"] == site_export._MAP_RULE
+    assert section["allocations"] == []
+    toy = swept.toy
+    assert [r["run_id"] for r in section["runs"]] == list(toy.run_ids)
+    for single, entry in zip(toy.config.single_runs(), section["runs"], strict=True):
+        scope = single.scopes[0].kind
+        assert entry["scope_key"] == scope
+        assert entry["objective"] == single.objectives[0].kind
+        if scope == "individual":
+            assert (entry["kpi_level"], entry["allocation"]) == ("entity", "none")
+        else:
+            assert (entry["kpi_level"], entry["allocation"]) == (None, None)
+    assert swept.manifest["format_version"] == 1
 
 
 def test_reexport_is_byte_identical(swept: Swept, tmp_path: Path) -> None:
@@ -710,6 +735,7 @@ def test_kfold_bundle_states_the_pooled_rule_and_what_is_left_out(
 ) -> None:
     manifest = kfold.manifest
     ids = list(kfold.toy.run_ids)
+    assert "map" not in manifest  # no map slice, so no map section (MAR-216)
     assert manifest["runs"]["baseline"] == ids
     assert manifest["runs"]["sweeps"] == {}
     assert manifest["runs"]["skipped"] == []
@@ -1050,3 +1076,192 @@ def test_a_kfold_bundle_refuses_the_split_filter(kfold: Pooled, tmp_path: Path) 
         )
     assert not (tmp_path / "b").exists()
     assert kfold.manifest["split_filter"]["eval_split"] is None
+
+
+# -- the map under an allocation rule (MAR-216) ---------------------------------------
+
+
+def build_allocated(directory: Path, allocation: str, **changes: Any) -> Fixture:  # noqa: ANN401
+    """A toy store whose runs were evaluated under an allocation rule.
+
+    The experiment config cannot name a rule yet (MAR-217 adds it), so the
+    runner's evaluate calls are wrapped to pass ``allocation``: the stored
+    rows are exactly what ``evaluate`` writes under that rule.
+    """
+
+    def under_rule(
+        function: Callable[..., pd.DataFrame],
+    ) -> Callable[..., pd.DataFrame]:
+        def wrapped(*args: Any, **kwargs: Any) -> pd.DataFrame:  # noqa: ANN401
+            return function(*args, **{**kwargs, "allocation": allocation})
+
+        return wrapped
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(runner, "kpis", under_rule(evaluate.kpis))
+        patch.setattr(
+            runner, "exceedance_curves", under_rule(evaluate.exceedance_curves)
+        )
+        return build_fixture(directory, **changes)
+
+
+@dataclass(frozen=True)
+class Allocated:
+    """A holdout store evaluated under ``allocation="value"``, exported twice."""
+
+    toy: Fixture
+    plain: Path
+    test: Path
+
+    def manifest(self, which: str = "plain") -> dict[str, Any]:
+        return strict_json(getattr(self, which) / MANIFEST)
+
+
+@pytest.fixture(scope="module")
+def allocated(tmp_path_factory: pytest.TempPathFactory) -> Allocated:
+    toy = build_allocated(
+        tmp_path_factory.mktemp("site-allocated"),
+        "value",
+        sample={"kind": "holdout", "train_fraction": 0.7},
+    )
+    out = tmp_path_factory.mktemp("site-allocated-bundles")
+    export(toy, out / "plain")
+    export(toy, out / "test", eval_split="test")
+    return Allocated(toy=toy, plain=out / "plain", test=out / "test")
+
+
+def stored_location_rows(toy: Fixture, run_id: str, level: str) -> pd.DataFrame:
+    """The run's map KPIs at ``level``, one row per (eval_split, location)."""
+    kpis = ResultReader(toy.store).run(run_id).kpis
+    rows = kpis[(kpis["level"] == level) & kpis["kpi"].isin(site_export._MAP_KPIS)]
+    wide = rows.pivot_table(
+        index=["eval_split", "subject_id"], columns="kpi", values="value"
+    )
+    return wide.rename_axis(index=["eval_split", "location_id"], columns=None)
+
+
+def assert_map_matches(
+    map_: pd.DataFrame, toy: Fixture, run_id: str, level: str
+) -> None:
+    """Every map number of the run is its stored per-location KPI value."""
+    mine = map_[map_["run_id"] == run_id].set_index(["eval_split", "location_id"])
+    stored = stored_location_rows(toy, run_id, level)
+    assert len(mine) == len(stored) > 0
+    for kpi in site_export._MAP_KPIS:
+        for key, value in stored[kpi].items():
+            assert mine.loc[key, kpi] == value, (run_id, key, kpi)
+
+
+def test_a_joint_scope_under_a_rule_exports_per_site_cover_labelled_with_it(
+    allocated: Allocated,
+) -> None:
+    toy = allocated.toy
+    map_ = arrow(allocated.plain / "baseline.map.arrow").to_pandas()
+    assert set(map_["scope"]) == {"individual", "cluster", "portfolio"}
+    assert set(map_["kpi_level"]) == {"location_by_value"}
+    assert set(map_["allocation"]) == {"value"}
+    assert set(map_["eval_split"]) == {"train", "test"}
+    for run_id in toy.run_ids:
+        assert_map_matches(map_, toy, run_id, "location_by_value")
+        assert (map_["run_id"] == run_id).sum() == 2 * 3  # 2 splits x 3 sites
+    # The portfolio scope's per-site payout is its one design problem's payout
+    # split by insured value, not the solver's entity split.
+    values = {"A1": 100.0, "A2": 60.0, "A3": 30.0}
+    portfolio = map_[map_["scope"] == "portfolio"]
+    value = portfolio["location_id"].astype(str).map(values)
+    ratio = portfolio["expected_payout"] / value
+    for _, group in ratio.groupby([portfolio["run_id"], portfolio["eval_split"]]):
+        np.testing.assert_allclose(group, group.iloc[0], rtol=1e-12)
+    manifest = allocated.manifest()
+    assert manifest["map"]["allocations"] == ["value"]
+    assert [r["run_id"] for r in manifest["map"]["runs"]] == list(toy.run_ids)
+    for entry in manifest["map"]["runs"]:
+        assert (entry["kpi_level"], entry["allocation"]) == (
+            "location_by_value",
+            "value",
+        )
+
+
+def test_the_split_filter_keeps_the_test_rows_of_the_allocated_map(
+    allocated: Allocated,
+) -> None:
+    plain = arrow(allocated.plain / "baseline.map.arrow").to_pandas()
+    test = arrow(allocated.test / "baseline.map.arrow").to_pandas()
+    assert set(test["eval_split"]) == {"test"}
+    assert set(test["kpi_level"]) == {"location_by_value"}
+    kept = plain.loc[plain["eval_split"] == "test"].reset_index(drop=True)
+    pd.testing.assert_frame_equal(test.astype(str), kept.astype(str), check_dtype=False)
+    manifest = allocated.manifest("test")
+    removed = manifest["split_filter"]["rows_removed"]["baseline.map.arrow"]
+    assert removed == int((plain["eval_split"] != "test").sum()) > 0
+    assert manifest["map"] == allocated.manifest()["map"]
+
+
+def test_the_loss_rule_is_labelled_as_such(tmp_path: Path) -> None:
+    toy = build_allocated(
+        tmp_path / "store",
+        "loss",
+        scopes=[{"kind": "portfolio"}],
+        objectives=[{"kind": "mse"}],
+    )
+    report = export(toy, tmp_path / "bundle")
+    map_ = arrow(tmp_path / "bundle" / "baseline.map.arrow").to_pandas()
+    assert set(map_["kpi_level"]) == {"location_by_loss"}
+    assert set(map_["allocation"]) == {"loss"}
+    assert_map_matches(map_, toy, toy.run_ids[0], "location_by_loss")
+    assert report.manifest["map"]["allocations"] == ["loss"]
+    assert report.manifest["map"]["runs"][0]["kpi_level"] == "location_by_loss"
+
+
+def _exported(toy: Fixture, scope: str, kpis: pd.DataFrame) -> site_export._Exported:
+    run = ResultReader(toy.store).run(toy.run_id(scope, "mse"))
+    return site_export._Exported(replace(run, kpis=kpis), scope)
+
+
+def _kpis(toy: Fixture, scope: str) -> pd.DataFrame:
+    return ResultReader(toy.store).run(toy.run_id(scope, "mse")).kpis
+
+
+def test_rows_at_the_plain_location_level_are_refused(allocated: Allocated) -> None:
+    kpis = _kpis(allocated.toy, "portfolio")
+    plain = kpis.assign(level=kpis["level"].replace("location_by_value", "location"))
+    with pytest.raises(BundleError, match="level 'location', which is reserved"):
+        site_export._map([_exported(allocated.toy, "portfolio", plain)])
+
+
+def test_rows_of_several_rules_are_refused(allocated: Allocated) -> None:
+    kpis = _kpis(allocated.toy, "portfolio")
+    by_value = kpis[kpis["level"] == "location_by_value"]
+    both = pd.concat(
+        [kpis, by_value.assign(level="location_by_loss")], ignore_index=True
+    )
+    with pytest.raises(BundleError, match="several allocation rules"):
+        site_export._map([_exported(allocated.toy, "portfolio", both)])
+
+
+def test_allocation_rows_missing_a_location_are_refused(allocated: Allocated) -> None:
+    kpis = _kpis(allocated.toy, "cluster")
+    gap = (kpis["level"] == "location_by_value") & (kpis["subject_id"] == "A2")
+    gap &= kpis["eval_split"] == "test"
+    with pytest.raises(BundleError, match="rows for 5 of its 6"):
+        site_export._map([_exported(allocated.toy, "cluster", _where(kpis, ~gap))])
+
+
+def test_an_undefined_allocated_number_is_refused(allocated: Allocated) -> None:
+    kpis = _kpis(allocated.toy, "portfolio")
+    hole = (kpis["level"] == "location_by_value") & (kpis["kpi"] == "expected_payout")
+    kpis = kpis.assign(value=kpis["value"].where(~hole))
+    with pytest.raises(BundleValueError, match="undefined expected loss"):
+        site_export._map([_exported(allocated.toy, "portfolio", kpis)])
+
+
+def test_a_joint_scope_never_falls_back_to_its_entity_rows(toy: Fixture) -> None:
+    # Not even when its entities cover one location each (the portfolio scope).
+    for scope in ("portfolio", "cluster"):
+        run = ResultReader(toy.store).run(toy.run_id(scope, "mse"))
+        assert "entity" in set(run.kpis["level"])
+        rows, sources = site_export._map([site_export._Exported(run, scope)])
+        assert len(rows) == 3
+        columns = ["kpi_level", "allocation", *site_export._MAP_KPIS]
+        assert rows.loc[:, columns].isna().to_numpy().all()
+        assert (sources[0]["kpi_level"], sources[0]["allocation"]) == (None, None)

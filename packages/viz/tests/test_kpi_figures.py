@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
@@ -769,6 +770,66 @@ def test_exceedance_without_a_drawn_var_line(toy_grid: dict) -> None:
     assert set(output.data[""]["source"]) == {"exceedance"}
     unbounded = exceedance_curves(toy_grid["cluster"], beta=1.0)
     assert np.isinf(unbounded.data["markers"]["return_period"].iloc[0])
+
+
+def value_axis(output: FigureOutput) -> tuple[str, list[str], list[float]]:
+    """Label, tick labels and tick values of a figure's value (y) axis."""
+    output.figure.canvas.draw()
+    ax = output.figure.axes[0]
+    labels = [t.get_text() for t in ax.get_yticklabels()]
+    axis = ax.get_ylabel(), labels, [float(v) for v in ax.get_yticks()]
+    plt.close(output.figure)
+    return axis
+
+
+def scaled(runs: tuple[RunResult, ...], factor: float) -> list[RunResult]:
+    """The runs with every exceedance value multiplied by ``factor``."""
+    return [
+        dataclasses.replace(
+            r, exceedance=r.exceedance.assign(value=r.exceedance["value"] * factor)
+        )
+        for r in runs
+    ]
+
+
+def drawn_top(runs: tuple[RunResult, ...]) -> float:
+    """Largest value an exceedance figure of the runs draws (portfolio U)."""
+    return max(float(stored_curve(r)["value"].to_numpy().max()) for r in runs)
+
+
+def test_exceedance_tick_labels_are_distinct(toy_grid: dict) -> None:
+    # MAR-197: below one million the thesis "%.1fM" repeated labels
+    usd = AxisLabels(payout_unit="USD")
+    for scope, runs in toy_grid.items():
+        top = drawn_top(runs)
+        assert top < 1e6, scope  # the toy losses are below one million
+        for factor in (1.0, 1e3 / top, 2.9e5 / top, 0.3 / top):
+            label, ticks, _ = value_axis(exceedance_curves(scaled(runs, factor)))
+            assert len(set(ticks)) == len(ticks), (scope, factor, ticks)
+        label, ticks, values = value_axis(
+            exceedance_curves(scaled(runs, 2.9e5 / top), labels=usd)
+        )
+        assert label == "Portfolio uncovered losses $UL^P$ [k USD]"
+        assert all(t.endswith("k") for t in ticks)
+        assert [float(t[:-1]) * 1e3 for t in ticks] == pytest.approx(values)
+        label, ticks, values = value_axis(exceedance_curves(scaled(runs, 50 / top)))
+        assert label == "Portfolio uncovered losses $UL^P$"  # no unit, no prefix
+        assert [float(t) for t in ticks] == pytest.approx(values)
+
+
+def test_exceedance_tick_labels_in_millions_are_the_thesis_labels(
+    toy_grid: dict,
+) -> None:
+    runs = toy_grid["portfolio"]
+    top = drawn_top(runs)
+    output = exceedance_curves(
+        scaled(runs, 6.3e6 / top), labels=AxisLabels(payout_unit="USD")
+    )
+    label, ticks, values = value_axis(output)
+    assert label == "Portfolio uncovered losses $UL^P$ [M USD]"
+    assert ticks == [f"{v * 1e-6:.1f}M" for v in values]  # thesis format_millions
+    assert ticks[:3] == ["0.0M", "1.0M", "2.0M"]
+    assert len(set(ticks)) == len(ticks)
 
 
 def test_exceedance_errors(toy_grid: dict, holdout: dict) -> None:
