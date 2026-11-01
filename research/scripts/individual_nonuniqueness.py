@@ -467,7 +467,12 @@ class SplitData:
     def value(
         self, thetas: Sequence[np.ndarray], kpi: str, beta: float | None
     ) -> float:
-        """Portfolio KPI (numpy, the ``evaluate`` definition)."""
+        """Portfolio KPI (numpy, the ``evaluate`` definition).
+
+        NaN if a parameter is NaN (a failed program).
+        """
+        if not all(np.all(np.isfinite(t)) for t in thetas):
+            return math.nan
         u = self.measure.aggregate(np.maximum(0.0, self.loss - self.payout(thetas)))
         p = self.measure.probability
         if beta is None:
@@ -760,6 +765,8 @@ def range_worker(group: Group, store_root: str | None) -> dict[str, Any]:
         hi_t, st_hi = s.minimise(-cost)
 
         def ratio(t: np.ndarray, b: np.ndarray = b, el: float = el) -> float:
+            if not np.all(np.isfinite(t)):
+                return math.nan
             return float(tr.measure.expectation(b @ t) / el)
 
         asset_rows.append(
