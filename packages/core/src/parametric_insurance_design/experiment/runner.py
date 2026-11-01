@@ -25,7 +25,8 @@ Owner: MAR-64. Executes one configured run end to end and persists it in a
    ``pricing.premium_value`` of the realised payout (MAR-143), then
    ``evaluate.kpis`` and
    ``evaluate.exceedance_curves`` (at ``evaluation.return_periods``, MAR-117)
-   when every design problem was solved. Both get the config's
+   when every design problem was solved. Both (and ``bootstrap.bootstrap_kpis``
+   below, which then bounds the location rows too) get the config's
    ``evaluation.allocation`` (MAR-217): under ``"value"`` or ``"loss"`` the
    stored tables add per-location rows (``level = "location_by_value"`` or
    ``"location_by_loss"``); under the default ``"none"`` they are as before.
@@ -1082,6 +1083,7 @@ def execute(
                     sample=sample,
                     pricing=components.pricing,
                     level=config.bootstrap.level,
+                    allocation=config.evaluation.allocation,
                 )
                 kpi_frames.append(boot.table)
                 bootstrap_log.append(

@@ -1,6 +1,6 @@
 # Allocating a joint payout to assets
 
-Issues MAR-100 (F-04) and MAR-91. Code: `evaluate.kpis`, `evaluate.exceedance_curves` and `evaluate.evaluate_results`, argument `allocation`; the levels are in `records.KpiLevel`.
+Issues MAR-100 (F-04), MAR-91 and MAR-217. Code: `evaluate.kpis`, `evaluate.exceedance_curves`, `evaluate.evaluate_results` and `bootstrap.bootstrap_kpis`, argument `allocation`; in a run, the config's `evaluation.allocation` (default `none`); the levels are in `records.KpiLevel`.
 
 See also: [portfolio calibration](../concepts/portfolio-calibration.md), "Per-asset results of joint designs are not unique".
 
@@ -51,7 +51,8 @@ All tested in `packages/core/tests/test_evaluate_allocation.py`.
   - Out of sample, the per-entity payout functions are applied to new index values. Two designs with the same calibration-row sums can then give different problem payouts.
 
   An allocation removes the solver's choice of split, not these. The problem- and portfolio-level rows have the same limits.
-- **Bootstrap.** `bootstrap.bootstrap_kpis` evaluates without an allocation rule, so it has no confidence bounds for per-location rows.
+- **Bootstrap.** `bootstrap.bootstrap_kpis` takes the same `allocation` argument (MAR-217) and gives the per-location rows block-bootstrap intervals like every other row. Paired differences across scopes (`paired_difference(..., across_scopes=True)`) refuse them; within one scope they pair under the same rule.
+- **Runs.** A config sets the rule in `evaluation.allocation` (MAR-217): `none` (the default, left out of the config hash), `value` or `loss`. A run under a rule stores its per-location KPI rows (with intervals when the config has a `bootstrap` section) and exceedance curves; its config hash and run id differ from the `none` run's, so it is solved and stored as a run of its own. Pooled k-fold KPIs stay at the portfolio level under every rule.
 - **Insured values.** A joint problem whose locations all have value 0 has no value shares, so the `"value"` rule raises `EntityMismatchError`. So does the `"loss"` rule when the problem has a row without loss.
 
 ## Reporting
