@@ -18,6 +18,9 @@ This repository is built by several worker agents coordinated by an orchestrator
   - a peer-reviewed paper.
 - **One shared core:** everything builds on this repository's core library, `parametric_insurance_design`. Foundation work is the critical path.
 - **Early vs. long track:** the website, posts, CRC showcase and CLIMADA module are early releases that ship once the core v1 features exist. The paper is the long track, and its results feed later updates.
+  - Public-ready repository (F6, added 2026-10-31): the website, the posts and the CLIMADA module link to the repository, so F6 comes before they go out.
+  - CRC: an exploratory collaboration, possibly a joint showcase. The scan of their public repositories comes first (MAR-167); the scope is decided after it.
+  - Current roadmap (owner, 2026-11-01): the core framework and the website first; outreach (CLIMADA, CRC, LinkedIn) afterwards.
 - **Publication rule** (decided at C1, 2026-11-01; MAR-29). Every external output (website, posts, READMEs, docs pages, the CLIMADA module's text):
   - presents the method and the tool;
   - states the setup of every number shown: portfolio, basis, basis-risk model, pricing and split;
@@ -76,6 +79,7 @@ If these conflict, stop and escalate. Never resolve a conflict by editing the sp
 - Determinism: pass `np.random.Generator` objects explicitly. No global seeds.
 - **No silent failures:** raise typed errors or record failures explicitly. Never `except: pass`, and never drop rows, entities or runs quietly.
 - No library logic in notebooks.
+- Public files use plain issue IDs (`MAR-123`), never Linear URLs; only the agent files are exempt (pre-commit hook `no-linear-urls`). A new page under `docs/` gets its `docs/README.md` line in the same PR (hook `docs-index`).
 - Never commit data beyond small fixtures. Downloads go through scripts with checksums.
 - Environments:
   - uv workspace: `core`, `viz`, `crc`.
