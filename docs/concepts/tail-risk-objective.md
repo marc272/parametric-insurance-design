@@ -167,20 +167,21 @@ Between `event` and `event_conditional`, E[U], MSE and the budget change by one 
 
 ## Code map
 
-All modules are in `packages/core/src/parametric_insurance_design/`, reached as `pid.<module>` after `import parametric_insurance_design as pid`.
+All modules are in `packages/core/src/parametric_insurance_design/`. After `import parametric_insurance_design as pid`, the components of both stories are top-level names (`pid.WeightedCVaR`, `pid.Portfolio`, …), and everything else is reached through its module, as `pid.<module>`. `pid.design(...)` builds and solves every design problem of a scope in one call.
 
 | Concept | Code |
 |---|---|
-| α·CVaR_β(U) + (1 − α)·E[U] | `objectives.WeightedCVaR(alpha, beta)`; config `objectives: [{kind: weighted_cvar, alpha, beta}]` |
-| E[U]; MSE | `objectives.ExpectedUncovered`; `objectives.MSE` |
-| RU form in the design problem | `objectives.rockafellar_uryasev(values, probability, beta)` |
-| VaR and CVaR of a realised distribution | `riskmeasures.var_cvar(values, probability, beta)`, `riskmeasures.lower_quantile` |
-| Premium | `pricing.PurePremium`, `pricing.CostOfCapitalLoad(rate, q)`; config `pricing` |
-| Budget | `constraints.Budget(loading)`; config `constraints: [{kind: budget, loading}]` |
-| Basis and outcome measure | `basis.Basis`, `basis.outcome_measure`, `basis.OutcomeMeasure`; config `basis` |
-| Step payout | `payout.StepPayout(attachment, limit, n_bins)`; config `payout` |
-| Assembly, caps, DCP check | `problem.build_problems`, `problem.build_context` |
-| KPIs | `evaluate.kpis`: `expected_uncovered`, `var_uncovered`, `cvar_uncovered` at the KPI β |
+| α·CVaR_β(U) + (1 − α)·E[U] | `pid.WeightedCVaR(alpha, beta)`; config `objectives: [{kind: weighted_cvar, alpha, beta}]` |
+| E[U]; MSE | `pid.ExpectedUncovered`; `pid.MSE` |
+| RU form in the design problem | `pid.objectives.rockafellar_uryasev(values, probability, beta)` |
+| VaR and CVaR of a realised distribution | `pid.riskmeasures.var_cvar(values, probability, beta)`, `pid.riskmeasures.lower_quantile` |
+| Premium | `pid.PurePremium`, `pid.CostOfCapitalLoad(rate, q)`; config `pricing` |
+| Budget | `pid.Budget(loading)`; config `constraints: [{kind: budget, loading}]` |
+| Basis and outcome measure | `pid.Basis`, `pid.OutcomeMeasure`, `pid.basis.outcome_measure`; config `basis` |
+| Step payout | `pid.StepPayout(attachment, limit, n_bins)`; config `payout` |
+| Design in one call | `pid.design(eventset, scope, payout, objective, *, basis, pricing, constraints, sample, policy)`: builds every design problem of the scope, solves each, and returns one `pid.SolveResult` per problem |
+| Assembly, caps, DCP check; solving | `pid.problem.build_problems`, `pid.problem.build_context`; `pid.solve.solve` (the low-level path that `pid.design` composes) |
+| KPIs | `pid.evaluate.kpis`: `expected_uncovered`, `var_uncovered`, `cvar_uncovered` at the KPI β |
 
 ## Proven properties
 

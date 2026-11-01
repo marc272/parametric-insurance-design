@@ -144,17 +144,18 @@ So the per-entity results of a joint design show one member of a set of optimal 
 
 ## Code map
 
-All modules are in `packages/core/src/parametric_insurance_design/`, reached as `pid.<module>` after `import parametric_insurance_design as pid`.
+All modules are in `packages/core/src/parametric_insurance_design/`. After `import parametric_insurance_design as pid`, the components of both stories are top-level names (`pid.WeightedCVaR`, `pid.Portfolio`, …), and everything else is reached through its module, as `pid.<module>`. `pid.design(...)` builds and solves every design problem of a scope in one call.
 
 | Concept | Code |
 |---|---|
-| Scopes | `scopes.Individual`, `scopes.Portfolio`, `scopes.Cluster(strategy, n_clusters)`; config `scopes: [{kind: individual}, {kind: portfolio}, {kind: cluster, ...}]` |
-| The `problem_id` of both joint scopes | `scopes.PORTFOLIO_PROBLEM_ID` (`"portfolio"`) |
-| Entity index | `index.PointIndex` (individual and portfolio scopes), `index.ValueWeightedIndex` (cluster scope) |
-| Clustering | `clustering.ThesisWardClustering(beta_tail, linkage="ward")`; the `clustering.ClusteringStrategy` protocol |
-| Sum over entities, caps, assembly | `problem.build_context`, `problem.build_problems` (one `BuiltProblem` per design problem) |
-| Budget and premiums | `constraints.Budget(loading)`; `pricing.PurePremium`, `pricing.CostOfCapitalLoad(rate, q)` |
-| KPI levels | `evaluate.kpis`: `level` is `entity`, `problem` or `portfolio` |
+| Scopes | `pid.Individual`, `pid.Portfolio`, `pid.Cluster(strategy, n_clusters)`; config `scopes: [{kind: individual}, {kind: portfolio}, {kind: cluster, ...}]` |
+| The `problem_id` of both joint scopes | `pid.scopes.PORTFOLIO_PROBLEM_ID` (`"portfolio"`) |
+| Entity index | `pid.index.PointIndex` (individual and portfolio scopes), `pid.index.ValueWeightedIndex` (cluster scope) |
+| Clustering | `pid.ThesisWardClustering(beta_tail, linkage="ward")`; the `pid.clustering.ClusteringStrategy` protocol |
+| Design in one call | `pid.design(eventset, scope, payout, objective, *, basis, ...)`: one `pid.SolveResult` per design problem, so one per asset in the individual scope and one (`problem_id = "portfolio"`) in the joint scopes |
+| Sum over entities, caps, assembly | `pid.problem.build_context`, `pid.problem.build_problems` (one `BuiltProblem` per design problem), then `pid.solve.solve` for each (the low-level path that `pid.design` composes) |
+| Budget and premiums | `pid.Budget(loading)`; `pid.PurePremium`, `pid.CostOfCapitalLoad(rate, q)` |
+| KPI levels | `pid.evaluate.kpis`: `level` is `entity`, `problem` or `portfolio` |
 
 ## Proven properties
 
