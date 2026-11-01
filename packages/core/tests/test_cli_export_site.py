@@ -33,7 +33,13 @@ from parametric_insurance_design.cli import (
     main,
 )
 from parametric_insurance_design.experiment.config import config_hash, load_config
-from parametric_insurance_design.experiment.runner import load_input, run_key
+from parametric_insurance_design.experiment.kfold import pooled_kpis
+from parametric_insurance_design.experiment.runner import (
+    load_input,
+    prepare_eventset,
+    run_key,
+)
+from parametric_insurance_design.experiment.store import ResultStore
 
 VIZ_PACKAGE = "parametric_insurance_design_viz"
 FIXTURE = Path(__file__).resolve().parents[3] / "parity/tests/data/thesis_eventset"
@@ -146,6 +152,7 @@ def test_export_site_help(capsys: pytest.CaptureFixture[str]) -> None:
         "--max-file-bytes N",
         "--max-bundle-bytes N",
         "--label TEXT",
+        "--split S",
     ):
         assert option in out
     assert "Never solves" in out
@@ -162,6 +169,7 @@ def test_export_site_help(capsys: pytest.CaptureFixture[str]) -> None:
         ["export-site", "x.yaml", "--max-bundle-bytes", "many"],
         ["export-site", "x.yaml", "--policy", "fast"],
         ["export-site", "x.yaml", "-v", "-q"],
+        ["export-site", "x.yaml", "--split", "pooled"],
     ],
 )
 def test_export_site_usage_errors(
@@ -303,3 +311,145 @@ def test_failed_runs_exit_1(tmp_path: Path, capsys: pytest.CaptureFixture[str]) 
     out = capsys.readouterr().out
     assert "FAILED  sha256:" in out
     assert "1 runs left out because they failed" in out
+
+
+# -- k-fold configs (MAR-208) ---------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def kfold(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A k = 2 config on the parity event set, annual basis, its folds solved."""
+    pytest.importorskip(EXPORT_MODULE)
+    config = parity_config(
+        tmp_path_factory.mktemp("parity-site-kfold"),
+        basis="annual",
+        sample={"kind": "kfold", "k": 2},
+        evaluation={"beta": 0.99},
+    )
+    assert main(["run", str(config), "-q"]) == ExitCode.OK
+    return config
+
+
+def test_a_kfold_export_writes_the_pooled_kpis(
+    kfold: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    capsys.readouterr()
+    assert main(["export-site", str(kfold), "-q"]) == ExitCode.OK
+    out = capsys.readouterr().out
+    assert "pooled k-fold KPIs (k = 2): 4 of 4 scope x objective pooled" in out
+    bundle = kfold.parent / "results" / "site"
+    manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+    config = load_config(kfold)
+    data = load_input(config)
+    run_ids = [run_key(config_hash(s), data.checksum) for s in config.single_runs()]
+    assert manifest["runs"]["baseline"] == run_ids
+    assert manifest["setup"]["basis"] == "annual"
+    assert manifest["setup"]["split"]["out_of_sample"] is True
+    assert manifest["kfold"]["k"] == 2
+    assert manifest["sweeps_not_exported"] == ["alpha", "n_assets"]
+    names = [f["path"] for f in manifest["files"]]
+    assert names == [
+        "runs.json",
+        "locations.json",
+        "baseline.payouts.arrow",
+        "baseline.pooled_kpis.arrow",
+    ]
+    for entry in manifest["files"]:
+        assert sha256(bundle / entry["path"]) == entry["sha256"]
+    with pa.memory_map(str(bundle / "baseline.pooled_kpis.arrow")) as source:
+        table = pa.ipc.open_file(source).read_all().to_pandas()
+    expected = pooled_kpis(
+        config,
+        ResultStore(config.output.directory),
+        prepare_eventset(config, data.eventset),
+        run_ids,
+    ).table
+    assert table["value"].tolist() == pytest.approx(
+        expected["value"].tolist(), nan_ok=True
+    )
+    assert set(table["eval_split"]) == {"pooled"}
+    assert set(table["basis"]) == {"annual"}
+
+
+def test_kfold_sweeps_and_events_exit_3(
+    kfold: Path, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    argv = ["export-site", str(kfold), "--out", str(tmp_path / "b"), "-q"]
+    with caplog.at_level(logging.ERROR, logger="parametric_insurance_design"):
+        assert main([*argv, "-p", "alpha"]) == ExitCode.INPUT_ERROR
+    assert "sweeps are not exported" in caplog.text
+    caplog.clear()
+    with caplog.at_level(logging.ERROR, logger="parametric_insurance_design"):
+        assert main([*argv, "--events"]) == ExitCode.INPUT_ERROR
+    assert "events are not exported" in caplog.text
+    assert not (tmp_path / "b").exists()
+
+
+# -- the split filter (MAR-213) -------------------------------------------------------
+
+
+def arrow_frame(path: Path) -> Any:  # noqa: ANN401
+    with pa.memory_map(str(path)) as source:
+        return pa.ipc.open_file(source).read_all().to_pandas()
+
+
+@pytest.fixture(scope="module")
+def holdout(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A holdout config on the parity event set, annual basis, its runs solved."""
+    pytest.importorskip(EXPORT_MODULE)
+    config = parity_config(
+        tmp_path_factory.mktemp("parity-site-holdout"),
+        basis="annual",
+        sample={"kind": "holdout", "train_fraction": 0.7},
+        evaluation={"beta": 0.99},
+        sweeps=[],
+    )
+    assert main(["run", str(config), "-q"]) == ExitCode.OK
+    return config
+
+
+def test_split_test_exports_the_out_of_sample_rows_only(
+    holdout: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    plain, test = tmp_path / "plain", tmp_path / "test"
+    argv = ["export-site", str(holdout), "-q"]
+    assert main([*argv, "--out", str(plain)]) == ExitCode.OK
+    capsys.readouterr()
+    assert main([*argv, "--out", str(test), "--split", "test"]) == ExitCode.OK
+    out = capsys.readouterr().out
+    manifest = json.loads((test / "manifest.json").read_text(encoding="utf-8"))
+    section = manifest["split_filter"]
+    assert section["eval_split"] == "test"
+    removed = sum(section["rows_removed"].values())
+    assert removed > 0
+    assert (
+        f"split filter: eval_split 'test' kept, {removed:,} rows of other splits "
+        "removed (kpis, exceedance, map)"
+    ) in out
+    for name in ("kpis", "exceedance", "map"):
+        rows = arrow_frame(test / f"baseline.{name}.arrow")
+        assert set(rows["eval_split"]) == {"test"}, name
+        assert set(arrow_frame(plain / f"baseline.{name}.arrow")["eval_split"]) == {
+            "train",
+            "test",
+        }, name
+    payouts = "baseline.payouts.arrow"
+    assert (test / payouts).read_bytes() == (plain / payouts).read_bytes()
+    unfiltered = json.loads((plain / "manifest.json").read_text(encoding="utf-8"))
+    assert unfiltered["split_filter"]["eval_split"] is None
+
+
+def test_a_split_without_rows_exits_3(
+    solved: Path, kfold: Path, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    out_dir = tmp_path / "b"
+    with caplog.at_level(logging.ERROR, logger="parametric_insurance_design"):
+        argv = ["export-site", str(solved), "--out", str(out_dir), "--split", "test"]
+        assert main([*argv, "-q"]) == ExitCode.INPUT_ERROR
+    assert "no KPI rows of eval_split 'test'" in caplog.text  # a full sample
+    caplog.clear()
+    with caplog.at_level(logging.ERROR, logger="parametric_insurance_design"):
+        argv = ["export-site", str(kfold), "--out", str(out_dir), "--split", "test"]
+        assert main([*argv, "-q"]) == ExitCode.INPUT_ERROR
+    assert "is k-fold" in caplog.text
+    assert not out_dir.exists()

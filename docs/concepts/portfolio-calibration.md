@@ -134,15 +134,30 @@ It z-scores the features and cuts a Ward-linkage tree into `n_clusters` clusters
 
 So a difference between the cluster and portfolio scopes mixes a change of trigger, the thesis's zonal basis risk, with the change of calibration.
 
+**Separating the index from the calibration.** The same holds against the individual scope: the cluster scope changes the index and the calibration at once. `pid.Cluster(strategy, n_clusters, joint=False)` (config: `joint: false` in the cluster scope) keeps the clusters and the cluster index, but calibrates each cluster on its own. Each cluster is one design problem (`problem_id = "cluster:C1"`, …), on its cluster's index and summed loss, with its own objective and its own budget $\mathrm{Premium}(\pi_c) \le \kappa \mathbb{E}[\sum_{i\in c} L_i]$, as the individual scope does per asset. So:
+
+- `Cluster(joint=False)` against `Individual` changes only the index (asset index → cluster index), with calibration on its own in both;
+- `Cluster(joint=True)` against `Cluster(joint=False)` changes only the calibration (joint → on its own), with the same clusters and the same index.
+
+With one asset per cluster, `joint=False` is the individual scope (`test_one_location_per_cluster_separate_is_the_individual_scope`). The default, `joint=True`, is the thesis's cluster scope; a config that leaves `joint` out keeps its config hash.
+
 ## Per-asset results of joint designs are not unique
 
 A joint design is identified only through the portfolio ([review finding F8](../reviews/core-design-review.md#f8-per-asset-kpis-and-payout-functions-of-joint-designs-are-not-identified-defect-known-mar-100-mar-91)):
 
 - The MSE objective of a joint scope depends only on the summed payout of each row. Any other split of the same row sums across the entities that meets the payout constraints is optimal too.
 - E[U] and weighted CVaR have the same freedom wherever the LP has more than one optimal solution.
-- The thesis allocates a cluster's payout to its assets by value weight (eq. (3.23)). This library doesn't; an allocation rule is open work.
 
-So the per-entity results of a joint design show one member of a set of optimal designs, picked by the solver. That covers the `evaluate.kpis` rows at `level = "entity"`, the per-entity θ in the `payouts` table, and per-entity payout-function figures. Read the portfolio-level KPIs. In the toy example above the optimum is unique, so its per-asset θ are meaningful; that isn't true in general.
+So the per-entity results of a joint design show one member of a set of optimal designs, picked by the solver. That covers the `evaluate.kpis` rows at `level = "entity"`, the per-entity θ in the `payouts` table, and per-entity payout-function figures. Read the problem- and portfolio-level KPIs. In the toy example above the optimum is unique, so its per-asset θ are meaningful; that isn't true in general.
+
+**Per-asset KPIs need an allocation rule.** By default, `evaluate.kpis` reports no per-asset rows. Pass `allocation="value"` or `allocation="loss"` to split each design problem's total payout across its assets by a stated rule:
+
+- `"value"`: pro rata to insured value;
+- `"loss"`: pro rata to each asset's loss in the event.
+
+The rows then depend on the problem's total payout only, not on the solver's split, and their `level` names the rule (`location_by_value`, `location_by_loss`). The thesis allocates a cluster's payout to its assets by value weight within the cluster (eq. (3.23)). The `"value"` rule allocates over the whole design problem instead, because the split across clusters isn't unique either. The rules, their properties and their limits are in [allocating a joint payout to assets](../methodology/payout-allocation.md).
+
+**Per-asset payout functions have no such rule.** The payout-function figures of a joint design (`payout_grid`, `normalised_payout` in the viz package) carry a caption saying that they show one of several optimal designs, and `joint_entities="refuse"` makes them raise instead. An external output (website, posts, examples) shows a joint design's per-entity payout functions only with that caption, and reads its results at the portfolio level.
 
 ## Code map
 
@@ -157,7 +172,7 @@ All modules are in `packages/core/src/parametric_insurance_design/`. After `impo
 | Design in one call | `pid.design(eventset, scope, payout, objective, *, basis, ...)`: one `pid.SolveResult` per design problem, so one per asset in the individual scope and one (`problem_id = "portfolio"`) in the joint scopes |
 | Sum over entities, caps, assembly | `pid.problem.build_context`, `pid.problem.build_problems` (one `BuiltProblem` per design problem), then `pid.solve.solve` for each (the low-level path that `pid.design` composes) |
 | Budget and premiums | `pid.Budget(loading)`; `pid.PurePremium`, `pid.CostOfCapitalLoad(rate, q)` |
-| KPI levels | `pid.evaluate.kpis`: `level` is `entity`, `problem` or `portfolio` |
+| KPI levels | `pid.evaluate.kpis`: `level` is `entity`, `problem` or `portfolio`; with `allocation="value"` or `"loss"`, also `location_by_value` or `location_by_loss` ([payout allocation](../methodology/payout-allocation.md)) |
 
 ## Proven properties
 

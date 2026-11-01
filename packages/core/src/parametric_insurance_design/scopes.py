@@ -11,9 +11,17 @@ design problem is on the sum over its entities (``L_e = sum_j L_{e,j}``,
 * :class:`Portfolio`: one design problem (``problem_id = "portfolio"``),
   one entity per location (``entity_id`` = ``location_id``), objective on the
   summed loss and payout.
-* :class:`Cluster`: one design problem (``"portfolio"``), one entity per
-  cluster (``entity_id`` = ``"C1"``, ``"C2"``, ...), index from
-  :class:`~parametric_insurance_design.index.ValueWeightedIndex`.
+* :class:`Cluster`: one entity per cluster (``entity_id`` = ``"C1"``,
+  ``"C2"``, ...), index from
+  :class:`~parametric_insurance_design.index.ValueWeightedIndex`. With
+  ``joint=True`` (the default, the thesis) one design problem
+  (``"portfolio"``) over all clusters; with ``joint=False`` one design
+  problem per cluster (``problem_id`` = ``"cluster:C1"``, ...), each with
+  its own budget on its cluster's loss, as the individual scope per
+  location. The two settings have the same clusters and the same index, so
+  comparing them isolates the joint calibration, and comparing
+  ``joint=False`` with :class:`Individual` isolates the cluster index
+  (MAR-180).
 
 An entity's loss is the sum of its locations' losses. Entities list their
 locations in EventSet order, and clusters are numbered by the strategy's
@@ -52,10 +60,46 @@ from parametric_insurance_design.interfaces import (
     Scope,
 )
 
-__all__ = ["PORTFOLIO_PROBLEM_ID", "Cluster", "Individual", "Portfolio", "Scope"]
+__all__ = [
+    "CLUSTER_PROBLEM_PREFIX",
+    "PORTFOLIO_PROBLEM_ID",
+    "Cluster",
+    "Individual",
+    "Portfolio",
+    "Scope",
+    "cluster_problem_id",
+]
 
 PORTFOLIO_PROBLEM_ID: Final[str] = "portfolio"
 """``problem_id`` of the single design problem of joint scopes."""
+
+CLUSTER_PROBLEM_PREFIX: Final[str] = "cluster:"
+"""Prefix of the ``problem_id`` of a separately calibrated cluster
+(``Cluster(joint=False)``): ``"cluster:" + entity_id``, e.g. ``"cluster:C1"``.
+
+The prefix keeps these ids apart from the ids of the other scopes: the
+joint scopes' ``"portfolio"``, the aggregate rows' ``"*"``
+(``records.ALL_PROBLEMS``), the individual scope's location ids (unless a
+location is itself named ``"cluster:C<k>"``) and the cluster entity ids
+``"C<k>"``, so a problem-level KPI row (``subject_id`` = ``problem_id``) and
+an entity-level row of the same cluster have different subjects.
+"""
+
+
+def cluster_problem_id(entity_id: str) -> str:
+    """Return the ``problem_id`` of a separately calibrated cluster.
+
+    Parameters
+    ----------
+    entity_id : str
+        The cluster's entity id, e.g. ``"C1"``.
+
+    Returns
+    -------
+    str
+        :data:`CLUSTER_PROBLEM_PREFIX` + ``entity_id``, e.g. ``"cluster:C1"``.
+    """
+    return CLUSTER_PROBLEM_PREFIX + entity_id
 
 
 @dataclass(frozen=True)
@@ -181,7 +225,7 @@ class Portfolio(Scope):
 
 @dataclass(frozen=True)
 class Cluster(Scope):
-    """All locations jointly, one payout entity per cluster.
+    """One payout entity per cluster, calibrated jointly or cluster by cluster.
 
     Parameters
     ----------
@@ -192,12 +236,28 @@ class Cluster(Scope):
         Number of clusters, >= 1 (and at most the number of locations).
     index : EntityIndex, default ValueWeightedIndex()
         Entity index definition.
+    joint : bool, default True
+        True (the thesis): one design problem over all clusters
+        (``problem_id = "portfolio"``), objective and budget on the
+        portfolio's summed loss and payout. False: one design problem per
+        cluster (``problem_id`` = :func:`cluster_problem_id` of its entity
+        id), each on its cluster's index and summed loss, with its own
+        objective and budget (``kappa * E[L_cluster]`` under a
+        :class:`~parametric_insurance_design.constraints.Budget`), as the
+        individual scope does per location. Same clusters and same index
+        either way.
 
     Raises
     ------
     ComponentConfigError
         If ``strategy`` is not a :class:`ClusteringStrategy`, ``n_clusters`` is
-        not an integer >= 1, or ``index`` is not an :class:`EntityIndex`.
+        not an integer >= 1, ``index`` is not an :class:`EntityIndex`, or
+        ``joint`` is not a bool.
+
+    Notes
+    -----
+    ``name`` is ``"cluster"`` for both settings (``runs.scope``); the
+    experiment config records ``joint: false`` and so the config hash.
     """
 
     name: ClassVar[str] = "cluster"
@@ -205,6 +265,7 @@ class Cluster(Scope):
     strategy: ClusteringStrategy
     n_clusters: int
     index: EntityIndex = field(default_factory=ValueWeightedIndex)
+    joint: bool = True
 
     def __post_init__(self) -> None:
         """Validate the parameters."""
@@ -217,9 +278,11 @@ class Cluster(Scope):
             raise ComponentConfigError(f"n_clusters must be an integer >= 1, got {n!r}")
         object.__setattr__(self, "n_clusters", int(n))
         _check_index(self.index)
+        if not isinstance(self.joint, bool):
+            raise ComponentConfigError(f"joint must be a bool, got {self.joint!r}")
 
     def partition(self, eventset: EventSet) -> tuple[ProblemSpec, ...]:
-        """Cluster the locations into one spec (see ``Scope.partition``).
+        """Cluster the locations into design problems (see ``Scope.partition``).
 
         Parameters
         ----------
@@ -230,9 +293,12 @@ class Cluster(Scope):
         Returns
         -------
         tuple of ProblemSpec
-            One spec, ``problem_id = "portfolio"``, entities ``C1 ..
-            C<n_clusters>`` in label order, each listing its locations in
-            EventSet order.
+            Entities ``C1 .. C<n_clusters>`` in label order, each listing its
+            locations in EventSet order. ``joint=True``: one spec,
+            ``problem_id = "portfolio"``, with every entity. ``joint=False``:
+            one single-entity spec per cluster, in label order,
+            ``problem_id`` = :func:`cluster_problem_id` (``"cluster:C1"``,
+            ...).
 
         Raises
         ------
@@ -266,18 +332,35 @@ class Cluster(Scope):
         if empty:
             raise EntityMismatchError(f"clusters {empty} have no locations")
         entities = tuple(Entity(f"C{c}", members[c]) for c in labels)
+        if not self.joint:
+            return tuple(
+                ProblemSpec(problem_id=cluster_problem_id(e.entity_id), entities=(e,))
+                for e in entities
+            )
         return (ProblemSpec(problem_id=PORTFOLIO_PROBLEM_ID, entities=entities),)
 
     def materialise(self, eventset: EventSet, spec: ProblemSpec) -> DesignProblem:
-        """Build the cluster design problem (see ``Scope.materialise``).
+        """Build a cluster design problem (see ``Scope.materialise``).
+
+        ``joint=True``: the spec covers every location of the EventSet.
+        ``joint=False``: the spec is one cluster; the EventSet may hold other
+        locations, which are not part of this design problem.
 
         Raises
         ------
         EntityMismatchError
-            If the spec and the EventSet do not cover the same locations, or
-            the index is undefined for an entity.
+            ``joint=True``: if the spec and the EventSet do not cover the same
+            locations. ``joint=False``: if the spec is not one entity, or a
+            location of it is not in the EventSet. Either: if the index is
+            undefined for an entity.
         """
-        _check_covers_all(eventset, spec)
+        if self.joint:
+            _check_covers_all(eventset, spec)
+        elif len(spec.entities) != 1:
+            raise EntityMismatchError(
+                f"problem {spec.problem_id!r}: a separately calibrated cluster "
+                f"(joint=False) is one entity, not {list(spec.entity_ids)}"
+            )
         return _materialise(eventset, spec, self.index)
 
 

@@ -1,7 +1,7 @@
 {
   "format": "parametric-insurance-design/site-bundle",
   "format_version": 1,
-  "label": "thesis-fixture data: the thesis experiment (parity/configs/thesis.yaml) on the thesis parity event set, in-sample, event-conditional basis. A placeholder for the site skeleton, not a result to publish.",
+  "label": "thesis-fixture data: the thesis experiment (parity/configs/thesis.yaml) on the thesis parity event set, in-sample, event-conditional basis. A test fixture of the site bundle export, not a result to publish.",
   "config": {
     "name": "thesis",
     "description": "The thesis experiment (parametric-insurance-framework, configs/*.yaml and notebook globals), migrated by parity/scripts/migrate_thesis_config.py for the parity runs (MAR-68).",
@@ -133,7 +133,7 @@
   "budget": {
     "max_file_bytes": 2000000,
     "max_bundle_bytes": 10000000,
-    "bundle_bytes": 204151
+    "bundle_bytes": 204695
   },
   "files": [
     {
@@ -454,8 +454,8 @@
       "slice": "map",
       "group": "baseline",
       "parameter": null,
-      "bytes": 9546,
-      "sha256": "sha256:7986a9f8c25a977daeeac52b127d34f749aaeaab2d1ded9bf189fe9d7b01112c",
+      "bytes": 10090,
+      "sha256": "sha256:ba2ab0ce75da2eb5c656ba6cc9d81d714a8d115d51373f5724ceb8195962093b",
       "rows": 81,
       "columns": [
         {
@@ -521,30 +521,42 @@
         {
           "name": "kpi_level",
           "type": "dictionary<int8, utf8>",
-          "nulls": 27,
-          "null_means": "not available per location: the location's entity covers several locations (see the entity's rows in kpis)"
+          "nulls": 54,
+          "null_means": "not available per location: the run is a joint design (cluster or portfolio scope) without per-location rows under an allocation rule, and the solver's split of its payout across locations is not shown (see the manifest's map section)"
+        },
+        {
+          "name": "allocation",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 54,
+          "null_means": "not available per location: the run is a joint design (cluster or portfolio scope) without per-location rows under an allocation rule, and the solver's split of its payout across locations is not shown (see the manifest's map section)"
         },
         {
           "name": "expected_loss",
           "type": "double",
-          "nulls": 27,
-          "null_means": "not available per location: the location's entity covers several locations (see the entity's rows in kpis)"
+          "nulls": 54,
+          "null_means": "not available per location: the run is a joint design (cluster or portfolio scope) without per-location rows under an allocation rule, and the solver's split of its payout across locations is not shown (see the manifest's map section)"
         },
         {
           "name": "expected_payout",
           "type": "double",
-          "nulls": 27,
-          "null_means": "not available per location: the location's entity covers several locations (see the entity's rows in kpis)"
+          "nulls": 54,
+          "null_means": "not available per location: the run is a joint design (cluster or portfolio scope) without per-location rows under an allocation rule, and the solver's split of its payout across locations is not shown (see the manifest's map section)"
         },
         {
           "name": "expected_uncovered",
           "type": "double",
-          "nulls": 27,
-          "null_means": "not available per location: the location's entity covers several locations (see the entity's rows in kpis)"
+          "nulls": 54,
+          "null_means": "not available per location: the run is a joint design (cluster or portfolio scope) without per-location rows under an allocation rule, and the solver's split of its payout across locations is not shown (see the manifest's map section)"
         }
       ]
     }
   ],
+  "split_filter": {
+    "eval_split": null,
+    "slices": [],
+    "rows_removed": {},
+    "rule": "No split filter: the kpis, exceedance and map slices hold the rows of every evaluation split the runs stored (their eval_split column)."
+  },
   "rules": {
     "infinity": "Strict JSON has no infinities: an infinite value is written as null, in JSON and in Arrow alike, only in the columns whose manifest entry has null_means '-inf' (payouts.lower: the zero row of a below_attachment 'zero' run, param_index -1, covers the index range below the attachment). Any other infinite value is refused at export.",
     "nan": "NaN is never written. In a column whose store schema allows undefined values it is written as null, and the column's manifest entry gives its null count and what null means there; in any other column it is refused at export. A column has at most one meaning of null.",
@@ -552,5 +564,74 @@
     "arrow": "Tables are Arrow IPC files (.arrow), uncompressed, one record batch: Quarto OJS reads them with FileAttachment(path).arrow().",
     "budget": "Every file, the manifest included, fits max_file_bytes, and the data files together fit max_bundle_bytes (both in bytes). Over budget is an error at export, never a truncation.",
     "checksums": "Every data file is listed under files with its size in bytes and the SHA-256 of its bytes; the manifest itself is not."
+  },
+  "map": {
+    "rule": "Per run, evaluation and location: the location's expected loss, payout and uncovered loss. They come from the run's per-location KPI rows under an allocation rule, which splits each design problem's payout across its locations (kpi_level 'location_by_value', allocation 'value': pro rata to insured value; kpi_level 'location_by_loss', allocation 'loss': pro rata to loss; evaluate, MAR-100). Without them, a run of the individual scope takes each location's entity rows (kpi_level 'entity', allocation 'none': one location per design problem, so the payout is the location's own). A joint design (cluster or portfolio scope) without them has no per-location numbers (null): its entity rows are one of several optimal splits of the design problem's payout, the one the solver returned, and are never shown as per-location cover. runs gives the source of each run's numbers, allocations the rules in the bundle.",
+    "allocations": [],
+    "runs": [
+      {
+        "run_id": "sha256:c0b631f88a110307b432e4ecf33176164fb181a5d2e9304b3611f914906d6929",
+        "scope_key": "individual",
+        "objective": "mse",
+        "kpi_level": "entity",
+        "allocation": "none"
+      },
+      {
+        "run_id": "sha256:d87af0b4875d917f9516bcdb014aa265ea4857cb4559ca1f88b914b0d938dcfd",
+        "scope_key": "individual",
+        "objective": "expected_uncovered",
+        "kpi_level": "entity",
+        "allocation": "none"
+      },
+      {
+        "run_id": "sha256:ae9b78f07457da9aceb0800816472962f1de914900870c2821efc5d807f7a9c8",
+        "scope_key": "individual",
+        "objective": "weighted_cvar",
+        "kpi_level": "entity",
+        "allocation": "none"
+      },
+      {
+        "run_id": "sha256:16347073c212eb47c25d26c676a280b17411fe9d9091bc4eeac9e6e89ade4a49",
+        "scope_key": "cluster",
+        "objective": "mse",
+        "kpi_level": null,
+        "allocation": null
+      },
+      {
+        "run_id": "sha256:eae5d0d52243aac6376dfd99036658d87a5f0b1df544e6ebf9290eb73648a81e",
+        "scope_key": "cluster",
+        "objective": "expected_uncovered",
+        "kpi_level": null,
+        "allocation": null
+      },
+      {
+        "run_id": "sha256:9afd80c75627bce01ba4694543503b3f2ab9c812b9258468b87fefdbaa46c9af",
+        "scope_key": "cluster",
+        "objective": "weighted_cvar",
+        "kpi_level": null,
+        "allocation": null
+      },
+      {
+        "run_id": "sha256:59257aad484c914ad4ebfe35acc88caef4586ffd4f040ea24f11323deb9e42e2",
+        "scope_key": "portfolio",
+        "objective": "mse",
+        "kpi_level": null,
+        "allocation": null
+      },
+      {
+        "run_id": "sha256:fac6002c56c0cd861f5e3d0bdd2f2696644722c2da565074ca79451b49305974",
+        "scope_key": "portfolio",
+        "objective": "expected_uncovered",
+        "kpi_level": null,
+        "allocation": null
+      },
+      {
+        "run_id": "sha256:a390bfc8c506ae1540c421ea5e32fac2e0689b6ce2be8633b9b79deadf6fdefb",
+        "scope_key": "portfolio",
+        "objective": "weighted_cvar",
+        "kpi_level": null,
+        "allocation": null
+      }
+    ]
   }
 }

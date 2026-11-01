@@ -42,6 +42,18 @@ public engine API (``problem.build_problems``, ``solve.solve``,
   the two adjacent atoms as VaR (MAR-155), but its CVaR is the exact tail
   mean either way: the step convention moves the VaR KPI and the exceedance
   curves only, never a CVaR, a design or a premium.
+* **The objective adds no constraint on theta** (MAR-199). With the same
+  scope, payout, pricing and budget, every objective gets the same
+  constraints, and its own auxiliaries (the CVaR level ``zeta`` and the
+  epigraph variables of ``pos``) are free at any theta. So a weighted-CVaR
+  design and an E[U] or MSE design are optima over the same set of designs,
+  and each is the best of them on its own objective, in sample.
+* **The combination's toy example** (MAR-199). The four designs of
+  ``docs/concepts/combination.md`` (individual or portfolio scope, E[U] or
+  weighted CVaR) have the page's theta and owner KPIs, with unique optima,
+  on all three bases and with ``alpha = 1`` too.
+
+Owner of the two MAR-199 sections: MAR-199.
 
 Every objective is recomputed in numpy with an outcome measure written out
 here independently of ``basis.py`` (per row on ``event_conditional``; per
@@ -55,7 +67,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import cast
 
+import cvxpy as cp
 import numpy as np
 import pandas as pd
 import pytest
@@ -827,3 +841,236 @@ def test_cvar_on_an_exact_step_does_not_depend_on_the_order_of_ties(
         assert var in (slots[k - 1], slots[k])
         assert cvar == pytest.approx(tail_mean, abs=1e-12 * scale * n)
     assert cvar_a == pytest.approx(cvar_b, abs=1e-12 * scale * n)
+
+
+# --- The combination: the concept page's toy example (MAR-199) -------------------
+
+
+TOY_YEARS: tuple[tuple[int, tuple[float, float], tuple[float, float]], ...] = (
+    (2, (60.0, 30.0), (2.0, 4.0)),  # both hit
+    (1, (60.0, 30.0), (4.0, 0.0)),  # A alone
+    (1, (60.0, 30.0), (0.0, 0.0)),  # false alarm at A
+    (4, (30.0, 60.0), (0.0, 2.0)),  # B alone
+    (12, (30.0, 30.0), (0.0, 0.0)),  # quiet
+)
+"""``docs/concepts/combination.md``, "A worked toy example": (years, index at
+A and B, loss at A and B) per kind of year. The "both hit" years come first."""
+
+
+def _combination_toy() -> EventSet:
+    """20 equally likely years with one event each, assets A (L0) and B (L1)."""
+    index = [idx for count, idx, _ in TOY_YEARS for _ in range(count)]
+    loss = [lo for count, _, lo in TOY_YEARS for _ in range(count)]
+    return make_eventset(
+        Layout(
+            n_years=20,
+            years=list(range(20)),
+            n_draws=1,
+            index=np.array(index, dtype=np.float64),
+            loss=np.array(loss, dtype=np.float64),
+            values=np.array([100.0, 100.0]),
+        )
+    )
+
+
+def theta_ranges(design: Design, slack: float) -> NDArray[np.float64]:
+    """Width of each parameter over the designs within ``slack`` of the optimum.
+
+    For every ``theta[i, k]``, minimise and maximise it over the design
+    problem's constraints plus ``objective <= optimum + slack`` (scaled
+    units), an LP range check. A unique optimum has widths of order
+    ``slack``; a set of optimal designs has a width of order 1 in some
+    parameter. Returned in loss units.
+    """
+    built = design.built
+    theta = built.context.theta
+    optimum = design.result.objective_value / design.result.scale
+    near_optimal = [
+        *built.problem.constraints,
+        built.objective.expression <= optimum + slack,
+    ]
+    widths = np.empty(theta.shape)
+    for i, k in np.ndindex(*theta.shape):
+        bounds = []
+        for sense in (cp.Minimize, cp.Maximize):
+            problem = cp.Problem(sense(theta[i, k]), near_optimal)
+            problem.solve(solver=cp.CLARABEL)
+            assert problem.status == cp.OPTIMAL
+            bounds.append(float(cast(float, problem.value)))
+        widths[i, k] = (bounds[1] - bounds[0]) * built.context.scale
+    return widths
+
+
+@pytest.mark.parametrize("basis", BASES)
+@pytest.mark.parametrize("alpha", [0.9, 1.0])
+@pytest.mark.parametrize(
+    ("scope", "tail", "theta_a", "theta_b", "both_hit_payout", "eu", "cvar"),
+    [
+        (Individual(), False, (0.0, 1.0), (0.0, 2.0), 1.0, 0.65, 5.0),
+        (Individual(), True, (0.0, 1.0), (0.4, 0.4), 1.4, 0.91, 4.6),
+        (Portfolio(), False, (0.0, 1.0), (0.0, 2.0), 1.0, 0.65, 5.0),
+        (Portfolio(), True, (0.0, 3.0), (0.0, 0.0), 3.0, 0.75, 3.0),
+    ],
+    ids=[
+        "individual-eu",
+        "individual-wcvar",
+        "portfolio-eu",
+        "portfolio-wcvar",
+    ],
+)
+def test_the_combination_toy_example(
+    basis: Basis,
+    alpha: float,
+    scope: Scope,
+    tail: bool,
+    theta_a: tuple[float, float],
+    theta_b: tuple[float, float],
+    both_hit_payout: float,
+    eu: float,
+    cvar: float,
+) -> None:
+    """The toy of ``docs/concepts/combination.md``: two bins ([20, 45) and
+    [45, 70]), the pure premium, ``kappa = 0.5`` and, for the tail designs,
+    ``WeightedCVaR(alpha, 0.9)``. Every design has the page's theta, the
+    payout in a "both hit" year and the owner's in-sample ``E[U]`` and
+    ``CVaR_0.9`` (``evaluate.kpis`` at ``level = "portfolio"``), on all three
+    bases and with ``alpha = 1`` too. Every optimum is unique (an LP range
+    check of every parameter). The E[U] designs do not depend on ``alpha``;
+    they run under both values only to keep the grid simple."""
+    eventset = _combination_toy()
+    payout = StepPayout(ATTACHMENT, LIMIT, 2)
+    objective = WeightedCVaR(alpha, 0.9) if tail else ExpectedUncovered()
+    solved = designs(
+        eventset, scope, payout, objective, PurePremium(), (Budget(0.5),), basis
+    )
+    theta = np.vstack([d.result.theta for d in solved])
+    np.testing.assert_allclose(theta, [theta_a, theta_b], atol=1e-6)
+    for d in solved:
+        np.testing.assert_array_less(theta_ranges(d, slack=1e-7), 1e-4)
+    paid = payout.evaluate(eventset.index, theta).sum(axis=1)
+    assert paid[0] == pytest.approx(both_hit_payout, abs=1e-6)
+
+    table = kpis(
+        eventset,
+        scope,
+        [d.result for d in solved],
+        basis=basis,
+        beta=0.9,
+        run_id="combination-toy",
+    )
+    owner = table[table["level"] == "portfolio"]
+    value = dict(zip(owner["kpi"], owner["value"], strict=True))
+    assert value["expected_uncovered"] == pytest.approx(eu, abs=1e-6)
+    assert value["cvar_uncovered"] == pytest.approx(cvar, abs=1e-6)
+
+
+# --- The objective adds no constraint on theta (MAR-199) --------------------------
+
+
+def _constraint_data(built: BuiltProblem) -> tuple[object, ...]:
+    """The LP data of the built problem's constraints alone.
+
+    cvxpy's conic form of ``minimise 0`` over ``built.problem.constraints``:
+    the variables' names and shapes, the constraint matrix ``A``, the vector
+    ``b`` and the cone dimensions. Two problems with equal data have the same
+    feasible set, variable by variable.
+    """
+    feasibility = cp.Problem(cp.Minimize(0), built.problem.constraints)
+    data, _, _ = feasibility.get_problem_data(cp.CLARABEL)
+    dims = data["dims"]
+    return (
+        tuple((v.name(), v.shape) for v in feasibility.variables()),
+        data["A"].toarray(),
+        np.asarray(data["b"]),
+        (dims.zero, dims.nonneg, dims.exp, tuple(dims.soc), tuple(dims.psd)),
+    )
+
+
+@given(
+    eventset=layouts(min_locations=1),
+    basis=st.sampled_from(BASES),
+    scope=st.sampled_from([Individual(), Portfolio()]),
+    payout=step_payouts(),
+    pricing=pricings(),
+    budget=budgets(),
+    tail=st.builds(
+        WeightedCVaR,
+        alpha=st.sampled_from([0.3, 0.9, 1.0]),
+        beta=st.sampled_from([0.5, 0.8, 0.95]),
+    ),
+    seed=st.integers(0, 2**32 - 1),
+)
+@settings(PROPERTY_SETTINGS, max_examples=80)
+def test_the_objective_adds_no_constraint_on_theta(
+    eventset: EventSet,
+    basis: Basis,
+    scope: Scope,
+    payout: StepPayout,
+    pricing: Pricing,
+    budget: Budget | None,
+    tail: WeightedCVaR,
+    seed: int,
+) -> None:
+    """Same scope, payout, pricing and budget, different objectives: the same
+    feasible set in theta, so a weighted-CVaR design and an E[U] or MSE design
+    of the same design problem are optima over the same set of designs.
+
+    * The objective term adds no constraint, and its expression is defined
+      for every value of the variables (an empty cvxpy ``domain``).
+    * The built constraints (payout shape, premium, budget) have the same
+      conic data whatever the objective.
+    * The objective's auxiliaries (the CVaR level ``zeta`` and the epigraph
+      variables cvxpy adds for ``pos``) are free given theta: at any fixed
+      theta, even outside the payout shape, the objective minimised over them
+      is finite. So the feasible set in theta, the projection of the full
+      feasible set, is the constraint set above.
+    * Hence, in sample, each design is the best of the three on its own
+      objective.
+    """
+    constraints = () if budget is None else (budget,)
+    objectives_ = (MSE(), ExpectedUncovered(), tail)
+    built = [
+        build_problems(eventset, scope, payout, o, pricing, constraints, basis=basis)
+        for o in objectives_
+    ]
+    rng = np.random.default_rng(seed)
+    for per_objective in built:
+        for b in per_objective:
+            assert tuple(b.objective.constraints) == ()
+            assert b.objective.expression.domain == []
+            fixed = rng.uniform(-1.0, 2.0, b.context.theta.shape)
+            free = cp.Problem(
+                cp.Minimize(b.objective.expression), [b.context.theta == fixed]
+            )
+            free.solve(solver=cp.CLARABEL)
+            assert free.status == cp.OPTIMAL
+            assert np.isfinite(cast(float, free.value))
+    for problems in zip(*built, strict=True):
+        first = _constraint_data(problems[0])
+        for other in problems[1:]:
+            data = _constraint_data(other)
+            assert data[0] == first[0]
+            np.testing.assert_array_equal(data[1], first[1])
+            np.testing.assert_array_equal(data[2], first[2])
+            assert data[3] == first[3]
+
+    # Each design is the best of the three on its own objective, in sample.
+    measure = Measure.of(eventset, basis)
+    for problems in zip(*built, strict=True):
+        solved = [Design(b, solve(b, pricing=pricing)) for b in problems]
+        payouts = [d.payout() for d in solved]
+        loss = solved[0].loss
+        tol_solver = solver_tol([d.result for d in solved])
+        scale = solved[0].result.scale
+        for own, objective in zip(solved, objectives_, strict=True):
+            h = homogeneity(objective)
+            tol = (
+                tol_solver
+                * scale**h
+                * measure.max_rows_per_outcome**h
+                * tail_factor(objective)
+                * (2.0 if h == 2 else 1.0)
+            )
+            best = own.result.objective_value
+            for p in payouts:
+                assert best <= measure.objective(objective, loss, p) + tol

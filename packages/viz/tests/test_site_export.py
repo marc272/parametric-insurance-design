@@ -3,15 +3,17 @@
 The bundles are exported from the ``toy`` stores of ``conftest.py`` (plus a
 small sweep store built here) and read back with pyarrow and :mod:`json`,
 independently of :func:`~parametric_insurance_design_viz.site_export.read_bundle`.
-The committed thesis-fixture bundle under ``site/fixtures/thesis`` is checked
-against its manifest and against the parity config it came from.
+The committed thesis-fixture bundles under ``site/fixtures/thesis`` and
+``site/fixtures/thesis-explorer`` are checked against their manifests and
+against the configs they came from.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -21,11 +23,19 @@ import pyarrow as pa
 import pytest
 import yaml
 
-from parametric_insurance_design import cli
+from parametric_insurance_design import cli, evaluate
+from parametric_insurance_design.experiment import runner
 from parametric_insurance_design.experiment.config import (
     CostOfCapitalConfig,
     config_hash,
     load_config,
+)
+from parametric_insurance_design.experiment.kfold import (
+    POOLED_COLUMNS,
+    POOLED_KPIS,
+    POOLED_SPLIT,
+    PooledKpis,
+    pooled_kpis,
 )
 from parametric_insurance_design.experiment.runner import load_input
 from parametric_insurance_design.experiment.store import ResultStore
@@ -64,6 +74,8 @@ if TYPE_CHECKING:
 REPO = Path(__file__).resolve().parents[3]
 THESIS_FIXTURE = REPO / "site" / "fixtures" / "thesis"
 THESIS_CONFIG = REPO / "parity" / "configs" / "thesis.yaml"
+THESIS_EXPLORER_FIXTURE = REPO / "site" / "fixtures" / "thesis-explorer"
+THESIS_EXPLORER_CONFIG = REPO / "site" / "fixtures" / "thesis_explorer.yaml"
 SWEEPS = [
     {"parameter": "alpha", "values": [0.5, 0.9]},
     {"parameter": "n_clusters", "values": [1, 2]},
@@ -282,31 +294,54 @@ def test_column_types_follow_the_rules(swept: Swept) -> None:
         assert (swept.out / entry["path"]).read_bytes()[:6] == b"ARROW1"
 
 
-def test_map_has_per_location_numbers_where_present(swept: Swept) -> None:
+def test_map_without_allocation_rows_uses_individual_entity_rows_only(
+    swept: Swept,
+) -> None:
+    # The toy store has no allocation rows (MAR-217 adds the config field).
     map_ = arrow(swept.out / "baseline.map.arrow").to_pandas()
     columns = [c for c in swept.manifest["files"] if c["path"] == "baseline.map.arrow"]
     meaning = {c["name"]: c["null_means"] for c in columns[0]["columns"]}
-    for scope, level in [("individual", "entity"), ("portfolio", "entity")]:
+    individual = map_[map_["scope"] == "individual"]
+    assert set(individual["kpi_level"]) == {"entity"}
+    assert set(individual["allocation"]) == {"none"}
+    assert individual[list(site_export._MAP_KPIS)].notna().all().all()
+    assert sorted(set(individual["location_id"])) == ["A1", "A2", "A3"]
+    # Joint designs: every location of every run, and no numbers at all; the
+    # portfolio scope's single-location entities are the solver's split (F8).
+    for scope in ("cluster", "portfolio"):
         rows = map_[map_["scope"] == scope]
-        assert set(rows["kpi_level"]) == {level}
-        assert rows["expected_loss"].notna().all()
-        assert sorted(set(rows["location_id"])) == ["A1", "A2", "A3"]
-    cluster = map_[map_["scope"] == "cluster"]
-    clustered = cluster.groupby(["run_id", "entity_id"])["location_id"].transform(
-        "size"
-    )
-    multi = cluster[clustered > 1]
-    assert len(multi)
-    assert multi["kpi_level"].isna().all()
-    assert multi["expected_payout"].isna().all()
+        assert len(rows) == 3 * len(swept.toy.config.objectives), scope
+        assert rows["kpi_level"].isna().all(), scope
+        assert rows["allocation"].isna().all(), scope
+        assert rows[list(site_export._MAP_KPIS)].isna().all().all(), scope
+    for name in ("kpi_level", "allocation", *site_export._MAP_KPIS):
+        assert meaning[name] == site_export._NOT_PER_LOCATION
     assert meaning["expected_payout"].startswith("not available per location")
     toy = swept.toy
     run = ResultReader(toy.store).run(toy.run_id("individual", "mse"))
-    expected = run.kpis[
-        (run.kpis["level"] == "entity") & (run.kpis["kpi"] == "expected_loss")
-    ].set_index("subject_id")["value"]
-    mine = map_[map_["run_id"] == run.run_id].set_index("location_id")["expected_loss"]
-    assert {str(k): v for k, v in mine.items()} == expected.to_dict()
+    for kpi in site_export._MAP_KPIS:
+        expected = run.kpis[(run.kpis["level"] == "entity") & (run.kpis["kpi"] == kpi)]
+        mine = map_[map_["run_id"] == run.run_id].set_index("location_id")[kpi]
+        assert {str(k): v for k, v in mine.items()} == expected.set_index("subject_id")[
+            "value"
+        ].to_dict()
+
+
+def test_the_manifest_records_the_source_of_the_map(swept: Swept) -> None:
+    section = swept.manifest["map"]
+    assert section["rule"] == site_export._MAP_RULE
+    assert section["allocations"] == []
+    toy = swept.toy
+    assert [r["run_id"] for r in section["runs"]] == list(toy.run_ids)
+    for single, entry in zip(toy.config.single_runs(), section["runs"], strict=True):
+        scope = single.scopes[0].kind
+        assert entry["scope_key"] == scope
+        assert entry["objective"] == single.objectives[0].kind
+        if scope == "individual":
+            assert (entry["kpi_level"], entry["allocation"]) == ("entity", "none")
+        else:
+            assert (entry["kpi_level"], entry["allocation"]) == (None, None)
+    assert swept.manifest["format_version"] == 1
 
 
 def test_reexport_is_byte_identical(swept: Swept, tmp_path: Path) -> None:
@@ -598,12 +633,12 @@ def test_failed_runs_are_listed_not_dropped(failed: Fixture, tmp_path: Path) -> 
     assert set(events["scope"]) == {"portfolio"}
 
 
-def test_a_kfold_config_is_refused(tmp_path: Path) -> None:
+def test_a_kfold_config_without_pooled_kpis_is_refused(tmp_path: Path) -> None:
     path = tmp_path / "config.yaml"
     data = config_dict(sample={"kind": "kfold", "k": 2})
     path.write_text(yaml.safe_dump(data), encoding="utf-8")
     config = load_config(path)
-    with pytest.raises(KFoldRunsError, match="k-fold sample"):
+    with pytest.raises(KFoldRunsError, match="pooled out-of-sample KPIs"):
         export_site(
             config,
             [],
@@ -611,6 +646,232 @@ def test_a_kfold_config_is_refused(tmp_path: Path) -> None:
             out_dir=tmp_path / "b",
             eventset=make_eventset(),
         )
+    single = config.single_runs()[1]  # sample.fold = 1
+    with pytest.raises(KFoldRunsError, match="fixes k-fold fold 1"):
+        export_site(
+            single,
+            [],
+            store=ResultStore(tmp_path / "store"),
+            out_dir=tmp_path / "b",
+            eventset=make_eventset(),
+            pooled_kpis=pd.DataFrame(),
+        )
+    assert not (tmp_path / "b").exists()
+
+
+# -- k-fold configs: the pooled out-of-sample KPIs (MAR-208) ------------------------
+
+
+@dataclass(frozen=True)
+class Pooled:
+    toy: Fixture
+    pooled: PooledKpis
+    out: Path
+    report: ExportReport
+
+    @property
+    def manifest(self) -> dict[str, Any]:
+        return strict_json(self.out / MANIFEST)
+
+
+KFOLD_FILES = [
+    "runs.json",
+    "locations.json",
+    "baseline.payouts.arrow",
+    "baseline.pooled_kpis.arrow",
+]
+
+
+def pooled_fixture(directory: Path, **changes: Any) -> tuple[Fixture, PooledKpis]:  # noqa: ANN401
+    """A k = 2 toy store and its pooled KPIs, as ``export-site`` computes them."""
+    options: dict[str, Any] = {
+        "sample": {"kind": "kfold", "k": 2},
+        "bootstrap": {"seed": 0, "n_bootstrap": 20, "level": 0.9},
+        "sweeps": [{"parameter": "alpha", "values": [0.5]}],
+        **changes,
+    }
+    toy = build_fixture(directory, **options)
+    return toy, pooled_kpis(toy.config, toy.store, toy.eventset, toy.run_ids)
+
+
+@pytest.fixture(scope="module")
+def kfold(tmp_path_factory: pytest.TempPathFactory) -> Pooled:
+    toy, pooled = pooled_fixture(tmp_path_factory.mktemp("site-kfold"))
+    out = tmp_path_factory.mktemp("site-kfold-bundle") / "bundle"
+    report = export(toy, out, pooled_kpis=pooled.table, label="toy k-fold")
+    return Pooled(toy=toy, pooled=pooled, out=out, report=report)
+
+
+def test_kfold_bundle_holds_the_pooled_kpis(kfold: Pooled) -> None:
+    manifest = read_bundle(kfold.out)
+    assert kfold.report.ok
+    assert [f["path"] for f in manifest["files"]] == KFOLD_FILES
+    assert sorted(p.name for p in kfold.out.iterdir()) == sorted(
+        [*KFOLD_FILES, MANIFEST]
+    )
+    for entry in manifest["files"]:
+        data = (kfold.out / entry["path"]).read_bytes()
+        assert entry["sha256"] == f"sha256:{hashlib.sha256(data).hexdigest()}"
+    table = arrow(kfold.out / "baseline.pooled_kpis.arrow").to_pandas()
+    expected = kfold.pooled.table
+    assert len(table) == len(expected) == 9 * len(POOLED_KPIS)
+    assert list(table.columns) == [c.name for c in site_export._POOLED_KPI_COLUMNS]
+    assert set(POOLED_COLUMNS) <= set(table.columns)
+    assert set(table["eval_split"]) == {POOLED_SPLIT}
+    assert set(table["level"]) == {"portfolio"}
+    assert set(table["k"]) == {2}
+    assert table["scope_key"].tolist() == [
+        ["individual", "cluster", "portfolio"][p] for p in table["scope_position"]
+    ]
+    np.testing.assert_array_equal(
+        table["value"].to_numpy(dtype=float), expected["value"].to_numpy(dtype=float)
+    )
+    np.testing.assert_array_equal(
+        table["ci_low"].to_numpy(dtype=float), expected["ci_low"].to_numpy(dtype=float)
+    )
+    assert table["run_ids"].tolist() == expected["run_ids"].astype(str).tolist()
+    assert set(table["n_bootstrap"].dropna()) == {20}
+
+
+def test_kfold_bundle_states_the_pooled_rule_and_what_is_left_out(
+    kfold: Pooled,
+) -> None:
+    manifest = kfold.manifest
+    ids = list(kfold.toy.run_ids)
+    assert "map" not in manifest  # no map slice, so no map section (MAR-216)
+    assert manifest["runs"]["baseline"] == ids
+    assert manifest["runs"]["sweeps"] == {}
+    assert manifest["runs"]["skipped"] == []
+    assert manifest["sweeps_not_exported"] == ["alpha"]
+    assert manifest["setup"]["split"] == {
+        "kind": "kfold",
+        "k": 2,
+        "fold": None,
+        "out_of_sample": True,
+    }
+    section = manifest["kfold"]
+    assert section["k"] == 2
+    assert section["eval_split"] == POOLED_SPLIT
+    assert "not the mean of the per-fold KPIs" in section["rule"]
+    assert section["not_pooled"] == []
+    assert [d["run_ids"] for d in section["pooled"]] == [
+        ids[i : i + 2] for i in range(0, len(ids), 2)
+    ]
+    assert section["pooled"][0] == {
+        "scope_key": "individual",
+        "objective": "mse",
+        "run_ids": ids[:2],
+    }
+    assert set(section["not_exported"]) == {"kpis", "exceedance", "map", "sweeps"}
+    runs = strict_json(kfold.out / "runs.json")["runs"]
+    assert [r["fold"] for r in runs] == [0, 1] * 9
+    assert all(r["calibration_split"] == "train" for r in runs)
+
+
+def test_kfold_payouts_carry_the_fold(kfold: Pooled) -> None:
+    payouts = arrow(kfold.out / "baseline.payouts.arrow").to_pandas()
+    assert list(payouts.columns[:5]) == [
+        "run_id",
+        "scope",
+        "scope_key",
+        "objective",
+        "fold",
+    ]
+    reader = ResultReader(kfold.toy.store)
+    for i, run_id in enumerate(kfold.toy.run_ids):
+        rows = payouts.loc[payouts["run_id"] == run_id]
+        assert set(rows["fold"]) == {i % 2}
+        stored = reader.run(run_id).payouts
+        assert len(rows) == len(stored)
+        np.testing.assert_allclose(
+            np.sort(rows["value"].to_numpy(dtype=float)),
+            np.sort(stored["value"].to_numpy(dtype=float)),
+        )
+
+
+def test_kfold_sweeps_and_events_are_refused(kfold: Pooled, tmp_path: Path) -> None:
+    table = kfold.pooled.table
+    with pytest.raises(BundleError, match="sweeps are not exported"):
+        export(kfold.toy, tmp_path / "b", pooled_kpis=table, parameters=["alpha"])
+    with pytest.raises(BundleError, match="events are not exported"):
+        export(kfold.toy, tmp_path / "b", pooled_kpis=table, include_events=True)
+    # A sweep point given anyway is not read: the bundle holds no sweeps.
+    report = export(kfold.toy, tmp_path / "c", pooled_kpis=table, sweeps=(SWEEP_POINT,))
+    assert report.manifest["runs"]["sweeps"] == {}
+    assert not (tmp_path / "b").exists()
+
+
+SWEEP_POINT = SweepRun(
+    parameter="alpha",
+    value=0.5,
+    run_id="sha256:" + "0" * 64,
+    single=0,
+    subset_index=None,
+    location_ids=None,
+)
+
+
+def test_a_pooled_table_that_does_not_fit_is_refused(
+    kfold: Pooled, toy: Fixture, tmp_path: Path
+) -> None:
+    table = kfold.pooled.table
+    out = tmp_path / "b"
+
+    def refused(bad: pd.DataFrame, match: str) -> None:
+        with pytest.raises(InconsistentRunsError, match=match):
+            export(kfold.toy, out, pooled_kpis=bad)
+
+    refused(table.drop(columns=["ci_low"]), "lacks the columns")
+    refused(table.iloc[:0], "at least one")
+    refused(table.assign(eval_split="test"), "pooled")
+    refused(table.assign(k=3), r"k = \[3\] folds")
+    refused(table.assign(run_ids="a;b"), "not the fold runs")
+    first = str(table["run_ids"].iloc[0])
+    refused(_where(table, table["run_ids"] != first), "lack individual x mse")
+    refused(pd.concat([table, table.iloc[[0]]]), "more than once")
+    refused(table.assign(scope_position=0), "another scope position")
+    assert not out.exists()
+    with pytest.raises(InconsistentRunsError, match="k-fold config only"):
+        export(toy, out, pooled_kpis=table)
+
+
+def _where(frame: pd.DataFrame, mask: object) -> pd.DataFrame:
+    return frame.loc[np.asarray(mask, dtype=bool)].reset_index(drop=True)
+
+
+def test_kfold_designs_with_a_failed_fold_are_listed(tmp_path: Path) -> None:
+    toy, pooled = pooled_fixture(
+        tmp_path / "store",
+        scopes=[
+            {"kind": "portfolio"},
+            {
+                "kind": "cluster",
+                "n_clusters": 4,
+                "strategy": {"kind": "thesis_ward", "beta_tail": 0.9},
+            },
+        ],
+        objectives=[{"kind": "mse"}],
+        sweeps=[],
+    )
+    assert len(pooled.failed) == 1
+    report = export(toy, tmp_path / "b", pooled_kpis=pooled.table)
+    assert not report.ok
+    cluster = list(toy.run_ids[2:])
+    assert [s.run_id for s in report.skipped] == cluster
+    manifest = strict_json(tmp_path / "b" / MANIFEST)
+    assert manifest["kfold"]["pooled"] == [
+        {"scope_key": "portfolio", "objective": "mse", "run_ids": list(toy.run_ids[:2])}
+    ]
+    [not_pooled] = manifest["kfold"]["not_pooled"]
+    assert not_pooled["scope_key"] == "cluster"
+    assert not_pooled["run_ids"] == cluster
+    assert "folds failed" in not_pooled["reason"]
+    payouts = arrow(tmp_path / "b" / "baseline.payouts.arrow").to_pandas()
+    assert set(payouts["run_id"]) == set(toy.run_ids[:2])
+    # A table that pools the failed design anyway is refused.
+    forged = pooled.table.assign(run_ids=";".join(cluster), scope_position=1)
+    with pytest.raises(InconsistentRunsError, match="whose folds failed"):
+        export(toy, tmp_path / "c", pooled_kpis=pd.concat([pooled.table, forged]))
 
 
 def test_another_setup_or_eventset_is_refused(toy: Fixture, tmp_path: Path) -> None:
@@ -663,24 +924,441 @@ def test_events_are_left_out_unless_asked_for(toy: Fixture, tmp_path: Path) -> N
     assert set(events.columns) >= {"scope", "entity_id", "index", "loss", "rate"}
 
 
-# -- the committed thesis-fixture bundle ----------------------------------------------
+# -- the committed thesis-fixture bundles ---------------------------------------------
+
+
+def check_committed_bundle(root: Path, config_path: Path) -> dict[str, Any]:
+    """Check a committed bundle against its manifest and its config.
+
+    Every file is the manifest's (size and SHA-256, via ``read_bundle`` and
+    ``read_slice``), the directory holds no other file, the manifest's config
+    hash and name are those of ``config_path``, and the data are labelled as
+    thesis-fixture data under the event set's licence. Returns the manifest.
+    """
+    manifest = read_bundle(root)
+    config = load_config(config_path)
+    assert "thesis-fixture data" in manifest["label"]
+    assert manifest["config"]["hash"] == config_hash(config)
+    assert manifest["config"]["name"] == config.name
+    assert manifest["eventset"]["licence"] == "CC-BY-4.0"
+    files = [*(f["path"] for f in manifest["files"]), MANIFEST]
+    assert sorted(p.name for p in root.iterdir()) == sorted(files)
+    total = sum((root / f).stat().st_size for f in files)
+    assert total < 300_000  # well under the repository's 500 kB file limit
+    for entry in manifest["files"]:
+        content = read_slice(root, entry["path"])
+        if entry["format"] == "arrow":
+            assert isinstance(content, pa.Table)
+            assert arrow(root / entry["path"]).num_rows == entry["rows"]
+        else:
+            strict_json(root / entry["path"])
+    return manifest
 
 
 def test_the_committed_thesis_fixture_matches_its_manifest() -> None:
-    manifest = read_bundle(THESIS_FIXTURE)
-    assert "thesis-fixture data" in manifest["label"]
-    assert manifest["config"]["hash"] == config_hash(load_config(THESIS_CONFIG))
+    manifest = check_committed_bundle(THESIS_FIXTURE, THESIS_CONFIG)
     assert manifest["config"]["name"] == "thesis"
-    assert manifest["eventset"]["licence"] == "CC-BY-4.0"
     assert len(manifest["runs"]["baseline"]) == 9
-    files = [*(f["path"] for f in manifest["files"]), MANIFEST]
-    assert sorted(p.name for p in THESIS_FIXTURE.iterdir()) == sorted(files)
-    total = sum((THESIS_FIXTURE / f).stat().st_size for f in files)
-    assert total < 300_000  # well under the repository's 500 kB file limit
-    for entry in manifest["files"]:
-        content = read_slice(THESIS_FIXTURE, entry["path"])
-        if entry["format"] == "arrow":
-            assert isinstance(content, pa.Table)
-            assert arrow(THESIS_FIXTURE / entry["path"]).num_rows == entry["rows"]
+
+
+def test_the_committed_thesis_fixture_has_no_per_site_split_of_joint_designs() -> None:
+    # Review finding F8 (MAR-216): the thesis runs have no allocation-rule
+    # rows, so only the individual scope has per-location numbers; the joint
+    # scopes' rows are null, never the solver's split of a joint design.
+    manifest = read_bundle(THESIS_FIXTURE)
+    assert manifest["map"]["allocations"] == []
+    sources = {
+        (r["scope_key"], r["kpi_level"], r["allocation"])
+        for r in manifest["map"]["runs"]
+    }
+    assert sources == {
+        ("individual", "entity", "none"),
+        ("cluster", None, None),
+        ("portfolio", None, None),
+    }
+    table = arrow(THESIS_FIXTURE / "baseline.map.arrow").to_pandas()
+    joint = table[table["scope"] != "individual"]
+    assert len(joint) == 54
+    assert joint["kpi_level"].isna().all()
+    assert joint["allocation"].isna().all()
+    numbers = ["expected_loss", "expected_payout", "expected_uncovered"]
+    assert joint[numbers].isna().all().all()
+    individual = table[table["scope"] == "individual"]
+    assert (individual["kpi_level"] == "entity").all()
+    assert (individual["allocation"] == "none").all()
+    assert individual["expected_payout"].notna().all()
+
+
+def test_the_committed_thesis_explorer_fixture_matches_its_config() -> None:
+    # The one committed bundle with sweeps (MAR-210): the baseline and the
+    # alpha and beta sweeps of site/fixtures/thesis_explorer.yaml, each sweep
+    # point once, in the config's order, in every sweep table.
+    manifest = check_committed_bundle(THESIS_EXPLORER_FIXTURE, THESIS_EXPLORER_CONFIG)
+    config = load_config(THESIS_EXPLORER_CONFIG)
+    assert manifest["config"]["name"] == "thesis-explorer"
+    # In sample, unfiltered: a test fixture, not a bundle to publish.
+    assert manifest["setup"]["split"] == {"kind": "full", "out_of_sample": False}
+    assert manifest["split_filter"]["eval_split"] is None
+    assert manifest["runs"]["skipped"] == []
+    [baseline] = manifest["runs"]["baseline"]
+    sweeps = {s.parameter: [float(v) for v in s.values] for s in config.sweeps}
+    assert sweeps.keys() == {"alpha", "beta"}
+    points = manifest["runs"]["sweeps"]
+    assert {p: [pt["value"] for pt in points[p]] for p in points} == sweeps
+    stems = ["baseline", *(f"sweep.{p}" for p in sweeps)]
+    expected = [
+        "runs.json",
+        "locations.json",
+        *(
+            f"{stem}.{s}.arrow"
+            for stem in stems
+            for s in ("payouts", "kpis", "exceedance")
+        ),
+        "baseline.map.arrow",
+    ]
+    assert sorted(f["path"] for f in manifest["files"]) == sorted(expected)
+    runs_json = strict_json(THESIS_EXPLORER_FIXTURE / "runs.json")
+    runs = {r["run_id"] for r in runs_json["runs"]}
+    for parameter, values in sweeps.items():
+        run_of = {pt["value"]: pt["run_id"] for pt in points[parameter]}
+        assert set(run_of.values()) <= runs
+        # The baseline's own value is the baseline run.
+        baseline_value = getattr(config.objectives[0], parameter)
+        assert run_of[baseline_value] == baseline
+        for kind in ("payouts", "kpis", "exceedance"):
+            table = arrow(THESIS_EXPLORER_FIXTURE / f"sweep.{parameter}.{kind}.arrow")
+            by_value = table.to_pandas().groupby("sweep_value")["run_id"].unique()
+            assert {v: list(r) for v, r in by_value.items()} == {
+                v: [run_of[v]] for v in values
+            }
+    # One location of the individual scope: its own entity rows on the map.
+    assert manifest["map"]["allocations"] == []
+    assert [(r["kpi_level"], r["allocation"]) for r in manifest["map"]["runs"]] == [
+        ("entity", "none")
+    ]
+    location_map = arrow(THESIS_EXPLORER_FIXTURE / "baseline.map.arrow").to_pandas()
+    assert list(location_map["location_id"]) == ["A1"]
+    assert config.portfolio.location_ids == ("A1",)
+
+
+# -- the split filter (MAR-213) -------------------------------------------------------
+
+
+SPLIT_TABLES = [
+    "baseline.kpis.arrow",
+    "baseline.exceedance.arrow",
+    "baseline.map.arrow",
+    "sweep.alpha.kpis.arrow",
+    "sweep.alpha.exceedance.arrow",
+]
+
+
+@dataclass(frozen=True)
+class Held:
+    """A holdout toy store with an alpha sweep, exported with and without filter."""
+
+    toy: Fixture
+    sweeps: tuple[SweepRun, ...]
+    plain: Path
+    test: Path
+    report: ExportReport
+
+    @property
+    def manifest(self) -> dict[str, Any]:
+        return strict_json(self.test / MANIFEST)
+
+
+@pytest.fixture(scope="module")
+def held(tmp_path_factory: pytest.TempPathFactory) -> Held:
+    toy = build_fixture(
+        tmp_path_factory.mktemp("site-holdout"),
+        sample={"kind": "holdout", "train_fraction": 0.7},
+        sweeps=[{"parameter": "alpha", "values": [0.5, 0.9]}],
+    )
+    run_sweeps(toy.config, store=toy.store, baseline=False)
+    sweeps = sweep_runs(toy)
+    out = tmp_path_factory.mktemp("site-holdout-bundles")
+    export(toy, out / "plain", sweeps=sweeps)
+    report = export(toy, out / "test", sweeps=sweeps, eval_split="test")
+    return Held(
+        toy=toy, sweeps=sweeps, plain=out / "plain", test=out / "test", report=report
+    )
+
+
+def test_the_split_filter_keeps_the_test_rows_only(held: Held) -> None:
+    for name in SPLIT_TABLES:
+        plain = arrow(held.plain / name).to_pandas()
+        test = arrow(held.test / name).to_pandas()
+        assert set(plain["eval_split"]) == {"train", "test"}, name
+        assert set(test["eval_split"]) == {"test"}, name
+        kept = plain.loc[plain["eval_split"] == "test"].reset_index(drop=True)
+        pd.testing.assert_frame_equal(
+            test.astype(str), kept.astype(str), check_dtype=False
+        )
+
+
+def test_the_split_filter_leaves_the_payouts_alone(held: Held) -> None:
+    for name in ("baseline.payouts.arrow", "sweep.alpha.payouts.arrow"):
+        assert (held.test / name).read_bytes() == (held.plain / name).read_bytes()
+    runs = (held.test / "runs.json").read_bytes()
+    assert runs == (held.plain / "runs.json").read_bytes()
+
+
+def test_the_manifest_records_the_split_filter(held: Held) -> None:
+    section = held.manifest["split_filter"]
+    assert section["eval_split"] == "test"
+    assert section["slices"] == ["kpis", "exceedance", "map"]
+    assert section["rule"] == site_export._SPLIT_KEPT.format(split="test")
+    removed: dict[str, int] = {}
+    for name in SPLIT_TABLES:
+        plain = arrow(held.plain / name).to_pandas()
+        removed[name] = int((plain["eval_split"] != "test").sum())
+        assert removed[name] > 0
+    assert section["rows_removed"] == removed
+    # What was removed is the train rows of the exported runs in the store.
+    baseline = ResultReader(held.toy.store).runs(held.toy.run_ids)
+    train = sum(
+        int(np.count_nonzero(r.kpis["eval_split"].to_numpy() == "train"))
+        for r in baseline
+    )
+    assert removed["baseline.kpis.arrow"] == train
+    plain_section = strict_json(held.plain / MANIFEST)["split_filter"]
+    assert plain_section == {
+        "eval_split": None,
+        "slices": [],
+        "rows_removed": {},
+        "rule": site_export._SPLIT_NONE,
+    }
+    assert read_bundle(held.test) == held.manifest
+    assert held.manifest["setup"]["split"]["out_of_sample"] is True
+
+
+def test_the_split_filter_shrinks_only_the_split_slices(held: Held) -> None:
+    files = strict_json(held.plain / MANIFEST)["files"]
+    plain = {f["path"]: f["bytes"] for f in files}
+    assert [f.path for f in held.report.files] == list(plain)
+    for file in held.report.files:
+        if file.slice in ("kpis", "exceedance", "map"):
+            assert file.bytes < plain[file.path], file.path
         else:
-            strict_json(THESIS_FIXTURE / entry["path"])
+            assert file.bytes == plain[file.path], file.path
+
+
+def test_an_unknown_split_is_refused(held: Held, tmp_path: Path) -> None:
+    with pytest.raises(BundleError, match="eval_split must be one of"):
+        export(held.toy, tmp_path / "b", eval_split="pooled")
+    assert site_export.EVAL_SPLITS == ("full", "train", "test")
+    assert not (tmp_path / "b").exists()
+
+
+def test_a_split_the_runs_lack_is_refused(
+    toy: Fixture, held: Held, tmp_path: Path
+) -> None:
+    with pytest.raises(BundleError, match="no KPI rows of eval_split 'test'"):
+        export(toy, tmp_path / "b", eval_split="test")  # a full sample
+    with pytest.raises(BundleError, match="no KPI rows of eval_split 'full'"):
+        export(held.toy, tmp_path / "b", sweeps=held.sweeps, eval_split="full")
+    assert not (tmp_path / "b").exists()
+    full = export(toy, tmp_path / "full", eval_split="full")
+    assert full.manifest["split_filter"]["rows_removed"]["baseline.kpis.arrow"] == 0
+
+
+def test_a_kfold_bundle_refuses_the_split_filter(kfold: Pooled, tmp_path: Path) -> None:
+    with pytest.raises(BundleError, match="is k-fold"):
+        export(
+            kfold.toy,
+            tmp_path / "b",
+            pooled_kpis=kfold.pooled.table,
+            eval_split="test",
+        )
+    assert not (tmp_path / "b").exists()
+    assert kfold.manifest["split_filter"]["eval_split"] is None
+
+
+# -- the map under an allocation rule (MAR-216) ---------------------------------------
+
+
+def build_allocated(directory: Path, allocation: str, **changes: Any) -> Fixture:  # noqa: ANN401
+    """A toy store whose runs were evaluated under an allocation rule.
+
+    The experiment config cannot name a rule yet (MAR-217 adds it), so the
+    runner's evaluate calls are wrapped to pass ``allocation``: the stored
+    rows are exactly what ``evaluate`` writes under that rule.
+    """
+
+    def under_rule(
+        function: Callable[..., pd.DataFrame],
+    ) -> Callable[..., pd.DataFrame]:
+        def wrapped(*args: Any, **kwargs: Any) -> pd.DataFrame:  # noqa: ANN401
+            return function(*args, **{**kwargs, "allocation": allocation})
+
+        return wrapped
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(runner, "kpis", under_rule(evaluate.kpis))
+        patch.setattr(
+            runner, "exceedance_curves", under_rule(evaluate.exceedance_curves)
+        )
+        return build_fixture(directory, **changes)
+
+
+@dataclass(frozen=True)
+class Allocated:
+    """A holdout store evaluated under ``allocation="value"``, exported twice."""
+
+    toy: Fixture
+    plain: Path
+    test: Path
+
+    def manifest(self, which: str = "plain") -> dict[str, Any]:
+        return strict_json(getattr(self, which) / MANIFEST)
+
+
+@pytest.fixture(scope="module")
+def allocated(tmp_path_factory: pytest.TempPathFactory) -> Allocated:
+    toy = build_allocated(
+        tmp_path_factory.mktemp("site-allocated"),
+        "value",
+        sample={"kind": "holdout", "train_fraction": 0.7},
+    )
+    out = tmp_path_factory.mktemp("site-allocated-bundles")
+    export(toy, out / "plain")
+    export(toy, out / "test", eval_split="test")
+    return Allocated(toy=toy, plain=out / "plain", test=out / "test")
+
+
+def stored_location_rows(toy: Fixture, run_id: str, level: str) -> pd.DataFrame:
+    """The run's map KPIs at ``level``, one row per (eval_split, location)."""
+    kpis = ResultReader(toy.store).run(run_id).kpis
+    rows = kpis[(kpis["level"] == level) & kpis["kpi"].isin(site_export._MAP_KPIS)]
+    wide = rows.pivot_table(
+        index=["eval_split", "subject_id"], columns="kpi", values="value"
+    )
+    return wide.rename_axis(index=["eval_split", "location_id"], columns=None)
+
+
+def assert_map_matches(
+    map_: pd.DataFrame, toy: Fixture, run_id: str, level: str
+) -> None:
+    """Every map number of the run is its stored per-location KPI value."""
+    mine = map_[map_["run_id"] == run_id].set_index(["eval_split", "location_id"])
+    stored = stored_location_rows(toy, run_id, level)
+    assert len(mine) == len(stored) > 0
+    for kpi in site_export._MAP_KPIS:
+        for key, value in stored[kpi].items():
+            assert mine.loc[key, kpi] == value, (run_id, key, kpi)
+
+
+def test_a_joint_scope_under_a_rule_exports_per_site_cover_labelled_with_it(
+    allocated: Allocated,
+) -> None:
+    toy = allocated.toy
+    map_ = arrow(allocated.plain / "baseline.map.arrow").to_pandas()
+    assert set(map_["scope"]) == {"individual", "cluster", "portfolio"}
+    assert set(map_["kpi_level"]) == {"location_by_value"}
+    assert set(map_["allocation"]) == {"value"}
+    assert set(map_["eval_split"]) == {"train", "test"}
+    for run_id in toy.run_ids:
+        assert_map_matches(map_, toy, run_id, "location_by_value")
+        assert (map_["run_id"] == run_id).sum() == 2 * 3  # 2 splits x 3 sites
+    # The portfolio scope's per-site payout is its one design problem's payout
+    # split by insured value, not the solver's entity split.
+    values = {"A1": 100.0, "A2": 60.0, "A3": 30.0}
+    portfolio = map_[map_["scope"] == "portfolio"]
+    value = portfolio["location_id"].astype(str).map(values)
+    ratio = portfolio["expected_payout"] / value
+    for _, group in ratio.groupby([portfolio["run_id"], portfolio["eval_split"]]):
+        np.testing.assert_allclose(group, group.iloc[0], rtol=1e-12)
+    manifest = allocated.manifest()
+    assert manifest["map"]["allocations"] == ["value"]
+    assert [r["run_id"] for r in manifest["map"]["runs"]] == list(toy.run_ids)
+    for entry in manifest["map"]["runs"]:
+        assert (entry["kpi_level"], entry["allocation"]) == (
+            "location_by_value",
+            "value",
+        )
+
+
+def test_the_split_filter_keeps_the_test_rows_of_the_allocated_map(
+    allocated: Allocated,
+) -> None:
+    plain = arrow(allocated.plain / "baseline.map.arrow").to_pandas()
+    test = arrow(allocated.test / "baseline.map.arrow").to_pandas()
+    assert set(test["eval_split"]) == {"test"}
+    assert set(test["kpi_level"]) == {"location_by_value"}
+    kept = plain.loc[plain["eval_split"] == "test"].reset_index(drop=True)
+    pd.testing.assert_frame_equal(test.astype(str), kept.astype(str), check_dtype=False)
+    manifest = allocated.manifest("test")
+    removed = manifest["split_filter"]["rows_removed"]["baseline.map.arrow"]
+    assert removed == int((plain["eval_split"] != "test").sum()) > 0
+    assert manifest["map"] == allocated.manifest()["map"]
+
+
+def test_the_loss_rule_is_labelled_as_such(tmp_path: Path) -> None:
+    toy = build_allocated(
+        tmp_path / "store",
+        "loss",
+        scopes=[{"kind": "portfolio"}],
+        objectives=[{"kind": "mse"}],
+    )
+    report = export(toy, tmp_path / "bundle")
+    map_ = arrow(tmp_path / "bundle" / "baseline.map.arrow").to_pandas()
+    assert set(map_["kpi_level"]) == {"location_by_loss"}
+    assert set(map_["allocation"]) == {"loss"}
+    assert_map_matches(map_, toy, toy.run_ids[0], "location_by_loss")
+    assert report.manifest["map"]["allocations"] == ["loss"]
+    assert report.manifest["map"]["runs"][0]["kpi_level"] == "location_by_loss"
+
+
+def _exported(toy: Fixture, scope: str, kpis: pd.DataFrame) -> site_export._Exported:
+    run = ResultReader(toy.store).run(toy.run_id(scope, "mse"))
+    return site_export._Exported(replace(run, kpis=kpis), scope)
+
+
+def _kpis(toy: Fixture, scope: str) -> pd.DataFrame:
+    return ResultReader(toy.store).run(toy.run_id(scope, "mse")).kpis
+
+
+def test_rows_at_the_plain_location_level_are_refused(allocated: Allocated) -> None:
+    kpis = _kpis(allocated.toy, "portfolio")
+    plain = kpis.assign(level=kpis["level"].replace("location_by_value", "location"))
+    with pytest.raises(BundleError, match="level 'location', which is reserved"):
+        site_export._map([_exported(allocated.toy, "portfolio", plain)])
+
+
+def test_rows_of_several_rules_are_refused(allocated: Allocated) -> None:
+    kpis = _kpis(allocated.toy, "portfolio")
+    by_value = kpis[kpis["level"] == "location_by_value"]
+    both = pd.concat(
+        [kpis, by_value.assign(level="location_by_loss")], ignore_index=True
+    )
+    with pytest.raises(BundleError, match="several allocation rules"):
+        site_export._map([_exported(allocated.toy, "portfolio", both)])
+
+
+def test_allocation_rows_missing_a_location_are_refused(allocated: Allocated) -> None:
+    kpis = _kpis(allocated.toy, "cluster")
+    gap = (kpis["level"] == "location_by_value") & (kpis["subject_id"] == "A2")
+    gap &= kpis["eval_split"] == "test"
+    with pytest.raises(BundleError, match="rows for 5 of its 6"):
+        site_export._map([_exported(allocated.toy, "cluster", _where(kpis, ~gap))])
+
+
+def test_an_undefined_allocated_number_is_refused(allocated: Allocated) -> None:
+    kpis = _kpis(allocated.toy, "portfolio")
+    hole = (kpis["level"] == "location_by_value") & (kpis["kpi"] == "expected_payout")
+    kpis = kpis.assign(value=kpis["value"].where(~hole))
+    with pytest.raises(BundleValueError, match="undefined expected loss"):
+        site_export._map([_exported(allocated.toy, "portfolio", kpis)])
+
+
+def test_a_joint_scope_never_falls_back_to_its_entity_rows(toy: Fixture) -> None:
+    # Not even when its entities cover one location each (the portfolio scope).
+    for scope in ("portfolio", "cluster"):
+        run = ResultReader(toy.store).run(toy.run_id(scope, "mse"))
+        assert "entity" in set(run.kpis["level"])
+        rows, sources = site_export._map([site_export._Exported(run, scope)])
+        assert len(rows) == 3
+        columns = ["kpi_level", "allocation", *site_export._MAP_KPIS]
+        assert rows.loc[:, columns].isna().to_numpy().all()
+        assert (sources[0]["kpi_level"], sources[0]["allocation"]) == (None, None)

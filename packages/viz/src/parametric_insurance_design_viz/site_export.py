@@ -31,7 +31,8 @@ File                            Content
 ``baseline.exceedance.arrow``   the ``exceedance`` rows of the single runs
 ``baseline.map.arrow``          per (run, location): its entity and its
                                 expected loss, payout and uncovered loss,
-                                where the store has them per location
+                                with their source (``kpi_level``,
+                                ``allocation``; "Map" below)
 ``baseline.events.arrow``       opt-in (``include_events``): the event data
                                 under each entity, the figures' ``events``
                                 table
@@ -43,6 +44,68 @@ File                            Content
 Only the sweeps of :data:`SITE_SWEEP_PARAMETERS` (the explorers' alpha, beta,
 budget loading kappa and bin count) are exported. The manifest lists the
 config's other sweeps under ``sweeps_not_exported``.
+
+k-fold configs (MAR-208)
+------------------------
+A k-fold config stores a run per scope x objective x fold (MAR-22), so each
+scope x objective has ``k`` out-of-sample values, each over ``1/k`` of the
+years. Its bundle shows the **pooled** out-of-sample portfolio KPIs that the
+core computes on demand (``experiment.kfold.pooled_kpis``, every year
+evaluated by the design calibrated without it; MAR-151), as the ``figures``
+command does. The ``export-site`` command computes them and passes their
+table as ``pooled_kpis=``; :func:`export_site` checks it against the runs.
+A k-fold bundle holds:
+
+==============================  ==============================================
+File                            Content
+==============================  ==============================================
+``runs.json``                   every fold run, with its ``fold``
+``locations.json``              as above
+``baseline.payouts.arrow``      each fold's payout grid, with a ``fold``
+                                column (one design per fold)
+``baseline.pooled_kpis.arrow``  the pooled table: one row per pooled scope x
+                                objective and KPI (``eval_split = "pooled"``,
+                                portfolio level, ``run_ids`` the fold runs
+                                joined by ``";"``), with ``scope_key``
+==============================  ==============================================
+
+and a ``kfold`` section in the manifest: ``k``, the pooled designs and those
+not pooled (a failed fold), the pooled rule, and the slices left out with the
+reason: the per-fold ``kpis``, ``exceedance`` and ``map`` rows (each over
+``1/k`` of the years; the pooled rule covers the portfolio KPIs only) and the
+sweeps (the pooled rule covers the single runs). Non-k-fold manifests have
+no ``kfold`` key.
+
+Map (MAR-216)
+-------------
+``evaluate`` writes per-location KPI rows only under an explicit allocation
+rule, which splits each design problem's payout across its locations, at
+``level = "location_by_value"`` or ``"location_by_loss"`` (MAR-100); it
+never writes the reserved plain ``location`` level. A location's numbers in
+``baseline.map.arrow`` come from
+
+* the run's ``location_by_<rule>`` rows, if it has them: ``kpi_level`` is
+  that level and ``allocation`` the rule (``value`` or ``loss``);
+* else, in the **individual scope only**, its entity's rows (one location
+  per design problem, so the payout is the location's own):
+  ``kpi_level = "entity"``, ``allocation = "none"``;
+* else nothing: a joint design (cluster or portfolio scope) without
+  allocation rows has null numbers, ``kpi_level`` and ``allocation`` for
+  every location. Its entity rows are one of several optimal splits of the
+  design problem's payout, the one the solver returned (MAR-100), and are
+  never shown as per-location cover (review finding F8). Its portfolio and
+  problem KPIs are in ``baseline.kpis.arrow`` as for every run.
+
+The manifest records the source of every run's numbers under ``map``:
+``rule`` (the text above), ``allocations`` (the rules of the per-location
+rows in the bundle, sorted) and ``runs`` (per baseline run: ``run_id``,
+``scope_key``, ``objective``, ``kpi_level``, ``allocation``; both null for a
+joint design without allocation rows). The key is additive, so the format
+version stays 1; a k-fold bundle, which has no map, has no ``map`` key. A run
+with plain ``location`` rows, with rows of several rules, or whose allocation
+rows miss a location in one of its evaluations is refused
+(:class:`BundleError`). The split filter applies to the map rows as to the
+other split slices; the ``map`` section is per run, so it is unaffected.
 
 Rules (stated in the manifest, under ``rules``)
 -----------------------------------------------
@@ -68,11 +131,32 @@ Rules (stated in the manifest, under ``rules``)
   ``max_bundle_bytes``. Over budget is a :class:`BundleBudgetError` raised
   before anything is written, never a truncation.
 
+Split filter (MAR-213)
+----------------------
+A holdout run stores its KPIs and exceedance curves on the train years
+(``eval_split = "train"``, in sample) and on the test years (``"test"``, out
+of sample). ``eval_split="test"`` (``export-site --split test``) keeps only
+the rows of that evaluation split in the ``kpis``, ``exceedance`` and ``map``
+slices of the baseline and of every sweep, so a published bundle holds
+out-of-sample numbers only (the publication rule, AGENTS.md). The payout
+tables are unaffected: a design has no split. The manifest records the
+filter under ``split_filter``: the split kept (null without a filter), the
+slices it applies to and the rows it removed per file. Every exported run
+must hold rows of the split kept, else :class:`BundleError` (e.g. ``"test"``
+of a ``full``-sample config); a k-fold bundle, which holds the pooled
+out-of-sample KPIs only, refuses the filter (:class:`BundleError`).
+
 No silent failures
 ------------------
-* A config with a k-fold sample is refused
-  (:class:`~parametric_insurance_design_viz.kpi_figures.KFoldRunsError`):
-  its runs are per fold, and the bundle shows one run per scope x objective.
+* A k-fold config without ``pooled_kpis``, or one that fixes
+  ``sample.fold``, is refused
+  (:class:`~parametric_insurance_design_viz.kpi_figures.KFoldRunsError`). A
+  pooled table that does not match the fold runs (other ``k``, unknown or
+  missing designs, a design pooled over a failed fold, a duplicate KPI row)
+  is an :class:`~parametric_insurance_design_viz.errors.InconsistentRunsError`.
+  Sweeps or events asked of a k-fold config are a :class:`BundleError`.
+  A scope x objective with a failed fold is listed under
+  ``kfold.not_pooled``, and its failed fold runs under ``runs.skipped``.
 * A run with a failed design problem is listed in the manifest
   (``runs.skipped``) and in ``runs.json`` (``complete: false``, with the
   failed problems), and none of its rows are exported;
@@ -102,14 +186,21 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 
+from parametric_insurance_design.evaluate import ALLOCATION_LEVELS, Allocation
 from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.experiment.config import (
     ExperimentConfig,
     config_hash,
     to_dict,
 )
+from parametric_insurance_design.experiment.kfold import (
+    POOLED_COLUMNS,
+    POOLED_SPLIT,
+)
 from parametric_insurance_design.experiment.store import ResultStore
 from parametric_insurance_design.payout import NO_BIN
+from parametric_insurance_design.records import KpiLevel, Split
+from parametric_insurance_design.scopes import Individual
 from parametric_insurance_design_viz.command import SweepRun
 from parametric_insurance_design_viz.errors import (
     InconsistentRunsError,
@@ -133,6 +224,7 @@ __all__ = [
     "BUNDLE_FORMAT_VERSION",
     "DEFAULT_MAX_BUNDLE_BYTES",
     "DEFAULT_MAX_FILE_BYTES",
+    "EVAL_SPLITS",
     "MANIFEST",
     "SITE_SWEEP_PARAMETERS",
     "BundleBudgetError",
@@ -165,6 +257,9 @@ SITE_SWEEP_PARAMETERS: Final[tuple[str, ...]] = (
     "n_bins",
 )
 """Sweep parameters the explorers show: alpha, beta, budget loading, bins."""
+
+EVAL_SPLITS: Final[tuple[str, ...]] = tuple(s.value for s in Split)
+"""Evaluation splits the split filter accepts: ``full``, ``train``, ``test``."""
 
 DEFAULT_MAX_FILE_BYTES: Final[int] = 2_000_000
 """Default budget per file: 2 MB (decimal)."""
@@ -231,10 +326,79 @@ _UNDEFINED: Final[str] = (
 _NO_CI: Final[str] = "no confidence bounds (the config has no bootstrap section)"
 _NO_BETA: Final[str] = "not a VaR/CVaR KPI"
 _NOT_PER_LOCATION: Final[str] = (
-    "not available per location: the location's entity covers several "
-    "locations (see the entity's rows in kpis)"
+    "not available per location: the run is a joint design (cluster or "
+    "portfolio scope) without per-location rows under an allocation rule, "
+    "and the solver's split of its payout across locations is not shown "
+    "(see the manifest's map section)"
+)
+
+_ALLOCATION_OF: Final[Mapping[str, str]] = {
+    level.value: rule.value for rule, level in ALLOCATION_LEVELS.items()
+}
+"""Allocation rule per per-location KPI level (``location_by_value``: ``value``)."""
+
+_MAP_RULE: Final[str] = (
+    "Per run, evaluation and location: the location's expected loss, payout "
+    "and uncovered loss. They come from the run's per-location KPI rows under "
+    "an allocation rule, which splits each design problem's payout across its "
+    "locations (kpi_level 'location_by_value', allocation 'value': pro rata "
+    "to insured value; kpi_level 'location_by_loss', allocation 'loss': pro "
+    "rata to loss; evaluate, MAR-100). Without them, a run of the individual "
+    "scope takes each location's entity rows (kpi_level 'entity', allocation "
+    "'none': one location per design problem, so the payout is the "
+    "location's own). A joint design (cluster or portfolio scope) without "
+    "them has no per-location numbers (null): its entity rows are one of "
+    "several optimal splits of the design problem's payout, the one the "
+    "solver returned, and are never shown as per-location cover. runs gives "
+    "the source of each run's numbers, allocations the rules in the bundle."
 )
 _NO_NAME: Final[str] = "the EventSet gives the location no name"
+_NO_POOLED_CI: Final[str] = (
+    "no confidence bounds: the config has no bootstrap section (ci_level is "
+    "null too), or the KPI is undefined in some bootstrap replicate (ci_level "
+    "is set)"
+)
+
+_POOLED_RULE: Final[str] = (
+    "The k test blocks partition the years, so every year is evaluated by "
+    "exactly one design, the one calibrated on the other k - 1 blocks. The "
+    "pooled KPIs are the portfolio KPIs of that one out-of-sample sample over "
+    "all years (experiment.kfold.pooled_kpis, MAR-151), not the mean of the "
+    "per-fold KPIs. Only the portfolio level is pooled."
+)
+_KFOLD_NOT_EXPORTED: Final[Mapping[str, str]] = {
+    "kpis": (
+        "the per-fold KPI rows: each is over 1/k of the years; the bundle has "
+        "the pooled portfolio KPIs (baseline.pooled_kpis.arrow)"
+    ),
+    "exceedance": (
+        "the per-fold exceedance curves: each is over 1/k of the years, and "
+        "the pooled rule covers the portfolio KPIs only"
+    ),
+    "map": (
+        "the per-location numbers: entities are not pooled across folds (the "
+        "cluster partition differs per fold)"
+    ),
+    "sweeps": (
+        "the sweeps: the pooled rule covers the single runs; export a holdout "
+        "config for swept explorers"
+    ),
+}
+"""Slices a k-fold bundle leaves out, with the reason (``kfold.not_exported``)."""
+
+_SPLIT_SLICES: Final[tuple[str, ...]] = ("kpis", "exceedance", "map")
+"""Slices with an ``eval_split`` column, which the split filter applies to."""
+_SPLIT_KEPT: Final[str] = (
+    "Only the rows with eval_split {split!r} of the kpis, exceedance and map "
+    "slices (baseline and every sweep) are exported (export-site --split "
+    "{split}); the rows of the other evaluation splits were removed "
+    "(rows_removed, per file). The payout tables are unaffected: a design has "
+    "no split."
+)
+_SPLIT_NONE: Final[str] = (
+    "No split filter: the kpis, exceedance and map slices hold the rows of "
+    "every evaluation split the runs stored (their eval_split column)."
+)
 
 
 # --------------------------------------------------------------------------
@@ -592,6 +756,29 @@ _RUN_COLUMNS: Final[tuple[_Col, ...]] = (
     _Col("objective", "str"),
 )
 _SWEEP_VALUE: Final[_Col] = _Col("sweep_value", "float")
+_FOLD: Final[_Col] = _Col("fold", "int")
+_POOLED_KPI_COLUMNS: Final[tuple[_Col, ...]] = (
+    _Col("scope_position", "int"),
+    _Col("scope", "str"),
+    _Col("scope_key", "str"),
+    _Col("objective", "str"),
+    _Col("run_ids", "str"),
+    _Col("k", "int"),
+    _Col("n_years", "int"),
+    _Col("eval_split", "str"),
+    _Col("basis", "str"),
+    _Col("problem_id", "str"),
+    _Col("level", "str"),
+    _Col("subject_id", "str"),
+    _Col("kpi", "str"),
+    _Col("beta", "float", null=_NO_BETA),
+    _Col("value", "float", null=_UNDEFINED),
+    _Col("ci_low", "float", null=_NO_POOLED_CI),
+    _Col("ci_high", "float", null=_NO_POOLED_CI),
+    _Col("ci_level", "float", null=_NO_CI),
+    _Col("n_bootstrap", "int", null=_NO_CI),
+)
+"""Columns of ``baseline.pooled_kpis.arrow``: ``POOLED_COLUMNS`` plus ``scope_key``."""
 
 _PAYOUT_COLUMNS: Final[tuple[_Col, ...]] = (
     _Col("problem_id", "str"),
@@ -641,6 +828,7 @@ _MAP_COLUMNS: Final[tuple[_Col, ...]] = (
     _Col("problem_id", "str"),
     _Col("entity_id", "str"),
     _Col("kpi_level", "str", null=_NOT_PER_LOCATION),
+    _Col("allocation", "str", null=_NOT_PER_LOCATION),
     *(_Col(k, "float", null=_NOT_PER_LOCATION) for k in _MAP_KPIS),
 )
 _EVENT_COLUMNS: Final[tuple[_Col, ...]] = (
@@ -667,6 +855,7 @@ class _Exported:
     run: RunResult
     scope_key: str
     sweep_value: float | None = None
+    fold: int | None = None
 
     def labels(self) -> dict[str, Any]:
         labels: dict[str, Any] = {
@@ -677,6 +866,8 @@ class _Exported:
         }
         if self.sweep_value is not None:
             labels["sweep_value"] = self.sweep_value
+        if self.fold is not None:
+            labels["fold"] = self.fold
         return labels
 
 
@@ -767,6 +958,71 @@ class _Builder:
             )
 
 
+@dataclass
+class _SplitFilter:
+    """The split filter of a bundle and the rows it removed, per file."""
+
+    eval_split: str | None
+    removed: dict[str, int] = field(default_factory=dict)
+
+    def check(self, runs: Iterable[_Exported]) -> None:
+        """Raise :class:`BundleError` if a run has no KPI row of the split kept."""
+        if self.eval_split is None:
+            return
+        for item in runs:
+            stored = sorted({str(s) for s in item.run.kpis["eval_split"]})
+            if self.eval_split not in stored:
+                raise BundleError(
+                    f"run {item.run.run_id} ({item.scope_key} x "
+                    f"{item.run.objective}) has no KPI rows of eval_split "
+                    f"{self.eval_split!r}, only of {stored}: the split filter "
+                    "would leave its numbers out. Export a split its sample "
+                    "evaluates (a holdout sample: 'test' out of sample)"
+                )
+
+    def apply(self, path: str, frame: pd.DataFrame) -> pd.DataFrame:
+        """Keep the rows of the split kept; record how many were removed."""
+        if self.eval_split is None:
+            return frame
+        keep = (frame["eval_split"].astype(str) == self.eval_split).to_numpy()
+        self.removed[path] = int((~keep).sum())
+        return _rows(frame, keep).reset_index(drop=True)
+
+    def section(self) -> dict[str, Any]:
+        """Return the manifest's ``split_filter`` section."""
+        if self.eval_split is None:
+            return {
+                "eval_split": None,
+                "slices": [],
+                "rows_removed": {},
+                "rule": _SPLIT_NONE,
+            }
+        return {
+            "eval_split": self.eval_split,
+            "slices": list(_SPLIT_SLICES),
+            "rows_removed": dict(self.removed),
+            "rule": _SPLIT_KEPT.format(split=self.eval_split),
+        }
+
+
+def _check_split(
+    config: ExperimentConfig, eval_split: str | None, k: int | None
+) -> None:
+    """Raise :class:`BundleError` for an unknown split or one asked of k-fold."""
+    if eval_split is None:
+        return
+    if eval_split not in EVAL_SPLITS:
+        raise BundleError(
+            f"eval_split must be one of {list(EVAL_SPLITS)}, got {eval_split!r}"
+        )
+    if k is not None:
+        raise BundleError(
+            f"config {config.name!r} is k-fold: its bundle holds the pooled "
+            f"out-of-sample KPIs only (eval_split {POOLED_SPLIT!r}), so the "
+            f"split filter (eval_split {eval_split!r}) does not apply"
+        )
+
+
 def _scope_keys(config: ExperimentConfig) -> list[str]:
     """Name per configured scope: its kind, numbered on repeats (as figures)."""
     kinds = [s.kind for s in config.scopes]
@@ -838,74 +1094,87 @@ def _pivot(kpis: pd.DataFrame, index: list[str], suffix: str) -> pd.DataFrame:
     return wide.reset_index()
 
 
-def _map(runs: Sequence[_Exported]) -> pd.DataFrame:
-    """Per (run, evaluation, location): its entity and its KPIs, where present.
+def _map(runs: Sequence[_Exported]) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+    """Per (run, evaluation, location): its entity and its KPIs, where defined.
 
-    A location's numbers come from the ``location`` rows of ``kpis`` if the
-    store has them, else from its entity's rows when the entity covers that
-    location alone (individual and portfolio scopes); else they are null
-    (``kpi_level`` null too).
+    A location's numbers come from the run's per-location rows under an
+    allocation rule (``location_by_value`` or ``location_by_loss``, MAR-100)
+    if the run has them; else, in the individual scope only, from its
+    entity's rows (one location per design problem); else they are null
+    (``kpi_level`` and ``allocation`` null too). The entity rows of a joint
+    design (cluster or portfolio scope) are the solver's split of its design
+    problem's payout and are never used (review finding F8). See
+    :data:`_MAP_RULE`.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The map rows, labelled with their run.
+    list of dict
+        Per run: ``run_id``, ``scope_key``, ``objective`` and the source of
+        its numbers, ``kpi_level`` and ``allocation`` (both null when the map
+        has no per-location numbers for the run): the manifest's
+        ``map.runs``.
 
     Raises
     ------
+    BundleError
+        If a run holds rows at the reserved plain ``location`` level or rows
+        of several allocation rules, if its allocation rows miss a location
+        in an evaluation, or if an individual-scope entity covers several
+        locations.
     BundleValueError
         If a location has a source of numbers but one of them is undefined:
         the map's nulls mean only "not available per location".
     """
     parts: list[pd.DataFrame] = []
+    sources: list[dict[str, Any]] = []
     evaluation = ["eval_split", "fold", "basis"]
     for item in runs:
         run = item.run
         members = run.entities.loc[:, ["problem_id", "entity_id", "location_id"]]
-        size = members.groupby(["problem_id", "entity_id"])["location_id"].transform(
-            "size"
-        )
         kpis = _rows(run.kpis, run.kpis["kpi"].isin(_MAP_KPIS))
-        evaluations = kpis.loc[:, evaluation].drop_duplicates()
-        grid = evaluations.merge(members.assign(_alone=(size == 1)), how="cross")
-        location = _pivot(
-            _rows(kpis, kpis["level"] == "location").rename(
-                columns={"subject_id": "location_id"}
-            ),
-            [*evaluation, "location_id"],
-            "location",
-        )
-        entity = _pivot(
-            _rows(kpis, kpis["level"] == "entity").rename(
-                columns={"subject_id": "entity_id"}
-            ),
-            [*evaluation, "problem_id", "entity_id"],
-            "entity",
-        )
-        rows = grid.merge(location, on=[*evaluation, "location_id"], how="left")
-        rows = rows.merge(
-            entity, on=[*evaluation, "problem_id", "entity_id"], how="left"
-        )
-
-        def values(frame: pd.DataFrame, kpi: str, suffix: str) -> pd.Series:
-            name = f"{kpi}@{suffix}"
-            if name in frame:
-                return cast(pd.Series, frame[name]).astype(np.float64)
-            return pd.Series(np.nan, index=frame.index, dtype=np.float64)
-
-        has_location = np.zeros(len(rows), dtype=bool)
-        for kpi in _MAP_KPIS:
-            has_location |= values(rows, kpi, "location").notna().to_numpy()
-        use_entity = ~has_location & rows["_alone"].to_numpy(dtype=bool)
-        out = rows.loc[:, [*evaluation, "location_id", "problem_id", "entity_id"]]
-        level = np.full(len(rows), None, dtype=object)
-        level[use_entity] = "entity"
-        level[has_location] = "location"
-        out["kpi_level"] = level
-        for kpi in _MAP_KPIS:
-            out[kpi] = np.where(
-                has_location,
-                values(rows, kpi, "location"),
-                np.where(use_entity, values(rows, kpi, "entity"), np.nan),
+        level, allocation = _map_source(item, kpis)
+        grid = kpis.loc[:, evaluation].drop_duplicates().merge(members, how="cross")
+        if level is None:
+            rows = grid
+        elif level == KpiLevel.ENTITY.value:
+            if members.duplicated(["problem_id", "entity_id"]).any():
+                raise BundleError(  # pragma: no cover - one location per entity
+                    f"baseline.map.arrow: run {run.run_id} is in the individual "
+                    "scope but an entity covers several locations"
+                )
+            subject, keys = "entity_id", [*evaluation, "problem_id", "entity_id"]
+        else:
+            subject, keys = "location_id", [*evaluation, "location_id"]
+        if level is not None:
+            source = _rows(kpis, kpis["level"] == level).rename(
+                columns={"subject_id": subject}
             )
-        sourced = out["kpi_level"].notna()
-        undefined = out.loc[sourced, list(_MAP_KPIS)].isna().to_numpy().any(axis=1)
-        if undefined.any():
+            present = source.loc[:, keys].drop_duplicates().assign(_present=True)
+            rows = grid.merge(_pivot(source, keys, "src"), on=keys, how="left")
+            rows = rows.merge(present, on=keys, how="left")
+            missing = int(rows["_present"].isna().sum())
+            if missing:
+                raise BundleError(
+                    f"baseline.map.arrow: run {run.run_id} ({item.scope_key} x "
+                    f"{run.objective}) has {level!r} rows for "
+                    f"{len(rows) - missing} of its {len(rows)} (evaluation, "
+                    "location) pairs; the map needs every location in every "
+                    "evaluation"
+                )
+        out = rows.loc[:, [*evaluation, "location_id", "problem_id", "entity_id"]]
+        out["kpi_level"] = level
+        out["allocation"] = allocation
+        for kpi in _MAP_KPIS:
+            name = f"{kpi}@src"
+            out[kpi] = (
+                cast(pd.Series, rows[name]).astype(np.float64)
+                if name in rows
+                else pd.Series(np.nan, index=rows.index, dtype=np.float64)
+            )
+        undefined = out.loc[:, list(_MAP_KPIS)].isna().to_numpy().any(axis=1)
+        if level is not None and undefined.any():
             raise BundleValueError(
                 f"baseline.map.arrow: run {run.run_id} has {int(undefined.sum())} "
                 "location rows with an undefined expected loss, payout or "
@@ -913,7 +1182,52 @@ def _map(runs: Sequence[_Exported]) -> pd.DataFrame:
                 f"{_NOT_PER_LOCATION!r}"
             )
         parts.append(_labelled(out, item))
-    return _frame(parts, _MAP_COLUMNS)
+        sources.append(
+            {
+                "run_id": run.run_id,
+                "scope_key": item.scope_key,
+                "objective": run.objective,
+                "kpi_level": level,
+                "allocation": allocation,
+            }
+        )
+    return _frame(parts, _MAP_COLUMNS), sources
+
+
+def _map_source(item: _Exported, kpis: pd.DataFrame) -> tuple[str | None, str | None]:
+    """Return the ``(kpi_level, allocation)`` the map takes a run's numbers from.
+
+    ``(None, None)`` for a joint design without allocation rows (see
+    :func:`_map`).
+
+    Raises
+    ------
+    BundleError
+        If the run holds plain ``location`` rows or rows of several rules.
+    """
+    run = item.run
+    levels = {str(v) for v in kpis["level"].unique()}
+    if KpiLevel.LOCATION.value in levels:
+        raise BundleError(
+            f"baseline.map.arrow: run {run.run_id} ({item.scope_key} x "
+            f"{run.objective}) has KPI rows at level 'location', which is "
+            "reserved: the payout a location receives from a joint design is "
+            "not identified (MAR-100). Re-run it: evaluate writes per-location "
+            "rows only under an allocation rule ('location_by_value' or "
+            "'location_by_loss')"
+        )
+    allocated = sorted(levels & set(_ALLOCATION_OF))
+    if len(allocated) > 1:
+        raise BundleError(
+            f"baseline.map.arrow: run {run.run_id} ({item.scope_key} x "
+            f"{run.objective}) has per-location rows under several allocation "
+            f"rules ({allocated}); the map shows one rule per run"
+        )
+    if allocated:
+        return allocated[0], _ALLOCATION_OF[allocated[0]]
+    if run.scope == Individual.name:
+        return KpiLevel.ENTITY.value, Allocation.NONE.value
+    return None, None
 
 
 def _events(
@@ -1097,6 +1411,8 @@ def export_site(
     include_events: bool = False,
     budget: SizeBudget | None = None,
     label: str | None = None,
+    pooled_kpis: pd.DataFrame | None = None,
+    eval_split: str | None = None,
 ) -> ExportReport:
     """Export a config's site bundle from its result store.
 
@@ -1105,7 +1421,8 @@ def export_site(
     config : ExperimentConfig
         The experiment config.
     run_ids : sequence of str
-        The ``run_id`` of each of ``config.single_runs()``, in that order.
+        The ``run_id`` of each of ``config.single_runs()``, in that order
+        (for k-fold: every fold of every scope x objective).
     store : ResultStore
         The result store holding the runs.
     out_dir : str or pathlib.Path
@@ -1129,6 +1446,18 @@ def export_site(
     label : str, optional
         What the data are, for the site to show, e.g. "thesis-fixture
         data". Default: the config's description, or its name.
+    pooled_kpis : pandas.DataFrame, optional
+        k-fold configs only, and required for them: the table of the core's
+        ``experiment.kfold.pooled_kpis(config, store, eventset,
+        run_ids).table`` (columns ``POOLED_COLUMNS``), as the
+        ``export-site`` command computes it. Written to
+        ``baseline.pooled_kpis.arrow``.
+    eval_split : {"full", "train", "test"}, optional
+        The split filter (MAR-213): keep only the rows of this evaluation
+        split in the ``kpis``, ``exceedance`` and ``map`` slices, e.g.
+        ``"test"`` for a published bundle (out of sample only). Default: no
+        filter, every split the runs stored. Recorded in the manifest
+        (``split_filter``). Not for k-fold configs.
 
     Returns
     -------
@@ -1138,18 +1467,25 @@ def export_site(
     Raises
     ------
     KFoldRunsError
-        If the config has a k-fold sample.
+        If the config has a k-fold sample that fixes ``sample.fold``, or no
+        ``pooled_kpis`` are given for it.
     InconsistentRunsError
         If ``run_ids`` does not match the config's single runs, a sweep point
         names no single run, an exported sweep has no points, or a run's
-        setup differs from the config's.
+        setup differs from the config's; for k-fold, if ``pooled_kpis`` does
+        not match the fold runs, or is given for another sample.
     MissingRunError
         If a run, or a point of an exported sweep, is not in the store.
     EventSetMismatchError
         If ``eventset`` is not the runs' prepared EventSet.
     BundleError
         If a sweep parameter is not exportable or not configured, or
-        ``out_dir`` holds files that are not part of a bundle.
+        ``out_dir`` holds files that are not part of a bundle; for k-fold,
+        if sweeps or events are asked for; if ``eval_split`` is not a split,
+        is given for a k-fold config, or an exported run has no KPI rows of
+        it; if a run's per-location rows are at the reserved plain
+        ``location`` level, under several allocation rules, or miss a
+        location in an evaluation (module docstring, "Map").
     BundleValueError
         If a value breaks the infinity, NaN or integer rule.
     BundleBudgetError
@@ -1167,18 +1503,22 @@ def export_site(
     (the baseline ``run_id`` per single run, the ``run_id`` per point of
     each exported sweep, the skipped runs), ``sweeps_not_exported``, the
     ``events`` switch, the ``budget`` with the bundle's total, the
-    ``files`` (:meth:`BundleFile.to_dict`) and the ``rules``.
+    ``files`` (:meth:`BundleFile.to_dict`), the ``split_filter`` (the
+    split kept or null, the slices filtered, the rows removed per file) and
+    the ``rules``; a non-k-fold bundle also its ``map`` section (the source
+    of each run's per-location numbers: allocation rule, entity rows of the
+    individual scope, or none), a k-fold bundle its ``kfold`` section
+    (module docstring).
     """
-    if config.sample.kind == "kfold":  # KFOLD_SAMPLE, as a literal for narrowing
-        raise KFoldRunsError(
-            f"config {config.name!r} has a k-fold sample (k={config.sample.k}): "
-            "its runs are per fold, and a site bundle shows one run per scope x "
-            "objective; export a holdout or full-sample config"
-        )
+    k = _check_kfold(config, parameters, include_events, pooled_kpis)
+    _check_split(config, eval_split, k)
+    split = _SplitFilter(eval_split)
+    if k is not None:
+        parameters, sweeps = [], ()
     budget = SizeBudget() if budget is None else budget
     ids, chosen, not_exported, points = _plan(config, run_ids, sweeps, parameters)
     keys = _scope_keys(config)
-    per_scope = len(config.objectives)
+    per_scope = len(config.objectives) * (1 if k is None else k)
     scope_key = {r: keys[i // per_scope] for i, r in enumerate(ids)}
     for point in points:
         scope_key.setdefault(point.run_id, keys[point.single // per_scope])
@@ -1186,7 +1526,8 @@ def export_site(
     all_ids = tuple(scope_key)
     _require(store, ids, points)
     results = {r.run_id: r for r in ResultReader(store).runs(all_ids)}
-    _check_runs(config, results.values(), eventset)
+    singles = dict(zip(ids, config.single_runs(), strict=True))
+    _check_runs(config, results.values(), eventset, singles)
     skipped = {
         r.run_id: SkippedRun(
             r.run_id, f"design problems failed: {', '.join(r.failed_problems)}"
@@ -1202,15 +1543,46 @@ def export_site(
         {"runs": [_run_entry(results[r], scope_key[r]) for r in all_ids]},
     )
     builder.add_json("locations.json", "locations", {"locations": _locations(eventset)})
-    baseline = [_Exported(results[r], scope_key[r]) for r in ids if r not in skipped]
-    _add_group(builder, baseline, group=_BASELINE)
-    builder.add_table(
-        "baseline.map.arrow",
-        "map",
-        _map(baseline),
-        (*_RUN_COLUMNS, *_MAP_COLUMNS),
-        group=_BASELINE,
-    )
+    kfold_section: dict[str, Any] | None = None
+    map_section: dict[str, Any] | None = None
+    if k is not None:
+        if pooled_kpis is None:  # pragma: no cover - _check_kfold invariant
+            raise KFoldRunsError("a k-fold bundle needs pooled_kpis")
+        kfold_section = _add_kfold(
+            builder,
+            config,
+            ids,
+            {r: results[r] for r in ids},
+            scope_key,
+            set(skipped),
+            pooled_kpis,
+            k,
+        )
+    else:
+        baseline = [
+            _Exported(results[r], scope_key[r]) for r in ids if r not in skipped
+        ]
+        split.check(baseline)
+        _add_group(builder, baseline, split, group=_BASELINE)
+        map_rows, map_sources = _map(baseline)
+        builder.add_table(
+            "baseline.map.arrow",
+            "map",
+            split.apply("baseline.map.arrow", map_rows),
+            (*_RUN_COLUMNS, *_MAP_COLUMNS),
+            group=_BASELINE,
+        )
+        map_section = {
+            "rule": _MAP_RULE,
+            "allocations": sorted(
+                {
+                    str(s["allocation"])
+                    for s in map_sources
+                    if s["allocation"] not in (None, Allocation.NONE.value)
+                }
+            ),
+            "runs": map_sources,
+        }
     event_scopes: list[str] = []
     if include_events:
         scopes: list[tuple[int, _Exported]] = []
@@ -1233,7 +1605,8 @@ def export_site(
             for p in points
             if p.parameter == parameter and p.run_id not in skipped
         ]
-        _add_group(builder, runs, group=_SWEEP, parameter=parameter)
+        split.check(runs)
+        _add_group(builder, runs, split, group=_SWEEP, parameter=parameter)
 
     manifest: dict[str, Any] = {
         "format": BUNDLE_FORMAT,
@@ -1273,8 +1646,13 @@ def export_site(
             "bundle_bytes": sum(f.bytes for f in builder.files),
         },
         "files": [f.to_dict() for f in builder.files],
+        "split_filter": split.section(),
         "rules": dict(_RULES),
     }
+    if map_section is not None:
+        manifest["map"] = map_section
+    if kfold_section is not None:
+        manifest["kfold"] = kfold_section
     manifest_bytes = _json_bytes(manifest, MANIFEST, indent=2)
     builder.check_budget(len(manifest_bytes))
     directory = Path(out_dir)
@@ -1372,9 +1750,16 @@ def _setup_fields(config: Mapping[str, Any]) -> object:
 
 
 def _check_runs(
-    config: ExperimentConfig, results: Iterable[RunResult], eventset: EventSet
+    config: ExperimentConfig,
+    results: Iterable[RunResult],
+    eventset: EventSet,
+    singles: Mapping[str, ExperimentConfig],
 ) -> None:
     """Check every run against the EventSet and the config's setup.
+
+    ``singles`` maps each single run's ``run_id`` to its config, whose setup
+    the run must have (for k-fold, with its fold); a sweep point must have
+    the setup of ``config``.
 
     Raises
     ------
@@ -1385,13 +1770,14 @@ def _check_runs(
         model, pricing or split.
     """
     eventset_hash = eventset.content_hash()
-    expected = _setup_fields(to_dict(config))
+    base = _setup_fields(to_dict(config))
+    expected = {r: _setup_fields(to_dict(c)) for r, c in singles.items()}
     for result in results:
         check_eventset(result, eventset_hash)
         recorded = result.manifest.get("config")
         if not isinstance(recorded, Mapping):
             continue  # a run manifest without its config: nothing to compare
-        if _setup_fields(recorded) != expected:
+        if _setup_fields(recorded) != expected.get(result.run_id, base):
             raise InconsistentRunsError(
                 f"run {result.run_id} was computed with another setup than "
                 f"config {config.name!r} (its {', '.join(_SETUP_FIELDS)} "
@@ -1399,14 +1785,220 @@ def _check_runs(
             )
 
 
+def _check_kfold(
+    config: ExperimentConfig,
+    parameters: Sequence[str] | None,
+    include_events: bool,
+    pooled_kpis: pd.DataFrame | None,
+) -> int | None:
+    """Return ``k`` of a k-fold config it can export, None for other samples.
+
+    Raises
+    ------
+    KFoldRunsError
+        If the k-fold config fixes ``sample.fold``, or ``pooled_kpis`` is
+        None.
+    InconsistentRunsError
+        If ``pooled_kpis`` is given for a config that is not k-fold.
+    BundleError
+        If sweeps (``parameters``) or events are asked of a k-fold config.
+    """
+    sample = config.sample
+    if sample.kind != "kfold":  # KFOLD_SAMPLE, as a literal for narrowing
+        if pooled_kpis is not None:
+            raise InconsistentRunsError(
+                f"config {config.name!r} has a {sample.kind!r} sample; pooled "
+                "k-fold KPIs belong to a k-fold config only"
+            )
+        return None
+    k, fold = sample.k, sample.fold
+    if fold is not None:
+        raise KFoldRunsError(
+            f"config {config.name!r} fixes k-fold fold {fold}: a site bundle "
+            "pools every fold (sample.fold must be unset)"
+        )
+    if parameters:
+        raise BundleError(
+            f"config {config.name!r} is k-fold: its sweeps are not exported "
+            f"(asked for {list(parameters)}); " + _KFOLD_NOT_EXPORTED["sweeps"]
+        )
+    if include_events:
+        raise BundleError(
+            f"config {config.name!r} is k-fold: its events are not exported, "
+            "because the entities differ per fold"
+        )
+    if pooled_kpis is None:
+        raise KFoldRunsError(
+            f"config {config.name!r} has a k-fold sample (k={k}): its runs "
+            "are per fold, and its site bundle shows the pooled out-of-sample "
+            "KPIs (MAR-151), of which none were given. Compute them with "
+            "experiment.kfold.pooled_kpis and pass pooled_kpis=...table (the "
+            "export-site command does this)"
+        )
+    return k
+
+
+def _add_kfold(
+    builder: _Builder,
+    config: ExperimentConfig,
+    ids: Sequence[str],
+    results: Mapping[str, RunResult],
+    scope_key: Mapping[str, str],
+    skipped: set[str],
+    pooled: pd.DataFrame,
+    k: int,
+) -> dict[str, Any]:
+    """Add a k-fold bundle's payouts and pooled KPIs; return its ``kfold``.
+
+    Raises
+    ------
+    InconsistentRunsError
+        If the pooled table does not match the fold runs.
+    """
+    folds = [_Exported(results[r], scope_key[r], fold=i % k) for i, r in enumerate(ids)]
+    builder.add_table(
+        "baseline.payouts.arrow",
+        "payouts",
+        _payouts([f for f in folds if f.run.run_id not in skipped]),
+        (*_RUN_COLUMNS, _FOLD, *_PAYOUT_COLUMNS),
+        group=_BASELINE,
+    )
+    keys = _scope_keys(config)
+    designs: list[dict[str, Any]] = []
+    for d in range(len(ids) // k):
+        run_ids = list(ids[d * k : (d + 1) * k])
+        designs.append(
+            {
+                "scope_key": keys[d // len(config.objectives)],
+                "objective": results[run_ids[0]].objective,
+                "run_ids": run_ids,
+                "failed": [r for r in run_ids if r in skipped],
+            }
+        )
+    frame = _pooled_frame(config, pooled, designs, keys, k)
+    builder.add_table(
+        "baseline.pooled_kpis.arrow",
+        "pooled_kpis",
+        frame,
+        _POOLED_KPI_COLUMNS,
+        group=_BASELINE,
+    )
+    pooled_designs = [d for d in designs if not d["failed"]]
+    return {
+        "k": k,
+        "eval_split": POOLED_SPLIT,
+        "rule": _POOLED_RULE,
+        "pooled": [
+            {key: d[key] for key in ("scope_key", "objective", "run_ids")}
+            for d in pooled_designs
+        ],
+        "not_pooled": [
+            {
+                "scope_key": d["scope_key"],
+                "objective": d["objective"],
+                "run_ids": d["run_ids"],
+                "reason": "folds failed: " + ", ".join(d["failed"]),
+            }
+            for d in designs
+            if d["failed"]
+        ],
+        "not_exported": dict(_KFOLD_NOT_EXPORTED),
+    }
+
+
+def _pooled_frame(
+    config: ExperimentConfig,
+    pooled: pd.DataFrame,
+    designs: Sequence[Mapping[str, Any]],
+    keys: Sequence[str],
+    k: int,
+) -> pd.DataFrame:
+    """Check the pooled table against the fold runs; add ``scope_key``.
+
+    Every design without a failed fold must have exactly one row per KPI it
+    has, and a design with a failed fold none.
+
+    Raises
+    ------
+    InconsistentRunsError
+        If a column is missing, a row is not a pooled portfolio row of ``k``
+        folds, names fold runs that are not one design's, or a design is
+        missing, pooled over a failed fold, or has a KPI twice.
+    """
+    missing = [c for c in POOLED_COLUMNS if c not in pooled.columns]
+    if missing:
+        raise InconsistentRunsError(
+            f"the pooled KPI table lacks the columns {missing}; pass "
+            "experiment.kfold.pooled_kpis(...).table"
+        )
+    splits = sorted({str(s) for s in pooled["eval_split"]})
+    levels = sorted({str(s) for s in pooled["level"]})
+    if pooled.empty or splits != [POOLED_SPLIT] or levels != [KpiLevel.PORTFOLIO.value]:
+        raise InconsistentRunsError(
+            f"pooled KPI rows must be {POOLED_SPLIT!r} portfolio rows, at least "
+            f"one; got {len(pooled)} rows, eval_split {splits}, level {levels}"
+        )
+    ks = sorted({int(v) for v in pooled["k"]})
+    if ks != [k]:
+        raise InconsistentRunsError(
+            f"the pooled KPIs are over k = {ks} folds; config {config.name!r} "
+            f"has k = {k}"
+        )
+    by_runs = {";".join(d["run_ids"]): (i, d) for i, d in enumerate(designs)}
+    named = [str(r) for r in pooled["run_ids"]]
+    unknown = sorted(set(named) - set(by_runs))
+    if unknown:
+        raise InconsistentRunsError(
+            f"pooled KPI rows name fold runs {unknown[:3]} that are not the fold "
+            "runs of one scope x objective of the config"
+        )
+    present = set(named)
+    for runs, (i, design) in by_runs.items():
+        label = f"{design['scope_key']} x {design['objective']}"
+        if design["failed"] and runs in present:
+            raise InconsistentRunsError(
+                f"the pooled KPIs hold {label}, whose folds failed "
+                f"({', '.join(design['failed'])}); pooled_kpis pools only "
+                "complete designs"
+            )
+        if not design["failed"] and runs not in present:
+            raise InconsistentRunsError(
+                f"the pooled KPIs lack {label}, whose folds are all complete"
+            )
+        rows = _rows(pooled, pooled["run_ids"] == runs)
+        position = i // len(config.objectives)
+        if len(rows) and (
+            {int(p) for p in rows["scope_position"]} != {position}
+            or {str(o) for o in rows["objective"]} != {design["objective"]}
+        ):
+            raise InconsistentRunsError(
+                f"the pooled rows of {label} name another scope position or "
+                "objective than their fold runs"
+            )
+    duplicated = pooled.duplicated(subset=["run_ids", "kpi"])
+    if duplicated.any():
+        first = pooled.loc[duplicated].iloc[0]
+        raise InconsistentRunsError(
+            f"the pooled KPIs hold KPI {first['kpi']!r} of fold runs "
+            f"{first['run_ids']!r} more than once"
+        )
+    frame = pooled.reset_index(drop=True)
+    return frame.assign(scope_key=[keys[int(p)] for p in frame["scope_position"]])
+
+
 def _add_group(
     builder: _Builder,
     runs: Sequence[_Exported],
+    split: _SplitFilter,
     *,
     group: str,
     parameter: str | None = None,
 ) -> None:
-    """Add the payouts, KPIs and exceedance curves of one group of runs."""
+    """Add the payouts, KPIs and exceedance curves of one group of runs.
+
+    The KPIs and exceedance curves pass through the split filter; the payouts
+    do not (a design has no split).
+    """
     stem = _BASELINE if parameter is None else f"{_SWEEP}.{parameter}"
     labels = _RUN_COLUMNS if parameter is None else (*_RUN_COLUMNS, _SWEEP_VALUE)
     slices: tuple[tuple[str, pd.DataFrame, tuple[_Col, ...]], ...] = (
@@ -1419,8 +2011,11 @@ def _add_group(
         ),
     )
     for name, frame, columns in slices:
+        path = f"{stem}.{name}.arrow"
+        if name in _SPLIT_SLICES:
+            frame = split.apply(path, frame)
         builder.add_table(
-            f"{stem}.{name}.arrow",
+            path,
             name,
             frame,
             (*labels, *columns),

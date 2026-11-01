@@ -1,24 +1,55 @@
 name: Site
 
 # The project website (site/, Quarto + OJS, ADR 0003; MAR-201). Pull
-# requests that touch the site build it; a push to main builds it and deploys
-# it to GitHub Pages (source "GitHub Actions", the github-pages environment,
+# requests that touch the site, or the code and data its bundle is built
+# from, build it; a push to main builds it and deploys it to GitHub Pages
+# (source "GitHub Actions", the github-pages environment,
 # https://marc272.github.io/parametric-insurance-design/).
 #
-# Bundle source: the pages read the committed fixture bundles under
-# site/fixtures/ (thesis-fixture data, under the 500 kB pre-commit limit).
-# The build checks them against their manifests' SHA-256 before rendering.
+# The site's one bundle (ADR 0003, "Where bundles come from in CI"; MAR-208):
+# bundles/explorer/, the explorer bundle, solved and exported here on every
+# build from site/configs/explorer.yaml (out of sample, annual basis) on the
+# committed thesis parity event set. No download, no cache: the run keys do
+# not include the code version, so a cached store could serve results of older
+# code. It is exported with --split test (MAR-213), so it holds the
+# out-of-sample rows only, written into the rendered site and checked against
+# its manifest (SHA-256, sizes, no other files) and the publication rule
+# (annual basis, out of sample, config hash, no failed run, no row of an
+# evaluation split other than "test") before the Pages artifact is uploaded.
+#
+# The committed bundles under site/fixtures/ are test fixtures (in sample),
+# checked by packages/viz/tests/test_site_export.py in the CI workflow; they
+# are not copied into the site, and the build fails if they are (MAR-210).
 
+# The two path lists are the same: the site, the concept docs the method pages
+# include at render time (MAR-166), this workflow, and the code, lock and event
+# set the explorer bundle is solved and exported from.
 on:
   pull_request:
     paths:
       - "site/**"
+      - "docs/concepts/**"
       - ".github/workflows/site.yml"
+      - "packages/core/src/**"
+      - "packages/core/pyproject.toml"
+      - "packages/viz/src/**"
+      - "packages/viz/pyproject.toml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "parity/tests/data/thesis_eventset/**"
   push:
     branches: [main]
     paths:
       - "site/**"
+      - "docs/concepts/**"
       - ".github/workflows/site.yml"
+      - "packages/core/src/**"
+      - "packages/core/pyproject.toml"
+      - "packages/viz/src/**"
+      - "packages/viz/pyproject.toml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "parity/tests/data/thesis_eventset/**"
   workflow_dispatch:
 
 permissions:
@@ -32,36 +63,131 @@ concurrency:
 
 env:
   # Pinned Quarto CLI. site/_quarto.yml requires the same version
-  # (quarto-required); change both together.
+  # (quarto-required); change both together. The build fails early when they
+  # differ (step "Check the Quarto pin", MAR-210).
   QUARTO_VERSION: "1.10.19"
+  # The explorer bundle (MAR-208): its config, and where it goes in the site.
+  EXPLORER_CONFIG: site/configs/explorer.yaml
+  EXPLORER_BUNDLE: site/_site/bundles/explorer
 
 jobs:
   build:
     name: build (Quarto site)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash # -e -o pipefail: a failing jq in a pipe fails the step
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Check the fixture bundles against their manifests
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          python-version: "3.12"
+      - name: Sync the workspace
+        run: uv sync --locked
+      # The Quarto version is pinned twice and Dependabot tracks neither:
+      # QUARTO_VERSION (above, what quarto-actions/setup installs) and
+      # quarto-required in site/_quarto.yml (what the render requires). Fail
+      # before the solve when they differ (MAR-210).
+      - name: Check the Quarto pin (QUARTO_VERSION and site/_quarto.yml agree)
         run: |
-          for bundle in site/fixtures/*/; do
-            echo "== $bundle"
-            (cd "$bundle" && jq -r '.files[] | "\(.sha256 | ltrimstr("sha256:"))  \(.path)"' manifest.json | sha256sum --check --strict)
-          done
+          uv run --locked python - "$QUARTO_VERSION" site/_quarto.yml <<'PY'
+          import sys
+          from pathlib import Path
+
+          import yaml
+
+          pinned, path = sys.argv[1], Path(sys.argv[2])
+          required = yaml.safe_load(path.read_text(encoding="utf-8")).get("quarto-required")
+          if not isinstance(required, str) or required != pinned:
+              sys.exit(
+                  f"Quarto pin differs: QUARTO_VERSION is {pinned!r} in .github/workflows/site.yml, "
+                  f"quarto-required is {required!r} in {path}. Change both together."
+              )
+          print(f"Quarto pin: {pinned} in .github/workflows/site.yml and {path}")
+          PY
+      # Every run and sweep point of the config, in 4 worker processes (the
+      # runner's vCPUs). A failed run exits 1 and fails the build.
+      - name: Solve the explorer runs
+        run: |
+          start=$SECONDS
+          uv run --locked parametric-insurance-design sweep "$EXPLORER_CONFIG" --jobs 4
+          echo "solve time: $((SECONDS - start)) s"
       - uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661b # v2.2.0
         with:
           version: ${{ env.QUARTO_VERSION }}
       - name: Render the site
         run: quarto render site
-      - name: Check the rendered pages and the bundle
+      # After the render, which empties site/_site. The label is the config's
+      # description. --split test: the KPI, exceedance and map files hold the
+      # out-of-sample rows only (MAR-213). A failed run exits 1 and fails the
+      # build.
+      - name: Export the explorer bundle into the site
+        run: uv run --locked parametric-insurance-design export-site "$EXPLORER_CONFIG" --split test --out "$EXPLORER_BUNDLE"
+      # site/fixtures/ holds test fixtures, in sample: never in the site.
+      - name: Check the rendered pages and the bundles
         run: |
           for f in index.html explorers/alpha-beta.html blog/index.html blog/index.xml \
-                   fixtures/thesis-explorer/manifest.json fixtures/thesis-explorer/sweep.alpha.payouts.arrow; do
+                   bundles/explorer/manifest.json bundles/explorer/sweep.alpha.payouts.arrow; do
             test -s "site/_site/$f" || { echo "missing: site/_site/$f"; exit 1; }
           done
-          du -sh site/_site
+          test ! -e site/_site/fixtures || { echo "site/_site/fixtures/: test fixtures must not be published"; exit 1; }
+          du -sh site/_site "$EXPLORER_BUNDLE"
+      # The last step before the upload: what is checked is what is deployed.
+      - name: Check the explorer bundle against its manifest and the publication rule
+        run: |
+          manifest="$EXPLORER_BUNDLE/manifest.json"
+          echo "== checksums"
+          (cd "$EXPLORER_BUNDLE" && jq -r '.files[] | "\(.sha256 | ltrimstr("sha256:"))  \(.path)"' manifest.json | sha256sum --check --strict)
+          echo "== sizes"
+          jq -r '.files[] | "\(.bytes) \(.path)"' "$manifest" | while read -r bytes path; do
+            actual=$(stat -c %s "$EXPLORER_BUNDLE/$path")
+            test "$actual" = "$bytes" || { echo "size of $path: $actual, manifest: $bytes"; exit 1; }
+          done
+          echo "== no files beyond the manifest's"
+          diff <(jq -r '.files[].path, "manifest.json"' "$manifest" | sort) <(ls -A "$EXPLORER_BUNDLE" | sort)
+          echo "== the config it came from"
+          hash=$(uv run --locked python -c 'import sys; from parametric_insurance_design.experiment.config import config_hash, load_config; print(config_hash(load_config(sys.argv[1])))' "$EXPLORER_CONFIG")
+          test "$(jq -r '.config.hash' "$manifest")" = "$hash" || { echo "config hash differs from $EXPLORER_CONFIG ($hash)"; exit 1; }
+          echo "== publication rule: annual basis, out of sample, no run left out"
+          jq -e '.setup.basis == "annual" and .setup.split.out_of_sample == true and .setup.split.kind != "full" and (.runs.skipped | length) == 0' "$manifest"
+          echo "== publication rule: out-of-sample rows only (MAR-213)"
+          jq -e '.split_filter.eval_split == "test"' "$manifest"
+          # Read every table back: each kpis, exceedance and map file must have
+          # an eval_split column holding "test" alone, so no in-sample (train)
+          # row is deployed.
+          uv run --locked python - "$EXPLORER_BUNDLE" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          import pyarrow as pa
+
+          root = Path(sys.argv[1])
+          manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+          split_slices = {"kpis", "exceedance", "map"}
+          checked = 0
+          for entry in manifest["files"]:
+              if entry["format"] != "arrow":
+                  continue
+              with pa.memory_map(str(root / entry["path"])) as source:
+                  table = pa.ipc.open_file(source).read_all()
+              if "eval_split" not in table.column_names:
+                  if entry["slice"] in split_slices:
+                      sys.exit(f"{entry['path']}: no eval_split column")
+                  continue
+              splits = set(table.column("eval_split").to_pylist())
+              if splits != {"test"}:
+                  sys.exit(f"{entry['path']}: eval_split {sorted(map(str, splits))}, only 'test' may be published")
+              print(f"{entry['path']}: {table.num_rows} rows, eval_split test only")
+              checked += 1
+          expected = sum(e["slice"] in split_slices for e in manifest["files"])
+          if checked == 0 or checked != expected:
+              sys.exit(f"checked {checked} tables with eval_split, expected {expected}")
+          PY
+          jq '{label, config, budget: .budget, split: .setup.split, split_filter: (.split_filter | {eval_split, rows_removed}), files: (.files | length)}' "$manifest"
       - name: Upload the Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:

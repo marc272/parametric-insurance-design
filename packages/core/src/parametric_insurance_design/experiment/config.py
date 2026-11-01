@@ -90,11 +90,13 @@ from parametric_insurance_design.pricing import CostOfCapitalLoad, PurePremium
 from parametric_insurance_design.scopes import Cluster, Individual, Portfolio
 
 __all__ = [
+    "ALLOCATION_RULES",
     "CONFIG_HASH_DOMAIN",
     "CONFIG_HASH_EXCLUDED",
     "OMITTED_WHEN_ABSENT",
     "SCHEMA_VERSION",
     "SWEEP_PARAMETERS",
+    "AllocationRule",
     "BootstrapConfig",
     "BudgetConfig",
     "ClusterScopeConfig",
@@ -201,6 +203,12 @@ ReturnPeriod = Annotated[float, Field(strict=True, allow_inf_nan=False, gt=1.0)]
 """A finite return period > 1; integers are accepted."""
 IndexKind = Literal["point", "value_weighted"]
 """Entity index: ``PointIndex`` or ``ValueWeightedIndex``."""
+AllocationRule = Literal["none", "value", "loss"]
+"""Allocation rule of the evaluation (``evaluate.Allocation`` values, MAR-217)."""
+
+ALLOCATION_RULES: Final[tuple[str, ...]] = get_args(AllocationRule)
+"""The values of :data:`AllocationRule`, in order: the ``evaluate.Allocation``
+values (``tests/test_config_allocation.py`` checks that they agree)."""
 
 
 class _Model(BaseModel):
@@ -577,14 +585,20 @@ class ClusterScopeConfig(_Model):
         behaviour: such a subset fails to build (``InputMismatchError``), as
         the thesis did. The scope itself never caps: a run whose own config
         asks for more clusters than it has locations fails.
+    joint : bool, default True
+        Calibrate the clusters jointly, in one design problem (True, the
+        thesis), or each cluster on its own, with its own budget (False,
+        MAR-180); see :class:`~parametric_insurance_design.scopes.Cluster`.
 
     Notes
     -----
     ``cap_n_clusters`` is left out of :func:`to_dict`, :func:`dump_config`
-    and :func:`canonical_json` when it is False, its default. A config that
-    does not set it therefore dumps and hashes exactly as before MAR-131 (the
-    parity config and its config hashes are unchanged); a config that sets
-    it to True has a hash of its own.
+    and :func:`canonical_json` when it is False, its default, and ``joint``
+    when it is True, its default, whether unset or written out. A config
+    that sets neither therefore dumps and hashes exactly as before MAR-131
+    and MAR-180 (the parity config and its config hashes are unchanged); a
+    config that sets ``cap_n_clusters: true`` or ``joint: false`` has a
+    hash of its own.
     """
 
     kind: Literal["cluster"]
@@ -592,13 +606,17 @@ class ClusterScopeConfig(_Model):
     strategy: ThesisWardConfig
     index: IndexKind | None = None
     cap_n_clusters: Annotated[bool, Field(strict=True)] = False
+    joint: Annotated[bool, Field(strict=True)] = True
 
     @model_serializer(mode="wrap")
-    def _drop_default_cap(self, handler: SerializerFunctionWrapHandler) -> Any:  # noqa: ANN401
-        """Leave ``cap_n_clusters`` out of every dump while it is False."""
+    def _drop_defaults(self, handler: SerializerFunctionWrapHandler) -> Any:  # noqa: ANN401
+        """Leave a False ``cap_n_clusters`` and a True ``joint`` out of every dump."""
         data = handler(self)
-        if not self.cap_n_clusters and isinstance(data, dict):
-            data.pop("cap_n_clusters", None)
+        if isinstance(data, dict):
+            if not self.cap_n_clusters:
+                data.pop("cap_n_clusters", None)
+            if self.joint:
+                data.pop("joint", None)
         return data
 
     def effective_n_clusters(self, n_locations: int) -> int:
@@ -639,6 +657,7 @@ class ClusterScopeConfig(_Model):
             strategy=self.strategy.build(),
             n_clusters=self.n_clusters,
             index=_entity_index(self.index, ValueWeightedIndex),
+            joint=self.joint,
         )
 
 
@@ -787,6 +806,20 @@ class EvaluationConfig(_Model):
         :data:`~parametric_insurance_design.evaluate.DEFAULT_RETURN_PERIODS`
         (2, 5, 10, 25, 50, 100, 250); the parity config sets the thesis grid
         of Figure 5.6 (2, 5, 10, 20, 50, 100, 200, 500).
+    allocation : {"none", "value", "loss"}, default "none"
+        Rule that splits each design problem's payout across its locations
+        in the stored ``kpis`` and ``exceedance`` tables (the ``allocation``
+        argument of :func:`~parametric_insurance_design.evaluate.kpis`,
+        :func:`~parametric_insurance_design.evaluate.exceedance_curves` and
+        ``bootstrap.bootstrap_kpis``; MAR-100, MAR-217). ``"none"`` writes no
+        per-location rows. ``"value"`` adds rows at ``level =
+        "location_by_value"``, ``"loss"`` at ``level = "location_by_loss"``:
+        the eight KPIs of every location (no ``premium``), with bootstrap
+        intervals when the config has a ``bootstrap`` section, and its
+        exceedance curves. The entity, problem and portfolio rows are the
+        same under every rule. The rule changes the evaluation only, never
+        what a design problem optimises. See
+        ``docs/methodology/payout-allocation.md``.
 
     Notes
     -----
@@ -796,10 +829,21 @@ class EvaluationConfig(_Model):
     hashes exactly as before MAR-117 and keeps its run ids; a config with
     another grid has a hash of its own, since the grid is part of the run's
     stored ``exceedance`` table.
+
+    ``allocation`` is left out the same way while it is ``"none"`` (the
+    MAR-131 pattern), so every config that does not set a rule dumps and
+    hashes exactly as before MAR-217, with no :data:`CONFIG_HASH_DOMAIN`
+    change. A config with a rule has a hash, and so a run id, of its own: the
+    location rows are part of the run's stored tables. Such a run is a cache
+    entry of its own, never a hit on the stored ``"none"`` run of the same
+    design, and the runner solves it again (deterministically: the same
+    design); the store holds each run's tables as written and never
+    re-evaluates a stored run in place.
     """
 
     beta: UnitOpen
     return_periods: tuple[ReturnPeriod, ...] = DEFAULT_RETURN_PERIODS
+    allocation: AllocationRule = "none"
 
     @field_validator("return_periods")
     @classmethod
@@ -817,13 +861,14 @@ class EvaluationConfig(_Model):
         return tuple(float(v) for v in value)
 
     @model_serializer(mode="wrap")
-    def _drop_default_return_periods(
-        self, handler: SerializerFunctionWrapHandler
-    ) -> Any:  # noqa: ANN401
-        """Leave ``return_periods`` out of every dump while it is the default."""
+    def _drop_defaults(self, handler: SerializerFunctionWrapHandler) -> Any:  # noqa: ANN401
+        """Leave ``return_periods`` and ``allocation`` out while at their defaults."""
         data = handler(self)
-        if self.return_periods == DEFAULT_RETURN_PERIODS and isinstance(data, dict):
-            data.pop("return_periods", None)
+        if isinstance(data, dict):
+            if self.return_periods == DEFAULT_RETURN_PERIODS:
+                data.pop("return_periods", None)
+            if self.allocation == "none":
+                data.pop("allocation", None)
         return data
 
 
@@ -1423,7 +1468,8 @@ def to_dict(config: ExperimentConfig) -> dict[str, Any]:
     Every field is written, defaults included, so the output is complete,
     except the opt-in fields left out at their default: an absent
     ``bootstrap`` (:data:`OMITTED_WHEN_ABSENT`), a False ``cap_n_clusters``,
-    the default ``evaluation.return_periods`` and a ``"first_bin"``
+    a True cluster ``joint``, the default ``evaluation.return_periods``, a ``"none"``
+    ``evaluation.allocation`` and a ``"first_bin"``
     ``payout.below_attachment``.
     Paths are written as POSIX strings.
     """
@@ -1564,7 +1610,9 @@ def config_hash(config: ExperimentConfig) -> str:
 
     Any change to the canonical form or the exclusions changes
     :data:`CONFIG_HASH_DOMAIN`. (Omitting an absent ``bootstrap``, a False
-    ``cap_n_clusters``, a default ``evaluation.return_periods`` or a
+    ``cap_n_clusters``, a True cluster ``joint`` (MAR-180), a default
+    ``evaluation.return_periods``, a ``"none"`` ``evaluation.allocation``
+    (MAR-217) or a
     ``"first_bin"`` ``payout.below_attachment`` did not:
     the canonical JSON of every config that existed before them is
     unchanged.) Adding a schema field with a default that is hashed changes

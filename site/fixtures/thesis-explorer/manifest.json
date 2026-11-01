@@ -1,7 +1,7 @@
 {
   "format": "parametric-insurance-design/site-bundle",
   "format_version": 1,
-  "label": "thesis-fixture data: a reduced thesis experiment (site/fixtures/thesis_explorer.yaml: location A1 only, individual scope, weighted CVaR, alpha and beta sweeps) on the thesis parity event set, in-sample, event-conditional basis. A placeholder for the site's explorer check, not a result to publish.",
+  "label": "thesis-fixture data: a reduced thesis experiment (site/fixtures/thesis_explorer.yaml: location A1 only, individual scope, weighted CVaR, alpha and beta sweeps) on the thesis parity event set, in-sample, event-conditional basis. A test fixture of the site bundle export with sweeps, not a result to publish.",
   "config": {
     "name": "thesis-explorer",
     "description": "Reduced thesis experiment for the site's explorer check (MAR-201) - location A1 only, individual scope, weighted CVaR, alpha and beta sweeps - on the thesis parity event set.",
@@ -214,7 +214,7 @@
   "budget": {
     "max_file_bytes": 2000000,
     "max_bundle_bytes": 10000000,
-    "bundle_bytes": 183321
+    "bundle_bytes": 183769
   },
   "files": [
     {
@@ -535,8 +535,8 @@
       "slice": "map",
       "group": "baseline",
       "parameter": null,
-      "bytes": 5586,
-      "sha256": "sha256:a3f69f723c9401a20cb24981b5bd792e3ce5e46aa192c390204f1287ca425aeb",
+      "bytes": 6034,
+      "sha256": "sha256:a08002ba27832c6708314c8f20c33d62154ffde284659031c2cb177d75e3a6c6",
       "rows": 1,
       "columns": [
         {
@@ -603,25 +603,31 @@
           "name": "kpi_level",
           "type": "dictionary<int8, utf8>",
           "nulls": 0,
-          "null_means": "not available per location: the location's entity covers several locations (see the entity's rows in kpis)"
+          "null_means": "not available per location: the run is a joint design (cluster or portfolio scope) without per-location rows under an allocation rule, and the solver's split of its payout across locations is not shown (see the manifest's map section)"
+        },
+        {
+          "name": "allocation",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": "not available per location: the run is a joint design (cluster or portfolio scope) without per-location rows under an allocation rule, and the solver's split of its payout across locations is not shown (see the manifest's map section)"
         },
         {
           "name": "expected_loss",
           "type": "double",
           "nulls": 0,
-          "null_means": "not available per location: the location's entity covers several locations (see the entity's rows in kpis)"
+          "null_means": "not available per location: the run is a joint design (cluster or portfolio scope) without per-location rows under an allocation rule, and the solver's split of its payout across locations is not shown (see the manifest's map section)"
         },
         {
           "name": "expected_payout",
           "type": "double",
           "nulls": 0,
-          "null_means": "not available per location: the location's entity covers several locations (see the entity's rows in kpis)"
+          "null_means": "not available per location: the run is a joint design (cluster or portfolio scope) without per-location rows under an allocation rule, and the solver's split of its payout across locations is not shown (see the manifest's map section)"
         },
         {
           "name": "expected_uncovered",
           "type": "double",
           "nulls": 0,
-          "null_means": "not available per location: the location's entity covers several locations (see the entity's rows in kpis)"
+          "null_means": "not available per location: the run is a joint design (cluster or portfolio scope) without per-location rows under an allocation rule, and the solver's split of its payout across locations is not shown (see the manifest's map section)"
         }
       ]
     },
@@ -1250,6 +1256,12 @@
       ]
     }
   ],
+  "split_filter": {
+    "eval_split": null,
+    "slices": [],
+    "rows_removed": {},
+    "rule": "No split filter: the kpis, exceedance and map slices hold the rows of every evaluation split the runs stored (their eval_split column)."
+  },
   "rules": {
     "infinity": "Strict JSON has no infinities: an infinite value is written as null, in JSON and in Arrow alike, only in the columns whose manifest entry has null_means '-inf' (payouts.lower: the zero row of a below_attachment 'zero' run, param_index -1, covers the index range below the attachment). Any other infinite value is refused at export.",
     "nan": "NaN is never written. In a column whose store schema allows undefined values it is written as null, and the column's manifest entry gives its null count and what null means there; in any other column it is refused at export. A column has at most one meaning of null.",
@@ -1257,5 +1269,18 @@
     "arrow": "Tables are Arrow IPC files (.arrow), uncompressed, one record batch: Quarto OJS reads them with FileAttachment(path).arrow().",
     "budget": "Every file, the manifest included, fits max_file_bytes, and the data files together fit max_bundle_bytes (both in bytes). Over budget is an error at export, never a truncation.",
     "checksums": "Every data file is listed under files with its size in bytes and the SHA-256 of its bytes; the manifest itself is not."
+  },
+  "map": {
+    "rule": "Per run, evaluation and location: the location's expected loss, payout and uncovered loss. They come from the run's per-location KPI rows under an allocation rule, which splits each design problem's payout across its locations (kpi_level 'location_by_value', allocation 'value': pro rata to insured value; kpi_level 'location_by_loss', allocation 'loss': pro rata to loss; evaluate, MAR-100). Without them, a run of the individual scope takes each location's entity rows (kpi_level 'entity', allocation 'none': one location per design problem, so the payout is the location's own). A joint design (cluster or portfolio scope) without them has no per-location numbers (null): its entity rows are one of several optimal splits of the design problem's payout, the one the solver returned, and are never shown as per-location cover. runs gives the source of each run's numbers, allocations the rules in the bundle.",
+    "allocations": [],
+    "runs": [
+      {
+        "run_id": "sha256:74c5fbf1cf3d00f0cd6c57c5983b2b1baa6c592f732116d9816947f4ff743e11",
+        "scope_key": "individual",
+        "objective": "weighted_cvar",
+        "kpi_level": "entity",
+        "allocation": "none"
+      }
+    ]
   }
 }

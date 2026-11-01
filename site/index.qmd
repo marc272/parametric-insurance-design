@@ -12,7 +12,7 @@ Designing a cover means choosing that function. This site presents the two ideas
 ::: {.callout-note}
 ## The site is being built
 
-The explorers and the posts are coming. Until then, the one explorer is a placeholder on thesis-fixture data and shows no results.
+The [payout and exceedance explorer](explorers/alpha-beta.qmd) is live. The other explorers and the posts are coming.
 :::
 
 ## The tail-risk objective {#tail}
@@ -30,7 +30,7 @@ a mix of the mean uncovered loss and its mean over the worst 1 − β of the out
 Whether a tail-optimised design leaves less uncovered loss in the bad years than an E[U] or a mean-squared-error (MSE) design depends on the setup: the portfolio, the basis, the basis-risk model and the pricing, and the years it is tested on. This project measures it on years the design wasn't calibrated on, and states that setup for every number it shows.
 
 - **Method:** [the tail-risk objective](method/tail-risk-objective.qmd)
-- **Explorer:** the payout explorer for α and β is coming. A [placeholder of it](explorers/alpha-beta.qmd) runs on thesis-fixture data and shows no results.
+- **Explorer:** the [payout and exceedance explorer](explorers/alpha-beta.qmd): move α, β, the budget loading κ or the number of bins, and see the step payout of one site and its out-of-sample exceedance curves under the MSE, E[U] and weighted-CVaR objectives, with the setup stated under each chart.
 - **Post:** coming
 
 ## Portfolio (joint) calibration {#portfolio}
