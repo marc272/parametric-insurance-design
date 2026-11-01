@@ -505,6 +505,19 @@ class SplitData:
         return q[rows] * active
 
 
+def hessian_min_eig_rel(sd: SplitData, basis: np.ndarray) -> float:
+    """Smallest over largest eigenvalue of the MSE Hessian in theta.
+
+    ``A' diag(p) A`` with ``A`` the asset's basis matrix summed into the
+    split's outcomes. Positive: the MSE objective is strictly convex in the
+    payout parameters, so its optimum is unique.
+    """
+    a = sd.measure.aggregate(basis)
+    h = a.T @ (a * np.asarray(sd.measure.probability)[:, None])
+    eig = np.linalg.eigvalsh(h)
+    return float(eig[0] / eig[-1]) if eig[-1] > 0 else math.nan
+
+
 def split_data(
     prepared: EventSet, sample: Sample, cfg: ExperimentConfig, built: Sequence[Any]
 ) -> SplitData:
@@ -589,9 +602,16 @@ def linearised_maximum(
         The design reached (loss units), its KPI, the number of steps taken
         and ``"optimal"`` or the first failed LP's status.
     """
-    current = [np.asarray(t, dtype=np.float64) for t in start]
-    value = sd.value(current, kpi, beta)
     notes: set[str] = set()
+    current: list[np.ndarray] = []
+    for s, t in zip(sets, start, strict=True):
+        theta, note = s.admit(np.asarray(t, dtype=np.float64))
+        if note == "outside_set":
+            return list(start), -math.inf, 0, "start outside_set"
+        if note:
+            notes.add(f"start {note}")
+        current.append(theta)
+    value = sd.value(current, kpi, beta)
     for step in range(1, MAX_STEPS + 1):
         w = sd.weights(current, kpi, beta)
         nxt: list[np.ndarray] = []
@@ -752,6 +772,10 @@ def range_worker(group: Group, store_root: str | None) -> dict[str, Any]:
                 "status_max": st_hi,
                 "cap": float(s.ctx.cap[0] * s.scale),
                 "optimum_loss_units": default[i].objective_value,
+                # MSE: the objective is quadratic in theta with Hessian
+                # A' diag(p) A (A: the basis summed into outcomes); a smallest
+                # eigenvalue > 0 makes the optimum unique
+                "mse_hessian_min_eig_rel": hessian_min_eig_rel(tr, b),
             }
         )
 
