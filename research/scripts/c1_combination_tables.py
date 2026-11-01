@@ -187,7 +187,33 @@ def load(full: Path) -> dict[str, pd.DataFrame]:
         ],
         ignore_index=True,
     )
-    return {"grid": grid, "contrasts": _relative(con), "runs": runs}
+    # the compute phase concatenates groups in completion order: sort, so that
+    # a rerun writes byte-identical tables
+    variant = ["family", "eventset", "pricing", "kappa"]
+    grid = grid.sort_values(
+        [*variant, "split", "scope", "design", "kpi", "eval_beta"], kind="stable"
+    )
+    con = con.sort_values(
+        [
+            *variant,
+            "split",
+            "contrast",
+            "joint_scope",
+            "tail_design",
+            "base_design",
+            "kpi",
+            "eval_beta",
+        ],
+        kind="stable",
+    )
+    runs = runs.sort_values(
+        ["kind", *variant, "scope", "design", "fold"], kind="stable"
+    )
+    return {
+        "grid": grid.reset_index(drop=True),
+        "contrasts": _relative(con.reset_index(drop=True)),
+        "runs": runs.reset_index(drop=True),
+    }
 
 
 def write_slim(t: dict[str, pd.DataFrame], out: Path) -> dict[str, int]:
