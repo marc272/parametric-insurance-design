@@ -65,7 +65,7 @@ env:
   # Pinned Quarto CLI. site/_quarto.yml requires the same version
   # (quarto-required); change both together. The build fails early when they
   # differ (step "Check the Quarto pin", MAR-210).
-  QUARTO_VERSION: "1.10.19"
+  QUARTO_VERSION: "1.11.6"
   # The explorer bundle (MAR-208): its config, and where it goes in the site.
   EXPLORER_CONFIG: site/configs/explorer.yaml
   EXPLORER_BUNDLE: site/_site/bundles/explorer

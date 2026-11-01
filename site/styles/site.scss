@@ -16,12 +16,14 @@
 }
 
 // Observable Inputs: let labels wrap above the control on narrow screens.
+// Quarto's OJS runtime names the inputs' forms "oi-<hash>" (as its own
+// quarto-ojs.css does), not "inputs-<hash>" (MAR-210).
 @media (max-width: 575.98px) {
-  form[class^="inputs-"] {
+  form[class^="oi-"] {
     flex-wrap: wrap;
     --label-width: 100%;
   }
-  form[class^="inputs-"] > label {
+  form[class^="oi-"] > label {
     width: 100%;
     margin-bottom: 0.25rem;
   }
