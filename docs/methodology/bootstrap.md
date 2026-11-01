@@ -52,6 +52,7 @@ Duplicating an outcome c times and multiplying its probability by c give the sam
 - **Pairing.** Both designs must have been bootstrapped with the same `YearResample`, so each replicate compares them on the same resampled years. The function refuses different resamples.
 - **Width.** Two designs' KPIs move together across years, so the paired interval is much narrower than the two separate intervals suggest.
 - **Subjects.** Rows are paired on the `kpis` key without `run_id`, so both designs must describe the same subjects (the same scope).
+- **Per-location rows** (MAR-217). `bootstrap_kpis` takes `evaluate`'s `allocation` rule (`"none"` by default). Under `"value"` or `"loss"` its table has the per-location rows of `evaluate.kpis` (`location_by_value` or `location_by_loss`; [payout allocation](payout-allocation.md)), with intervals: a location's loss and allocated payout are fixed per row, so a replicate reweights them like any other subject, and the drift guard checks them too. `paired_difference` pairs them between two designs of the same scope under the same rule; a design bootstrapped under another rule, or none, has unpaired rows and is refused. `across_scopes=True` refuses them, like every row below the portfolio level.
 - **Storage.** Paired differences aren't stored in the result store. The `kpis` table has no place for them, and adding one is an ADR 0002 change. They're computed on demand from `KpiBootstrap` objects (see the research script below).
 
 ## Runs: the `bootstrap` config section
@@ -67,6 +68,7 @@ bootstrap:
 - **Part of the hash when set.** The intervals are part of the run's stored `kpis` table. A config with other bootstrap settings, or none, must therefore be another cache entry, or a cache hit would serve intervals that weren't asked for, or none at all. The price is that turning the bootstrap on re-solves the run. The solve itself doesn't depend on the bootstrap.
 - **Generators.** The runner gives each evaluation sample (train, test, full) a fresh generator `np.random.default_rng(seed)`. Two runs with the same seed and the same evaluation sample therefore draw the same years, so their stored intervals rest on the same resamples, and `paired_difference` can be recomputed exactly from the seed.
 - **Manifest.** The manifest's `bootstrap` entry records the settings, the time per sample and the KPIs whose bounds are null.
+- **Allocation rule.** The runner passes `evaluation.allocation` (MAR-217) to `bootstrap_kpis`, so the per-location rows of a run under a rule are stored with intervals.
 
 ## Figures
 
