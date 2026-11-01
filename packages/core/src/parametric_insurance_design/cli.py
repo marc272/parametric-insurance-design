@@ -42,6 +42,23 @@ Commands
     this command; if it is not installed, the command fails with
     :class:`VizNotInstalledError` (exit code 3). Accepts ``--policy``, ``-v``
     and ``-q``.
+``parametric-insurance-design export-site CONFIG [--out DIR]``
+    Export the config's site bundle (MAR-200) from its result store into
+    ``DIR`` (default ``<output.directory>/site``): JSON and uncompressed
+    Arrow IPC slices of the payout grids, KPIs, exceedance curves and map
+    data, with a manifest (format, config hash, run ids, the setup of every
+    number, each file's size and SHA-256, and the bundle rules). Like
+    ``figures`` it reads the EventSet to compute every ``run_id``, never
+    solves (a run missing from the store is an error) and needs the viz
+    package (:data:`EXPORT_MODULE`, imported lazily). It exports the sweeps
+    of alpha, beta, budget_loading and n_bins that the config has;
+    ``--parameter P`` (repeatable) exports only those, ``--no-sweeps`` none.
+    ``--events`` adds the event data under each entity (left out by
+    default). ``--max-file-bytes N`` and ``--max-bundle-bytes N`` set the
+    size budget (default 2 MB per file, 10 MB of data files); over budget
+    is an error (exit code 3) and nothing is written. ``--label TEXT`` says
+    what the data are. A run with a failed design problem is listed and
+    left out (exit code 1). Accepts ``--policy``, ``-v`` and ``-q``.
 
 Common options of ``run`` and ``sweep``:
 
@@ -75,13 +92,17 @@ Code  Meaning
       problem or was not evaluated. The failures are recorded in the store
       and listed in the summary. For ``figures``: a figure was skipped
       because a run it needs failed or, with ``--skip-missing-sweeps``,
-      because sweep points it needs are not in the store.
+      because sweep points it needs are not in the store. For
+      ``export-site``: a run was left out because it failed.
 2     Usage error (bad arguments).
 3     The library refused the input: an invalid config, an EventSet that
       cannot be read or does not match its checksum, or a result-store
       problem. Nothing is written for the run that raised. For ``figures``
       also: a run missing from the store (a sweep point too, unless
-      ``--skip-missing-sweeps``), or the viz package not installed.
+      ``--skip-missing-sweeps``), or the viz package not installed. For
+      ``export-site`` also: a run or sweep point missing from the store, a
+      bundle over its size budget, a value the bundle rules refuse, or an
+      output directory holding other files.
 4     Internal error (an unexpected exception, i.e. a bug). The traceback is
       logged.
 130   Interrupted (Ctrl-C).
@@ -101,7 +122,7 @@ from enum import IntEnum
 from importlib.metadata import version
 from pathlib import Path
 from types import ModuleType
-from typing import Final
+from typing import Any, Final
 
 from parametric_insurance_design.errors import (
     ConfigError,
@@ -142,6 +163,7 @@ from parametric_insurance_design.solve import (
 )
 
 __all__ = [
+    "EXPORT_MODULE",
     "POLICIES",
     "VIZ_DISTRIBUTION",
     "VIZ_MODULE",
@@ -172,6 +194,9 @@ VIZ_MODULE: Final[str] = "parametric_insurance_design_viz.command"
 """Module imported lazily by ``figures``; it provides ``write_figures``."""
 
 _VIZ_PACKAGE: Final[str] = VIZ_MODULE.split(".", maxsplit=1)[0]
+
+EXPORT_MODULE: Final[str] = "parametric_insurance_design_viz.site_export"
+"""Module imported lazily by ``export-site``; it provides ``export_site``."""
 
 
 class VizNotInstalledError(ParametricInsuranceDesignError, ImportError):
@@ -248,7 +273,7 @@ def build_parser() -> argparse.ArgumentParser:
     Returns
     -------
     argparse.ArgumentParser
-        With the subcommands ``run``, ``sweep`` and ``figures``.
+        With the subcommands ``run``, ``sweep``, ``figures`` and ``export-site``.
     """
     parser = argparse.ArgumentParser(
         prog=PROG,
@@ -358,7 +383,84 @@ def build_parser() -> argparse.ArgumentParser:
         "-q", "--quiet", action="store_true", help="log warnings and errors only"
     )
     figures.set_defaults(handler=_figures)
+    _add_export_site(commands)
     return parser
+
+
+def _add_export_site(commands: argparse._SubParsersAction[Any]) -> None:
+    """Add the ``export-site`` subcommand (MAR-200)."""
+    export = commands.add_parser(
+        "export-site",
+        help="export a config's site bundle from its result store",
+        description=(
+            "Export a config's site bundle (JSON and uncompressed Arrow IPC "
+            "slices with a manifest) from its result store (output.directory). "
+            f"Never solves: run the config first. Needs the {VIZ_DISTRIBUTION} "
+            "package."
+        ),
+    )
+    export.add_argument("config", type=Path, help="experiment config (YAML)")
+    export.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="bundle directory (default: <output.directory>/site)",
+    )
+    export.add_argument(
+        "--policy",
+        choices=tuple(POLICIES),
+        default="default",
+        help="solver policy the runs were computed with (default: %(default)s)",
+    )
+    sweeps = export.add_mutually_exclusive_group()
+    sweeps.add_argument(
+        "-p",
+        "--parameter",
+        action="append",
+        default=None,
+        metavar="P",
+        help=(
+            "export only the sweep of P (repeatable; one of alpha, beta, "
+            "budget_loading, n_bins); default: every one the config has"
+        ),
+    )
+    sweeps.add_argument(
+        "--no-sweeps", action="store_true", help="export the single runs only"
+    )
+    export.add_argument(
+        "--events",
+        action="store_true",
+        help="also export the event data under each entity (large; off by default)",
+    )
+    export.add_argument(
+        "--max-file-bytes",
+        type=_positive_int,
+        default=None,
+        metavar="N",
+        help="size budget per file in bytes (default: 2000000)",
+    )
+    export.add_argument(
+        "--max-bundle-bytes",
+        type=_positive_int,
+        default=None,
+        metavar="N",
+        help="size budget of the data files together in bytes (default: 10000000)",
+    )
+    export.add_argument(
+        "--label",
+        default=None,
+        metavar="TEXT",
+        help="what the data are, for the site (default: the config's description)",
+    )
+    verbosity = export.add_mutually_exclusive_group()
+    verbosity.add_argument(
+        "-v", "--verbose", action="store_true", help="log at DEBUG level"
+    )
+    verbosity.add_argument(
+        "-q", "--quiet", action="store_true", help="log warnings and errors only"
+    )
+    export.set_defaults(handler=_export_site)
 
 
 def _costs(text: str) -> tuple[float, ...]:
@@ -774,6 +876,90 @@ def _figures(config: ExperimentConfig, args: argparse.Namespace) -> ExitCode:
             else ""
         )
         + ")"
+    )
+    return ExitCode.OK if report.ok else ExitCode.RUNS_FAILED
+
+
+def _import_export() -> ModuleType:
+    """Import :data:`EXPORT_MODULE` lazily, as :func:`_import_viz` does.
+
+    Raises
+    ------
+    VizNotInstalledError
+        If the viz package, or one of its dependencies, cannot be imported.
+    """
+    try:
+        return importlib.import_module(EXPORT_MODULE)
+    except ModuleNotFoundError as exc:
+        missing = exc.name or ""
+        if missing == EXPORT_MODULE or EXPORT_MODULE.startswith(f"{missing}."):
+            raise VizNotInstalledError(
+                f"the export-site command needs the {VIZ_DISTRIBUTION} package, "
+                f"which is not installed; install it, e.g. 'pip install "
+                f"{VIZ_DISTRIBUTION}' (in this repository: 'uv sync')",
+                name=_VIZ_PACKAGE,
+            ) from exc
+        raise VizNotInstalledError(
+            f"the {VIZ_DISTRIBUTION} package cannot be imported: its "
+            f"dependency {missing!r} is missing; reinstall {VIZ_DISTRIBUTION}",
+            name=missing or None,
+        ) from exc
+
+
+def _export_site(config: ExperimentConfig, args: argparse.Namespace) -> ExitCode:
+    """``export-site``: write the config's site bundle from its result store."""
+    export = _import_export()
+    data = load_input(config)
+    policy = POLICIES[args.policy]
+    run_ids = [
+        run_key(config_hash(single), data.checksum, policy=policy)
+        for single in config.single_runs()
+    ]
+    out_dir: Path = (
+        args.out if args.out is not None else config.output.directory / "site"
+    )
+    parameters: list[str] | None = [] if args.no_sweeps else args.parameter
+    sweeps = (
+        []
+        if parameters == [] or config.sample.kind == KFOLD_SAMPLE
+        else _sweep_runs(export, config, data, policy)
+    )
+    budget_options: dict[str, int] = {}
+    if args.max_file_bytes is not None:
+        budget_options["max_file_bytes"] = args.max_file_bytes
+    if args.max_bundle_bytes is not None:
+        budget_options["max_bundle_bytes"] = args.max_bundle_bytes
+    report = export.export_site(
+        config,
+        run_ids,
+        store=ResultStore(config.output.directory),
+        out_dir=out_dir,
+        eventset=prepare_eventset(config, data.eventset),
+        sweeps=sweeps,
+        parameters=parameters,
+        include_events=args.events,
+        budget=export.SizeBudget(**budget_options),
+        label=args.label,
+    )
+    manifest = report.manifest
+    _out(
+        f"site bundle {config.name!r} from {config.output.directory} into "
+        f"{report.out_dir}:"
+    )
+    for file in report.files:
+        _out(f"  wrote   {file.path}  ({file.bytes:,} bytes)")
+    for name in report.removed:
+        _out(f"  removed {name}  (from the previous bundle)")
+    for skipped in report.skipped:
+        _out(f"  FAILED  {_short(skipped.run_id)}: {skipped.reason}")
+    if manifest["sweeps_not_exported"]:
+        _out(f"  sweeps not exported: {', '.join(manifest['sweeps_not_exported'])}")
+    budget = manifest["budget"]
+    _out(
+        f"{len(report.files)} files, {report.bundle_bytes:,} bytes "
+        f"(budget {budget['max_bundle_bytes']:,}; per file "
+        f"{budget['max_file_bytes']:,}), {len(report.skipped)} runs left out "
+        "because they failed"
     )
     return ExitCode.OK if report.ok else ExitCode.RUNS_FAILED
 
