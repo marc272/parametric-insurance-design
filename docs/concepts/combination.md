@@ -119,7 +119,7 @@ Each view answers a different question. Which one fits depends on who holds the 
 | Many sites, one owner, a tail mandate | How to spend one budget across the sites so that the total shortfall is small in the owner's bad years? | The combination | `pid.Portfolio()` with `pid.WeightedCVaR(alpha, beta)` |
 | Many sites, separate owners | How to cover each owner? | One single-site case per owner: no cross-coverage | `pid.Individual()`, with either kind of objective |
 
-- With one site, the individual and portfolio scopes are the same problem: one design problem with one entity. With one site and an average-fit mandate, neither idea is involved: `pid.Individual()` with `pid.ExpectedUncovered()` or `pid.MSE()`.
+- With one site, the individual and portfolio scopes build the same problem, one design problem with one entity; only its `problem_id` differs. With one site and an average-fit mandate, neither idea is involved: `pid.Individual()` with `pid.ExpectedUncovered()` or `pid.MSE()`.
 - The joint views need a single owner of all the losses and all the payouts ([the use case](portfolio-calibration.md#the-use-case-one-risk-owner)). A payout triggered at one asset helps another asset only if both belong to the same party.
 - A tail mandate also sets a level. β sets the tail, the worst $1-\beta$ of the outcomes, and what an outcome is depends on the basis ([β per basis](tail-risk-objective.md#the-objective)); α sets how much of the objective is on the tail.
 
