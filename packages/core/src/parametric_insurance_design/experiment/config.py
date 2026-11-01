@@ -585,14 +585,20 @@ class ClusterScopeConfig(_Model):
         behaviour: such a subset fails to build (``InputMismatchError``), as
         the thesis did. The scope itself never caps: a run whose own config
         asks for more clusters than it has locations fails.
+    joint : bool, default True
+        Calibrate the clusters jointly, in one design problem (True, the
+        thesis), or each cluster on its own, with its own budget (False,
+        MAR-180); see :class:`~parametric_insurance_design.scopes.Cluster`.
 
     Notes
     -----
     ``cap_n_clusters`` is left out of :func:`to_dict`, :func:`dump_config`
-    and :func:`canonical_json` when it is False, its default. A config that
-    does not set it therefore dumps and hashes exactly as before MAR-131 (the
-    parity config and its config hashes are unchanged); a config that sets
-    it to True has a hash of its own.
+    and :func:`canonical_json` when it is False, its default, and ``joint``
+    when it is True, its default, whether unset or written out. A config
+    that sets neither therefore dumps and hashes exactly as before MAR-131
+    and MAR-180 (the parity config and its config hashes are unchanged); a
+    config that sets ``cap_n_clusters: true`` or ``joint: false`` has a
+    hash of its own.
     """
 
     kind: Literal["cluster"]
@@ -600,13 +606,17 @@ class ClusterScopeConfig(_Model):
     strategy: ThesisWardConfig
     index: IndexKind | None = None
     cap_n_clusters: Annotated[bool, Field(strict=True)] = False
+    joint: Annotated[bool, Field(strict=True)] = True
 
     @model_serializer(mode="wrap")
-    def _drop_default_cap(self, handler: SerializerFunctionWrapHandler) -> Any:  # noqa: ANN401
-        """Leave ``cap_n_clusters`` out of every dump while it is False."""
+    def _drop_defaults(self, handler: SerializerFunctionWrapHandler) -> Any:  # noqa: ANN401
+        """Leave a False ``cap_n_clusters`` and a True ``joint`` out of every dump."""
         data = handler(self)
-        if not self.cap_n_clusters and isinstance(data, dict):
-            data.pop("cap_n_clusters", None)
+        if isinstance(data, dict):
+            if not self.cap_n_clusters:
+                data.pop("cap_n_clusters", None)
+            if self.joint:
+                data.pop("joint", None)
         return data
 
     def effective_n_clusters(self, n_locations: int) -> int:
@@ -647,6 +657,7 @@ class ClusterScopeConfig(_Model):
             strategy=self.strategy.build(),
             n_clusters=self.n_clusters,
             index=_entity_index(self.index, ValueWeightedIndex),
+            joint=self.joint,
         )
 
 
@@ -1457,7 +1468,7 @@ def to_dict(config: ExperimentConfig) -> dict[str, Any]:
     Every field is written, defaults included, so the output is complete,
     except the opt-in fields left out at their default: an absent
     ``bootstrap`` (:data:`OMITTED_WHEN_ABSENT`), a False ``cap_n_clusters``,
-    the default ``evaluation.return_periods``, a ``"none"``
+    a True cluster ``joint``, the default ``evaluation.return_periods``, a ``"none"``
     ``evaluation.allocation`` and a ``"first_bin"``
     ``payout.below_attachment``.
     Paths are written as POSIX strings.
@@ -1599,7 +1610,7 @@ def config_hash(config: ExperimentConfig) -> str:
 
     Any change to the canonical form or the exclusions changes
     :data:`CONFIG_HASH_DOMAIN`. (Omitting an absent ``bootstrap``, a False
-    ``cap_n_clusters``, a default ``evaluation.return_periods``, a
+    ``cap_n_clusters``, a True cluster ``joint`` (MAR-180), a default ``evaluation.return_periods``, a
     ``"none"`` ``evaluation.allocation`` (MAR-217) or a
     ``"first_bin"`` ``payout.below_attachment`` did not:
     the canonical JSON of every config that existed before them is
