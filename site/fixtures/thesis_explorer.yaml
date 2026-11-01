@@ -1,0 +1,67 @@
+# Reduced thesis-fixture config for the site's explorer check (MAR-201).
+#
+# The thesis experiment (parity/configs/thesis.yaml) cut down to what the
+# placeholder alpha/beta explorer page needs: one location of the thesis
+# portfolio (A1, Brickell_HighRise, the largest insured value), one scope
+# (individual), one objective (weighted CVaR) and its alpha and beta sweeps.
+# Everything else (event set, noise layer, threshold, basis, sample, payout,
+# pricing, budget, evaluation) is the thesis setup, unchanged. One location
+# keeps the bundle near 150 kB; all nine would be about 820 kB.
+#
+# Thesis-fixture data: in-sample (sample: full), on the event-conditional
+# basis. It does not meet the publication rule's out-of-sample, annual-basis
+# requirement (AGENTS.md), so no number from it is a result to publish.
+#
+# Regenerate the bundle site/fixtures/thesis-explorer/ with the commands in
+# site/fixtures/README.md. Relative paths are relative to this file's
+# directory.
+schema_version: 1
+name: thesis-explorer
+description: Reduced thesis experiment for the site's explorer check (MAR-201)
+  - location A1 only, individual scope, weighted CVaR, alpha and beta sweeps -
+  on the thesis parity event set.
+eventset:
+  path: ../../parity/tests/data/thesis_eventset
+  checksum: sha256:404b0c3a3aefa38965ad3ace2747d308685a67e3b218cb835d45a9ab375294df
+portfolio:
+  location_ids: [A1]
+noise:
+  kind: heteroscedastic
+  level: 0.3
+  n_copies: 13
+  seed: 42
+  bounds: [20.0, 70.0]
+threshold:
+  value: 20.0
+  column: index
+basis: event_conditional
+sample:
+  kind: full
+payout:
+  kind: step
+  attachment: 20.0
+  limit: 70.0
+  n_bins: 15
+  breakpoints: null
+scopes:
+- kind: individual
+  index: null
+objectives:
+- kind: weighted_cvar
+  alpha: 0.9
+  beta: 0.95
+pricing:
+  kind: pure
+constraints:
+- kind: budget
+  loading: 1.0
+evaluation:
+  beta: 0.95
+  return_periods: [2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0]
+sweeps:
+- parameter: alpha
+  values: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+- parameter: beta
+  values: [0.9, 0.91, 0.92, 0.93, 0.94, 0.95, 0.96, 0.97, 0.98, 0.99]
+output:
+  directory: ../../results/site-fixtures/thesis-explorer

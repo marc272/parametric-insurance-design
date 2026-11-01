@@ -4,6 +4,7 @@
 - Decision this implements: D7 (SPEC §11, MAR-62): STORM, present climate, version 4, North Atlantic, as the second catalogue of uncertainty source (i) (SPEC §6.5). The portfolio is D2's (Florida's 67 counties, per-cell loss, MAR-114).
 - Status: **partial.** The STORM loader, the track-source selection in the pipeline, the configs, the comparison script and the IRIS reference build are done. The STORM files could not be downloaded, so the STORM EventSet, its size estimate and the comparison figure are not built yet. Observations only.
 - Files: `research/data/p06-storm-eventset/` (checksums of the IRIS reference build and its `metadata.json`).
+- **Update 2026-11-01: the scenario is dropped.** D7 was revisited on 2026-10-31 (MAR-62): STORM is unavailable, so SPEC §6.5 (i) is "none", and the STORM half below will not be built. The loader, the `tracks:` selection, the equivalence test and the comparison script stay (MAR-62). The two STORM configs and the two tests that only loaded them were removed in MAR-185 (ADR 0004 Q5, option 5b); see "Configs" below for their SHA256s and the last commit that has them.
 
 ## Why the STORM build is missing
 
@@ -41,13 +42,26 @@ What is known about the files, from archived copies of the README and of the sta
 
 A test checks that the STORM config differs from the IRIS reference only in `catalogue`, `tracks`, `hazard_release`, `scenario_id`, `scenario_notes` and `output`, and that the no-draws reference differs from MAR-114's config only in `vulnerability` and `output`. No draws build: the vulnerability prior is open (MAR-118 Q1). `scenario_id` is `storm-present-climate`, after IRIS's `iris-present-climate`. Licence: `CC-BY-4.0`, the stricter of STORM's CC0 1.0 and LitPop's CC BY 4.0.
 
+**Removed in MAR-185.** The two STORM configs and the tests that loaded them (`test_storm_configs_load`, `test_storm_config_differs_from_the_iris_reference_only_in_the_hazard`) were deleted; the no-draws test stays. The deleted files, as recorded in `research/data/p06-storm-eventset/checksums.json`:
+
+| Config (`packages/climada/configs/…`, deleted) | SHA256 |
+|---|---|
+| `florida_counties_storm.yaml` | `2d24aa0970ad4df20dbde50154ee682311d2322901da1ee27aca42a784731884` |
+| `florida_counties_storm_cat_in_circle.yaml` | `962516fee4a259660ba0fc3638a61c353314f753ec6610c7a7cb70fc34299cd3` |
+
+They were added in `34bbb23` (this issue's PR #71) and are unchanged up to `603601c`, the last `main` commit that has them. Reviving STORM means writing one config: `florida_counties_no_draws.yaml` plus a `tracks: {kind: storm, basin: NA}` block, with `catalogue`, `hazard_release`, `scenario_id`, `scenario_notes` and `output` for STORM.
+
+The same change rewrote the header comment of `florida_counties_no_draws.yaml`, which named the deleted STORM config. Its SHA256 went from `750480a23ddf035fc3f3f3a33711e0157c9d0d266de02d22000a5fd0e69f8e60` (recorded in `checksums.json`) to `049a6525e0c2eb689b0251c708da0d40429287d089c1f9eac53c3bc7fd3d1527`. Only comments changed; the parsed config is identical, so S_0 and its content hash below don't change.
+
 **Comparison script.** `scripts/compare_hazard_return_levels.py` reads two EventSets with the same locations and writes `return_levels.csv` (per county and for the portfolio: 10-, 50-, 100- and 250-year annual loss and annual maximum index, reference, scenario, ratio), `summary.json` (both content hashes, counts of counties above, equal and below, median ratios) and a three-panel figure. The return level at `T` years is the empirical quantile at 1 − 1/T (numpy `method="higher"`): the 1,000th, 200th, 100th and 40th largest of 10,000 years. It raises unless every rate is `1 / (n_years × n_draws)`.
 
 ## IRIS reference S_0 (built)
 
 `configs/florida_counties_no_draws.yaml` on IRIS: content hash `sha256:07eb5c9a808af45f7d05932b5d78f0cc9b1142f37aef8c9749138dc8c1f379e5`, 13,902 rows × 67 counties (8,977 rows with zero loss everywhere), expected annual loss 7.616 × 10⁹ USD (MAR-114 measured the same without draws). Pipeline runtime 487.9 s, wall 494.3 s, peak RSS 1.57 GB. Details in `research/data/p06-storm-eventset/`.
 
-## What the STORM half needs (next PR)
+## What the STORM half needed (not pursued: D7 revisited)
+
+Kept as the plan for the case STORM becomes reachable again. Step 4's configs no longer exist and would be written anew (see "Configs").
 
 1. Reach `data.4tu.nl`; read the live landing page's licence; take the file list, sizes and MD5s from its API.
 2. A download module and manifest in the pattern of `iris.py` / `iris_manifest.json` (archive and the ten NA members, size, MD5 and SHA256), a pixi task, and the `hazard.release` taken from the manifest when the files match it.

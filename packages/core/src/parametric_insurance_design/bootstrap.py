@@ -96,6 +96,7 @@ __all__ = [
     "DEFAULT_LEVEL",
     "DEFAULT_N_BOOTSTRAP",
     "PAIR_KEY",
+    "PORTFOLIO_PAIR_KEY",
     "BootstrapError",
     "KpiBootstrap",
     "YearResample",
@@ -125,6 +126,16 @@ PAIR_KEY: Final[tuple[str, ...]] = (
 )
 """Columns that pair a KPI row of one design with the row of another in
 :func:`paired_difference`: the ``kpis`` key without ``run_id``."""
+
+PORTFOLIO_PAIR_KEY: Final[tuple[str, ...]] = tuple(
+    column for column in PAIR_KEY if column != "problem_id"
+)
+"""Columns that pair two designs' portfolio-level KPI rows across scopes in
+``paired_difference(..., across_scopes=True)`` (MAR-179): :data:`PAIR_KEY`
+without ``problem_id``. A portfolio row's ``problem_id`` depends on the
+scope, not on the subject: ``records.ALL_PROBLEMS`` (``"*"``) for a run with
+several design problems (individual, cluster), the problem's own id for a run
+with one (``"portfolio"`` for the portfolio scope)."""
 
 _CHUNK_CELLS: Final[int] = 2_000_000
 """Replicates are processed in chunks of about this many (replicate, outcome)
@@ -706,6 +717,29 @@ class KpiBootstrap:
         out["n_undefined"] = counts[keep].astype(np.int64)
         return out
 
+    def portfolio_rows(self) -> KpiBootstrap:
+        """Keep the portfolio-level rows only, with their replicates.
+
+        The input of ``paired_difference(..., across_scopes=True)``, which
+        refuses location-, entity- and problem-level rows (MAR-179). The
+        kept rows, their replicates, the resample and the level are
+        unchanged; the other levels' rows are left out.
+
+        Returns
+        -------
+        KpiBootstrap
+            ``table`` restricted to ``level == "portfolio"`` (index reset),
+            ``replicates`` restricted to the same rows, the same
+            ``resample`` and ``level``.
+        """
+        mask = (self.table["level"].astype(str) == KpiLevel.PORTFOLIO.value).to_numpy()
+        return KpiBootstrap(
+            table=self.table.loc[mask].reset_index(drop=True),
+            replicates=self.replicates[mask],
+            resample=self.resample,
+            level=self.level,
+        )
+
 
 def _replicate_premiums(
     reweighting: _Reweighting,
@@ -977,7 +1011,11 @@ def _check_point(key: tuple[str, str, str, str], ours: float, theirs: float) -> 
 
 
 def paired_difference(
-    a: KpiBootstrap, b: KpiBootstrap, *, level: float | None = None
+    a: KpiBootstrap,
+    b: KpiBootstrap,
+    *,
+    level: float | None = None,
+    across_scopes: bool = False,
 ) -> pd.DataFrame:
     """Paired bootstrap interval of ``KPI(a) - KPI(b)`` for every KPI.
 
@@ -993,9 +1031,26 @@ def paired_difference(
         The two designs on the same sample, e.g. weighted CVaR (``a``) and
         MSE (``b``) of one scope. Their KPI rows are paired on
         :data:`PAIR_KEY`, so they must describe the same subjects (the same
-        scope and portfolio).
+        scope and portfolio). With ``across_scopes=True``: the
+        portfolio-level rows of two designs of possibly different scopes on
+        the same portfolio, e.g. ``a.portfolio_rows()`` and
+        ``b.portfolio_rows()``.
     level : float, optional
         Confidence level; default ``a.level``.
+    across_scopes : bool, default False
+        Pair two designs' **portfolio-level** rows across scopes, e.g. a
+        joint (portfolio or cluster scope) design against the individual
+        one (MAR-179). Rows are paired on :data:`PORTFOLIO_PAIR_KEY` (the
+        KPI, its beta and the subject, with split, fold and basis), and
+        ``problem_id`` is ignored: it is ``"*"`` for a run with several
+        design problems and the problem's id for a run with one. Every row
+        of both tables must be at the portfolio level: location-, entity-
+        and problem-level rows are refused, because they aren't comparable
+        across scopes and the per-entity values of a joint design aren't
+        unique (MAR-100). Select the portfolio rows with
+        :meth:`KpiBootstrap.portfolio_rows`. The same-resample check applies
+        as without the option, and the values, replicates and intervals are
+        computed the same way.
 
     Returns
     -------
@@ -1004,13 +1059,26 @@ def paired_difference(
         ``value_a``, ``value_b``, ``difference = value_a - value_b``,
         ``ci_low``, ``ci_high`` (percentile interval of the replicate
         differences; null if any replicate is undefined), ``ci_level`` and
-        ``n_bootstrap``. Sorted by the key.
+        ``n_bootstrap``. Sorted by the key. With ``across_scopes=True``,
+        ``problem_id`` is replaced by ``problem_id_a`` and ``problem_id_b``
+        (each design's own), followed by :data:`PORTFOLIO_PAIR_KEY`, and the
+        rows are sorted by :data:`PORTFOLIO_PAIR_KEY`.
 
     Raises
     ------
     BootstrapError
         If the resamples differ, a KPI row has no partner, or ``level`` is
-        not in ``(0, 1)``.
+        not in ``(0, 1)``; with ``across_scopes=True``, also if a table has a
+        row that is not at the portfolio level, or no rows.
+
+    Examples
+    --------
+    A joint design against the individual one, bootstrapped on the same
+    resample::
+
+        diff = paired_difference(
+            joint.portfolio_rows(), individual.portfolio_rows(), across_scopes=True
+        )
     """
     ci_level = a.level if level is None else _check_level(level)
     if not a.resample.same_as(b.resample):
@@ -1018,10 +1086,17 @@ def paired_difference(
             "the two designs were bootstrapped with different resamples; "
             "pass the same YearResample to both bootstrap_kpis calls"
         )
-    key: list[str] = list(PAIR_KEY)
-    left = a.table[[*key, "run_id", "value"]].copy()
+    if across_scopes:
+        _check_portfolio_only(a, "a")
+        _check_portfolio_only(b, "b")
+        key: list[str] = list(PORTFOLIO_PAIR_KEY)
+        carried = ["problem_id"]
+    else:
+        key = list(PAIR_KEY)
+        carried = []
+    left = a.table[[*key, *carried, "run_id", "value"]].copy()
     left["_ia"] = np.arange(len(left))
-    right = b.table[[*key, "run_id", "value"]].copy()
+    right = b.table[[*key, *carried, "run_id", "value"]].copy()
     right["_ib"] = np.arange(len(right))
     merged = left.merge(
         right,
@@ -1038,13 +1113,15 @@ def paired_difference(
         raise BootstrapError(
             f"{len(unpaired)} KPI rows have no partner; e.g. kpi {row['kpi']!r} "
             f"of subject {row['subject_id']!r} ({row['level']}) only in design "
-            f"{side}. Compare designs with the same subjects (same scope)"
+            f"{side}. Compare designs with the same subjects "
+            + ("(same portfolio, split and basis)" if across_scopes else "(same scope)")
         )
     ia = merged["_ia"].to_numpy(dtype=np.int64)
     ib = merged["_ib"].to_numpy(dtype=np.int64)
     diff = a.replicates[ia] - b.replicates[ib]
     bounds = np.array([percentile_interval(d, ci_level) for d in diff]).reshape(-1, 2)
-    out = pd.DataFrame(merged.loc[:, key])
+    lead = [f"{c}{s}" for c in carried for s in ("_a", "_b")]
+    out = pd.DataFrame(merged.loc[:, [*lead, *key]])
     out["run_id_a"] = merged["run_id_a"].to_numpy()
     out["run_id_b"] = merged["run_id_b"].to_numpy()
     out["value_a"] = merged["value_a"].to_numpy(dtype=np.float64)
@@ -1055,3 +1132,21 @@ def paired_difference(
     out["ci_level"] = ci_level
     out["n_bootstrap"] = a.resample.n_bootstrap
     return out.sort_values(key, kind="stable").reset_index(drop=True)
+
+
+def _check_portfolio_only(boot: KpiBootstrap, side: str) -> None:
+    """Raise unless ``boot`` has rows and every one is at the portfolio level."""
+    levels = boot.table["level"].astype(str)
+    other = (levels != KpiLevel.PORTFOLIO.value).to_numpy()
+    if other.any():
+        found = sorted(set(levels[other]))
+        raise BootstrapError(
+            f"across_scopes pairs portfolio-level rows only; design {side} has "
+            f"{int(other.sum())} rows at level {', '.join(found)}, which aren't "
+            "comparable across scopes (a joint design's per-entity values "
+            "aren't unique, MAR-100). Pass KpiBootstrap.portfolio_rows()"
+        )
+    if levels.empty:
+        raise BootstrapError(
+            f"across_scopes: design {side} has no portfolio-level KPI rows"
+        )

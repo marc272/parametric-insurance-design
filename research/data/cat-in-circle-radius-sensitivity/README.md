@@ -4,29 +4,29 @@ Index (b) of the D2 Florida-counties EventSet, the cat-in-a-circle Saffir-Simpso
 
 **Licence: CC-BY-4.0.** Attribution: asset values from the CLIMADA data API, dataset `LitPop_150arcsec_USA` v3 (CC BY 4.0, Eberenz et al. 2020, doi:10.5194/essd-12-817-2020); county boundaries: U.S. Census Bureau, 2025 TIGER/Line Shapefiles; hazard: IRIS (Sparks and Toumi 2024, doi:10.1038/s41597-024-03250-y).
 
-The EventSets are **not committed**; they are rebuilt into the ignored `data/eventsets/` and the files here are regenerated from them:
+The configs are in `research/configs/climada/` (moved byte-identical from `packages/climada/configs/` in MAR-185, so the SHA256s below still hold). The EventSets are **not committed**; they are rebuilt into the ignored `data/eventsets/` and the files here are regenerated from them:
 
 ```sh
 cd packages/climada
 for r in 50 75 100 150; do
-  pixi run --locked build-eventset --config configs/florida_counties_cat_in_circle_${r}km_no_draws.yaml
+  pixi run --locked build-eventset --config ../../research/configs/climada/florida_counties_cat_in_circle_${r}km_no_draws.yaml
 done
 pixi run --locked python scripts/cat_in_circle_radius_sensitivity.py \
     --eventset ../../data/eventsets/florida-counties-iris-cat-in-circle-50km \
     --eventset ../../data/eventsets/florida-counties-iris-cat-in-circle-75km \
     --eventset ../../data/eventsets/florida-counties-iris-cat-in-circle-100km \
     --eventset ../../data/eventsets/florida-counties-iris-cat-in-circle-150km \
-    --config configs/florida_counties_cat_in_circle_50km_no_draws.yaml \
-    --config configs/florida_counties_cat_in_circle_75km_no_draws.yaml \
-    --config configs/florida_counties_cat_in_circle_100km_no_draws.yaml \
-    --config configs/florida_counties_cat_in_circle_150km_no_draws.yaml \
+    --config ../../research/configs/climada/florida_counties_cat_in_circle_50km_no_draws.yaml \
+    --config ../../research/configs/climada/florida_counties_cat_in_circle_75km_no_draws.yaml \
+    --config ../../research/configs/climada/florida_counties_cat_in_circle_100km_no_draws.yaml \
+    --config ../../research/configs/climada/florida_counties_cat_in_circle_150km_no_draws.yaml \
     --provisional ../../data/eventsets/florida-counties-iris-cat-in-circle-50km-vulnerability \
     --out-dir ../../research/data/cat-in-circle-radius-sensitivity
 ```
 
-The `--provisional` EventSet is the MAR-132 build of `configs/florida_counties_cat_in_circle.yaml` (50 km, 10 draws from the 17-event basin-filtered prior, content hash `sha256:c7d6b765…2dfa67f`); it is in the CSVs with `provisional = True` and is not in the figure, because the prior's default is an open question (MAR-118).
+The `--provisional` EventSet is the MAR-132 build of `configs/florida_counties_cat_in_circle.yaml` as it was then (50 km; the config is at 75 km since MAR-145; 10 draws from the 17-event basin-filtered prior, content hash `sha256:c7d6b765…2dfa67f`); it is in the CSVs with `provisional = True` and is not in the figure, because the prior's default is an open question (MAR-118).
 
-| EventSet (`data/eventsets/…`) | Config (`packages/climada/configs/…`, SHA256) | Content hash | Index-table hash |
+| EventSet (`data/eventsets/…`) | Config (`research/configs/climada/…`, SHA256) | Content hash | Index-table hash |
 |---|---|---|---|
 | `florida-counties-iris-cat-in-circle-50km` | `florida_counties_cat_in_circle_50km_no_draws.yaml` (`374a0e3c78da774a2f67739d53751a43e7d1455765ef0a11fbe15b38ff6d25c1`) | `sha256:81a739dbc5aaa72833d7153f5f771f158059f79613ece437dc1ea2b75a41136a` | `sha256:06d8ef4e36b75e3ced4ff1cb149e09131c45d0968b321b9bf3984a0dcfa40af7` |
 | `florida-counties-iris-cat-in-circle-75km` | `florida_counties_cat_in_circle_75km_no_draws.yaml` (`5b2b02a62f6f265bf8f820fa9537b5c8df4a2e10da6f6f4d20f24c684985ac26`) | `sha256:d62faf2ef7a9ba3575da005432be7d8122f3c728e12e34994a331f9b2b531e4c` | `sha256:89d5290cb6d4635b216221e738d9ca6e2c2445e2081a37986150ec0764307a7b` |

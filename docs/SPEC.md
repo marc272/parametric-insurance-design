@@ -353,7 +353,7 @@ Positioning: Steinmann et al. 2023 (CLIMADA parametric framework), Maier & Scher
 **Website & Blog**
 
 v1, an early release that needs F-09 and F-10:
-- W-01 Export bundle format: JSON slices for small grids and uncompressed Arrow IPC for larger tables (Quarto OJS reads both; Parquet is not a documented OJS format). Site skeleton in Quarto, deployed to GitHub Pages (D5, ADR 0003)
+- W-01 Export bundle format: `parametric-insurance-design export-site` writes JSON and Arrow IPC slices, JSON for the manifest and small indexes and uncompressed Arrow IPC for the tables (Quarto OJS reads both; Parquet is not a documented OJS format). The manifest gives each file's size and SHA-256, the setup of every number and the bundle rules (infinities, NaN, size budget). Site skeleton in Quarto, deployed to GitHub Pages (D5, ADR 0003)
 - W-02 Explorers from precomputed grids:
   - α/β → payout shape and exceedance curves;
   - portfolio cross-coverage map.

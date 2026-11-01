@@ -1,0 +1,59 @@
+# The project website (ADR 0003: Quarto + OJS, deployed to GitHub Pages by
+# .github/workflows/site.yml). Build it from the repository root with
+# `quarto render site`; the output goes to site/_site/ (ignored).
+#
+# The Quarto version is pinned: here (quarto-required) and in the workflow
+# (QUARTO_VERSION). Change both together.
+project:
+  type: website
+  output-dir: _site
+  # Only the pages: README.md and site/fixtures/README.md are repository
+  # docs, not site pages.
+  render:
+    - index.qmd
+    - explorers/*.qmd
+    - blog/index.qmd
+  # The bundles the pages read with FileAttachment, copied as they are.
+  resources:
+    - fixtures/thesis-explorer/*.json
+    - fixtures/thesis-explorer/*.arrow
+
+quarto-required: "1.10.19"
+
+website:
+  title: "Parametric insurance design"
+  description: "Interactive explorers and posts on designing parametric insurance payouts."
+  site-url: https://marc272.github.io/parametric-insurance-design/
+  repo-url: https://github.com/marc272/parametric-insurance-design
+  repo-subdir: site
+  open-graph: true
+  navbar:
+    left:
+      - href: index.qmd
+        text: Home
+      - text: Explorers
+        menu:
+          - href: explorers/alpha-beta.qmd
+            text: "α/β payout explorer (placeholder)"
+      - href: blog/index.qmd
+        text: Posts
+    tools:
+      - icon: github
+        href: https://github.com/marc272/parametric-insurance-design
+        aria-label: Source code on GitHub
+      - icon: rss
+        href: blog/index.xml
+        aria-label: RSS feed of the posts
+  page-footer:
+    left: "Site code BSD-3-Clause. Data derived from the IRIS event set, CC-BY-4.0."
+    right: "Built with [Quarto](https://quarto.org)."
+
+format:
+  html:
+    theme:
+      light: [flatly, styles/site.scss]
+      dark: [darkly, styles/site.scss]
+    # Follow the reader's system colour scheme; the navbar toggle overrides it.
+    respect-user-color-scheme: true
+    toc: false
+    smooth-scroll: false

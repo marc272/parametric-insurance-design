@@ -171,7 +171,7 @@ What the configs in `packages/climada/configs/` are used for:
 | `thesis*.yaml` (5) | The adapter tests, `docs/methodology/vulnerability.md` and the parity adapter check. They stay |
 | `florida_counties.yaml`, `florida_counties_cat_in_circle.yaml` | The D2 paper EventSets and the tests. They stay |
 | `florida_counties_no_draws.yaml` | The Florida build without draws: the base of the radius configs, and the IRIS reference of the dropped STORM scenario. `test_storm.py` loads it. It stays, but its header comment is stale |
-| `florida_counties_cat_in_circle_{50,75,100,150}km_no_draws.yaml` | Only the MAR-133 radius sensitivity (research): `research/data/cat-in-circle-radius-sensitivity/`, its note and the script's docstring. No test loads them |
+| `florida_counties_cat_in_circle_{50,75,100,150}km_no_draws.yaml` | Only the MAR-133 radius sensitivity (research): `research/data/cat-in-circle-radius-sensitivity/`, its note and the script's docstring. Since MAR-145 the 75 km one is also the no-draws counterpart of D2 index (b), cited by name in the D2 README and note: its build has the content hash of the base of the 75 km match (`sha256:d62faf2e…2b531e4c`). No test loads them |
 | `florida_counties_storm.yaml`, `florida_counties_storm_cat_in_circle.yaml` | The STORM scenario S_1, dropped when D7 was revisited (MAR-62, 2026-10-31). Two tests in `test_storm.py` load them, and `research/data/p06-storm-eventset/checksums.json` records their SHA256 |
 
 **Radius configs.** Move them, byte-identical, to `research/configs/climada/`:
