@@ -1,7 +1,7 @@
 # ADR 0004: Repository structure for external presentation
 
-- Status: **Proposed**. This is a draft for the owner's decision. Nothing in it is decided.
-- Date: 2026-10-31
+- Status: **Accepted** (2026-11-01). The owner, Marc Prinzing, decided D8 "as recommended" for all seven questions (recorded on MAR-162). The answers are under "Decisions (owner)". The options and costs below stay as the record of what was weighed.
+- Date: proposed 2026-10-31, accepted 2026-11-01
 - Decision issue: MAR-162 (D8). It feeds MAR-163 (concept docs), MAR-164 (READMEs), MAR-165 (examples) and MAR-168 (the location of the petals prototype).
 - Prepared by a worker agent from `main` at `f74f123`. **Q2 and Q3 were revised after the design review MAR-161** (PR #99, squash commit `dafa8ec` on `main`, `docs/reviews/core-design-review.md`; findings cited as "review F<n>"). The review settles both, so they are no longer provisional.
 
@@ -265,17 +265,19 @@ The adapters stay unpublished under both options: CLIMADA comes from conda-forge
 
 ## Decisions (owner)
 
-One answer per question. "As recommended" is enough.
+Decided by the owner, Marc Prinzing, on 2026-11-01 (D8, recorded on MAR-162): "as recommended", for all seven questions. Each answer below quotes the recommendation it accepts.
 
-- **Q1, root layout** (recommended: 1A). Answer:
-- **Q2, public API** (recommended: 2B + 2D, after review F16; `robust` and `noise` off the top level, per review F10). Answer:
-- **Q3, module layout** (recommended: 3A). Answer:
-- **Q4, docs layout and API reference** (recommended: 4A and R1, fallback R2). Answer:
-- **Q5, research configs and STORM** (recommended: move the radius configs to `research/configs/climada/`; 5b). Answer:
-- **Q6, examples** (recommended: 6A). Answer:
-- **Q7, release** (recommended: 7a, a root CHANGELOG at release time, P1 at MAR-60 for core and viz). Answer:
+- **Q1, root layout.** Answer: as recommended, **1A**. "It costs nothing, breaks nothing and is truthful." The agent files stay where they are, and the README signposts them in a "How this repository is built" section.
+- **Q2, public API.** Answer: as recommended, **2B + 2D**. "The stories' vocabulary goes at the top level, plus one `design()` call. Implement 2D after review F16, so that `design` never passes the pricing twice. `robust` and `noise` come off the top level as above; robust comes back once MAR-34 implements it."
+- **Q3, module layout.** Answer: as recommended, **3A**. "A 20-module package doesn't need folders to be legible, and the flat layout is what lets parallel agents own files without conflicts."
+- **Q4, docs layout and API reference.** Answer: as recommended, **4A and R1**. A docs index, `docs/concepts/` and `docs/reviews/`, with nothing moved. "Add quartodoc once the site skeleton (MAR-53) exists, and render only Q2's public API. R2 is the fallback if the pinned quartodoc breaks with the pinned Quarto."
+- **Q5, research configs and STORM.** Answer: as recommended: "move the radius configs as described, and choose **5b** for STORM." The four radius configs move byte-identical to `research/configs/climada/`; the two STORM configs and the two tests that only load them are removed, and the loader is kept.
+- **Q6, examples.** Answer: as recommended, **6A**. `examples/` at the root, smoke-tested in CI, BSD under the root licence (ADR 0001's table has the row).
+- **Q7, release.** Answer: as recommended. "**7a**, a root CHANGELOG written at release time, and **P1** at website v1 (MAR-60), for core and viz only." Publishing to PyPI is the owner's step.
 
-## Migration plan (if the recommendations are accepted)
+## Migration plan
+
+The recommendations were accepted on 2026-11-01. Linear tracks each step's issue and status.
 
 The steps are PR-sized and ordered by dependency. Steps 2, 4 and 5 can run in parallel. Changes to `pyproject.toml`, the lockfiles and CI are serialised (ORCHESTRATION.md).
 
@@ -286,7 +288,7 @@ The review's other filed follow-ups aren't steps here: F1 = MAR-170, F9 = MAR-17
 - MAR-177 (F13) and step 2 (MAR-171) both edit `problem.py`, so they are sequenced.
 - MAR-170 (F1) edits `payout.py`, which no step here touches. It blocks step 11.
 
-1. **Record D8.** Files: this ADR (status and answers), `docs/SPEC.md` §4 (the tree gains `examples/`, `docs/concepts/` and `research/configs/`) and §11 (a D8 row), and ADR 0001's licence table (an `examples/` row). Acceptance: SPEC §11 lists D8 with its outcome.
+1. **Record D8 (MAR-183).** Files: this ADR (status and answers), `docs/SPEC.md` §4 (the tree gains `examples/`, `docs/concepts/`, `docs/reviews/` and `research/configs/`) and §11 (a D8 row; the same change records D4 and D6, decided at C1), and ADR 0001's licence table (an `examples/` row). Acceptance: SPEC §11 lists D8 with its outcome.
 2. **`BuiltProblem` carries its pricing (MAR-171, review F16; already filed).** It comes first, so that `design` never passes the pricing twice.
    - Files: `problem.py`, `solve.py`, their tests, and the ADR 0002 amendment (the `BuiltProblem` fields are contract).
    - Acceptance: `solve(built)` records `pricing.premium_value` without a `pricing` argument, and a `pricing` argument that differs from the built one raises `ComponentConfigError`.
