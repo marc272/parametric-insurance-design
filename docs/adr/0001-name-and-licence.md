@@ -30,6 +30,7 @@ Goals for the licence choice:
 | `packages/core` | BSD 3-Clause | `BSD-3-Clause` |
 | `packages/viz` | BSD 3-Clause | `BSD-3-Clause` |
 | `research/`, `site/`, `docs/`, repo tooling | BSD 3-Clause | `BSD-3-Clause` |
+| `examples/` | BSD 3-Clause, under the root `LICENSE` (ADR 0004, Q6) | `BSD-3-Clause` |
 | `parity/` code (scripts, tests) | BSD 3-Clause (amendment 1) | `BSD-3-Clause` |
 | `showcase/crc/` code (notebook, pipeline) | BSD 3-Clause (amendment 1) | `BSD-3-Clause` |
 | `packages/climada` | GNU GPL v3 or later | `GPL-3.0-or-later` |

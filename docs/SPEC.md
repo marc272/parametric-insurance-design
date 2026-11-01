@@ -100,11 +100,15 @@ parametric-insurance-design/
 │   ├── viz/             # parametric-insurance-design-viz: matplotlib figures, reading the result store and the runs' content-hashed input EventSets; never solving or re-optimising (C6)
 │   ├── crc/             # parametric-insurance-design-crc: CRC/VELO adapter (py>=3.12)
 │   └── climada/         # parametric-insurance-design-climada: tracks → CLIMADA → EventSet (own pixi env, NOT a uv member)
+├── examples/            # runnable scripts on the public API (core and viz only), smoke-tested in CI; BSD (ADR 0004 Q6)
 ├── research/            # paper: configs, run scripts, figure scripts, manuscript
+│   └── configs/         # research run configs; climada/ holds the research-only CLIMADA build configs (ADR 0004 Q5)
 ├── showcase/crc/        # CRC showcase notebook, pipeline, report
 ├── site/                # static website, reading exported bundles
 ├── parity/              # thesis golden data and parity tests
 └── docs/                # SPEC.md, ADRs, methodology notes
+    ├── concepts/        # the two core ideas: the tail-risk objective and portfolio calibration (ADR 0004 Q4)
+    └── reviews/         # design reviews (ADR 0004 Q4)
 ```
 
 ### 4.1 Environments
@@ -372,10 +376,11 @@ Each decision's status and outcome is recorded on its **Linear issue**, which is
 | D1 | Repository and package name: `parametric-insurance-design` (decided; ADR 0001) | MAR-5 |
 | D2 | Paper portfolio source: CLIMADA LitPop (revisit VELO/CDT after MAR-41), Florida's 67 counties with the State of Florida as the single risk owner (a documented proxy); county values from the pinned `LitPop_150arcsec_USA` v3; CC BY 4.0 attribution, no anonymisation; fallback Puerto Rico's 78 municipalities (decided 2026-10-27; §6.6; note in `research/notes/d2-paper-portfolio.md`) | MAR-30 |
 | D3 | Licences: BSD-3-Clause core/viz, GPL-3.0-or-later CLIMADA adapter, AGPL-3.0-or-later CRC adapter (decided; ADR 0001, §4.3) | MAR-5 |
-| D4 | Target venue (e.g. NHESS / Environment Systems and Decisions vs. Insurance: Mathematics and Economics / ASTIN) | MAR-29 (C1) |
+| D4 | Target venue: *Natural Hazards and Earth System Sciences* (NHESS) (decided 2026-11-01 at checkpoint C1) | MAR-29 (C1) |
 | D5 | Website stack: Quarto + OJS on GitHub Pages (decided 2026-10-25; ADR 0003) | MAR-52 |
-| D6 | Include R2 (distributionally robust) in the paper | MAR-29 (C1) |
+| D6 | Include R2 (distributionally robust) in the paper: yes, conditionally (decided 2026-11-01 at checkpoint C1). MAR-35 starts with a short relevance check. If R2 doesn't add value or isn't tractable, the fallback is a short appendix or leaving it out, and the owner is told before that choice is made | MAR-29 (C1); MAR-35 |
 | D7 | Second hazard catalogue: STORM, present climate v4, North Atlantic, CC0 (decided 2026-10-25; note in `research/notes/d7-second-hazard-catalogue.md`) | MAR-62 |
+| D8 | Repository structure for external presentation: as recommended for all seven questions (decided 2026-11-01; ADR 0004). The agent files stay at the root, signposted in the README (1A); the stories' components and `pid.design` at the top level, `robust` and `noise` off it (2B + 2D); flat modules (3A); a docs index, `docs/concepts/` and `docs/reviews/`, with quartodoc in the Quarto site (4A + R1); the radius configs move to `research/configs/climada/`, the STORM configs are removed and the loader kept (5b); `examples/` at the root, smoke-tested in CI (6A); 0.1.0 for core and viz, a root CHANGELOG at release time, PyPI at website v1, published by the owner (7a, P1) | MAR-162 |
 
 ---
 
