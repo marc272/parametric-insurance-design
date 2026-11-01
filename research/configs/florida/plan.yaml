@@ -34,7 +34,11 @@ holdout:
 kfold:
   k: 5
   kappas: [1.0]
-  pricings: [pure, coc_r0.06]
+  # C1 also ran k-fold at CoC r 0.06. Here that is deferred to a follow-up:
+  # on the shared machine one individual-scope CoC run (67 problems) took
+  # 1,300-5,500 s, so its 20 k-fold runs per index were out of this issue's
+  # compute budget. Add coc_r0.06 back and rerun; the store caches the rest.
+  pricings: [pure]
   # pooled_difference keys a design by objective name, so the two
   # weighted-CVaR betas go into separate experiment configs (as MAR-158)
   objective_sets:
