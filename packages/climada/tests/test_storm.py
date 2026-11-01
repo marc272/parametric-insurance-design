@@ -407,51 +407,12 @@ def test_storm_n_years_mismatch_fails_the_build(
 # --------------------------------------------------------------------------
 
 PACKAGE = Path(__file__).resolve().parents[1]
-#: Keys in which a STORM scenario config may differ from its IRIS reference.
-HAZARD_KEYS = {
-    "catalogue",
-    "tracks",
-    "hazard_release",
-    "scenario_id",
-    "scenario_notes",
-    "output",
-}
 
 
 def _load(name: str) -> dict[str, Any]:
     from parametric_insurance_design_climada.config import load_config
 
     return load_config(PACKAGE / "configs" / name).model_dump(mode="json")
-
-
-@pytest.mark.parametrize(
-    ("name", "index_kind"),
-    [
-        ("florida_counties_storm.yaml", "centroid_wind"),
-        ("florida_counties_storm_cat_in_circle.yaml", "cat_in_circle"),
-    ],
-)
-def test_storm_configs_load(name: str, index_kind: str) -> None:
-    config = _load(name)
-    assert config["tracks"] == {"kind": "storm", "basin": "NA"}
-    assert config["n_years"] == 10_000
-    assert config["index"]["kind"] == index_kind
-    assert config["vulnerability"] == {"kind": "none"}
-    assert config["loss"]["kind"] == "cells"
-    assert config["scenario_id"] == "storm-present-climate"
-    assert config["licence"] == "CC-BY-4.0"
-    assert "CC0 1.0" in config["scenario_notes"][-1]
-
-
-def test_storm_config_differs_from_the_iris_reference_only_in_the_hazard() -> None:
-    iris = _load("florida_counties_no_draws.yaml")
-    storm_a = _load("florida_counties_storm.yaml")
-    storm_b = _load("florida_counties_storm_cat_in_circle.yaml")
-    assert {k for k in iris if iris[k] != storm_a[k]} == HAZARD_KEYS
-    assert {k for k in storm_a if storm_a[k] != storm_b[k]} == {"index", "output"}
-    # D2 (b) moved to 75 km in MAR-145; MAR-185 deletes this with the STORM configs.
-    cat = _load("florida_counties_cat_in_circle_50km_no_draws.yaml")
-    assert storm_b["index"] == cat["index"]
 
 
 def test_no_draws_reference_differs_from_mar_114_only_in_the_draws() -> None:

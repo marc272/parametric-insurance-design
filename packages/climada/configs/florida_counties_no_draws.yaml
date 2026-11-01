@@ -1,9 +1,11 @@
 # IRIS reference S_0 without vulnerability draws (MAR-32): every setting is
 # configs/florida_counties.yaml's (MAR-114) except `vulnerability: none`, so
 # each storm has one row with the base Emanuel impact function (v_half 74.7).
-# It is the like-for-like reference of the STORM scenario
-# configs/florida_counties_storm.yaml (SPEC §6.5 (i), D7): the two differ only
-# in the track catalogue. The rows are the 13,902 storms of the MAR-114 build.
+# The rows are the 13,902 storms of the MAR-114 build. It is the base of the
+# cat-in-a-circle radius configs in research/configs/climada/ (MAR-133). The
+# STORM scenario it was the IRIS reference of was dropped with D7 (MAR-62,
+# MAR-185): a STORM build would be this file plus a `tracks: {kind: storm}`
+# block (README, "STORM loader (parked)").
 #
 #   pixi run iris                 # once: download + merge IRIS
 #   pixi run florida-locations    # once: locations.yaml and cells.parquet
