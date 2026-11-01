@@ -242,6 +242,78 @@ def test_cache_hit_keeps_the_first_source_tag(toy_dir: Path, tmp_path: Path) -> 
     assert set(store.read("runs")["source"]) == {"single_run"}
 
 
+# -- the pricing reaches solve through the problem (MAR-171) ------------------
+
+LOADED = {"kind": "cost_of_capital", "rate": 0.1, "q": 0.9}
+
+
+def test_solve_gets_the_run_pricing_through_the_problem(
+    toy_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[tuple[Pricing | None, Pricing | None]] = []
+
+    def spy(
+        built: BuiltProblem,
+        policy: SolverPolicy = DEFAULT_POLICY,
+        *,
+        pricing: Pricing | None = None,
+    ) -> Any:  # noqa: ANN401
+        seen.append((built.pricing, pricing))
+        return solve(built, policy, pricing=pricing)
+
+    monkeypatch.setattr(runner, "solve", spy)
+    config = toy_config(toy_dir, tmp_path, pricing=LOADED)
+    run = single(config, "individual", "weighted_cvar")
+    outcome = run_single(run, load_input(config), ResultStore(tmp_path))
+    assert outcome.ok
+    # Each problem carries the run's pricing; the runner passes it once,
+    # through the problem, not again as the pricing keyword.
+    expected = run.to_components().pricing
+    assert seen == [(expected, None), (expected, None)]
+
+
+@pytest.mark.parametrize("pricing", [None, LOADED], ids=["pure", "loaded"])
+def test_stored_values_equal_those_of_the_explicit_pricing_call(
+    toy_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    pricing: dict[str, object] | None,
+) -> None:
+    changes: dict[str, object] = {} if pricing is None else {"pricing": pricing}
+    config = toy_config(toy_dir, tmp_path, **changes)
+    run = single(config, "individual", "weighted_cvar")
+    data = load_input(config)
+    new = ResultStore(tmp_path / "new")
+    new_outcome = run_single(run, data, new)
+
+    # The MAR-143 call: solve(problem, policy, pricing=<the run's pricing>).
+    run_pricing = run.to_components().pricing
+
+    def explicit(
+        built: BuiltProblem,
+        policy: SolverPolicy = DEFAULT_POLICY,
+        *,
+        pricing: Pricing | None = None,
+    ) -> Any:  # noqa: ANN401
+        return solve(built, policy, pricing=run_pricing)
+
+    monkeypatch.setattr(runner, "solve", explicit)
+    old = ResultStore(tmp_path / "old")
+    old_outcome = run_single(run, data, old)
+    assert new_outcome.ok
+    assert old_outcome.ok
+    assert new_outcome.run_id == old_outcome.run_id
+    run_id = new_outcome.run_id
+    columns = ["problem_id", "status", "solver", "objective_value", "premium"]
+    a, b = (s.read("runs", run_ids=[run_id]) for s in (new, old))
+    assert a[columns].equals(b[columns])  # exact float equality
+    for table in ("payouts", "kpis"):
+        x, y = (s.read(table, run_ids=[run_id]) for s in (new, old))
+        assert x.equals(y)
+    premiums = [e["premium"] for e in new.manifest(run_id)["problems"]]
+    assert premiums == [e["premium"] for e in old.manifest(run_id)["problems"]]
+
+
 # -- failures are recorded ----------------------------------------------------
 
 

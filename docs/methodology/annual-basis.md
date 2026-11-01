@@ -2,6 +2,8 @@
 
 Issue MAR-24 (F-10), SPEC §6.2 (thesis issue M3). Code: `packages/core/src/parametric_insurance_design/basis.py`; config field `basis`. Tests: `packages/core/tests/test_basis_annual.py`, `packages/core/tests/test_engine_properties_bases.py`. The rerun of the thesis config on the three bases is in `research/notes/annual-basis-rerun.md`.
 
+See also: [the tail-risk objective](../concepts/tail-risk-objective.md) (what β means on each basis, and when the weighted-CVaR design is the E[U] design).
+
 ## Why
 
 The thesis rescales the event probabilities to sum to one after the threshold filter. Its distribution is conditional on "an event above the threshold", so:

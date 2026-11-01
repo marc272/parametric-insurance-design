@@ -20,9 +20,10 @@ Owner: MAR-64. Executes one configured run end to end and persists it in a
    calibrate on the fold's training years, evaluate on its training and
    test samples (``splits.year_block_kfold``).
 5. **Build, solve, evaluate.** ``problem.build_problems``, then
-   ``solve.solve`` for every design problem, with the run's pricing, so the
-   recorded premium is ``pricing.premium_value`` of the realised payout
-   (MAR-143), then ``evaluate.kpis`` and
+   ``solve.solve`` for every design problem, which carries the run's pricing
+   (``BuiltProblem.pricing``, MAR-171), so the recorded premium is
+   ``pricing.premium_value`` of the realised payout (MAR-143), then
+   ``evaluate.kpis`` and
    ``evaluate.exceedance_curves`` (at ``evaluation.return_periods``, MAR-117)
    when every design problem was solved.
    With a ``bootstrap`` config section (MAR-23), ``bootstrap.bootstrap_kpis``
@@ -829,7 +830,9 @@ def execute(
             for location_id in entity.location_ids
         )
         try:
-            result = solve(problem, policy, pricing=components.pricing)
+            # The problem carries the run's pricing (MAR-171), so the premium
+            # is pricing.premium_value of the realised payout (MAR-143).
+            result = solve(problem, policy)
         except SolveError as exc:
             _log.warning("run %s: %s", run_id, exc)
             runs.append(
