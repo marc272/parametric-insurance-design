@@ -121,7 +121,7 @@ parametric-insurance-design/
 ├── site/                # static website, reading exported bundles
 ├── parity/              # thesis golden data and parity tests
 └── docs/                # SPEC.md, ADRs, methodology notes
-    ├── concepts/        # the two core ideas: the tail-risk objective and portfolio calibration (ADR 0004 Q4)
+    ├── concepts/        # the two core ideas and their combination: the tail-risk objective, portfolio calibration and both together (ADR 0004 Q4)
     └── reviews/         # design reviews (ADR 0004 Q4)
 ```
 
@@ -140,7 +140,7 @@ The adapter and viz distributions import as `parametric_insurance_design_viz`, `
 | `eventset.py` | `EventSet`: dense index and loss matrices, events, locations, metadata. Parquet I/O. Validation |
 | `index.py` | Index definitions: point intensity, value-weighted cluster index. Precomputed custom indices (e.g. cat-in-a-circle from the CLIMADA adapter) |
 | `payout.py` | `PayoutStructure` → basis matrix. `StepPayout` (breakpoints, monotone, capped) is implemented. Piecewise-linear is designed for but not built |
-| `scopes.py` | `Individual`, `Portfolio`, `Cluster(strategy)`. Map assets to payout entities and set the aggregation level of the objective |
+| `scopes.py` | `Individual`, `Portfolio`, `Cluster(strategy)`. Map assets to payout entities and set the aggregation level of the objective. `Cluster` calibrates its clusters jointly by default (`joint=True`, the thesis); `Cluster(joint=False)` solves one design problem per cluster (`problem_id` `cluster:C<k>`), which separates the cluster index from joint calibration (MAR-180) |
 | `clustering.py` | Port of the thesis feature-plus-Ward clustering, as a pluggable strategy |
 | `objectives.py` | `MSE`, `ExpectedUncovered`, `WeightedCVaR(alpha, beta)` (Rockafellar–Uryasev) |
 | `pricing.py` | `PurePremium`, `CostOfCapitalLoad(rate, q)`. Std-dev load is optional (SOCP) |
@@ -385,6 +385,7 @@ v2, after the paper:
 | Risk | Mitigation |
 |---|---|
 | Tail advantage disappears out of sample or under loaded pricing | C1 checkpoint. A negative or nuanced result is still publishable ("when does tail-optimisation pay?") |
+| Joint-calibration advantage disappears out of sample (RQ2) | The in-sample joint gain may not carry over out of sample (C1 §6b), so the Florida rerun (MAR-152 item 4, MAR-202) is the real test. Neither the joint designs (MAR-100) nor the individual designs (MAR-198) are unique, so Florida's contrasts are read with their ranges across optimal designs (MAR-203). A conditions-based result ("when does joint calibration pay?", C1 §8) is still publishable. External outputs follow the RQ2 rule (§1), which the owner revisits after the Florida rerun |
 | Parity can't be reached exactly (degenerate LPs, solver versions) | Compare objective values and KPIs rather than payout vectors. Document the gaps |
 | CLIMADA maintainers decline the module or ask for big changes | Talk to them early (K-01). The paper and core don't depend on acceptance |
 | VELO/CDT assets lack values, or publishing them is sensitive | Value proxy plus anonymisation. LitPop fallback |
