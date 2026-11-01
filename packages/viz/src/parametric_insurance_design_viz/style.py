@@ -29,6 +29,7 @@ with.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -36,20 +37,26 @@ from typing import Any, Final, cast
 
 import matplotlib as mpl
 from matplotlib import font_manager
+from matplotlib.ticker import Formatter
 
 __all__ = [
     "BENCHMARK_OBJECTIVE",
     "DEFAULT_COLOR",
     "EVENT_COLOR",
     "FONT",
+    "MONEY_MAX_DECIMALS",
+    "MONEY_MIN_DECIMALS",
+    "MONEY_PREFIXES",
     "OBJECTIVE_COLORS",
     "OBJECTIVE_LABELS",
     "SCOPE_LABELS",
     "SCOPE_STYLES",
     "SERIF_FALLBACK",
     "Font",
+    "MoneyFormatter",
     "ScopeStyle",
     "font_family",
+    "money_prefix",
     "objective_color",
     "objective_label",
     "rc_params",
@@ -151,6 +158,115 @@ EVENT_COLOR: Final[str] = "grey"
 
 DEFAULT_COLOR: Final[str] = "black"
 """Colour of an objective without an entry in :data:`OBJECTIVE_COLORS`."""
+
+MONEY_PREFIXES: Final[dict[str, float]] = {"M": 1e6, "k": 1e3, "": 1.0}
+"""Money tick prefixes and their scales, largest first (thesis, no "$")."""
+
+MONEY_MIN_DECIMALS: Final[dict[str, int]] = {"M": 1, "k": 0, "": 0}
+"""Fewest decimals per prefix: the thesis labels ``1.5M``, ``200k``, ``50``."""
+
+MONEY_MAX_DECIMALS: Final[int] = 6
+"""Most decimals :class:`MoneyFormatter` gives a tick label."""
+
+_EXACT_RTOL: Final[float] = 1e-9
+
+
+def money_prefix(value: float) -> str:
+    """Return the money prefix of a value: its largest scale at most ``|value|``.
+
+    Parameters
+    ----------
+    value : float
+        Amount in loss units.
+
+    Returns
+    -------
+    str
+        ``"M"`` from one million, ``"k"`` from one thousand, else ``""``
+        (also for a non-finite value).
+    """
+    size = abs(value)
+    for prefix, scale in MONEY_PREFIXES.items():
+        if size >= scale:
+            return prefix
+    return ""
+
+
+def _decimals(scaled: list[float], minimum: int) -> int:
+    """Fewest decimals, at least ``minimum``, that tell the values apart.
+
+    The first count that writes every value exactly (tick locators place
+    round numbers); failing that, the first that gives distinct texts; failing
+    that, :data:`MONEY_MAX_DECIMALS`.
+    """
+    counts = range(minimum, max(minimum, MONEY_MAX_DECIMALS) + 1)
+    for d in counts:
+        if all(abs(v - round(v, d)) <= _EXACT_RTOL * max(1.0, abs(v)) for v in scaled):
+            return d
+    for d in counts:
+        if len({f"{v:.{d}f}" for v in scaled}) == len(set(scaled)):
+            return d
+    return counts[-1]
+
+
+class MoneyFormatter(Formatter):
+    """Money tick labels that never repeat: ``1.5M``, ``1.25M``, ``200k``, ``50``.
+
+    Each label has the fewest decimals, at least
+    :data:`MONEY_MIN_DECIMALS` of its prefix, that write every tick of its
+    prefix exactly, so neighbouring ticks never share a label (MAR-197).
+    Ticks that one decimal writes exactly keep the thesis labels: ``0.0M``,
+    ``0.5M``, ``2.0M``; ``-200k``, ``0``, ``200k``. A tick in millions on
+    a 0.25M step gets two decimals (``0.25M``, ``0.50M``) where the thesis
+    format rounded to ``0.2M``, ``0.5M``.
+
+    Parameters
+    ----------
+    prefix : str, optional
+        A key of :data:`MONEY_PREFIXES`, the same for every tick (the axis
+        label names it). Default: each tick's own :func:`money_prefix`, the
+        compact thesis format of the sweep figures.
+
+    Raises
+    ------
+    ValueError
+        If ``prefix`` is not a key of :data:`MONEY_PREFIXES`.
+    """
+
+    def __init__(self, prefix: str | None = None) -> None:
+        if prefix is not None and prefix not in MONEY_PREFIXES:
+            raise ValueError(
+                f"unknown money prefix {prefix!r}; expected one of "
+                f"{sorted(MONEY_PREFIXES)}"
+            )
+        self.prefix = prefix
+        self._decimals: dict[str, int] = {}
+
+    def _prefix_of(self, value: float) -> str:
+        return money_prefix(value) if self.prefix is None else self.prefix
+
+    def set_locs(self, locs: list[float]) -> None:
+        """Choose the decimals of each prefix from the tick locations."""
+        self.locs = locs
+        scaled: dict[str, list[float]] = {}
+        for value in map(float, locs):
+            if math.isfinite(value):
+                prefix = self._prefix_of(value)
+                scaled.setdefault(prefix, []).append(value / MONEY_PREFIXES[prefix])
+        self._decimals = {
+            p: _decimals(v, MONEY_MIN_DECIMALS[p]) for p, v in scaled.items()
+        }
+
+    def __call__(self, x: float, pos: int | None = None) -> str:
+        """Return the label of ``x``, e.g. ``0.05M``; ``""`` if not finite."""
+        if not math.isfinite(x):
+            return ""
+        prefix = self._prefix_of(x)
+        decimals = self._decimals.get(prefix, MONEY_MIN_DECIMALS[prefix])
+        scaled = x / MONEY_PREFIXES[prefix]
+        text = f"{abs(scaled):.{decimals}f}"
+        sign = "-" if scaled < 0 and text.strip("0.") else ""
+        return f"{sign}{text}{prefix}"
 
 
 def objective_color(objective: str) -> str:

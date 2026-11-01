@@ -112,7 +112,6 @@ from matplotlib.colors import (
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.patches import FancyBboxPatch, Rectangle
-from matplotlib.ticker import FuncFormatter
 from numpy.typing import NDArray
 
 from parametric_insurance_design.basis import Basis
@@ -827,11 +826,6 @@ def _fmt_pct(pct: float) -> str:
 
 def _wrap(text: str, width: int = 18) -> str:
     return "\n".join(textwrap.wrap(text, width=width, break_long_words=False))
-
-
-def _millions(value: float, _pos: object = None) -> str:
-    """Thesis ``format_millions`` without the currency sign: ``1.5M``."""
-    return f"{value * 1e-6:.1f}M"
 
 
 def _box(ax: Axes) -> None:
@@ -1571,10 +1565,15 @@ def exceedance_curves(
         ax.minorticks_off()
         ax.set_xlim(lo, hi)
         ax.set_xlabel(return_period_label(bases[0]))
-        value_unit = f" [M {labels.payout_unit}]" if labels.payout_unit else " [M]"
-        ax.set_ylabel(_curve_label(quantity) + value_unit)
-        ax.yaxis.set_major_formatter(FuncFormatter(_millions))
         ax.set_ylim(bottom=0)
+        # Thesis ``format_millions`` (``1.5M``) in millions; k or plain units
+        # below, with the decimals the ticks need (MAR-197).
+        prefix = style.money_prefix(max(abs(v) for v in ax.get_ylim()))
+        value_unit = " ".join(u for u in (prefix, labels.payout_unit) if u)
+        ax.set_ylabel(
+            _curve_label(quantity) + (f" [{value_unit}]" if value_unit else "")
+        )
+        ax.yaxis.set_major_formatter(style.MoneyFormatter(prefix))
         _box(ax)
         fig.tight_layout()
         objectives = [str(f["objective"].iloc[0]) for f in frames]
