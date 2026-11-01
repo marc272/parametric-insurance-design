@@ -1,0 +1,556 @@
+{
+  "format": "parametric-insurance-design/site-bundle",
+  "format_version": 1,
+  "label": "thesis-fixture data: the thesis experiment (parity/configs/thesis.yaml) on the thesis parity event set, in-sample, event-conditional basis. A placeholder for the site skeleton, not a result to publish.",
+  "config": {
+    "name": "thesis",
+    "description": "The thesis experiment (parametric-insurance-framework, configs/*.yaml and notebook globals), migrated by parity/scripts/migrate_thesis_config.py for the parity runs (MAR-68).",
+    "hash": "sha256:155d5f8978a1e03056d4e15c8bdf495e0091f25fb4b678275a87a9221a8b280e"
+  },
+  "versions": {
+    "parametric-insurance-design": "0.1.0.dev0",
+    "parametric-insurance-design-viz": "0.1.0.dev0",
+    "pyarrow": "26.0.0"
+  },
+  "eventset": {
+    "input_checksums": [
+      "sha256:404b0c3a3aefa38965ad3ace2747d308685a67e3b218cb835d45a9ab375294df"
+    ],
+    "prepared_content_hash": "sha256:008057c84ba2541847f1c447c19a201c3d4951320610625e246a7a4bbd5eafdf",
+    "hazard": {
+      "name": "IRIS",
+      "release": "Sparks & Toumi (2024) 10,000-year event set, figshare collection 10.6084/m9.figshare.c.6724251.v1 (Main dataset 10.6084/m9.figshare.24894186.v1), North Atlantic basin"
+    },
+    "scenario": "Thesis parity event set: IRIS North Atlantic 10,000-year synthetic catalogue (present climate, from 1980-2021 tracks) for the 9 Miami assets of the thesis. One row per storm whose track passes within 500 km of any asset (6,057 rows, 4,762 of them with zero wind and loss at every asset); years without such a storm are implicit zero-loss years. Losses from CLIMADA's Emanuel (2011) USA tropical-cyclone impact function. No noise or vulnerability draws (draw_id 0): the thesis noise layer is applied downstream.",
+    "n_years": 10000,
+    "licence": "CC-BY-4.0",
+    "index": {
+      "definition": "Maximum 1-minute sustained wind speed at 10 m above ground at the asset over the storm's lifetime: CLIMADA 6.0.1 TropCyclone.from_tracks intensity with CLIMADA's default wind model; winds below CLIMADA's 17.5 m/s intensity threshold are stored as 0",
+      "unit": "m/s"
+    },
+    "loss": {
+      "unit": "USD",
+      "currency": "USD"
+    },
+    "n_rows": 13897,
+    "n_locations": 9
+  },
+  "setup": {
+    "portfolio": {
+      "location_ids": [
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A5",
+        "A6",
+        "A7",
+        "A8",
+        "A9"
+      ]
+    },
+    "basis": "event_conditional",
+    "basis_risk": {
+      "noise": {
+        "kind": "heteroscedastic",
+        "level": 0.3,
+        "n_copies": 13,
+        "seed": 42,
+        "bounds": [
+          20.0,
+          70.0
+        ]
+      },
+      "threshold": {
+        "value": 20.0,
+        "column": "index"
+      }
+    },
+    "pricing": {
+      "kind": "pure"
+    },
+    "constraints": [
+      {
+        "kind": "budget",
+        "loading": 1.0
+      }
+    ],
+    "split": {
+      "kind": "full",
+      "out_of_sample": false
+    },
+    "payout": {
+      "kind": "step",
+      "attachment": 20.0,
+      "limit": 70.0,
+      "n_bins": 15,
+      "breakpoints": null
+    },
+    "evaluation": {
+      "beta": 0.95,
+      "return_periods": [
+        2.0,
+        5.0,
+        10.0,
+        20.0,
+        50.0,
+        100.0,
+        200.0,
+        500.0
+      ]
+    },
+    "bootstrap": null
+  },
+  "runs": {
+    "baseline": [
+      "sha256:c0b631f88a110307b432e4ecf33176164fb181a5d2e9304b3611f914906d6929",
+      "sha256:d87af0b4875d917f9516bcdb014aa265ea4857cb4559ca1f88b914b0d938dcfd",
+      "sha256:ae9b78f07457da9aceb0800816472962f1de914900870c2821efc5d807f7a9c8",
+      "sha256:16347073c212eb47c25d26c676a280b17411fe9d9091bc4eeac9e6e89ade4a49",
+      "sha256:eae5d0d52243aac6376dfd99036658d87a5f0b1df544e6ebf9290eb73648a81e",
+      "sha256:9afd80c75627bce01ba4694543503b3f2ab9c812b9258468b87fefdbaa46c9af",
+      "sha256:59257aad484c914ad4ebfe35acc88caef4586ffd4f040ea24f11323deb9e42e2",
+      "sha256:fac6002c56c0cd861f5e3d0bdd2f2696644722c2da565074ca79451b49305974",
+      "sha256:a390bfc8c506ae1540c421ea5e32fac2e0689b6ce2be8633b9b79deadf6fdefb"
+    ],
+    "sweeps": {},
+    "skipped": []
+  },
+  "sweeps_not_exported": [
+    "alpha",
+    "beta",
+    "budget_loading",
+    "n_clusters",
+    "n_bins",
+    "n_assets",
+    "noise_level"
+  ],
+  "events": {
+    "included": false,
+    "scopes": [],
+    "note": "the event data under each entity (baseline.events.arrow): left out by default (about 6 MB per grid on the thesis set), included with export-site --events"
+  },
+  "budget": {
+    "max_file_bytes": 2000000,
+    "max_bundle_bytes": 10000000,
+    "bundle_bytes": 204151
+  },
+  "files": [
+    {
+      "path": "runs.json",
+      "format": "json",
+      "slice": "runs",
+      "group": null,
+      "parameter": null,
+      "bytes": 10911,
+      "sha256": "sha256:3f6d4aa651c88137d90c42629c50661cf15e58731e5071f4002476baaf6b869d"
+    },
+    {
+      "path": "locations.json",
+      "format": "json",
+      "slice": "locations",
+      "group": null,
+      "parameter": null,
+      "bytes": 832,
+      "sha256": "sha256:773742622a889d55bd30a6f06327ad0cd7a38b5195e7b1e48f8322d78532e5b2"
+    },
+    {
+      "path": "baseline.payouts.arrow",
+      "format": "arrow",
+      "slice": "payouts",
+      "group": "baseline",
+      "parameter": null,
+      "bytes": 39546,
+      "sha256": "sha256:cb6934e9b8a1984395c9b9e2c9ce0044a0f08584e9aeb22042a4dea7ece585b4",
+      "rows": 945,
+      "columns": [
+        {
+          "name": "run_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope_key",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "objective",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "problem_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "entity_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "location_ids",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "below_attachment",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "param_index",
+          "type": "int32",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "lower",
+          "type": "double",
+          "nulls": 0,
+          "null_means": "-inf"
+        },
+        {
+          "name": "upper",
+          "type": "double",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "value",
+          "type": "double",
+          "nulls": 0,
+          "null_means": null
+        }
+      ]
+    },
+    {
+      "path": "baseline.kpis.arrow",
+      "format": "arrow",
+      "slice": "kpis",
+      "group": "baseline",
+      "parameter": null,
+      "bytes": 58618,
+      "sha256": "sha256:fd190374c8a84523ebd50e98f6a5352b35cf9e31f8633adbc1a8c822640cc547",
+      "rows": 882,
+      "columns": [
+        {
+          "name": "run_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope_key",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "objective",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "problem_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "eval_split",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "fold",
+          "type": "int32",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "basis",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "level",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "subject_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "kpi",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "beta",
+          "type": "double",
+          "nulls": 672,
+          "null_means": "not a VaR/CVaR KPI"
+        },
+        {
+          "name": "value",
+          "type": "double",
+          "nulls": 0,
+          "null_means": "undefined (the store's null: e.g. a zero-variance correlation)"
+        },
+        {
+          "name": "ci_low",
+          "type": "double",
+          "nulls": 882,
+          "null_means": "no confidence bounds (the config has no bootstrap section)"
+        },
+        {
+          "name": "ci_high",
+          "type": "double",
+          "nulls": 882,
+          "null_means": "no confidence bounds (the config has no bootstrap section)"
+        },
+        {
+          "name": "ci_level",
+          "type": "double",
+          "nulls": 882,
+          "null_means": "no confidence bounds (the config has no bootstrap section)"
+        },
+        {
+          "name": "n_bootstrap",
+          "type": "int32",
+          "nulls": 882,
+          "null_means": "no confidence bounds (the config has no bootstrap section)"
+        }
+      ]
+    },
+    {
+      "path": "baseline.exceedance.arrow",
+      "format": "arrow",
+      "slice": "exceedance",
+      "group": "baseline",
+      "parameter": null,
+      "bytes": 84698,
+      "sha256": "sha256:784c262f6dc0555715a02d0e3ed8bb001df4c9c6b77ab6ab5cd16b7931ef5027",
+      "rows": 2520,
+      "columns": [
+        {
+          "name": "run_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope_key",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "objective",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "problem_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "eval_split",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "fold",
+          "type": "int32",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "basis",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "level",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "subject_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "quantity",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "curve",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "return_period",
+          "type": "double",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "value",
+          "type": "double",
+          "nulls": 0,
+          "null_means": null
+        }
+      ]
+    },
+    {
+      "path": "baseline.map.arrow",
+      "format": "arrow",
+      "slice": "map",
+      "group": "baseline",
+      "parameter": null,
+      "bytes": 9546,
+      "sha256": "sha256:7986a9f8c25a977daeeac52b127d34f749aaeaab2d1ded9bf189fe9d7b01112c",
+      "rows": 81,
+      "columns": [
+        {
+          "name": "run_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope_key",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "objective",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "eval_split",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "fold",
+          "type": "int32",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "basis",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "location_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "problem_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "entity_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "kpi_level",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 27,
+          "null_means": "not available per location: the location's entity covers several locations (see the entity's rows in kpis)"
+        },
+        {
+          "name": "expected_loss",
+          "type": "double",
+          "nulls": 27,
+          "null_means": "not available per location: the location's entity covers several locations (see the entity's rows in kpis)"
+        },
+        {
+          "name": "expected_payout",
+          "type": "double",
+          "nulls": 27,
+          "null_means": "not available per location: the location's entity covers several locations (see the entity's rows in kpis)"
+        },
+        {
+          "name": "expected_uncovered",
+          "type": "double",
+          "nulls": 27,
+          "null_means": "not available per location: the location's entity covers several locations (see the entity's rows in kpis)"
+        }
+      ]
+    }
+  ],
+  "rules": {
+    "infinity": "Strict JSON has no infinities: an infinite value is written as null, in JSON and in Arrow alike, only in the columns whose manifest entry has null_means '-inf' (payouts.lower: the zero row of a below_attachment 'zero' run, param_index -1, covers the index range below the attachment). Any other infinite value is refused at export.",
+    "nan": "NaN is never written. In a column whose store schema allows undefined values it is written as null, and the column's manifest entry gives its null count and what null means there; in any other column it is refused at export. A column has at most one meaning of null.",
+    "types": "Integers are 32-bit (Arrow JS reads 64-bit integers as BigInt); strings are dictionary-encoded UTF-8 with the narrowest signed index (int8, int16 or int32); floats are 64-bit.",
+    "arrow": "Tables are Arrow IPC files (.arrow), uncompressed, one record batch: Quarto OJS reads them with FileAttachment(path).arrow().",
+    "budget": "Every file, the manifest included, fits max_file_bytes, and the data files together fit max_bundle_bytes (both in bytes). Over budget is an error at export, never a truncation.",
+    "checksums": "Every data file is listed under files with its size in bytes and the SHA-256 of its bytes; the manifest itself is not."
+  }
+}
