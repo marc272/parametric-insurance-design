@@ -786,9 +786,10 @@ def exceedance_curves(
     """Exceedance curves of loss, payout and uncovered loss.
 
     For every subject (entity, design problem, portfolio, and the locations
-    under an allocation rule; see the module docstring) and quantity, the value exceeded with probability ``1 / T``:
-    the lower ``(1 - 1/T)``-quantile of the outcome values under the
-    measure, as the VaR of :func:`var_cvar`. The per-row uncovered loss is
+    under an allocation rule; see the module docstring) and quantity, the
+    value exceeded with probability ``1 / T``: the lower
+    ``(1 - 1/T)``-quantile of the outcome values under the measure, as the
+    VaR of :func:`var_cvar`. The per-row uncovered loss is
     ``(L_e - pi_e)^+``.
 
     Parameters

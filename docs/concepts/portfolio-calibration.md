@@ -140,9 +140,15 @@ A joint design is identified only through the portfolio ([review finding F8](../
 
 - The MSE objective of a joint scope depends only on the summed payout of each row. Any other split of the same row sums across the entities that meets the payout constraints is optimal too.
 - E[U] and weighted CVaR have the same freedom wherever the LP has more than one optimal solution.
-- The thesis allocates a cluster's payout to its assets by value weight (eq. (3.23)). This library doesn't; an allocation rule is open work.
 
-So the per-entity results of a joint design show one member of a set of optimal designs, picked by the solver. That covers the `evaluate.kpis` rows at `level = "entity"`, the per-entity θ in the `payouts` table, and per-entity payout-function figures. Read the portfolio-level KPIs. In the toy example above the optimum is unique, so its per-asset θ are meaningful; that isn't true in general.
+So the per-entity results of a joint design show one member of a set of optimal designs, picked by the solver. That covers the `evaluate.kpis` rows at `level = "entity"`, the per-entity θ in the `payouts` table, and per-entity payout-function figures. Read the problem- and portfolio-level KPIs. In the toy example above the optimum is unique, so its per-asset θ are meaningful; that isn't true in general.
+
+**Per-asset KPIs need an allocation rule.** By default, `evaluate.kpis` reports no per-asset rows. Pass `allocation="value"` or `allocation="loss"` to split each design problem's total payout across its assets by a stated rule:
+
+- `"value"`: pro rata to insured value;
+- `"loss"`: pro rata to each asset's loss in the event.
+
+The rows then depend on the problem's total payout only, not on the solver's split, and their `level` names the rule (`location_by_value`, `location_by_loss`). The thesis allocates a cluster's payout to its assets by value weight within the cluster (eq. (3.23)). The `"value"` rule allocates over the whole design problem instead, because the split across clusters isn't unique either. The rules, their properties and their limits are in [allocating a joint payout to assets](../methodology/payout-allocation.md).
 
 ## Code map
 
@@ -157,7 +163,7 @@ All modules are in `packages/core/src/parametric_insurance_design/`. After `impo
 | Design in one call | `pid.design(eventset, scope, payout, objective, *, basis, ...)`: one `pid.SolveResult` per design problem, so one per asset in the individual scope and one (`problem_id = "portfolio"`) in the joint scopes |
 | Sum over entities, caps, assembly | `pid.problem.build_context`, `pid.problem.build_problems` (one `BuiltProblem` per design problem), then `pid.solve.solve` for each (the low-level path that `pid.design` composes) |
 | Budget and premiums | `pid.Budget(loading)`; `pid.PurePremium`, `pid.CostOfCapitalLoad(rate, q)` |
-| KPI levels | `pid.evaluate.kpis`: `level` is `entity`, `problem` or `portfolio` |
+| KPI levels | `pid.evaluate.kpis`: `level` is `entity`, `problem` or `portfolio`; with `allocation="value"` or `"loss"`, also `location_by_value` or `location_by_loss` ([payout allocation](../methodology/payout-allocation.md)) |
 
 ## Proven properties
 
