@@ -34,7 +34,7 @@ website:
       - text: Explorers
         menu:
           - href: explorers/alpha-beta.qmd
-            text: "α/β payout explorer (placeholder)"
+            text: "Payout and exceedance explorer"
       - href: blog/index.qmd
         text: Posts
     tools:
