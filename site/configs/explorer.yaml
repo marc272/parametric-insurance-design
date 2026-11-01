@@ -1,8 +1,8 @@
 # The site's explorer bundle (MAR-208): built in CI by the Site workflow
 # (.github/workflows/site.yml), never committed. It is the bundle the payout
-# explorer (MAR-54) reads: the alpha, beta and budget-loading (kappa) sweeps
-# of the three objectives, out of sample, on the annual basis (the
-# publication rule, AGENTS.md).
+# explorer (MAR-54) reads: the alpha, beta, budget-loading (kappa) and
+# bin-count (n_bins, MAR-220) sweeps of the three objectives, out of sample,
+# on the annual basis (the publication rule, AGENTS.md).
 #
 # The setup is checkpoint C1's main line (research/configs/c1/c1_main.yaml):
 # the thesis portfolio (9 Miami locations), the thesis noise layer, the
@@ -13,7 +13,11 @@
 #
 # Sweeps, one factor at a time around the baseline: alpha, the thesis grid
 # (0.1 to 1.0 by 0.1); beta, C1's range (0.95 to 0.995); kappa, the thesis
-# grid (0.5 to 1.5 by 0.1).
+# grid (0.5 to 1.5 by 0.1); n_bins, the thesis grid (5 to 25 by 5,
+# parity/configs/thesis.yaml), in full. Each bin count has its own bin edges
+# (equal bins from the attachment, 20 m/s, to the limit, 70 m/s) and its own
+# MSE, E[U] and weighted-CVaR designs: 15 runs, the three at 15 bins being
+# the baseline designs.
 #
 # Reductions against C1 and the thesis sweeps, so that the Site workflow
 # solves it in a few minutes on a GitHub runner and every file stays inside
@@ -21,10 +25,10 @@
 #   1. One scope, individual: each location calibrated on its own. No cluster
 #      or portfolio scope, so the bundle makes no joint-calibration
 #      statement (the RQ2 rule).
-#   2. No n_bins sweep.
-#   3. Bootstrap B = 200, not C1's 1000: at B = 1000 the bootstrap took
+#   2. Bootstrap B = 200, not C1's 1000: at B = 1000 the bootstrap took
 #      about 30 s per sweep point on a GitHub runner (325 s for the solve).
-# (Until MAR-213, kappa had 9 values: with the train rows in the bundle, the
+# (Until MAR-220, the bundle had no n_bins sweep, a third reduction. Until
+# MAR-213, kappa had 9 values: with the train rows in the bundle, the
 # thesis' 11 put sweep.budget_loading.exceedance.arrow over 2 MB. The test
 # rows alone take about 1.0 MB.)
 #
@@ -54,8 +58,9 @@ description: >-
   test), pure pricing, budget loading 1.0, 15 bins from 20 to 70 m/s, evaluation
   beta 0.99; objectives MSE, E[U] and weighted CVaR (alpha 0.9, beta 0.99).
   Block-bootstrap intervals, level 0.9. Sweeps - alpha 0.1 to 1.0 by 0.1, beta
-  0.95 to 0.995, budget loading 0.5 to 1.5 by 0.1. Reduced for CI - individual
-  scope only, no n_bins sweep, bootstrap B = 200 (C1 1000). Out of sample only -
+  0.95 to 0.995, budget loading 0.5 to 1.5 by 0.1, number of bins 5 to 25 by 5
+  (equal bins from 20 to 70 m/s). Reduced for CI - individual scope only,
+  bootstrap B = 200 (C1 1000). Out of sample only -
   the KPIs, exceedance curves and map numbers are those of the test years
   (eval_split "test"); the in-sample "train" rows are not in the bundle.
 eventset:
@@ -107,5 +112,7 @@ sweeps:
   values: [0.95, 0.96, 0.97, 0.98, 0.99, 0.995]
 - parameter: budget_loading
   values: [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
+- parameter: n_bins
+  values: [5, 10, 15, 20, 25]
 output:
   directory: ../../results/site/explorer
