@@ -486,6 +486,15 @@ def run_parameters(config: ExperimentConfig, eventset: EventSet) -> dict[str, An
     that name, so a sweep's ``runs`` rows can be read without parsing the
     config. A key is present only when its component is configured.
 
+    ``below_attachment`` (MAR-178) is present only when the payout's mode is
+    not the default ``"first_bin"``, i.e. for ``"zero"`` (MAR-170), so that
+    readers of the ``runs`` table, such as the viz payout figures, can tell
+    what the payout pays below the attachment. A run without the key pays
+    the first bin's level there. Leaving the default out keeps the stored
+    parameters of every ``"first_bin"`` run as they were before MAR-178 (the
+    MAR-131/MAR-170 pattern). The parameters are not part of :func:`run_key`,
+    so no run id changes either way.
+
     Parameters
     ----------
     config : ExperimentConfig
@@ -497,7 +506,8 @@ def run_parameters(config: ExperimentConfig, eventset: EventSet) -> dict[str, An
     -------
     dict
         ``attachment``, ``limit``, ``n_bins``, ``n_assets``,
-        ``evaluation_beta``, ``sample``; ``train_fraction`` (holdout);
+        ``evaluation_beta``, ``sample``; ``below_attachment`` (``"zero"``
+        payout); ``train_fraction`` (holdout);
         ``k``, ``fold`` (k-fold); ``n_clusters``, ``beta_tail``, ``linkage``
         (cluster scope); ``scope_index`` (if set); ``alpha``, ``beta`` (weighted CVaR);
         ``pricing_rate``, ``pricing_q`` (cost of capital); ``budget_loading``
@@ -514,6 +524,8 @@ def run_parameters(config: ExperimentConfig, eventset: EventSet) -> dict[str, An
         "evaluation_beta": config.evaluation.beta,
         "sample": config.sample.kind,
     }
+    if payout.below_attachment != "first_bin":
+        params["below_attachment"] = payout.below_attachment
     sample = config.sample
     if sample.kind == "holdout":
         params["train_fraction"] = sample.train_fraction
