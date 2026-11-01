@@ -3,7 +3,8 @@
 # `quarto render site`; the output goes to site/_site/ (ignored).
 #
 # The Quarto version is pinned: here (quarto-required) and in the workflow
-# (QUARTO_VERSION). Change both together.
+# (QUARTO_VERSION). Change both together: the Site workflow fails when they
+# differ (MAR-210).
 project:
   type: website
   output-dir: _site

@@ -63,7 +63,8 @@ concurrency:
 
 env:
   # Pinned Quarto CLI. site/_quarto.yml requires the same version
-  # (quarto-required); change both together.
+  # (quarto-required); change both together. The build fails early when they
+  # differ (step "Check the Quarto pin", MAR-210).
   QUARTO_VERSION: "1.10.19"
   # The explorer bundle (MAR-208): its config, and where it goes in the site.
   EXPLORER_CONFIG: site/configs/explorer.yaml
@@ -86,6 +87,27 @@ jobs:
           python-version: "3.12"
       - name: Sync the workspace
         run: uv sync --locked
+      # The Quarto version is pinned twice and Dependabot tracks neither:
+      # QUARTO_VERSION (above, what quarto-actions/setup installs) and
+      # quarto-required in site/_quarto.yml (what the render requires). Fail
+      # before the solve when they differ (MAR-210).
+      - name: Check the Quarto pin (QUARTO_VERSION and site/_quarto.yml agree)
+        run: |
+          uv run --locked python - "$QUARTO_VERSION" site/_quarto.yml <<'PY'
+          import sys
+          from pathlib import Path
+
+          import yaml
+
+          pinned, path = sys.argv[1], Path(sys.argv[2])
+          required = yaml.safe_load(path.read_text(encoding="utf-8")).get("quarto-required")
+          if not isinstance(required, str) or required != pinned:
+              sys.exit(
+                  f"Quarto pin differs: QUARTO_VERSION is {pinned!r} in .github/workflows/site.yml, "
+                  f"quarto-required is {required!r} in {path}. Change both together."
+              )
+          print(f"Quarto pin: {pinned} in .github/workflows/site.yml and {path}")
+          PY
       # Every run and sweep point of the config, in 4 worker processes (the
       # runner's vCPUs). A failed run exits 1 and fails the build.
       - name: Solve the explorer runs
