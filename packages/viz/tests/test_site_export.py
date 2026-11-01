@@ -944,6 +944,34 @@ def test_the_committed_thesis_fixture_matches_its_manifest() -> None:
             strict_json(THESIS_FIXTURE / entry["path"])
 
 
+def test_the_committed_thesis_fixture_has_no_per_site_split_of_joint_designs() -> None:
+    # Review finding F8 (MAR-216): the thesis runs have no allocation-rule
+    # rows, so only the individual scope has per-location numbers; the joint
+    # scopes' rows are null, never the solver's split of a joint design.
+    manifest = read_bundle(THESIS_FIXTURE)
+    assert manifest["map"]["allocations"] == []
+    sources = {
+        (r["scope_key"], r["kpi_level"], r["allocation"])
+        for r in manifest["map"]["runs"]
+    }
+    assert sources == {
+        ("individual", "entity", "none"),
+        ("cluster", None, None),
+        ("portfolio", None, None),
+    }
+    table = arrow(THESIS_FIXTURE / "baseline.map.arrow").to_pandas()
+    joint = table[table["scope"] != "individual"]
+    assert len(joint) == 54
+    assert joint["kpi_level"].isna().all()
+    assert joint["allocation"].isna().all()
+    numbers = ["expected_loss", "expected_payout", "expected_uncovered"]
+    assert joint[numbers].isna().all().all()
+    individual = table[table["scope"] == "individual"]
+    assert (individual["kpi_level"] == "entity").all()
+    assert (individual["allocation"] == "none").all()
+    assert individual["expected_payout"].notna().all()
+
+
 # -- the split filter (MAR-213) -------------------------------------------------------
 
 

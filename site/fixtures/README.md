@@ -21,7 +21,7 @@ From the repository root (about a minute: the runs are solved first):
 uv run parametric-insurance-design run parity/configs/thesis.yaml
 uv run parametric-insurance-design export-site parity/configs/thesis.yaml --no-sweeps \
     --out site/fixtures/thesis \
-    --label "thesis-fixture data: the thesis experiment (parity/configs/thesis.yaml) on the thesis parity event set, in-sample, event-conditional basis. A placeholder for the site skeleton, not a result to publish."
+    --label "thesis-fixture data: the thesis experiment (parity/configs/thesis.yaml) on the thesis parity event set, in-sample, event-conditional basis. A test fixture of the site bundle export, not a result to publish."
 ```
 
 For `thesis-explorer/` (about a minute; `sweep` runs the baseline and both sweeps):
