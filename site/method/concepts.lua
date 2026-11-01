@@ -13,8 +13,9 @@ the site without editing them:
   the file on GitHub, on main;
 - images under figures/ are embedded as data URIs, read from
   docs/concepts/figures/ at render time, so the site needs no copy of them;
-- tables are wrapped in a .table-scroll div, so wide ones scroll inside
-  their own box at phone width instead of widening the page.
+- tables and figures are wrapped in .table-scroll and .figure-scroll divs,
+  so at phone width they scroll inside their own box instead of widening the
+  page (site.scss).
 
 Any other relative link or image raises an error, so a new kind of link in the
 concept docs fails the build instead of breaking silently on the site.
@@ -95,6 +96,11 @@ end
 -- Wide tables scroll inside their own box at phone width (site.scss).
 function Table(el)
   return pandoc.Div({ el }, pandoc.Attr("", { "table-scroll" }))
+end
+
+-- So do the figures: at phone width they keep a legible size and scroll.
+function Figure(el)
+  return pandoc.Div({ el }, pandoc.Attr("", { "figure-scroll" }))
 end
 
 function Pandoc(doc)

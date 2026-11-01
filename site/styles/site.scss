@@ -82,12 +82,24 @@ main td code,
 main th code,
 main li code,
 main p code {
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 mjx-container[display="true"] {
   max-width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
+}
+// The concept figures are drawn for a desktop column. On phones they keep a
+// legible width and scroll sideways; the caption wraps to the column.
+@media (max-width: 575.98px) {
+  .figure-scroll {
+    overflow-x: auto;
+  }
+  .figure-scroll img.concept-figure {
+    width: 560px;
+    max-width: none;
+  }
 }
 .source-note {
   font-size: 0.875rem;

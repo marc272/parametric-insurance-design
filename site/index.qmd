@@ -1,7 +1,6 @@
 ---
 title: "Parametric insurance design"
 subtitle: "Two ideas for designing parametric payouts, a tail-risk objective and joint calibration across one owner's sites, and the open-source library that implements them"
-description: "The tail-risk objective, portfolio (joint) calibration, their combination, and the open-source Python library parametric_insurance_design."
 filters:
   - filters/inline-svg.lua
 ---

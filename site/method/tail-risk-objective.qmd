@@ -1,5 +1,5 @@
 ---
-description: "The weighted-CVaR objective α·CVaR_β(U) + (1 − α)·E[U] on the uncovered loss, as the library implements it."
+description: "The weighted-CVaR objective: the uncovered loss kept small on average and in the bad years, as the library implements it."
 ---
 
 {{< include ../../docs/concepts/tail-risk-objective.md >}}
