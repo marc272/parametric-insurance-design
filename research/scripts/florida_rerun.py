@@ -355,6 +355,12 @@ def _label(key: tuple[Any, ...]) -> str:
     return "|".join(f"{x:g}" if isinstance(x, float) else str(x) for x in key)
 
 
+def _cost_rank(config: ExperimentConfig) -> tuple[int, int]:
+    """Sort key: individual before portfolio before cluster, loads first."""
+    scope = {"individual": 0, "portfolio": 1}.get(config.scopes[0].kind, 2)
+    return (scope, 0 if config.pricing.kind != "pure" else 1)
+
+
 def solve_all(
     todo: dict[str, ExperimentConfig], store: ResultStore, jobs: int
 ) -> dict[str, float]:
@@ -375,6 +381,9 @@ def solve_all(
         Seconds per run (run id prefix).
     """
     missing = {rid: cfg for rid, cfg in todo.items() if not store.has_run(rid)}
+    # longest first (the individual scope solves 67 problems; the load makes
+    # them slower), so that the pool does not end on one long run
+    missing = dict(sorted(missing.items(), key=lambda kv: _cost_rank(kv[1])))
     print(f"{len(todo)} runs, {len(missing)} to solve", flush=True)
     seconds: dict[str, float] = {}
     if not missing:
@@ -386,6 +395,9 @@ def solve_all(
             rid = futs[fut]
             if manifest["run_id"] != rid:
                 raise RuntimeError(f"run id mismatch: {manifest['run_id']} != {rid}")
+            if store.has_run(rid):  # written meanwhile by another process
+                print(f"[solve] {rid[7:19]} already in the store", flush=True)
+                continue
             store.write_run(tables, manifest)
             seconds[rid[7:19]] = round(sec, 1)
             print(f"[solve {i}/{len(missing)}] {rid[7:19]} {sec:.0f}s", flush=True)
@@ -709,10 +721,7 @@ def run_combination(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str,
     tables = {n: pd.concat(f, ignore_index=True) for n, f in frames.items()}
     n_dec = comb._check_decomposition(tables["contrasts"])
     checks = {"combination_decompositions_checked": n_dec}
-    if (args.full / "rq1_paired.csv").exists() and (
-        args.full / "rq2_paired.csv"
-    ).exists():
-        checks.update(_check_combination(tables, args.full))
+    checks.update(_check_combination(tables, args.full))
     args.full.mkdir(parents=True, exist_ok=True)
     for name, table in tables.items():
         table.to_csv(
@@ -732,8 +741,29 @@ def _check_combination(tables: dict[str, pd.DataFrame], full: Path) -> dict[str,
     The three phases bootstrap the same designs on the same resample (the
     C1 resample of the holdout test years), so the combination's test KPIs
     must equal rq1's, its within-scope contrasts rq1's paired differences
-    and its within-design contrasts rq2's scope differences.
+    and its within-design contrasts rq2's scope differences. Each check runs
+    if that phase's full tables are in ``full``.
     """
+    out: dict[str, int] = {}
+    con = tables["contrasts"]
+    test = con.loc[(con["split"] == "test") & con["term_c"].eq("")].copy()
+    test[["scope_a", "design_a"]] = test["term_a"].str.split("/", expand=True)
+    test[["scope_b", "design_b"]] = test["term_b"].str.split("/", expand=True)
+    test = test.drop_duplicates(
+        ["eventset", "pricing", "kappa", "term_a", "term_b", "kpi", "eval_beta"]
+    )
+    tail_t = test["kpi"].isin(comb.TAIL_KPIS)
+    if (full / "rq2_paired.csv").exists():
+        rq2p = pd.read_csv(full / "rq2_paired.csv")
+        rq2p = rq2p.loc[rq2p["split"] == "test"]
+        cross = test.loc[test["design_a"] == test["design_b"]].copy()
+        cross["design"] = cross["design_a"]
+        k2 = ["eventset", "pricing", "kappa", "design", "scope_a", "scope_b", "kpi"]
+        out["combination_contrasts_equal_rq2"] = comb._merge_check(
+            cross, rq2p, k2, tail_t.loc[cross.index], "rq2 paired"
+        )
+    if not (full / "rq1_kpis.csv").exists():
+        return out
     grid = tables["grid"]
     rq1k = pd.read_csv(full / "rq1_kpis.csv")
     rq1k = rq1k.loc[(rq1k["source"] == "c1_bootstrap") & (rq1k["eval_split"] == "test")]
@@ -764,31 +794,16 @@ def _check_combination(tables: dict[str, pd.DataFrame], full: Path) -> dict[str,
         for column in ("value", "ci_low", "ci_high"):
             comb._close(merged[column], merged[f"{column}_rq1"], f"rq1 {column}")
         n_kpis += len(merged)
-    con = tables["contrasts"]
-    test = con.loc[(con["split"] == "test") & con["term_c"].eq("")].copy()
-    test[["scope_a", "design_a"]] = test["term_a"].str.split("/", expand=True)
-    test[["scope_b", "design_b"]] = test["term_b"].str.split("/", expand=True)
-    test = test.drop_duplicates(
-        ["eventset", "pricing", "kappa", "term_a", "term_b", "kpi", "eval_beta"]
-    )
-    tail = test["kpi"].isin(comb.TAIL_KPIS)
     rq1p = pd.read_csv(full / "rq1_paired.csv")
     rq1p = rq1p.loc[rq1p["eval_split"] == "test"]
     same = test.loc[test["scope_a"] == test["scope_b"]].copy()
     same["scope"] = same["scope_a"]
     k1 = ["eventset", "pricing", "kappa", "scope", "design_a", "design_b", "kpi"]
-    n_rq1 = comb._merge_check(same, rq1p, k1, tail.loc[same.index], "rq1 paired")
-    rq2p = pd.read_csv(full / "rq2_paired.csv")
-    rq2p = rq2p.loc[rq2p["split"] == "test"]
-    cross = test.loc[test["design_a"] == test["design_b"]].copy()
-    cross["design"] = cross["design_a"]
-    k2 = ["eventset", "pricing", "kappa", "design", "scope_a", "scope_b", "kpi"]
-    n_rq2 = comb._merge_check(cross, rq2p, k2, tail.loc[cross.index], "rq2 paired")
-    return {
-        "combination_kpi_rows_equal_rq1": n_kpis,
-        "combination_contrasts_equal_rq1": n_rq1,
-        "combination_contrasts_equal_rq2": n_rq2,
-    }
+    out["combination_contrasts_equal_rq1"] = comb._merge_check(
+        same, rq1p, k1, tail_t.loc[same.index], "rq1 paired"
+    )
+    out["combination_kpi_rows_equal_rq1"] = n_kpis
+    return out
 
 
 # --------------------------------------------------------------------------
