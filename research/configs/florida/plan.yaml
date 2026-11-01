@@ -1,0 +1,51 @@
+# The Florida rerun plan (MAR-202, C1-F1): the C1 main line (research/
+# checkpoints/C1.md sections 2, 6b.1; research/notes/c1-combination.md
+# section 2) on the D2 paper portfolio, both indices. Read by
+# research/scripts/florida_rerun.py, which derives every single run from the
+# base config of an index by setting the pricing, kappa, one scope and one
+# objective (and, for k-fold, the sample). Every run's config hash is in
+# research/data/florida-rerun/runs.csv.
+#
+# Mirrors C1's main line except: pricing r 0.10 and the weighted-CVaR betas
+# 0.95, 0.97, 0.98 are left out (MAR-202 scope: pure and r 0.06; beta 0.99
+# and 0.995), and the base configs differ from c1_main.yaml as their headers
+# say (EventSet, no noise layer, below_attachment zero).
+issue: MAR-202
+indices:
+  a:
+    config: florida_main.yaml
+    label: wind at the county centroid (m/s), 15 bins on [20, 70], threshold 20 m/s
+  cic75:
+    config: florida_cic75.yaml
+    label: cat-in-a-circle 75 km (category 0-5), one bin per category, no threshold
+pricings:
+  pure: {kind: pure}
+  coc_r0.06: {kind: cost_of_capital, rate: 0.06, q: 0.99}
+kappas: [0.5, 1.0, 1.5]
+scopes: [individual, cluster, portfolio]
+designs:
+  mse: {kind: mse}
+  eu: {kind: expected_uncovered}
+  wcvar@0.99: {kind: weighted_cvar, alpha: 0.9, beta: 0.99}
+  wcvar@0.995: {kind: weighted_cvar, alpha: 0.9, beta: 0.995}
+eval_betas: [0.95, 0.99, 0.995]
+holdout:
+  train_fraction: 0.7
+kfold:
+  k: 5
+  kappas: [1.0]
+  pricings: [pure, coc_r0.06]
+  # pooled_difference keys a design by objective name, so the two
+  # weighted-CVaR betas go into separate experiment configs (as MAR-158)
+  objective_sets:
+    a: [mse, eu, wcvar@0.99]
+    b: [wcvar@0.995]
+derived:
+  # C1 section 6b.6: the cluster scope's clusters and index, each cluster
+  # calibrated on its own (index part vs joint part). MAR-180 is not merged.
+  cluster_separate: true
+  # C1 section 6b.5: under a load, the portfolio design budgeted at the
+  # aggregate premium P(sum of the individual payouts) of the individual
+  # design, so that portfolio - individual = cross-coverage (portfolio_matched
+  # - individual) + pricing diversification (portfolio - portfolio_matched).
+  portfolio_matched_pricings: [coc_r0.06]
