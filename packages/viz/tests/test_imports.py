@@ -36,6 +36,7 @@ FORBIDDEN_MODULES = (
     "cvxpy",
     "parametric_insurance_design.problem",
     "parametric_insurance_design.solve",
+    "parametric_insurance_design.workflow",
     "parametric_insurance_design.experiment.runner",
     "parametric_insurance_design.experiment.sweeps",
     "parametric_insurance_design.cli",
@@ -43,10 +44,18 @@ FORBIDDEN_MODULES = (
     "parametric_insurance_design_climada",
 )
 FORBIDDEN_NAMES = {  # `from <package> import <name>` forms
-    "parametric_insurance_design": {"problem", "solve", "cli"},
+    "parametric_insurance_design": {"problem", "solve", "cli", "design", "workflow"},
     "parametric_insurance_design.experiment": {"runner", "sweeps"},
 }
-FORBIDDEN_ATTRIBUTES = {"problem", "solve", "runner", "sweeps", "build_problems"}
+FORBIDDEN_ATTRIBUTES = {
+    "problem",
+    "solve",
+    "runner",
+    "sweeps",
+    "build_problems",
+    "design",
+    "workflow",
+}
 IMPORT_FUNCTIONS = frozenset({"import_module", "__import__"})
 """Function names of the dynamic-import routes, called as ``x.<name>(...)``."""
 
@@ -124,6 +133,10 @@ def test_no_viz_module_imports_the_solver_or_builder(path: Path) -> None:
         "from parametric_insurance_design.experiment import sweeps",
         "import parametric_insurance_design_crc",
         "import parametric_insurance_design as pid\npid.solve.solve(x)",
+        "import parametric_insurance_design as pid\npid.design(x)",
+        "import parametric_insurance_design as pid\npid.workflow.design(x)",
+        "from parametric_insurance_design import design",
+        "from parametric_insurance_design.workflow import design",
         "importlib.import_module('parametric_insurance_design.solve')",
         "__import__('cvxpy')",
         "from importlib import import_module\n"
