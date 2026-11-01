@@ -151,11 +151,13 @@ def load_plan(path: Path = PLAN) -> dict[str, Any]:
     Returns
     -------
     dict
-        The plan, with ``kappas`` as floats.
+        The plan, with ``kappas`` as floats and ``_dir``, the directory the
+        base config paths are relative to.
     """
     plan = yaml.safe_load(path.read_text())
     plan["kappas"] = [float(k) for k in plan["kappas"]]
     plan["kfold"]["kappas"] = [float(k) for k in plan["kfold"]["kappas"]]
+    plan["_dir"] = str(path.resolve().parent)
     return plan
 
 
@@ -174,7 +176,7 @@ def base_config(plan: dict[str, Any], index: str) -> dict[str, Any]:
     dict
         ``ExperimentConfig.model_dump(mode="json")`` of the base config.
     """
-    cfg = load_config(PLAN.parent / plan["indices"][index]["config"])
+    cfg = load_config(Path(plan["_dir"]) / plan["indices"][index]["config"])
     data = cfg.model_dump(mode="json")
     data["output"] = {"directory": str(STORE)}
     return data
@@ -826,7 +828,10 @@ def run_kfold(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any]:
     fold_rows: list[pd.DataFrame] = []
     n_native = 0
     for index in plan["indices"]:
-        first = next(c for (i, *_), c in configs.items() if i == index)
+        mine = [c for (i, *_), c in configs.items() if i == index]
+        if not mine:
+            continue
+        first = mine[0]
         prepared = c1._prepared(first)
         measure = outcome_measure(
             prepared, Basis.ANNUAL, years=Sample.full(prepared).years
@@ -1276,7 +1281,7 @@ def run_guard(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any]:
     store = ResultStore(args.store)
     samples: list[dict[str, Any]] = []
     for index in plan["indices"]:
-        cfg = load_config(PLAN.parent / plan["indices"][index]["config"])
+        cfg = load_config(Path(plan["_dir"]) / plan["indices"][index]["config"])
         raw = c1._input(cfg).eventset
         prepared = c1._prepared(cfg)
         cluster = next(s for s in cfg.scopes if s.kind == "cluster")
@@ -1372,9 +1377,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--phases", nargs="+", default=list(PHASES), choices=PHASES)
     parser.add_argument("--store", type=Path, default=STORE)
     parser.add_argument("--full", type=Path, default=FULL_DIR)
+    parser.add_argument("--plan", type=Path, default=PLAN, help="plan YAML")
     parser.add_argument("--plan-only", action="store_true", help="print counts")
     args = parser.parse_args(argv)
-    plan = load_plan()
+    plan = load_plan(args.plan)
     if args.plan_only:
         runs = holdout_runs(plan)
         n_kfold = sum(len(c.single_runs()) for c in kfold_configs(plan).values())
@@ -1382,7 +1388,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     common: dict[str, Any] = {
         "issue": "MAR-202",
-        "plan": str(PLAN.relative_to(REPO_ROOT)),
+        "plan": str(args.plan.resolve().relative_to(REPO_ROOT)),
         "package_versions": package_versions(),
         "solver_policy": "DEFAULT_POLICY",
     }
