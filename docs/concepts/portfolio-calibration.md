@@ -150,6 +150,8 @@ So the per-entity results of a joint design show one member of a set of optimal 
 
 The rows then depend on the problem's total payout only, not on the solver's split, and their `level` names the rule (`location_by_value`, `location_by_loss`). The thesis allocates a cluster's payout to its assets by value weight within the cluster (eq. (3.23)). The `"value"` rule allocates over the whole design problem instead, because the split across clusters isn't unique either. The rules, their properties and their limits are in [allocating a joint payout to assets](../methodology/payout-allocation.md).
 
+**Per-asset payout functions have no such rule.** The payout-function figures of a joint design (`payout_grid`, `normalised_payout` in the viz package) carry a caption saying that they show one of several optimal designs, and `joint_entities="refuse"` makes them raise instead. An external output (website, posts, examples) shows a joint design's per-entity payout functions only with that caption, and reads its results at the portfolio level.
+
 ## Code map
 
 All modules are in `packages/core/src/parametric_insurance_design/`. After `import parametric_insurance_design as pid`, the components of both stories are top-level names (`pid.WeightedCVaR`, `pid.Portfolio`, …), and everything else is reached through its module, as `pid.<module>`. `pid.design(...)` builds and solves every design problem of a scope in one call.
