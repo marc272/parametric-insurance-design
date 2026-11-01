@@ -66,6 +66,16 @@ No silent failures
     ``ci_level`` and ``n_bootstrap`` are set on every row of a bootstrapped
     table, so a null bound next to them means "bootstrapped, undefined", not
     "not bootstrapped". A KPI that this module cannot replicate raises.
+
+Per-location rows (MAR-217)
+    :func:`bootstrap_kpis` takes ``evaluate``'s ``allocation`` rule. Under
+    ``"value"`` or ``"loss"`` its table has the per-location rows of
+    ``evaluate.kpis`` with intervals, checked against ``evaluate.kpis`` like
+    every other row. :func:`paired_difference` pairs them like any row of
+    two designs of the same scope (the level, rule included, and the
+    ``location_id`` are in :data:`PAIR_KEY`), and refuses an unpaired row,
+    e.g. a design bootstrapped under another rule. With
+    ``across_scopes=True`` it refuses them, as every non-portfolio row.
 """
 
 from __future__ import annotations
@@ -86,7 +96,12 @@ from parametric_insurance_design.basis import (
     OutcomeMeasure,
 )
 from parametric_insurance_design.errors import ComponentConfigError, InputMismatchError
-from parametric_insurance_design.evaluate import KpiSubject, evaluate_results, kpis
+from parametric_insurance_design.evaluate import (
+    Allocation,
+    KpiSubject,
+    evaluate_results,
+    kpis,
+)
 from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.interfaces import Pricing, Sample, Scope, SolveResult
 from parametric_insurance_design.records import KPIS, KpiLevel, KpiName
@@ -824,6 +839,7 @@ def bootstrap_kpis(
     sample: Sample | None = None,
     pricing: Pricing | None = None,
     level: float = DEFAULT_LEVEL,
+    allocation: Allocation | str = Allocation.NONE,
 ) -> KpiBootstrap:
     """KPIs with block-bootstrap confidence intervals over years.
 
@@ -834,8 +850,15 @@ def bootstrap_kpis(
 
     Parameters
     ----------
-    eventset, scope, results, basis, beta, run_id, sample, pricing
-        As in :func:`~parametric_insurance_design.evaluate.kpis`.
+    eventset, scope, results, basis, beta, run_id, sample, pricing, allocation
+        As in :func:`~parametric_insurance_design.evaluate.kpis`. Under an
+        ``allocation`` rule other than ``"none"`` (MAR-217) the table has the
+        per-location rows of ``evaluate.kpis`` (``level =
+        "location_by_value"`` or ``"location_by_loss"``), and they get
+        intervals like every other row: each location's loss and allocated
+        payout are fixed per row, so a replicate reweights them as it
+        reweights the other subjects. Under ``"none"`` (the default) the
+        table, the replicates and the intervals are exactly as before.
     resample : YearResample
         Replicates of the evaluation sample's years: ``resample.years`` must
         equal ``sample.years`` (all years for the full sample). Reuse one
@@ -871,8 +894,11 @@ def bootstrap_kpis(
         run_id=run_id,
         sample=sample,
         pricing=pricing,
+        allocation=allocation,
     )
-    ev = evaluate_results(eventset, scope, results, basis=basis, sample=sample)
+    ev = evaluate_results(
+        eventset, scope, results, basis=basis, sample=sample, allocation=allocation
+    )
     if not np.array_equal(resample.years, ev.sample.years):
         raise BootstrapError(
             f"the resample covers {resample.n_years} years "

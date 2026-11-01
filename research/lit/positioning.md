@@ -1,8 +1,8 @@
 # Positioning: what the paper claims, and why each claim is new
 
-**Status: agreed with the owner, 2026-10-25 (MAR-28, MAR-84).** Prepared for [MAR-28](https://linear.app/marc-prinzing/issue/MAR-28/p-09-literature-review-and-positioning); Marc Prinzing's answers on [MAR-28](https://linear.app/marc-prinzing/issue/MAR-28/p-09-literature-review-and-positioning) and [MAR-84](https://linear.app/marc-prinzing/issue/MAR-84) are applied here. Evidence is in [`claims-vs-prior-work.md`](claims-vs-prior-work.md), [`notes.md`](notes.md) and [`references.bib`](references.bib).
+**Status: agreed with the owner, 2026-10-25 (MAR-28, MAR-84).** Prepared for MAR-28; Marc Prinzing's answers on MAR-28 and MAR-84 are applied here. Evidence is in [`claims-vs-prior-work.md`](claims-vs-prior-work.md), [`notes.md`](notes.md) and [`references.bib`](references.bib).
 
-**Scope of the claims.** The claims below describe what the method *does*. They say nothing about whether tail optimisation performs better than MSE or expected-uncovered-loss designs. Checkpoint C1 ([MAR-29](https://linear.app/marc-prinzing/issue/MAR-29)) answers that question.
+**Scope of the claims.** The claims below describe what the method *does*. They say nothing about whether tail optimisation performs better than MSE or expected-uncovered-loss designs. Checkpoint C1 (MAR-29) answers that question.
 
 **Setting.** A single risk owner (a corporate, municipal or sovereign body) holds several assets exposed to tropical cyclones. Each asset or cluster gets a monotone, capped step payout driven by its own index. The payouts are calibrated on catastrophe-model event sets under one premium budget. The objective is α·CVaR_β(U) + (1−α)·E[U], where U = (L − π)⁺ is the uncovered loss. The Rockafellar–Uryasev reformulation makes the problem a linear program (SPEC §6).
 

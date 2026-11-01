@@ -1,6 +1,6 @@
 # F-11: the thesis baseline under pure and cost-of-capital pricing
 
-- Issue: [MAR-27](https://linear.app/marc-prinzing/issue/MAR-27/f-11-cost-of-capital-loaded-pricing) (F-11, SPEC §6.4, thesis issue M4). Written by a worker agent on 2026-10-28.
+- Issue: MAR-27 (F-11, SPEC §6.4, thesis issue M4). Written by a worker agent on 2026-10-28.
 - Status: **observations only.** No interpretation. That belongs to checkpoint C1 (MAR-29).
 - Method: `docs/methodology/pricing.md`. Script: `research/scripts/loaded_pricing_sweep.py`. Tables in `research/data/mar27-loaded-pricing/`: `headline.csv` (portfolio-level KPIs, one row per run, with config hash and run id) and `problem_premiums.csv` (premium and budget use per design problem) for the thesis basis, `event_conditional`; `headline_annual.csv` and `problem_premiums_annual.csv` for the annual basis (MAR-24, section at the end).
 
