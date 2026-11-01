@@ -1,6 +1,6 @@
 # site/
 
-The project website: interactive explorers of the payout design, and the posts. Today it has a home page, the payout and exceedance explorer (MAR-54) and an empty post listing with an RSS feed.
+The project website: interactive explorers of the payout design, and the posts. Today it has a home page with the two ideas and their combination, the method pages and an about page (MAR-166), the payout and exceedance explorer (MAR-54) and an empty post listing with an RSS feed.
 
 - The stack is decided: Quarto with Observable JS (OJS), deployed to GitHub Pages ([ADR 0003](../docs/adr/0003-website-stack.md)). The site is https://marc272.github.io/parametric-insurance-design/.
 - The site reads bundles exported from the result store and never runs an optimisation itself ([`docs/SPEC.md`](../docs/SPEC.md) §4). The pages read the explorer bundle, which the Site workflow solves and exports on every build (see "Bundles" below). The committed bundles under [`fixtures/`](fixtures/README.md) are test fixtures and are not part of the site.
@@ -14,11 +14,14 @@ The repository's [README](../README.md) has the project's status.
 | Path | What it is |
 |---|---|
 | `_quarto.yml` | The Quarto project: website, navbar, light and dark themes (`flatly`, `darkly`), and the pinned Quarto version (`quarto-required`). It copies no bundle into the site |
-| `index.qmd` | Home page |
+| `index.qmd` | Home page: the tail-risk objective, portfolio (joint) calibration, their combination and the library, one section each, with a schematic from `figures/` |
+| `method/*.qmd` | The method pages. Each one includes a concept doc from [`docs/concepts/`](../docs/concepts/README.md) with `{{< include >}}`, so the site never copies their text. `method/concepts.lua` (set for the folder in `method/_metadata.yml`) adapts the GitHub-flavoured files: the first heading becomes the title, links between the concept docs go to the site pages, links to other docs go to GitHub, figures are embedded from `docs/concepts/figures/`, and wide tables and figures scroll on phones. An unknown relative link fails the build |
+| `about.qmd` | About: the project, the thesis (title and institution), how the numbers are reported, the licences |
+| `figures/*.svg`, `filters/inline-svg.lua` | The home page's schematics (no data), drawn in `currentColor` and inlined by the filter, so they follow the light and the dark theme |
 | `explorers/alpha-beta.qmd` | The payout and exceedance explorer (MAR-54) on the explorer bundle: the objective, and α, β, the budget loading κ or the number of bins → the step payout of one site, the payout relative to the MSE design and the out-of-sample exceedance curves, with the setup of every number read from the bundle's manifest |
 | `explorers/explorer.css` | The explorer's layout: the controls column, captions and setup notes |
 | `blog/index.qmd` | The post listing and its RSS feed (`blog/index.xml`). Posts go under `blog/posts/` |
-| `styles/site.scss` | Small additions to both themes: chart backgrounds, phone-width inputs, the setup table |
+| `styles/site.scss` | Small additions to both themes: chart backgrounds, phone-width inputs, the setup table, the schematics, and scrolling tables and figures on the method pages |
 | `fixtures/` | Committed test bundles of the site export (`thesis/`, `thesis-explorer/`) and the config of `thesis-explorer/`, checked by `packages/viz/tests/test_site_export.py`; not part of the site ([`fixtures/README.md`](fixtures/README.md)) |
 | `configs/explorer.yaml` | The config of the explorer bundle that the Site workflow solves and exports on every build (MAR-208; "Bundles" below) |
 

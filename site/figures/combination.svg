@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 212" role="img" aria-labelledby="sch-comb-title sch-comb-desc" class="schematic-svg">
+<title id="sch-comb-title">Schematic: the objective and the scope are two separate choices</title>
+<desc id="sch-comb-desc">A two-by-two grid. Columns: the scope, each site on its own or jointly. Rows: the objective, E[U] or MSE, or the weighted CVaR. The cells are: neither idea; joint calibration alone; the tail objective alone; and, highlighted, the combination, a weighted-CVaR objective calibrated jointly. Schematic, not data.</desc>
+<g fill="currentColor" font-family="inherit" font-size="13">
+  <text x="396" y="14" text-anchor="end" font-size="11" font-style="italic">Schematic, not data</text>
+  <text x="194" y="40" text-anchor="middle" font-weight="600">each site</text>
+  <text x="194" y="56" text-anchor="middle" font-weight="600">on its own</text>
+  <text x="330" y="56" text-anchor="middle" font-weight="600">jointly</text>
+  <text x="116" y="98" text-anchor="end" font-weight="600">E[U] or MSE</text>
+  <text x="116" y="168" text-anchor="end" font-weight="600">weighted</text>
+  <text x="116" y="184" text-anchor="end" font-weight="600">CVaR</text>
+  <text x="4" y="40" font-size="11" font-style="italic">objective ↓</text>
+  <text x="4" y="56" font-size="11" font-style="italic">scope →</text>
+</g>
+<g fill="none" stroke="currentColor" stroke-width="1.2">
+  <rect x="126" y="64" width="136" height="64" rx="6"/>
+  <rect x="266" y="64" width="128" height="64" rx="6"/>
+  <rect x="126" y="134" width="136" height="64" rx="6"/>
+</g>
+<rect x="266" y="134" width="128" height="64" rx="6" fill="#3b82f6" fill-opacity="0.18" stroke="#3b82f6" stroke-width="2"/>
+<g fill="currentColor" font-family="inherit" font-size="13" text-anchor="middle">
+  <text x="194" y="101">neither idea</text>
+  <text x="330" y="94">joint</text>
+  <text x="330" y="110">calibration</text>
+  <text x="194" y="164">tail-risk</text>
+  <text x="194" y="180">objective</text>
+  <text x="330" y="164" font-weight="600">the</text>
+  <text x="330" y="180" font-weight="600">combination</text>
+</g>
+</svg>

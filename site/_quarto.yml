@@ -12,8 +12,10 @@ project:
   # docs, not site pages.
   render:
     - index.qmd
+    - method/*.qmd
     - explorers/*.qmd
     - blog/index.qmd
+    - about.qmd
   # No resources: the committed bundles under fixtures/ are test fixtures
   # (thesis-fixture data, in sample) and stay out of the site (MAR-210). The
   # pages read the explorer bundle, which the Site workflow exports into
@@ -32,12 +34,24 @@ website:
     left:
       - href: index.qmd
         text: Home
+      - text: Method
+        menu:
+          - href: method/index.qmd
+            text: Overview and glossary
+          - href: method/tail-risk-objective.qmd
+            text: The tail-risk objective
+          - href: method/portfolio-calibration.qmd
+            text: Portfolio calibration
+          - href: method/combination.qmd
+            text: Combining the two ideas
       - text: Explorers
         menu:
           - href: explorers/alpha-beta.qmd
             text: "Payout and exceedance explorer"
       - href: blog/index.qmd
         text: Posts
+      - href: about.qmd
+        text: About
     tools:
       - icon: github
         href: https://github.com/marc272/parametric-insurance-design

@@ -1,0 +1,11 @@
+---
+description: "The weighted-CVaR objective on the owner's total uncovered loss, in one joint design problem, and which view fits which owner."
+---
+
+{{< include ../../docs/concepts/combination.md >}}
+
+---
+
+::: {.source-note}
+This page is the repository's [`docs/concepts/combination.md`](https://github.com/marc272/parametric-insurance-design/blob/main/docs/concepts/combination.md), rendered for the site.
+:::
