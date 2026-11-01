@@ -72,6 +72,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import time
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -118,8 +119,14 @@ OUT_DIR: Final[Path] = REPO_ROOT / "research" / "data" / "individual-nonuniquene
 FULL_DIR: Final[Path] = REPO_ROOT / "results" / "mar198"
 FIXTURE: Final[Path] = REPO_ROOT / "parity" / "tests" / "data" / "thesis_eventset"
 
-RANGE_REL_TOL: Final[float] = rq2.RANGE_REL_TOL
-"""Near-optimal set of asset i: objective_i <= optimum_i + tol * |optimum_i|."""
+RANGE_REL_TOL: Final[float] = float(
+    os.environ.get("MAR198_REL_TOL", str(rq2.RANGE_REL_TOL))
+)
+"""Near-optimal set of asset i: objective_i <= optimum_i + tol * |optimum_i|.
+
+C1 T11's 1e-5 by default; the environment variable ``MAR198_REL_TOL`` sets
+another one for the tolerance sensitivity (read at import, so that the
+spawned workers see it too)."""
 PRICINGS: Final[tuple[str, ...]] = ("pure", "coc_r0.06")
 DESIGNS: Final[tuple[str, ...]] = rq2.DESIGNS
 EVAL_BETAS: Final[tuple[float, ...]] = c1.ANNUAL_EVAL_BETAS
@@ -131,20 +138,25 @@ KPIS: Final[tuple[tuple[str, float | None], ...]] = (
 )
 """The portfolio KPIs whose range is measured (``kpi``, KPI beta)."""
 SPLITS: Final[tuple[str, ...]] = ("train", "test")
-SOLVERS: Final[tuple[str, ...]] = ("CLARABEL", "HIGHS")
-"""Range programs: CLARABEL (as C1 T11), then HiGHS if CLARABEL is not
-``optimal`` (LPs only: HiGHS takes no quadratic constraint, so MSE designs
-stay with CLARABEL). If neither is ``optimal``, CLARABEL's last iterate is
-kept with its status: every design found is checked against the
-near-optimal set and evaluated with the library, so an inaccurate end is
-still a member of the set (an inner point of the range), reported with its
-status."""
+SOLVER: Final[str] = "CLARABEL"
+"""Range programs: CLARABEL (as C1 T11), with :data:`MAX_ITER` iterations if
+the default limit ends short of ``optimal``. Not HiGHS: on the joint
+programs it reported ``optimal`` for points far from the optimum (the stored
+design gave a smaller value), so it is not used. A program that ends short
+of ``optimal`` keeps CLARABEL's last iterate, repaired onto the set by
+:meth:`AssetSet.admit`, and its status: every design is checked against the
+near-optimal set and evaluated with the library, so such an end is a member
+of the set (an inner point of the range), reported with its status."""
+MAX_ITER: Final[int] = 2000
+"""CLARABEL iteration limit of the second attempt (default 200)."""
 MAX_STEPS: Final[int] = 25
 """Successive-linearisation steps per start, at most."""
 STEP_RTOL: Final[float] = 1e-9
 """A step that raises the KPI by less than this (relative) ends a start."""
 OBJ_CHECK_RTOL: Final[float] = 1e-6
 """A design is accepted as near-optimal if objective_i <= bound_i (1 + this)."""
+PROJECT_MARGIN: Final[float] = 1e-6
+"""Budget margin of the projection that repairs an infeasible iterate."""
 MAR165_TRAIN_EU: Final[dict[str, float]] = {"filter": 5330.25, "no_filter": 5282.66}
 """MAR-165's portfolio train E[U] of the individual E[U] designs (USD)."""
 
@@ -242,27 +254,31 @@ def validation_groups() -> list[Group]:
 
 
 def solve_range(prob: cp.Problem) -> str:
-    """Solve a range program (:data:`SOLVERS`); return ``status/solver``."""
-    for solver in SOLVERS:
-        # clear the last iterate: cvxpy's piecewise-linear canonicalisation
-        # (HiGHS path) copies variable values and refuses out-of-bound ones
-        for v in prob.variables():
-            v.value = None
-        try:
-            prob.solve(solver=solver)
-        except cp.error.SolverError:
-            continue
-        if prob.status == "optimal":
-            return f"optimal/{solver}"
-    for v in prob.variables():
-        v.value = None
-    prob.solve(solver=SOLVERS[0])
-    return f"{prob.status}/{SOLVERS[0]}"
+    """Solve a range program (:data:`SOLVER`); return its status.
+
+    ``"optimal"``, or the status after the second attempt with
+    :data:`MAX_ITER` iterations, suffixed ``"/long"`` when that attempt was
+    made.
+    """
+    prob.solve(solver=SOLVER)
+    if prob.status == "optimal":
+        return "optimal"
+    prob.solve(solver=SOLVER, max_iter=MAX_ITER)
+    return f"{prob.status}/long"
+
+
+def in_set(check: dict[str, float]) -> bool:
+    """Whether an :meth:`AssetSet.check` result is inside the near-optimal set."""
+    return (
+        check["objective_excess"] <= RANGE_REL_TOL + OBJ_CHECK_RTOL
+        and check["budget_excess"] <= OBJ_CHECK_RTOL
+        and check["structure_violation"] <= OBJ_CHECK_RTOL
+    )
 
 
 def is_optimal(status: str) -> bool:
     """Whether a :func:`solve_range` status is ``optimal``."""
-    return status.split("/")[0] == "optimal"
+    return status.split("/")[0].split(" ")[0] == "optimal"
 
 
 # --------------------------------------------------------------------------
@@ -280,8 +296,9 @@ class AssetSet:
         optimum).
     """
 
-    def __init__(self, built: BuiltProblem) -> None:
+    def __init__(self, built: BuiltProblem, cfg: ExperimentConfig) -> None:
         self.built = built
+        self.cfg = cfg
         self.ctx: ProblemContext = built.context
         self.optimum = float(np.asarray(built.objective.expression.value))
         self.bound = self.optimum + RANGE_REL_TOL * abs(self.optimum)
@@ -293,6 +310,24 @@ class AssetSet:
         self.cost = cp.Parameter(n, name="cost")
         theta = self.ctx.theta[0]
         self.lp = cp.Problem(cp.Minimize(self.cost @ theta), self.constraints)
+        # projection onto the set with a margin (repairs a solver's slightly
+        # infeasible iterate): the set's own bound (the check allows
+        # OBJ_CHECK_RTOL above it), the budget PROJECT_MARGIN inside
+        (budget,) = cfg.to_components().constraints
+        limit = budget.loading * self.ctx.expected_loss  # type: ignore[attr-defined]
+        self.target = cp.Parameter(n, name="target")
+        gap = cp.Variable(name="gap")
+        self.projection = cp.Problem(
+            cp.Minimize(gap),
+            [
+                *built.problem.constraints,
+                built.objective.expression
+                <= self.optimum + RANGE_REL_TOL * abs(self.optimum),
+                built.premium.expression <= (1.0 - PROJECT_MARGIN) * limit,
+                theta - self.target <= gap,
+                self.target - theta <= gap,
+            ],
+        )
 
     @property
     def scale(self) -> float:
@@ -317,6 +352,30 @@ class AssetSet:
         if self.ctx.theta.value is None:
             return np.full(self.cost.shape, math.nan), status
         return np.asarray(self.ctx.theta.value)[0] * self.scale, status
+
+    def admit(self, theta_loss: np.ndarray) -> tuple[np.ndarray, str]:
+        """Return a design in the set: as given, projected, or NaN.
+
+        Returns
+        -------
+        theta : numpy.ndarray
+            ``theta_loss`` if it passes :meth:`check`; else its projection
+            onto the set (with a margin) if that passes; else NaN.
+        note : str
+            ``""``, ``"projected"`` or ``"outside_set"``.
+        """
+        theta = np.asarray(theta_loss, dtype=np.float64)
+        if not np.all(np.isfinite(theta)):
+            return theta, "outside_set"
+        if in_set(self.check(theta, self.cfg)):
+            return theta, ""
+        self.target.value = theta / self.scale
+        solve_range(self.projection)
+        if self.ctx.theta.value is not None:
+            proj = np.asarray(self.ctx.theta.value)[0] * self.scale
+            if in_set(self.check(proj, self.cfg)):
+                return proj, "projected"
+        return np.full_like(theta, math.nan), "outside_set"
 
     def check(self, theta_loss: np.ndarray, cfg: ExperimentConfig) -> dict[str, float]:
         """Is a design (loss units) in the near-optimal set? Recomputed in numpy.
@@ -454,13 +513,19 @@ def split_data(
 
 
 def joint_minimum(
-    sets: Sequence[AssetSet], sd: SplitData, kpi: str, beta: float | None
+    sets: Sequence[AssetSet],
+    sd: SplitData,
+    kpi: str,
+    beta: float | None,
+    reference: float,
 ) -> tuple[list[np.ndarray], str]:
     """Smallest portfolio KPI over the product of the near-optimal sets.
 
     One convex program: the 9 assets' near-optimal constraints, and the
     portfolio KPI of the summed payout on the split's rows (E[U], or CVaR in
-    the Rockafellar-Uryasev form), scaled by the largest portfolio row loss.
+    the Rockafellar-Uryasev form), divided by ``reference`` (the stored
+    design's KPI) so that the objective is of order one. Each asset's part of
+    the solution is then admitted to its set (:meth:`AssetSet.admit`).
     """
     norm = float(max(sd.loss.max(initial=0.0), 1.0))
     payout = sum(
@@ -474,12 +539,21 @@ def joint_minimum(
         goal: cp.Expression = p @ u
     else:
         goal = rockafellar_uryasev(u, p, beta)[0]
+    factor = norm / reference if reference > 0 else 1.0
     cons = [c for s in sets for c in s.constraints]
-    prob = cp.Problem(cp.Minimize(goal), cons)
+    prob = cp.Problem(cp.Minimize(goal * factor), cons)
     status = solve_range(prob)
     if any(s.ctx.theta.value is None for s in sets):
         return [np.full(s.cost.shape, math.nan) for s in sets], status
-    return [np.asarray(s.ctx.theta.value)[0] * s.scale for s in sets], status
+    raw = [np.asarray(s.ctx.theta.value)[0] * s.scale for s in sets]
+    out: list[np.ndarray] = []
+    notes: set[str] = set()
+    for s, t in zip(sets, raw, strict=True):
+        theta, note = s.admit(t)
+        out.append(theta)
+        if note:
+            notes.add(note)
+    return out, status + "".join(f" {n}" for n in sorted(notes))
 
 
 def linearised_maximum(
@@ -504,22 +578,26 @@ def linearised_maximum(
     """
     current = [np.asarray(t, dtype=np.float64) for t in start]
     value = sd.value(current, kpi, beta)
+    notes: set[str] = set()
     for step in range(1, MAX_STEPS + 1):
         w = sd.weights(current, kpi, beta)
         nxt: list[np.ndarray] = []
         for s, b in zip(sets, sd.basis, strict=True):
             cost = (b.T @ w) * s.scale
             theta, status = s.minimise(cost)
-            if not is_optimal(status):
-                return current, value, step, status
+            theta, note = s.admit(theta)
+            if note == "outside_set":
+                return current, value, step, f"{status} {note}"
+            if not is_optimal(status) or note:
+                notes.add(f"{status} {note}".strip())
             nxt.append(theta)
         new = sd.value(nxt, kpi, beta)
         if new <= value * (1.0 + STEP_RTOL) + 1e-9:
             if new > value:
                 current, value = nxt, new
-            return current, value, step, "optimal"
+            return current, value, step, ";".join(["optimal", *sorted(notes)])
         current, value = nxt, new
-    return current, value, MAX_STEPS, "optimal (step limit)"
+    return current, value, MAX_STEPS, ";".join(["step limit", *sorted(notes)])
 
 
 # --------------------------------------------------------------------------
@@ -602,7 +680,7 @@ def range_worker(group: Group, store_root: str | None) -> dict[str, Any]:
                 f"re-solved objective {r.objective_value!r} != stored "
                 f"{s.objective_value!r}"
             )
-    sets = [AssetSet(b) for b in built]
+    sets = [AssetSet(b, cfg) for b in built]
     sd = {
         "train": split_data(prepared, train, cfg, built),
         "test": split_data(prepared, test, cfg, built),
@@ -671,7 +749,8 @@ def range_worker(group: Group, store_root: str | None) -> dict[str, Any]:
         d = sd[split]
         for kpi, beta in KPIS:
             lab = f"{split}|{kpi_label(kpi, beta)}"
-            thetas, status = joint_minimum(sets, d, kpi, beta)
+            ref = d.value(cand["stored"], kpi, beta)
+            thetas, status = joint_minimum(sets, d, kpi, beta, ref)
             cand[f"min|{lab}"] = thetas
             statuses[f"min|{lab}"] = status
             best: tuple[float, list[np.ndarray], int, str] | None = None
@@ -695,12 +774,11 @@ def range_worker(group: Group, store_root: str | None) -> dict[str, Any]:
             continue
         per = [s.check(t, cfg) for s, t in zip(sets, th, strict=True)]
         checks[name] = {k: max(c[k] for c in per) for k in per[0]}
-        ok = (
-            checks[name]["objective_excess"] <= RANGE_REL_TOL + OBJ_CHECK_RTOL
-            and checks[name]["budget_excess"] <= OBJ_CHECK_RTOL
-            and checks[name]["structure_violation"] <= OBJ_CHECK_RTOL
-        )
-        if not ok and name not in ("stored", "resolved", "alt_solver"):
+        if not in_set(checks[name]) and name not in (
+            "stored",
+            "resolved",
+            "alt_solver",
+        ):
             del cand[name]
             statuses[name] = statuses.get(name, "") + " outside_set"
 
@@ -881,6 +959,7 @@ def range_worker(group: Group, store_root: str | None) -> dict[str, Any]:
         "joint_train": joint_train,
         "joint_hash": {k: config_hash(v[0]) for k, v in group.joint.items()},
         "meta": {**meta, "checks": checks},
+        "thetas": {name: [t.tolist() for t in th] for name, th in cand.items()},
     }
 
 
@@ -1077,15 +1156,22 @@ def contrasts_ends(
                                         if reps is not None
                                         else (math.nan, math.nan)
                                     )
+                                    used = {t[:2] for t in terms}
                                     rows.append(
                                         {
                                             "split": split,
                                             "pricing": pricing,
                                             "kappa": 1.0,
                                             "contrast": contrast,
-                                            "joint_scope": jscope,
-                                            "tail_design": tail,
-                                            "base_design": base,
+                                            "joint_scope": jscope
+                                            if any(t[0] == "J" for t in terms)
+                                            else "",
+                                            "tail_design": tail
+                                            if any(u[1] == "W" for u in used)
+                                            else "",
+                                            "base_design": base
+                                            if any(u[1] == "O" for u in used)
+                                            else "",
                                             "kpi": lab,
                                             "individual_at": end,
                                             "value": value,
@@ -1093,7 +1179,11 @@ def contrasts_ends(
                                             "ci_high": hi,
                                         }
                                     )
-    return pd.DataFrame(rows)
+    frame = pd.DataFrame(rows)
+    # a contrast without a joint term, or without one of the roles, repeats
+    # over the unused loop variable (MAR-182 leaves that column empty)
+    key = [c for c in frame.columns if c not in ("value", "ci_low", "ci_high")]
+    return frame.drop_duplicates(subset=key).reset_index(drop=True)
 
 
 def _kpi_key(frame: pd.DataFrame) -> pd.Series:
@@ -1164,6 +1254,8 @@ def check_against_published(
         & cs["kpi"].isin(["cvar_uncovered", "expected_uncovered"])
     ].copy()
     cs["lab"] = _kpi_key(cs)
+    roles = ["joint_scope", "tail_design", "base_design"]
+    cs[roles] = cs[roles].fillna("")
     cs = cs.drop(columns=["kpi", "kappa"])
     mine = con.loc[con["individual_at"] == "stored"]
     key = ["split", "pricing", "contrast", "joint_scope", "tail_design", "base_design"]
@@ -1206,8 +1298,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--only", nargs="*", default=None, help="setup|pricing|design keys to run"
     )
+    parser.add_argument(
+        "--compare-only",
+        action="store_true",
+        help="skip the solves: reload the saved worker results from --full",
+    )
     args = parser.parse_args(argv)
     t0 = time.perf_counter()
+    if args.compare_only:
+        return write_tables(load_results(args.full), args.full, t0)
     groups = [*c1_groups(), *validation_groups()]
     if args.only:
         groups = [g for g in groups if f"{g.setup}|{g.pricing}|{g.design}" in args.only]
@@ -1245,6 +1344,56 @@ def main(argv: list[str] | None = None) -> int:
             (args.full / f"result_{stem}.json").write_text(
                 json.dumps({k: v for k, v in r.items() if k != "reps"}, default=str)
             )
+    return write_tables(out, args.full, t0)
+
+
+def load_results(full: Path) -> dict[tuple[str, str, str], dict[str, Any]]:
+    """Reload the worker results that :func:`main` saved in ``full``.
+
+    Parameters
+    ----------
+    full : Path
+        The full-table directory.
+
+    Returns
+    -------
+    dict
+        Worker results keyed by (setup, pricing, design).
+    """
+    out: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for path in sorted(full.glob("result_*.json")):
+        r = json.loads(path.read_text())
+        key = (str(r["group"][0]), str(r["group"][1]), str(r["group"][2]))
+        reps: dict[str, dict[str, np.ndarray]] = {}
+        with np.load(full / f"reps_{path.stem.removeprefix('result_')}.npz") as z:
+            for k in z.files:
+                name, lab = k.split("||")
+                reps.setdefault(name, {})[lab] = z[k]
+        r["group"], r["reps"] = key, reps
+        out[key] = r
+    return out
+
+
+def write_tables(
+    out: dict[tuple[str, str, str], dict[str, Any]], full: Path, t0: float
+) -> int:
+    """Write the full tables and the comparisons from the worker results.
+
+    Parameters
+    ----------
+    out : dict
+        Worker results keyed by (setup, pricing, design).
+    full : Path
+        Output directory.
+    t0 : float
+        Start time (``time.perf_counter``).
+
+    Returns
+    -------
+    int
+        Exit status.
+    """
+    args = argparse.Namespace(full=full)
     ranges = pd.DataFrame([row for r in out.values() for row in r["ranges"]])
     assets = pd.DataFrame([row for r in out.values() for row in r["assets"]])
     ranges.to_csv(args.full / "ranges.csv", index=False, float_format="%.10g")
@@ -1254,7 +1403,8 @@ def main(argv: list[str] | None = None) -> int:
         "base_config": str(c1.BASE_CONFIG.relative_to(REPO_ROOT)),
         "rel_tol": RANGE_REL_TOL,
         "obj_check_rtol": OBJ_CHECK_RTOL,
-        "solvers": list(SOLVERS),
+        "solver": SOLVER,
+        "max_iter": MAX_ITER,
         "max_steps": MAX_STEPS,
         "alt_policy": {
             "lp_solvers": list(rq2.ALT_POLICY.lp_solvers),
