@@ -1610,8 +1610,9 @@ def config_hash(config: ExperimentConfig) -> str:
 
     Any change to the canonical form or the exclusions changes
     :data:`CONFIG_HASH_DOMAIN`. (Omitting an absent ``bootstrap``, a False
-    ``cap_n_clusters``, a True cluster ``joint`` (MAR-180), a default ``evaluation.return_periods``, a
-    ``"none"`` ``evaluation.allocation`` (MAR-217) or a
+    ``cap_n_clusters``, a True cluster ``joint`` (MAR-180), a default
+    ``evaluation.return_periods``, a ``"none"`` ``evaluation.allocation``
+    (MAR-217) or a
     ``"first_bin"`` ``payout.below_attachment`` did not:
     the canonical JSON of every config that existed before them is
     unchanged.) Adding a schema field with a default that is hashed changes
