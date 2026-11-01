@@ -1,6 +1,6 @@
 # F-09: headline comparison with 90 % block-bootstrap intervals
 
-- Issue: [MAR-23](https://linear.app/marc-prinzing/issue/MAR-23/f-09-block-bootstrap-confidence-intervals-for-all-kpis) (F-09), SPEC §6.1. Written by a worker agent on 2026-10-28.
+- Issue: MAR-23 (F-09), SPEC §6.1. Written by a worker agent on 2026-10-28.
 - Status: **observations only.** Interpretation belongs to checkpoint C1 (MAR-29). The publication rule applies: these numbers aren't for public use as a claim about the method.
 - Method: `docs/methodology/bootstrap.md`. Script: `research/scripts/bootstrap_headline.py`. Data: `research/data/bootstrap-headline/` (`kpis.csv`, `paired.csv`, `summary.json`), with every run's `config_hash` and `run_id`.
 - This extends the MAR-22 rerun (`research/notes/out-of-sample-rerun.md`) with intervals. The point values are the same as there; only the intervals are new.

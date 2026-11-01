@@ -1,6 +1,6 @@
 # MAR-24: the thesis config on the annual, event and event-conditional bases
 
-- Issue: [MAR-24](https://linear.app/marc-prinzing/issue/MAR-24/f-10-annual-basis-cvar-over-years-and-annual-premium) (F-10, SPEC §6.2). Written by a worker agent on 2026-10-27.
+- Issue: MAR-24 (F-10, SPEC §6.2). Written by a worker agent on 2026-10-27.
 - What the bases are: `docs/methodology/annual-basis.md`.
 - Status: **observations only.** What they mean for the method belongs to checkpoint C1 (MAR-29). Every number is in-sample (sample `full`, as in the thesis config), because the out-of-sample split (MAR-22) isn't in yet.
 - Files: `research/data/annual-basis-rerun/`: the three configs, `compare.py` (re-evaluation), `comparison.csv` (every number below, with full config hashes and run ids), `timing.py` and `timing.csv` (the draw-count re-timing).

@@ -2,7 +2,7 @@
 
 Status: draft v0.2 (2026-10-25). Lives at `docs/SPEC.md` in this repository since the bootstrap issue (MAR-6).
 
-> **Scope of this file:** the *how* (method, architecture, data contract, standards). Goals, priorities, plan, decisions and status live in **Linear**, starting at the [Program hub](https://linear.app/marc-prinzing/project/program-hub-1b757250497c). Where this file and Linear disagree on any of those, Linear wins and this file gets fixed.
+> **Scope of this file:** the *how* (method, architecture, data contract, standards). Goals, priorities, plan, decisions and status live in **Linear**, starting at the Program hub. Where this file and Linear disagree on any of those, Linear wins and this file gets fixed.
 Name (D1, decided 2026-10-25): repository and distribution **`parametric-insurance-design`**. The import package is `parametric_insurance_design`, and the docs convention is `import parametric_insurance_design as pid`. The core CLI is `parametric-insurance-design`. The name is free on PyPI and GitHub as of 2026-10-25.
 
 ---
@@ -65,12 +65,12 @@ Everything sits on one foundation: a rework of the thesis code into a tested, in
 | **Paper** | Scientific basis, long track: checkpoint C1, portfolio and scenarios, robust design, manuscript | Core v1 features |
 
 Linear (team MAR):
-- [Program hub](https://linear.app/marc-prinzing/project/program-hub-1b757250497c): no issues; description plus status updates.
-- [Foundation: core rework](https://linear.app/marc-prinzing/project/foundation-core-rework-c2e95573b935): MAR-5 to MAR-27, MAR-61, MAR-63 to MAR-73.
-- [Paper: tail-risk portfolio design](https://linear.app/marc-prinzing/project/paper-tail-risk-portfolio-design-a1b097aab0cd): MAR-28 to MAR-40, MAR-62.
-- [CRC Showcase](https://linear.app/marc-prinzing/project/crc-showcase-c284ea40b585): MAR-41 to MAR-46.
-- [CLIMADA Contribution](https://linear.app/marc-prinzing/project/climada-contribution-010eedb5e9f8): MAR-47 to MAR-51.
-- [Website & Blog](https://linear.app/marc-prinzing/project/website-and-blog-67c8433b43d0): MAR-52 to MAR-60, MAR-74.
+- *Program hub*: no issues; description plus status updates.
+- *Foundation: core rework*: MAR-5 to MAR-27, MAR-61, MAR-63 to MAR-73.
+- *Paper: tail-risk portfolio design*: MAR-28 to MAR-40, MAR-62.
+- *CRC Showcase*: MAR-41 to MAR-46.
+- *CLIMADA Contribution*: MAR-47 to MAR-51.
+- *Website & Blog*: MAR-52 to MAR-60, MAR-74.
 
 Labels: Human, Gate, Decision, Spike, Research, Chore (plus Linear's Feature). Cross-project dependencies are Linear "blocked by" relations.
 
@@ -416,7 +416,7 @@ Each decision's status and outcome is recorded on its **Linear issue**, which is
 
 The build is delegated to worker agents coordinated by an orchestrator agent, with the owner making all decisions.
 
-- **Linear is the ground truth** for goals, priorities, plan, decisions and status. Every agent starts at the [Program hub](https://linear.app/marc-prinzing/project/program-hub-1b757250497c): its description and its latest status update. Before ending a session, the agent leaves Linear true.
+- **Linear is the ground truth** for goals, priorities, plan, decisions and status. Every agent starts at the Program hub: its description and its latest status update. Before ending a session, the agent leaves Linear true.
 - **Entry point:** the repo's [`CLAUDE.md`](../CLAUDE.md), which loads `AGENTS.md` and points the orchestrator to the runbook. The workspace `CLAUDE.md` outside the repo was the entry point until the repo existed; it now points here.
 - **Scheduling across streams** (details in the runbook):
   - Foundation first;

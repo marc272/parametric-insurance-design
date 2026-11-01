@@ -1,6 +1,6 @@
 # C1 combination view: a tail objective calibrated jointly (RQ1 × RQ2)
 
-- Issue: [MAR-182](https://linear.app/marc-prinzing/issue/MAR-182). Internal research note, 2026-11-01. **Observations only**; the interpretation is the owner's.
+- Issue: MAR-182. Internal research note, 2026-11-01. **Observations only**; the interpretation is the owner's.
 - Builds on checkpoint C1 (`research/checkpoints/C1.md`, MAR-29, decided 2026-11-01): RQ1 in sections 3–6, RQ2 in section 6b, the owner's framing in section 8 ("RQ1, RQ2 and their combination … as three views, chosen by use case"). C1.md is not edited here.
 - **Publication rule** (C1.md, "Publication rule"): any statement involving joint calibration is method-only in external outputs. The combination involves joint calibration, so nothing in this note is for external use as a comparative claim.
 - Scripts: `research/scripts/c1_combination.py` (bootstraps and contrasts, from the C1 and MAR-158 stores; solves nothing) and `research/scripts/c1_combination_tables.py` (committed CSVs and `tables.md`).

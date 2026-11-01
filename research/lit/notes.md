@@ -166,7 +166,7 @@ None of these searches found a robust or DRO design of parametric (index) payout
 
 ## Addendum (MAR-75): targeted search for robust design of index-based payouts
 
-**Status: draft for owner review.** Prepared for [MAR-75](https://linear.app/marc-prinzing/issue/MAR-75/p-09-targeted-search-robust-and-distributionally-robust-design-of) on 2026-10-25. The MAR-28 search found no robust or distributionally robust (DRO) design of index-based payouts, so claim B's "first" needed a fuller search before the manuscript (MAR-39). This addendum records that search: sources, verbatim queries, forward citations, a classification of every relevant hit, observations O7–O11, and a proposed wording for claim B. Nothing above this heading was changed. Every summary is a paraphrase. These are observations, not conclusions; the owner decides.
+**Status: draft for owner review.** Prepared for MAR-75 on 2026-10-25. The MAR-28 search found no robust or distributionally robust (DRO) design of index-based payouts, so claim B's "first" needed a fuller search before the manuscript (MAR-39). This addendum records that search: sources, verbatim queries, forward citations, a classification of every relevant hit, observations O7–O11, and a proposed wording for claim B. Nothing above this heading was changed. Every summary is a paraphrase. These are observations, not conclusions; the owner decides.
 
 ### Sources and access (2026-10-25)
 
@@ -319,7 +319,7 @@ As in MAR-28, the absence of other hits is absence of evidence from a bounded se
 
 ## Addendum (MAR-85): arXiv 2512.01623 checked against claim A
 
-**Status: draft for owner review.** Prepared for [MAR-85](https://linear.app/marc-prinzing/issue/MAR-85/p-09-check-arxiv-251201623-weather-index-insurance-with-farmer-cvar) on 2026-10-25. The MAR-75 web search W7 turned up arXiv 2512.01623 and flagged it as bearing on claim A. This addendum classifies it. Nothing above this heading was changed. Every summary is a paraphrase. These are observations, not conclusions; the owner decides.
+**Status: draft for owner review.** Prepared for MAR-85 on 2026-10-25. The MAR-75 web search W7 turned up arXiv 2512.01623 and flagged it as bearing on claim A. This addendum classifies it. Nothing above this heading was changed. Every summary is a paraphrase. These are observations, not conclusions; the owner decides.
 
 **Source and access (2026-10-25).** arXiv API record (`id_list=2512.01623`), the arXiv abstract page and the PDF of v1 (30 pages) were all reachable without sign-in. v1 of 2025-12-01 is the only version, with no journal reference. A Crossref title search (top 5 rows) found no published version. Read: abstract, sections 1–4 in full (introduction, formulation, algorithm, data), section 5.1.1 and the conclusion. The rest of section 5 was skimmed.
 
@@ -357,7 +357,7 @@ As in MAR-28, the absence of other hits is absence of evidence from a bounded se
 
 ## Addendum (MAR-99): `climada_petals.engine.cat_bonds` (petals 6.2.0) checked against claim A
 
-**Status: draft for owner review.** Prepared for [MAR-99](https://linear.app/marc-prinzing/issue/MAR-99/p-09-check-climada-petals-enginecat-bonds-petals-620-against-claim-a) on 2026-10-25, ahead of the CLIMADA proposal (MAR-47). Nothing above this heading was changed. Every summary is a paraphrase. These are observations, not conclusions; the owner decides. File and line references are to `climada_petals/engine/cat_bonds/` at tag `v6.2.0`.
+**Status: draft for owner review.** Prepared for MAR-99 on 2026-10-25, ahead of the CLIMADA proposal (MAR-47). Nothing above this heading was changed. Every summary is a paraphrase. These are observations, not conclusions; the owner decides. File and line references are to `climada_petals/engine/cat_bonds/` at tag `v6.2.0`.
 
 **Sources and access (2026-10-25).** All public and read without sign-in:
 - the `climada_petals` repository at tag `v6.2.0` (commit `6ecd7af0`, 2026-06-15), cloned read-only outside this repository. Read: every `engine/cat_bonds/*.py` file, the markdown cells of the tutorial `doc/tutorial/climada_engine_CATBonds.ipynb`, and `CHANGELOG.md`;
@@ -437,7 +437,7 @@ Not read: the preprint's full text (SSRN returned HTTP 403 to automated access) 
 
 ## Addendum (MAR-102): arXiv 2609.22052 screened; Table 2 row for `boonen2025monopoly`
 
-**Status: draft for owner review.** Prepared for [MAR-102](https://linear.app/marc-prinzing/issue/MAR-102/p-09-screen-arxiv-260922052-ery-and-koch-parametric-cat-bond-and-add) on 2026-10-25. The MAR-99 report listed arXiv 2609.22052 as an optional screen; MAR-85 left `boonen2025monopoly` without a Table 2 row. Nothing above this heading was changed. Every summary is a paraphrase. These are observations, not conclusions; the owner decides.
+**Status: draft for owner review.** Prepared for MAR-102 on 2026-10-25. The MAR-99 report listed arXiv 2609.22052 as an optional screen; MAR-85 left `boonen2025monopoly` without a Table 2 row. Nothing above this heading was changed. Every summary is a paraphrase. These are observations, not conclusions; the owner decides.
 
 ### arXiv 2609.22052 (Ery & Koch): screened, not related to claim A or B
 
