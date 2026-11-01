@@ -90,8 +90,10 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import hashlib
 import json
 import math
+import pickle
 import time
 from collections.abc import Iterable
 from concurrent.futures import (
@@ -1702,10 +1704,23 @@ def _check_pairs(con: pd.DataFrame, pairs: pd.DataFrame) -> int:
     return n
 
 
+def _group_id(
+    members: dict[comb.Design, tuple[ExperimentConfig, str]],
+    matched: dict[str, tuple[ExperimentConfig, str]],
+) -> str:
+    """Cache name of a holdout group: a hash of its run ids."""
+    ids = sorted(rid for _, rid in members.values()) + sorted(
+        f"matched:{rid}" for _, rid in matched.values()
+    )
+    return hashlib.sha256("\n".join(ids).encode()).hexdigest()[:24]
+
+
 def run_holdout(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any]:
     """Phase holdout: :func:`holdout_worker` per (index, pricing, kappa).
 
-    Needs the ``solve`` and ``matched`` phases. Writes
+    Needs the ``solve`` and ``matched`` phases. Each group's frames are
+    cached in ``holdout_groups/`` under a hash of its run ids (a group is
+    bootstrapped again only if one of its runs changed). Writes
     ``holdout_{grid,contrasts,pairs,entities,runs}.csv`` to ``args.full``
     after checking the decomposition identity of every contrast and that
     the premium split adds up to portfolio - individual.
@@ -1745,21 +1760,33 @@ def run_holdout(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any
         matched.setdefault(key, {})[it["design"]] = (it["config"], it["run_id"])
     frames: dict[str, list[pd.DataFrame]] = {}
     seconds: dict[str, float] = {}
+    cache = args.full / "holdout_groups"
+    cache.mkdir(parents=True, exist_ok=True)
+    paths = {
+        key: cache / f"{_group_id(m, matched.get(key, {}))}.pkl"
+        for key, m in groups.items()
+    }
+    todo = {key: m for key, m in groups.items() if not paths[key].is_file()}
+    print(f"holdout: {len(groups)} groups, {len(todo)} to bootstrap", flush=True)
     with _pool(args.jobs) as pool:
         futs = {
             pool.submit(
                 holdout_worker, *key, m, matched.get(key, {}), str(args.store)
             ): key
-            for key, m in groups.items()
+            for key, m in todo.items()
         }
         for i, fut in enumerate(as_completed(futs), 1):
             out, sec = fut.result()
-            for name, frame in out.items():
-                frames.setdefault(name, []).append(frame)
-            seconds[_label(futs[fut])] = round(sec, 1)
-            print(
-                f"[holdout {i}/{len(futs)}] {_label(futs[fut])} {sec:.0f}s", flush=True
-            )
+            key = futs[fut]
+            tmp = paths[key].with_suffix(".tmp")
+            tmp.write_bytes(pickle.dumps(out))
+            tmp.replace(paths[key])
+            seconds[_label(key)] = round(sec, 1)
+            print(f"[holdout {i}/{len(futs)}] {_label(key)} {sec:.0f}s", flush=True)
+    for key in groups:
+        out = pickle.loads(paths[key].read_bytes())
+        for name, frame in out.items():
+            frames.setdefault(name, []).append(frame)
     tables = {n: pd.concat(f, ignore_index=True) for n, f in frames.items()}
     n_dec = comb._check_decomposition(tables["contrasts"])
     n_pairs = _check_pairs(tables["contrasts"], tables["pairs"])
