@@ -3,8 +3,9 @@
 The bundles are exported from the ``toy`` stores of ``conftest.py`` (plus a
 small sweep store built here) and read back with pyarrow and :mod:`json`,
 independently of :func:`~parametric_insurance_design_viz.site_export.read_bundle`.
-The committed thesis-fixture bundle under ``site/fixtures/thesis`` is checked
-against its manifest and against the parity config it came from.
+The committed thesis-fixture bundles under ``site/fixtures/thesis`` and
+``site/fixtures/thesis-explorer`` are checked against their manifests and
+against the configs they came from.
 """
 
 from __future__ import annotations
@@ -73,6 +74,8 @@ if TYPE_CHECKING:
 REPO = Path(__file__).resolve().parents[3]
 THESIS_FIXTURE = REPO / "site" / "fixtures" / "thesis"
 THESIS_CONFIG = REPO / "parity" / "configs" / "thesis.yaml"
+THESIS_EXPLORER_FIXTURE = REPO / "site" / "fixtures" / "thesis-explorer"
+THESIS_EXPLORER_CONFIG = REPO / "site" / "fixtures" / "thesis_explorer.yaml"
 SWEEPS = [
     {"parameter": "alpha", "values": [0.5, 0.9]},
     {"parameter": "n_clusters", "values": [1, 2]},
@@ -921,27 +924,121 @@ def test_events_are_left_out_unless_asked_for(toy: Fixture, tmp_path: Path) -> N
     assert set(events.columns) >= {"scope", "entity_id", "index", "loss", "rate"}
 
 
-# -- the committed thesis-fixture bundle ----------------------------------------------
+# -- the committed thesis-fixture bundles ---------------------------------------------
+
+
+def check_committed_bundle(root: Path, config_path: Path) -> dict[str, Any]:
+    """Check a committed bundle against its manifest and its config.
+
+    Every file is the manifest's (size and SHA-256, via ``read_bundle`` and
+    ``read_slice``), the directory holds no other file, the manifest's config
+    hash and name are those of ``config_path``, and the data are labelled as
+    thesis-fixture data under the event set's licence. Returns the manifest.
+    """
+    manifest = read_bundle(root)
+    config = load_config(config_path)
+    assert "thesis-fixture data" in manifest["label"]
+    assert manifest["config"]["hash"] == config_hash(config)
+    assert manifest["config"]["name"] == config.name
+    assert manifest["eventset"]["licence"] == "CC-BY-4.0"
+    files = [*(f["path"] for f in manifest["files"]), MANIFEST]
+    assert sorted(p.name for p in root.iterdir()) == sorted(files)
+    total = sum((root / f).stat().st_size for f in files)
+    assert total < 300_000  # well under the repository's 500 kB file limit
+    for entry in manifest["files"]:
+        content = read_slice(root, entry["path"])
+        if entry["format"] == "arrow":
+            assert isinstance(content, pa.Table)
+            assert arrow(root / entry["path"]).num_rows == entry["rows"]
+        else:
+            strict_json(root / entry["path"])
+    return manifest
 
 
 def test_the_committed_thesis_fixture_matches_its_manifest() -> None:
-    manifest = read_bundle(THESIS_FIXTURE)
-    assert "thesis-fixture data" in manifest["label"]
-    assert manifest["config"]["hash"] == config_hash(load_config(THESIS_CONFIG))
+    manifest = check_committed_bundle(THESIS_FIXTURE, THESIS_CONFIG)
     assert manifest["config"]["name"] == "thesis"
-    assert manifest["eventset"]["licence"] == "CC-BY-4.0"
     assert len(manifest["runs"]["baseline"]) == 9
-    files = [*(f["path"] for f in manifest["files"]), MANIFEST]
-    assert sorted(p.name for p in THESIS_FIXTURE.iterdir()) == sorted(files)
-    total = sum((THESIS_FIXTURE / f).stat().st_size for f in files)
-    assert total < 300_000  # well under the repository's 500 kB file limit
-    for entry in manifest["files"]:
-        content = read_slice(THESIS_FIXTURE, entry["path"])
-        if entry["format"] == "arrow":
-            assert isinstance(content, pa.Table)
-            assert arrow(THESIS_FIXTURE / entry["path"]).num_rows == entry["rows"]
-        else:
-            strict_json(THESIS_FIXTURE / entry["path"])
+
+
+def test_the_committed_thesis_fixture_has_no_per_site_split_of_joint_designs() -> None:
+    # Review finding F8 (MAR-216): the thesis runs have no allocation-rule
+    # rows, so only the individual scope has per-location numbers; the joint
+    # scopes' rows are null, never the solver's split of a joint design.
+    manifest = read_bundle(THESIS_FIXTURE)
+    assert manifest["map"]["allocations"] == []
+    sources = {
+        (r["scope_key"], r["kpi_level"], r["allocation"])
+        for r in manifest["map"]["runs"]
+    }
+    assert sources == {
+        ("individual", "entity", "none"),
+        ("cluster", None, None),
+        ("portfolio", None, None),
+    }
+    table = arrow(THESIS_FIXTURE / "baseline.map.arrow").to_pandas()
+    joint = table[table["scope"] != "individual"]
+    assert len(joint) == 54
+    assert joint["kpi_level"].isna().all()
+    assert joint["allocation"].isna().all()
+    numbers = ["expected_loss", "expected_payout", "expected_uncovered"]
+    assert joint[numbers].isna().all().all()
+    individual = table[table["scope"] == "individual"]
+    assert (individual["kpi_level"] == "entity").all()
+    assert (individual["allocation"] == "none").all()
+    assert individual["expected_payout"].notna().all()
+
+
+def test_the_committed_thesis_explorer_fixture_matches_its_config() -> None:
+    # The one committed bundle with sweeps (MAR-210): the baseline and the
+    # alpha and beta sweeps of site/fixtures/thesis_explorer.yaml, each sweep
+    # point once, in the config's order, in every sweep table.
+    manifest = check_committed_bundle(THESIS_EXPLORER_FIXTURE, THESIS_EXPLORER_CONFIG)
+    config = load_config(THESIS_EXPLORER_CONFIG)
+    assert manifest["config"]["name"] == "thesis-explorer"
+    # In sample, unfiltered: a test fixture, not a bundle to publish.
+    assert manifest["setup"]["split"] == {"kind": "full", "out_of_sample": False}
+    assert manifest["split_filter"]["eval_split"] is None
+    assert manifest["runs"]["skipped"] == []
+    [baseline] = manifest["runs"]["baseline"]
+    sweeps = {s.parameter: [float(v) for v in s.values] for s in config.sweeps}
+    assert sweeps.keys() == {"alpha", "beta"}
+    points = manifest["runs"]["sweeps"]
+    assert {p: [pt["value"] for pt in points[p]] for p in points} == sweeps
+    stems = ["baseline", *(f"sweep.{p}" for p in sweeps)]
+    expected = [
+        "runs.json",
+        "locations.json",
+        *(
+            f"{stem}.{s}.arrow"
+            for stem in stems
+            for s in ("payouts", "kpis", "exceedance")
+        ),
+        "baseline.map.arrow",
+    ]
+    assert sorted(f["path"] for f in manifest["files"]) == sorted(expected)
+    runs_json = strict_json(THESIS_EXPLORER_FIXTURE / "runs.json")
+    runs = {r["run_id"] for r in runs_json["runs"]}
+    for parameter, values in sweeps.items():
+        run_of = {pt["value"]: pt["run_id"] for pt in points[parameter]}
+        assert set(run_of.values()) <= runs
+        # The baseline's own value is the baseline run.
+        baseline_value = getattr(config.objectives[0], parameter)
+        assert run_of[baseline_value] == baseline
+        for kind in ("payouts", "kpis", "exceedance"):
+            table = arrow(THESIS_EXPLORER_FIXTURE / f"sweep.{parameter}.{kind}.arrow")
+            by_value = table.to_pandas().groupby("sweep_value")["run_id"].unique()
+            assert {v: list(r) for v, r in by_value.items()} == {
+                v: [run_of[v]] for v in values
+            }
+    # One location of the individual scope: its own entity rows on the map.
+    assert manifest["map"]["allocations"] == []
+    assert [(r["kpi_level"], r["allocation"]) for r in manifest["map"]["runs"]] == [
+        ("entity", "none")
+    ]
+    location_map = arrow(THESIS_EXPLORER_FIXTURE / "baseline.map.arrow").to_pandas()
+    assert list(location_map["location_id"]) == ["A1"]
+    assert config.portfolio.location_ids == ("A1",)
 
 
 # -- the split filter (MAR-213) -------------------------------------------------------
