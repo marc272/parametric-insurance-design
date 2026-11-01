@@ -4,11 +4,11 @@ A Python library for designing parametric insurance payouts. A parametric cover 
 
 It is built around the two ideas of a master's thesis. They can be used separately or together.
 
-**Tail-risk objective.** The part of a loss that the payout doesn't cover is the uncovered loss U: the basis risk that the policyholder keeps. Besides the mean squared error and the expected uncovered loss E[U], the library can minimise a weighted CVaR, α·CVaR<sub>β</sub>(U) + (1 − α)·E[U]. It mixes the average uncovered loss with its average over the worst 1 − β of outcomes, such as the worst 1 % of years, and the design problem stays a linear program. See [the tail-risk objective](docs/concepts/tail-risk-objective.md).
+**Tail-risk objective.** The part of a loss that the payout doesn't cover is the uncovered loss U: the basis risk that the policyholder keeps. Besides the mean squared error and the expected uncovered loss E[U], the library can minimise a weighted CVaR, α·CVaR<sub>β</sub>(U) + (1 − α)·E[U]. It mixes the average uncovered loss with its average over the worst 1 − β of outcomes (with β = 0.99 on the annual basis, the worst 1 % of years), and the design problem stays a linear program. See [the tail-risk objective](docs/concepts/tail-risk-objective.md).
 
 **Portfolio (joint) calibration.** When one owner holds several sites, their payouts can be calibrated jointly, on the owner's total loss, instead of one site at a time. In the portfolio scope, each site keeps its own payout on its own index, but the objective and the budget apply to the sum, so a payout at one site can cover a shortfall at another in the same event. The cluster scope does the same with one payout per cluster of sites, and the individual scope calibrates each site on its own. See [portfolio calibration](docs/concepts/portfolio-calibration.md).
 
-Any objective works with any scope, so the two ideas can be studied apart or together, depending on the owner. One site: the tail view, where the objective is the choice. Many sites with a mandate on the average fit: the portfolio view, where the scope is the choice. Many sites with a mandate on the tail: the combination, a weighted-CVaR objective calibrated jointly across the sites. This README and the docs describe the method and the tool. They don't claim that either idea, or the two combined, outperforms the alternatives.
+Any objective works with any scope, so the two ideas can be studied apart or together, depending on the owner. One site: the tail view, where the objective is the choice. Many sites with a mandate on the average fit: the portfolio view, where the scope is the choice. Many sites with a mandate on the tail: the combination, a weighted-CVaR objective calibrated jointly across the sites (see the [concepts](docs/concepts/README.md)). This README and the docs describe the method and the tool. They don't claim that either idea, or the two combined, outperforms the alternatives.
 
 ![Schematic, not data: a step payout on a hazard index. It pays nothing below the attachment, has one non-decreasing level per bin up to the limit, stays below the cap, and leaves an uncovered loss where an event's loss exceeds the payout](docs/figures/step-payout-schematic.svg)
 
@@ -67,6 +67,8 @@ print(
 Run it from the root of the clone with `uv run python examples/quickstart.py`. It prints its setup and, on the test years (out of sample), E[U], CVaR<sub>0.99</sub>(U) and the expected loss. The block above is [`examples/quickstart.py`](examples/quickstart.py) without its docstring. CI runs the script, and a test checks that the two stay the same. [`examples/`](examples/README.md) has a script for each idea that also draws figures.
 
 ## Concepts
+
+The [concepts index](docs/concepts/README.md) explains the two ideas as the code implements them:
 
 - [The tail-risk objective](docs/concepts/tail-risk-objective.md): the uncovered loss, the weighted-CVaR objective, why the design problem is a linear program, and the premium budget.
 - [Portfolio calibration](docs/concepts/portfolio-calibration.md): the individual, portfolio and cluster scopes, and cross-coverage for one risk owner with several sites.
