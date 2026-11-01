@@ -1,21 +1,37 @@
 ---
-title: "α/β payout explorer"
-subtitle: "Placeholder on thesis-fixture data"
-description: "Move α or β of the weighted-CVaR objective and see the step payout and the exceedance curves of one design. Placeholder page on thesis-fixture data."
+title: "Payout and exceedance explorer"
+subtitle: "How the tail weight α, the tail level β and the budget loading κ shape a step payout"
+description: "Move α, β or the budget loading κ, switch between the MSE, E[U] and weighted-CVaR objectives, and see the step payout of one site, the payout relative to the MSE design, and the out-of-sample exceedance curves of the uncovered loss."
 echo: false
+page-layout: full
+css: explorer.css
 ---
 
-::: {.callout-warning}
-## Placeholder: thesis-fixture data, not results
+<!--
+The payout explorer (MAR-54). It reads the explorer bundle that the Site
+workflow solves and exports on every build from site/configs/explorer.yaml
+(MAR-208, MAR-213) and writes into the rendered site at bundles/explorer/,
+after the render: so every bundle file is read here at run time, with a
+relative URL. Nothing on this page filters rows by evaluation split: the
+bundle holds the out-of-sample ("test") rows only, and the page states the
+filter from manifest.split_filter. Layout rules: explorer.css.
+-->
 
-This page checks the site's layout and data pipeline. Its data are a small **thesis-fixture** test set: one site of the thesis portfolio, calibrated and evaluated **in-sample** on the **event-conditional** basis. The publication rule asks for out-of-sample numbers on the annual basis, so no number on this page is a result. The full setup of every number is under [Setup](#setup).
-:::
+A parametric cover pays an amount set by a hazard index, here the wind speed at a site, not by the loss itself. So it leaves part of the loss uncovered. This page shows how the design of a **step payout** (one payout level per wind-speed bin) changes with the objective it is calibrated for and with that objective's parameters. Every number comes from a precomputed bundle: the page never runs an optimisation.
 
-The design minimises a weighted mix of the expected uncovered loss $U$ and its tail:
+Each design minimises one of three objectives over the years it is calibrated on. $L$ is a year's loss at the site and $\pi$ its payout; the year's uncovered loss $U$ adds up the shortfalls of its events $e$:
 
-$$F_{\alpha,\beta} = \alpha\,\mathrm{CVaR}_\beta(U) + (1-\alpha)\,\mathbb{E}[U],$$
+$$U = \sum_{e} (L_e - \pi_e)^+.$$
 
-where $\mathrm{CVaR}_\beta(U)$ is the mean of the worst $1-\beta$ share of outcomes. α sets the weight of the tail, β how far out the tail starts. The bundle holds one sweep per parameter, one factor at a time: moving α keeps β at its baseline value, and the other way round.
+The three objectives:
+
+- **Residual loss (MSE):** $\mathbb{E}[(L - \pi)^2]$, which counts over-payment like under-payment.
+- **Expected uncovered loss, E[U]:** $\mathbb{E}[U]$.
+- **Weighted CVaR:** $\alpha\,\mathrm{CVaR}_\beta(U) + (1-\alpha)\,\mathbb{E}[U]$. $\mathrm{CVaR}_\beta(U)$ is the mean of the worst $1-\beta$ share of years, so **α** sets the weight of the tail and **β** how far out the tail starts. α and β are parameters of this objective only.
+
+Every design meets the same budget: its premium, the expected annual payout over the calibration years (pure pricing), is at most **κ** times the expected annual loss. The bundle holds one sweep per parameter, one at a time around a baseline (α = 0.9, β = 0.99, κ = 1.0); moving one keeps the other two at their baseline values. The number of bins is fixed at 15: this bundle has no bin-count sweep.
+
+The page shows what the designs are and how they behave on years they were not calibrated on. It does not rank the objectives: whatever the charts show holds for the setup stated under each chart, not in general.
 
 ```{ojs}
 //| output: false
@@ -25,163 +41,541 @@ Plot = import("https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6.17/+esm")
 
 ```{ojs}
 //| output: false
-// The bundle (site/fixtures/thesis-explorer, written by export-site).
-manifest = {
-  const m = await FileAttachment("../fixtures/thesis-explorer/manifest.json").json();
-  if (m.format !== "parametric-insurance-design/site-bundle" || m.format_version !== 1) {
-    throw new Error(`unsupported bundle: ${m.format} version ${m.format_version}`);
-  }
-  return m;
-}
-runIndex = FileAttachment("../fixtures/thesis-explorer/runs.json").json()
-locationIndex = FileAttachment("../fixtures/thesis-explorer/locations.json").json()
-tables = ({
-  alpha: {
-    payouts: rows(await FileAttachment("../fixtures/thesis-explorer/sweep.alpha.payouts.arrow").arrow()),
-    exceedance: rows(await FileAttachment("../fixtures/thesis-explorer/sweep.alpha.exceedance.arrow").arrow())
-  },
-  beta: {
-    payouts: rows(await FileAttachment("../fixtures/thesis-explorer/sweep.beta.payouts.arrow").arrow()),
-    exceedance: rows(await FileAttachment("../fixtures/thesis-explorer/sweep.beta.exceedance.arrow").arrow())
-  }
-})
-// Arrow table to plain objects: dictionary columns decode to strings,
-// int32 to numbers, and null stays null (payouts.lower: -inf, see the manifest).
-rows = (table) => table.toArray().map((row) => row.toJSON())
+// The premium switch. runs.json holds each design's premium, priced on the
+// calibration (train) years. Whether the page may show it is the owner's
+// decision, pending: until then it stays off. Turning it on adds the premium
+// to the design line above the charts and to the setup table, nothing else.
+showPremium = false
 ```
 
 ```{ojs}
 //| output: false
-baselineRun = runIndex.runs.find((r) => r.run_id === manifest.runs.baseline[0])
-location = locationIndex.locations[0]
-symbols = ({alpha: "α", beta: "β"})
-points = manifest.runs.sweeps[parameter]
-sweepValues = points.map((p) => p.value)
-decimals = d3.max(sweepValues, (v) => (String(v).split(".")[1] ?? "").length)
-step = +d3.min(d3.pairs(sweepValues), ([a, b]) => b - a).toFixed(decimals)
+// -- The bundle ---------------------------------------------------------------
+// Written by `parametric-insurance-design export-site site/configs/explorer.yaml
+// --split test` into the rendered site (site/README.md, "Bundles").
+manifestResult = FileAttachment("../bundles/explorer/manifest.json").json().then(
+  (m) => ({manifest: m}),
+  (error) => ({error})
+)
+manifest = {
+  if (manifestResult.error) {
+    throw new Error("The explorer bundle is not in this build of the site (bundles/explorer/manifest.json).");
+  }
+  const m = manifestResult.manifest;
+  if (m.format !== "parametric-insurance-design/site-bundle" || m.format_version !== 1) {
+    throw new Error(`unsupported bundle: ${m.format} version ${m.format_version}`);
+  }
+  // Every file this page reads must be in the manifest.
+  const listed = new Set(m.files.map((f) => f.path));
+  for (const group of Object.keys(fileNames)) {
+    for (const path of Object.values(fileNames[group])) {
+      if (!listed.has(path)) throw new Error(`the bundle has no ${path}`);
+    }
+  }
+  return m;
+}
+fileNames = ({
+  baseline: {payouts: "baseline.payouts.arrow", exceedance: "baseline.exceedance.arrow"},
+  alpha: {payouts: "sweep.alpha.payouts.arrow", exceedance: "sweep.alpha.exceedance.arrow"},
+  beta: {payouts: "sweep.beta.payouts.arrow", exceedance: "sweep.beta.exceedance.arrow"},
+  budget_loading: {payouts: "sweep.budget_loading.payouts.arrow", exceedance: "sweep.budget_loading.exceedance.arrow"}
+})
+// FileAttachment needs literal names (Quarto resolves them at render time).
+files = ({
+  baseline: {
+    payouts: FileAttachment("../bundles/explorer/baseline.payouts.arrow"),
+    exceedance: FileAttachment("../bundles/explorer/baseline.exceedance.arrow")
+  },
+  alpha: {
+    payouts: FileAttachment("../bundles/explorer/sweep.alpha.payouts.arrow"),
+    exceedance: FileAttachment("../bundles/explorer/sweep.alpha.exceedance.arrow")
+  },
+  beta: {
+    payouts: FileAttachment("../bundles/explorer/sweep.beta.payouts.arrow"),
+    exceedance: FileAttachment("../bundles/explorer/sweep.beta.exceedance.arrow")
+  },
+  budget_loading: {
+    payouts: FileAttachment("../bundles/explorer/sweep.budget_loading.payouts.arrow"),
+    exceedance: FileAttachment("../bundles/explorer/sweep.budget_loading.exceedance.arrow")
+  }
+})
+runIndex = { manifest; return FileAttachment("../bundles/explorer/runs.json").json(); }
+locationIndex = { manifest; return FileAttachment("../bundles/explorer/locations.json").json(); }
+// Arrow table to plain objects: dictionary columns decode to strings, int32
+// to numbers, and null stays null (payouts.lower: -inf, see the manifest).
+rows = (table) => table.toArray().map((row) => row.toJSON())
+// One load per group, kept for the session: switching back is instant.
+tableCache = new Map()
+loadGroup = (group) => {
+  if (!tableCache.has(group)) {
+    const f = files[group];
+    tableCache.set(group, Promise.all([f.payouts.arrow(), f.exceedance.arrow()])
+      .then(([p, e]) => ({payouts: rows(p), exceedance: rows(e)})));
+  }
+  return tableCache.get(group);
+}
 ```
 
 ```{ojs}
-viewof parameter = Inputs.radio(
-  new Map([["α, tail weight", "alpha"], ["β, CVaR level", "beta"]]),
-  {label: "Vary", value: "alpha"}
+//| output: false
+// -- Runs, sites, labels -------------------------------------------------------
+runById = new Map(runIndex.runs.map((r) => [r.run_id, r]))
+objectiveOrder = ["mse", "expected_uncovered", "weighted_cvar"]
+objectiveLabel = ({mse: "Residual loss (MSE)", expected_uncovered: "Expected uncovered loss E[U]", weighted_cvar: "Weighted CVaR"})
+objectiveShort = ({mse: "MSE", expected_uncovered: "E[U]", weighted_cvar: "weighted CVaR"})
+// The baseline design of each objective (the config's single runs).
+baselineRuns = Object.fromEntries(manifest.runs.baseline.map((id) => runById.get(id)).map((r) => [r.objective, r]))
+objectives = objectiveOrder.filter((o) => o in baselineRuns)
+parameterOrder = ["alpha", "beta", "budget_loading"].filter((p) => p in manifest.runs.sweeps)
+parameterSymbol = ({alpha: "α", beta: "β", budget_loading: "κ"})
+parameterName = ({alpha: "α, tail weight", beta: "β, tail level", budget_loading: "κ, budget loading"})
+budgetLoading = manifest.setup.constraints.find((c) => c.kind === "budget")?.loading
+// The baseline value of a parameter: α and β of the weighted-CVaR design, κ of the budget.
+baselineValue = (p) => p === "budget_loading" ? budgetLoading : baselineRuns.weighted_cvar?.parameters[p]
+runValue = (r, p) => p === "budget_loading" ? r.parameters.budget_loading : r.parameters[p]
+locations = locationIndex.locations
+siteName = (l) => l.name.replaceAll("_", " ")
+currency = manifest.eventset.loss.currency
+indexUnit = manifest.eventset.index.unit
+indexLabel = indexUnit === "m/s" ? "Wind speed at the site" : "Index at the site"
+nYears = manifest.eventset.n_years
+nTrain = Math.floor(nYears * manifest.setup.split.train_fraction)
+```
+
+```{ojs}
+//| output: false
+// -- Formats and colours -------------------------------------------------------
+// Money: one unit per axis, chosen from the axis' largest value, so that the
+// axis ticks (Plot's own, on the scaled values) are always distinct.
+moneyUnit = (max) => max >= 1e9 ? {div: 1e9, short: "bn", long: "billion"}
+  : max >= 1e6 ? {div: 1e6, short: "M", long: "million"}
+  : max >= 1e3 ? {div: 1e3, short: "k", long: "thousand"}
+  : {div: 1, short: "", long: ""}
+fmtMoney = (v) => {
+  const u = moneyUnit(Math.abs(v));
+  return `${d3.format(",.3~r")(v / u.div)}${u.short ? " " + u.short : ""} ${currency}`;
+}
+// Exact to the unit (for the tables). Rounding can give "-0": show 0.
+fmtExact = (v) => d3.format(",.0f")(Math.round(v) === 0 ? 0 : v)
+fmtPct = (v) => v == null ? "undefined" : `${d3.format(",.0f")(v)} %`
+fmtYears = d3.format(",")
+// The site's light theme (flatly) or dark theme (darkly): Quarto sets the
+// body class. Colours: the payout blue and the uncovered-loss orange pass the
+// colour-vision checks on both surfaces (white, #222); the loss is a muted
+// grey and dashed, so it never relies on colour alone.
+dark = Generators.observe((notify) => {
+  const check = () => notify(document.body.classList.contains("quarto-dark"));
+  check();
+  const observer = new MutationObserver(check);
+  observer.observe(document.body, {attributes: true, attributeFilter: ["class"]});
+  return () => observer.disconnect();
+})
+colours = dark
+  ? {payout: "#3987e5", uncovered: "#d95926", loss: "#a3a19a", reference: "#8a8a8a"}
+  : {payout: "#2a78d6", uncovered: "#eb6834", loss: "#6f6d67", reference: "#898781"}
+// The width of the chart column (not the page): the controls sit beside it on wide screens.
+chartWidth = Generators.observe((notify) => {
+  const el = document.getElementById("explorer-charts");
+  const observer = new ResizeObserver(([entry]) => notify(Math.max(280, Math.floor(entry.contentRect.width))));
+  observer.observe(el);
+  notify(Math.max(280, el.clientWidth));
+  return () => observer.disconnect();
+})
+chartHeight = Math.round(Math.min(360, Math.max(240, chartWidth * 0.55)))
+```
+
+```{ojs}
+manifestResult.error
+  ? html`<div class="callout callout-style-default callout-warning callout-titled"><div class="callout-body-container callout-body"><p><strong>The explorer bundle is not in this build.</strong> The Site workflow writes it into the published site. To build it locally, run the three commands at the top of <code>site/configs/explorer.yaml</code> (see <code>site/README.md</code>).</p></div></div>`
+  : html``
+```
+
+:::: {.grid .explorer}
+
+::: {#explorer-controls .g-col-12 .g-col-lg-4 .explorer-controls}
+
+```{ojs}
+viewof objective = Inputs.radio(
+  new Map(objectives.map((o) => [objectiveLabel[o], o])),
+  {label: "Objective", value: objectives.includes("weighted_cvar") ? "weighted_cvar" : objectives[0]}
 )
 ```
 
 ```{ojs}
+viewof parameter = Inputs.radio(
+  new Map(parameterOrder.map((p) => [parameterName[p], p])),
+  {label: "Vary", value: parameterOrder[0]}
+)
+```
+
+```{ojs}
+//| output: false
+// All the sweep's values (of every objective), for the slider's range.
+sweepValues = [...new Set(manifest.runs.sweeps[parameter].map((p) => p.value))].sort(d3.ascending)
+decimals = d3.max(sweepValues, (v) => (String(v).split(".")[1] ?? "").length)
+sliderStep = +d3.min(d3.pairs(sweepValues), ([a, b]) => b - a).toFixed(decimals)
+```
+
+```{ojs}
 viewof requested = Inputs.range(d3.extent(sweepValues), {
-  label: `${symbols[parameter]}`,
-  step,
+  label: parameterSymbol[parameter],
+  step: sliderStep,
   format: (v) => v.toFixed(decimals),
-  value: baselineRun.parameters[parameter]
+  value: baselineValue(parameter)
 })
 ```
 
 ```{ojs}
 //| output: false
+// The sweep points of the chosen objective. α and β are parameters of the
+// weighted-CVaR objective only: for MSE and E[U] their sweeps have no points.
+points = manifest.runs.sweeps[parameter]
+  .map((p) => ({value: p.value, run: runById.get(p.run_id)}))
+  .filter((p) => p.run.objective === objective)
+  .sort((a, b) => d3.ascending(a.value, b.value))
+applies = points.length > 0
 // Snap to the nearest exported sweep point.
-point = d3.least(points, (p) => Math.abs(p.value - requested))
-run = runIndex.runs.find((r) => r.run_id === point.run_id)
-other = parameter === "alpha" ? "beta" : "alpha"
+point = applies ? d3.least(points, (p) => Math.abs(p.value - requested)) : null
+run = applies ? point.run : baselineRuns[objective]
+group = applies ? parameter : "baseline"
+// The other designs of the sweep, drawn faintly behind the one shown.
+otherRuns = applies ? points.filter((p) => p !== point).map((p) => p.run) : []
+// The slider does nothing when the parameter is not one of the objective's:
+// disable it without re-creating it (so it keeps its value).
+{
+  for (const input of viewof requested.querySelectorAll("input")) input.disabled = !applies;
+}
 ```
 
 ```{ojs}
-md`Showing the design for **${symbols[parameter]} = ${point.value}**, with ${symbols[other]} = ${run.parameters[other]} (its baseline value), at site ${location.location_id} (${location.name.replaceAll("_", " ")}).`
+viewof siteId = Inputs.select(
+  new Map(locations.map((l) => [`${l.location_id} · ${siteName(l)}`, l.location_id])),
+  {label: "Site", value: locations[0].location_id}
+)
+```
+
+```{ojs}
+viewof curveKind = Inputs.radio(
+  new Map([["Annual total (AEP)", "aep"], ["Largest event of the year (OEP)", "oep"]]),
+  {label: "Exceedance of", value: "aep"}
+)
+```
+
+```{ojs}
+viewof subjectLevel = Inputs.radio(
+  new Map([["This site", "entity"], ["Whole portfolio", "portfolio"]]),
+  {label: "Curves for", value: "entity"}
+)
+```
+
+```{ojs}
+//| output: false
+site = locations.find((l) => l.location_id === siteId)
+problem = run.problems.find((p) => p.problem_id === siteId)
+designLine = {
+  const params = run.objective === "weighted_cvar"
+    ? `α = ${run.parameters.alpha}, β = ${run.parameters.beta}, κ = ${run.parameters.budget_loading}`
+    : `κ = ${run.parameters.budget_loading}`;
+  return `${objectiveLabel[run.objective]}, ${params}`;
+}
+```
+
+```{ojs}
+html`<div class="explorer-selection">
+  <p><strong>Shown:</strong> ${designLine}, site ${site.location_id} (${siteName(site)}, insured value ${fmtMoney(site.value)}).</p>
+  ${applies ? "" : html`<p class="explorer-note">${parameterSymbol[parameter]} is a parameter of the weighted-CVaR objective only: the ${objectiveShort[objective]} design does not depend on it. The page shows its baseline design.</p>`}
+  ${showPremium && problem ? html`<p>Premium (pure pricing, on the calibration years ${fmtYears(0)}–${fmtYears(nTrain - 1)}): ${fmtMoney(problem.premium)} a year.</p>` : ""}
+</div>`
+```
+
+:::
+
+::: {#explorer-charts .g-col-12 .g-col-lg-8}
+
+```{ojs}
+//| output: false
+// -- Data of the charts ----------------------------------------------------------
+data = loadGroup(group)
+base = loadGroup("baseline")
+attachment = manifest.setup.payout.attachment
+limit = manifest.setup.payout.limit
+payoutX = [attachment - 5, limit + 5]
+// A run's bins at the site, in order.
+binsOf = (table, runId) => table
+  .filter((d) => d.run_id === runId && d.entity_id === siteId)
+  .sort((a, b) => d3.ascending(a.param_index, b.param_index))
+// A step function as a polyline: each bin's level from its lower to its upper
+// edge, so consecutive bins join with a vertical riser. Below the attachment,
+// a "first_bin" design pays the first bin's level (to the axis' left edge), a
+// "zero" design has its own zero row (lower null: -inf). At and above the
+// limit, the index falls into the last bin.
+stepLine = (bins, runId) => {
+  if (bins.length === 0) return [];
+  const out = [];
+  const first = bins[0];
+  if (first.below_attachment === "first_bin" && first.lower > payoutX[0]) {
+    out.push({run_id: runId, x: payoutX[0], y: first.value}, {run_id: runId, x: first.lower, y: first.value});
+  }
+  for (const b of bins) {
+    out.push({run_id: runId, x: b.lower ?? payoutX[0], y: b.value}, {run_id: runId, x: b.upper, y: b.value});
+  }
+  const last = bins[bins.length - 1];
+  out.push({run_id: runId, x: payoutX[1], y: last.value});
+  return out;
+}
+selectedBins = binsOf(data.payouts, run.run_id)
+otherLines = otherRuns.flatMap((r) => stepLine(binsOf(data.payouts, r.run_id), r.run_id))
+selectedLine = stepLine(selectedBins, run.run_id)
+payoutMax = d3.max([...selectedLine, ...otherLines], (d) => d.y)
+payoutUnit = moneyUnit(payoutMax)
 ```
 
 ### Step payout
 
 ```{ojs}
-//| output: false
-payoutRows = tables[parameter].payouts.filter((d) => d.entity_id === location.location_id)
-bins = payoutRows.filter((d) => d.run_id === point.run_id)
-payoutX = [manifest.setup.payout.attachment - 5, manifest.setup.payout.limit + 5]
-payoutYMax = d3.max(payoutRows, (d) => d.value) / 1e6
-```
-
-```{ojs}
 Plot.plot({
-  width,
-  height: Math.round(Math.min(340, Math.max(240, width * 0.6))),
-  marginLeft: 48,
+  width: chartWidth,
+  height: chartHeight,
+  marginLeft: 52,
   style: {background: "transparent"},
-  x: {domain: payoutX, label: `${manifest.eventset.index.unit === "m/s" ? "Wind speed" : "Index"} at the site (${manifest.eventset.index.unit}) →`},
-  y: {domain: [0, payoutYMax * 1.05], grid: true, label: `↑ Payout (${manifest.eventset.loss.currency} million)`},
+  x: {domain: payoutX, label: `${indexLabel} (${indexUnit}) →`},
+  y: {domain: [0, (payoutMax / payoutUnit.div) * 1.05], grid: true, label: `↑ Payout per event (${currency} ${payoutUnit.long})`},
   marks: [
-    Plot.rectY(bins, {
-      // A null lower edge is -inf (the zero row below the attachment).
-      x1: (d) => d.lower ?? payoutX[0],
-      x2: "upper",
-      y: (d) => d.value / 1e6,
-      fill: "#3a86c8",
-      inset: 0.5,
-      tip: {format: {x1: true, x2: true, y: (v) => `${v.toFixed(2)} M`}}
-    }),
-    Plot.ruleY([0])
+    Plot.ruleX([attachment, limit], {stroke: colours.reference, strokeDasharray: "2,3"}),
+    Plot.text([attachment, limit], {x: (d) => d, text: (d, i) => i === 0 ? "attachment" : "limit", frameAnchor: "top", dx: 3, textAnchor: "start", fill: "currentColor", fillOpacity: 0.7}),
+    Plot.ruleY([0]),
+    Plot.line(otherLines, {x: "x", y: (d) => d.y / payoutUnit.div, z: "run_id", stroke: colours.payout, strokeOpacity: 0.25, strokeWidth: 1}),
+    Plot.line(selectedLine, {x: "x", y: (d) => d.y / payoutUnit.div, stroke: colours.payout, strokeWidth: 2.5}),
+    Plot.tip(selectedBins, Plot.pointerX({
+      x: (d) => (d.lower + d.upper) / 2,
+      y: (d) => d.value / payoutUnit.div,
+      title: (d) => `${indexLabel}: ${d.lower.toFixed(1)}–${d.upper.toFixed(1)} ${indexUnit}\nPays ${fmtMoney(d.value)}`
+    }))
   ]
 })
 ```
 
-The payout is a step function of the wind-speed index: one level per bin between the attachment and the limit. Bars that look empty pay (close to) nothing.
+```{ojs}
+html`<p class="chart-caption"><span class="swatch" style="background:${colours.payout}"></span> the design shown${applies ? html`; <span class="swatch faint" style="background:${colours.payout}"></span> the designs at the other values of ${parameterSymbol[parameter]} in the sweep (${points.map((p) => p.value).join(", ")})` : ""}. The payout of an event is the level of the bin its wind speed falls in; below the attachment the design pays the first bin's level, at and above the limit the last bin's.</p>`
+```
 
-### Exceedance curves
+```{ojs}
+setupNote("design")
+```
+
+### Payout relative to the MSE design
 
 ```{ojs}
 //| output: false
-quantityColours = ({loss: "#8c8c8c", payout: "#3a86c8", uncovered: "#e0533d"})
-basisUnit = ({event_conditional: "events above the threshold, not years", event: "years, approximately", annual: "years"})[manifest.setup.basis]
-exceedanceRows = tables[parameter].exceedance.filter((d) => d.level === "entity" && d.subject_id === location.location_id)
-curves = exceedanceRows.filter((d) => d.run_id === point.run_id)
-exceedanceYMax = d3.max(exceedanceRows, (d) => d.value) / 1e6
+// The thesis' normalised payout: each bin's level relative to the level of
+// the residual-loss (MSE) design in the same bin, at the same κ. A bin where
+// the MSE design pays zero, to solver precision (1e-6 of its largest level, as
+// in the viz package), has no relative value and is left out.
+benchmarkRun = parameter === "budget_loading" && applies
+  ? manifest.runs.sweeps.budget_loading.map((p) => runById.get(p.run_id))
+      .find((r) => r.objective === "mse" && r.parameters.budget_loading === run.parameters.budget_loading)
+  : baselineRuns.mse
+benchmarkTable = group === "budget_loading" ? data.payouts : base.payouts
+benchmarkBins = binsOf(benchmarkTable, benchmarkRun.run_id)
+benchmarkScale = d3.max(benchmarkBins, (d) => Math.abs(d.value))
+relativeBins = (bins) => bins.filter((b) => b.param_index >= 0).map((b) => {
+  const bench = benchmarkBins.find((c) => c.param_index === b.param_index);
+  const zero = !bench || Math.abs(bench.value) <= 1e-6 * benchmarkScale;
+  return {...b, benchmark: bench?.value ?? null, relative: zero ? null : (b.value / bench.value) * 100};
+})
+// Each bin from its lower to its upper edge; an undefined bin breaks the line.
+relativeLine = (bins, runId) => relativeBins(bins).flatMap((b) => [
+  {run_id: runId, x: b.lower, y: b.relative},
+  {run_id: runId, x: b.upper, y: b.relative}
+])
+selectedRelative = relativeBins(selectedBins)
+relativeSelectedLine = relativeLine(selectedBins, run.run_id)
+relativeOtherLines = parameter === "budget_loading" ? [] : otherRuns.flatMap((r) => relativeLine(binsOf(data.payouts, r.run_id), r.run_id))
+relativeCap = 300
+relativeMax = Math.min(relativeCap, Math.max(150, d3.max([...relativeSelectedLine, ...relativeOtherLines], (d) => d.y) ?? 0))
+relativeClipped = [...relativeSelectedLine, ...relativeOtherLines].some((d) => d.y != null && d.y > relativeCap)
+relativeUndefined = selectedRelative.filter((b) => b.relative == null).length
 ```
 
 ```{ojs}
 Plot.plot({
-  width,
-  height: Math.round(Math.min(340, Math.max(240, width * 0.6))),
-  marginLeft: 48,
+  width: chartWidth,
+  height: chartHeight,
+  marginLeft: 52,
   style: {background: "transparent"},
-  x: {type: "log", label: `Return period (${basisUnit}) →`},
-  y: {domain: [0, exceedanceYMax * 1.05], grid: true, label: `↑ Value (${manifest.eventset.loss.currency} million)`},
-  color: {domain: Object.keys(quantityColours), range: Object.values(quantityColours), legend: true},
+  x: {domain: [attachment, limit], label: `${indexLabel} (${indexUnit}) →`},
+  y: {domain: [0, relativeMax * 1.05], grid: true, label: "↑ Payout relative to the MSE design (%)"},
+  marks: [
+    Plot.ruleY([100], {stroke: colours.reference, strokeDasharray: "4,3"}),
+    Plot.text([100], {y: (d) => d, text: () => "MSE design = 100 %", frameAnchor: "left", dx: 4, dy: -7, textAnchor: "start", fill: "currentColor", fillOpacity: 0.7}),
+    Plot.ruleY([0]),
+    Plot.line(relativeOtherLines, {x: "x", y: "y", z: "run_id", stroke: colours.payout, strokeOpacity: 0.25, strokeWidth: 1, clip: true}),
+    Plot.line(relativeSelectedLine, {x: "x", y: "y", stroke: colours.payout, strokeWidth: 2.5, clip: true}),
+    Plot.tip(selectedRelative.filter((b) => b.relative != null), Plot.pointerX({
+      x: (d) => (d.lower + d.upper) / 2,
+      y: (d) => Math.min(d.relative, relativeMax),
+      title: (d) => `${indexLabel}: ${d.lower.toFixed(1)}–${d.upper.toFixed(1)} ${indexUnit}\nThis design: ${fmtMoney(d.value)}\nMSE design: ${fmtMoney(d.benchmark)}\nRatio: ${fmtPct(d.relative)}`
+    }))
+  ]
+})
+```
+
+```{ojs}
+html`<p class="chart-caption">Each bin's payout divided by the payout of the residual-loss (MSE) design${parameter === "budget_loading" && applies ? " at the same κ" : ` at κ = ${benchmarkRun.parameters.budget_loading}`}, in percent: 100 % means the same payout as the MSE design in that bin.${objective === "mse" ? " The design shown is the MSE design itself." : ""}${relativeUndefined > 0 ? ` ${relativeUndefined} ${relativeUndefined === 1 ? "bin is" : "bins are"} left out: the MSE design pays nothing there, so the ratio is undefined.` : ""}${relativeClipped ? ` The axis stops at ${relativeCap} %: higher ratios are cut off (the table below has every value).` : ""}${parameter === "budget_loading" ? " Each κ has its own MSE design, so only the design shown is drawn." : ""}</p>`
+```
+
+```{ojs}
+setupNote("relative")
+```
+
+### Exceedance curves of the uncovered loss
+
+```{ojs}
+//| output: false
+subjectId = subjectLevel === "portfolio" ? "portfolio" : siteId
+curveRows = (runId) => data.exceedance.filter((d) =>
+  d.run_id === runId && d.level === subjectLevel && d.subject_id === subjectId && d.curve === curveKind)
+curves = curveRows(run.run_id).sort((a, b) => d3.ascending(a.return_period, b.return_period))
+otherUncovered = otherRuns.flatMap((r) => curveRows(r.run_id).filter((d) => d.quantity === "uncovered"))
+  .sort((a, b) => d3.ascending(a.return_period, b.return_period))
+returnPeriods = [...new Set(curves.map((d) => d.return_period))].sort(d3.ascending)
+exceedanceMax = d3.max([...curves, ...otherUncovered], (d) => d.value)
+exceedanceUnit = moneyUnit(exceedanceMax)
+quantityLabel = ({loss: "Loss", payout: "Payout", uncovered: "Uncovered loss"})
+```
+
+```{ojs}
+Plot.plot({
+  width: chartWidth,
+  height: chartHeight,
+  marginLeft: 52,
+  marginBottom: 40,
+  style: {background: "transparent"},
+  x: {type: "log", domain: d3.extent(returnPeriods), label: null},
+  y: {domain: [0, (exceedanceMax / exceedanceUnit.div) * 1.05], grid: true, label: `↑ ${curveKind === "aep" ? "Annual total" : "Largest event of the year"} (${currency} ${exceedanceUnit.long})`},
+  color: {
+    domain: ["loss", "payout", "uncovered"],
+    range: [colours.loss, colours.payout, colours.uncovered],
+    tickFormat: (q) => quantityLabel[q],
+    legend: true
+  },
   marks: [
     // Tick and label every return period of the bundle: a log axis labels
     // only some of them, whatever its tickFormat.
-    Plot.axisX(manifest.setup.evaluation.return_periods, {tickFormat: () => "", label: `Return period (${basisUnit}) →`}),
-    Plot.text(manifest.setup.evaluation.return_periods, {x: (d) => d, text: (d) => String(d), frameAnchor: "bottom", lineAnchor: "top", dy: 9}),
+    Plot.axisX(returnPeriods, {tickFormat: () => "", label: "Return period (years) →", labelOffset: 34}),
+    Plot.text(returnPeriods, {x: (d) => d, text: (d) => String(d), frameAnchor: "bottom", lineAnchor: "top", dy: 9}),
     Plot.ruleY([0]),
-    Plot.line(curves, {x: "return_period", y: (d) => d.value / 1e6, stroke: "quantity", strokeWidth: 2}),
-    Plot.dot(curves, {x: "return_period", y: (d) => d.value / 1e6, fill: "quantity", r: 3, tip: {format: {y: (v) => `${v.toFixed(2)} M`}}})
+    Plot.line(otherUncovered, {x: "return_period", y: (d) => d.value / exceedanceUnit.div, z: "run_id", stroke: colours.uncovered, strokeOpacity: 0.25, strokeWidth: 1}),
+    Plot.line(curves.filter((d) => d.quantity === "loss"), {x: "return_period", y: (d) => d.value / exceedanceUnit.div, stroke: colours.loss, strokeWidth: 1.5, strokeDasharray: "5,3"}),
+    Plot.line(curves.filter((d) => d.quantity === "payout"), {x: "return_period", y: (d) => d.value / exceedanceUnit.div, stroke: colours.payout, strokeWidth: 1.5}),
+    Plot.line(curves.filter((d) => d.quantity === "uncovered"), {x: "return_period", y: (d) => d.value / exceedanceUnit.div, stroke: colours.uncovered, strokeWidth: 2.5}),
+    Plot.dot(curves, {x: "return_period", y: (d) => d.value / exceedanceUnit.div, fill: "quantity", r: 3}),
+    Plot.tip(curves, Plot.pointer({
+      x: "return_period",
+      y: (d) => d.value / exceedanceUnit.div,
+      title: (d) => `${quantityLabel[d.quantity]}, ${d.return_period}-year return period\n${fmtMoney(d.value)}`
+    }))
   ]
 })
 ```
 
-The value exceeded at each return period, for the site's loss, the payout and the uncovered loss (loss minus payout) of the design above.
+```{ojs}
+html`<p class="chart-caption">The value exceeded on average once in each return period, over the test years: for the ${subjectLevel === "portfolio" ? `whole portfolio (the sum over its ${locations.length} sites, each with its own design of this objective)` : `site ${site.location_id}`}, of the loss (dashed), the payout and the uncovered loss of the design shown${applies && otherUncovered.length ? `; the faint lines are the uncovered loss of the designs at the other values of ${parameterSymbol[parameter]}` : ""}. ${curveKind === "aep" ? "AEP: each year's total over its events, the quantity the objectives are calibrated on." : "OEP: each year's largest event."}</p>`
+```
+
+```{ojs}
+setupNote("exceedance")
+```
+
+:::
+
+::::
+
+<details class="explorer-numbers">
+<summary>Numbers behind the charts</summary>
+
+```{ojs}
+html`<p>The design shown: ${designLine}, site ${site.location_id}. Values in ${currency}, rounded to the unit, as in the bundle files <code>${fileNames[group].payouts}</code> (run <code>${run.run_id}</code>) and <code>${fileNames[group].exceedance}</code>.</p>`
+```
+
+```{ojs}
+html`<table class="table table-sm explorer-table">
+  <caption>Payout levels per bin, and relative to the MSE design</caption>
+  <thead><tr><th scope="col">Bin (${indexUnit})</th><th scope="col" class="num">Payout</th><th scope="col" class="num">MSE design</th><th scope="col" class="num">Ratio</th></tr></thead>
+  <tbody>${relativeBins(selectedBins).map((b) => html`<tr><td>${b.lower.toFixed(2)}–${b.upper.toFixed(2)}</td><td class="num">${fmtExact(b.value)}</td><td class="num">${b.benchmark == null ? "" : fmtExact(b.benchmark)}</td><td class="num">${fmtPct(b.relative)}</td></tr>`)}</tbody>
+</table>`
+```
+
+```{ojs}
+html`<table class="table table-sm explorer-table">
+  <caption>Exceedance curves (${curveKind.toUpperCase()}, ${subjectLevel === "portfolio" ? "whole portfolio" : `site ${site.location_id}`}, test years)</caption>
+  <thead><tr><th scope="col">Return period (years)</th>${["loss", "payout", "uncovered"].map((q) => html`<th scope="col" class="num">${quantityLabel[q]}</th>`)}</tr></thead>
+  <tbody>${returnPeriods.map((rp) => html`<tr><td>${rp}</td>${["loss", "payout", "uncovered"].map((q) => {
+    const row = curves.find((d) => d.return_period === rp && d.quantity === q);
+    return html`<td class="num">${row ? fmtExact(row.value) : ""}</td>`;
+  })}</tr>`)}</tbody>
+</table>`
+```
+
+</details>
 
 ## Setup {#setup}
 
 ```{ojs}
 //| output: false
+noise = manifest.setup.basis_risk.noise
+threshold = manifest.setup.basis_risk.threshold
+portfolioText = `the thesis portfolio, ${locations.length} sites in Miami (${locations.map((l) => l.location_id).join(", ")})`
+basisRiskText = `the thesis noise layer: ${noise.kind} noise on the index, level ${noise.level}, ${noise.n_copies} noisy copies of each event (seed ${noise.seed}), bounded to ${noise.bounds.join("–")} ${indexUnit}; events with ${threshold.column} below ${threshold.value} ${indexUnit} dropped`
+pricingText = `${manifest.setup.pricing.kind} pricing (premium = expected annual payout); budget: premium at most κ times the expected annual loss`
+splitText = `${manifest.setup.split.kind}: designs calibrated on years ${fmtYears(0)}–${fmtYears(nTrain - 1)}, curves evaluated out of sample on years ${fmtYears(nTrain)}–${fmtYears(nYears - 1)}`
+splitFilter = manifest.split_filter?.eval_split
+payoutText = `${manifest.setup.payout.kind} payout, ${manifest.setup.payout.n_bins} equal bins from ${attachment} to ${limit} ${indexUnit} (no bin-count sweep in this bundle)`
+// The setup line under each chart: everything a number on it depends on,
+// in short; the table below has the long form.
+setupNote = (kind) => {
+  const kappa = run.parameters.budget_loading;
+  const where = subjectLevel === "portfolio" && kind === "exceedance"
+    ? `whole portfolio (sum over the ${locations.length} sites)`
+    : `site ${site.location_id}`;
+  const parts = [
+    `the thesis portfolio (${locations.length} sites in Miami), ${where}`,
+    `${run.scope} scope`,
+    designLine,
+    ...(kind === "relative" ? [`benchmark: the MSE design at κ = ${benchmarkRun.parameters.budget_loading}`] : []),
+    `${manifest.setup.payout.n_bins} bins from ${attachment} to ${limit} ${indexUnit}`,
+    `${manifest.setup.basis} basis`,
+    `basis-risk model: the thesis noise layer (${noise.kind}, level ${noise.level}, ${noise.n_copies} copies)`,
+    `${manifest.setup.pricing.kind} pricing, κ = ${kappa}`,
+    kind === "exceedance"
+      ? `${manifest.setup.split.kind} split, evaluated out of sample on the test years ${fmtYears(nTrain)}–${fmtYears(nYears - 1)} (eval_split = "${splitFilter}")`
+      : `${manifest.setup.split.kind} split, calibrated on the train years ${fmtYears(0)}–${fmtYears(nTrain - 1)}`
+  ];
+  return html`<p class="setup-note"><strong>Setup:</strong> ${parts.join("; ")}. <a href="#setup">Full setup</a>.</p>`;
+}
 setupRows = {
   const s = manifest.setup;
-  const n = s.basis_risk.noise;
-  const t = s.basis_risk.threshold;
-  const budget = s.constraints.filter((c) => c.kind === "budget").map((c) => `budget, loading ${c.loading}`).join("; ");
-  return [
-    ["Data", manifest.label],
-    ["Portfolio", `${s.portfolio.location_ids.join(", ")}: ${location.name.replaceAll("_", " ")}, insured value ${(location.value / 1e6).toFixed(0)} M ${manifest.eventset.loss.currency}`],
-    ["Event set", `${manifest.eventset.hazard.name}, ${manifest.eventset.n_years.toLocaleString("en")} simulated years; licence ${manifest.eventset.licence}`],
-    ["Index", `${manifest.eventset.index.definition} (${manifest.eventset.index.unit})`],
-    ["Design", `${run.scope} scope, ${run.objective.replace("_", " ")} objective, α = ${run.parameters.alpha}, β = ${run.parameters.beta}`],
-    ["Payout", `${s.payout.kind}, ${s.payout.n_bins} bins from ${s.payout.attachment} to ${s.payout.limit} ${manifest.eventset.index.unit}`],
-    ["Basis", s.basis.replace("_", "-")],
-    ["Basis-risk model", `${n.kind} noise on the index, level ${n.level}, ${n.n_copies} copies, seed ${n.seed}, bounds ${n.bounds.join(" to ")}; events with ${t.column} below ${t.value} dropped`],
-    ["Pricing", `${s.pricing.kind}; ${budget}`],
-    ["Split", `${s.split.kind}: ${s.split.out_of_sample ? "out-of-sample" : "in-sample, calibration and evaluation on the same events"}`],
-    ["Evaluation", `CVaR level ${s.evaluation.beta}; return periods ${s.evaluation.return_periods.join(", ")}`],
+  const e = manifest.eventset;
+  const rows = [
+    ["Portfolio", html`${portfolioText}. ${locations.map((l, i) => html`${i ? "; " : ""}${l.location_id} ${siteName(l)} (${fmtMoney(l.value)})`)}`],
+    ["Event set", `${e.hazard.name}: ${e.hazard.release}. ${fmtYears(e.n_years)} simulated years; licence ${e.licence}`],
+    ["Index", `${e.index.definition} (${e.index.unit})`],
+    ["Loss", `${e.scenario}`],
+    ["Design", `${run.scope} scope: each site calibrated on its own. ${designLine}`],
+    ["Payout", payoutText],
+    ["Basis", `${s.basis}: an outcome is a simulated year, its uncovered loss the sum over its events`],
+    ["Basis-risk model", basisRiskText],
+    ["Pricing", pricingText],
+    ["Split", splitText],
+    ["Rows in the bundle", splitFilter ? `eval_split = "${splitFilter}" only: the exceedance curves are out of sample` : "no split filter"],
+    ["Evaluation", `CVaR level of the reported KPIs ${s.evaluation.beta}; return periods ${returnPeriods.join(", ")} years`],
+    ["Sweeps", parameterOrder.map((p) => `${parameterSymbol[p]}: ${[...new Set(manifest.runs.sweeps[p].map((q) => q.value))].join(", ")}`).join("; ")],
+    ["Bundle", manifest.label],
     ["Config", `${manifest.config.name}, ${manifest.config.hash}`],
-    ["Run", run.run_id]
+    ["Run", `${run.run_id}${run.problems.find((p) => p.problem_id === siteId) ? `, problem ${siteId}: ${run.problems.find((p) => p.problem_id === siteId).status}` : ""}`]
   ];
+  if (showPremium && problem) rows.splice(9, 0, ["Premium", `${fmtMoney(problem.premium)} a year, priced on the calibration years`]);
+  return rows;
 }
 ```
 
@@ -189,4 +583,4 @@ setupRows = {
 html`<table class="setup-table"><tbody>${setupRows.map(([k, v]) => html`<tr><th scope="row">${k}</th><td>${v}</td></tr>`)}</tbody></table>`
 ```
 
-The bundle is `site/fixtures/thesis-explorer/` in the [repository](https://github.com/marc272/parametric-insurance-design/tree/main/site/fixtures), written by `parametric-insurance-design export-site` from the config `site/fixtures/thesis_explorer.yaml`.
+The bundle is written by `parametric-insurance-design export-site site/configs/explorer.yaml --split test` on every build of the site, from the config [`site/configs/explorer.yaml`](https://github.com/marc272/parametric-insurance-design/blob/main/site/configs/explorer.yaml) in the [repository](https://github.com/marc272/parametric-insurance-design). Its files and their SHA-256 are listed in [`bundles/explorer/manifest.json`](../bundles/explorer/manifest.json).
