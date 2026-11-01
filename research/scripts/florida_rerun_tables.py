@@ -145,6 +145,11 @@ def _money_ci(v: float, lo: float, hi: float) -> str:
     return f"{_m(v)} [{_m(lo)}, {_m(hi)}]"
 
 
+def _ratio(x: float) -> str:
+    """Format a payout ratio with two decimals (a tiny negative shows as 0.00)."""
+    return f"{round(float(x), 2) + 0.0:.2f}"
+
+
 def _table(header: list[str], rows: Iterable[list[str]]) -> str:
     out = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
     out += ["| " + " | ".join(r) + " |" for r in rows]
@@ -1261,11 +1266,11 @@ def _payout_tables(t: dict[str, pd.DataFrame]) -> list[str]:
                             PRICING_LABEL[pricing],
                             scope,
                             DESIGN_LABEL[d],
-                            f"{r.min():.2f}",
-                            f"{r.quantile(0.25):.2f}",
-                            f"{r.median():.2f}",
-                            f"{r.quantile(0.75):.2f}",
-                            f"{r.max():.2f}",
+                            _ratio(r.min()),
+                            _ratio(r.quantile(0.25)),
+                            _ratio(r.median()),
+                            _ratio(r.quantile(0.75)),
+                            _ratio(r.max()),
                             str(int((r < 0.01).sum())),
                             str(int((r < 0.5).sum())),
                             str(int((r > 2.0).sum())),
@@ -1318,7 +1323,7 @@ def _payout_tables(t: dict[str, pd.DataFrame]) -> list[str]:
                     (e["design"] == d) & (e["entity_id"].astype(str) == str(loc)),
                     "payout_to_loss",
                 ]
-                row.append("n/a" if x.empty else f"{float(x.iloc[0]):.2f}")
+                row.append("n/a" if x.empty else _ratio(float(x.iloc[0])))
             rows.append(row)
         parts += [
             f"**{INDEX_LABEL[idx]}, pure, κ 1, portfolio designs**",
@@ -1362,7 +1367,7 @@ def _payout_tables(t: dict[str, pd.DataFrame]) -> list[str]:
                     if el.empty
                     else _pct(float(el.iloc[0] / el_all), signed=False),
                     *[
-                        "n/a" if r.empty else f"{float(r.iloc[0]):.2f}"
+                        "n/a" if r.empty else _ratio(float(r.iloc[0]))
                         for r in ratios.values()
                     ],
                 ]
