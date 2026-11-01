@@ -81,6 +81,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import math
 import time
 from collections.abc import Iterable
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -122,6 +123,7 @@ from parametric_insurance_design.experiment.runner import (
 )
 from parametric_insurance_design.experiment.store import ResultStore
 from parametric_insurance_design.interfaces import Sample
+from parametric_insurance_design.scopes import Cluster
 from parametric_insurance_design.solve import DEFAULT_POLICY
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
@@ -1219,6 +1221,27 @@ def run_premium(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any
             it = futs[fut]
             label = _label((it["index"], it["pricing"], it["kappa"], it["design"]))
             print(f"[premium {n}/{len(futs)}] {label} {sec:.0f}s", flush=True)
+    args.full.mkdir(parents=True, exist_ok=True)
+    pd.concat(frames, ignore_index=True).to_csv(
+        args.full / "premium_split.csv", index=False, float_format="%.10g"
+    )
+    _premium_rows(items, store).to_csv(
+        args.full / "premiums.csv", index=False, float_format="%.10g"
+    )
+    return {
+        "premium_matched_runs": len(items),
+        "premium_solved_this_call": len(seconds),
+        "premium_seconds": round(time.perf_counter() - t0, 1),
+    }
+
+
+# --------------------------------------------------------------------------
+# Phase matched: solve the portfolio_matched runs, write premiums.csv
+# --------------------------------------------------------------------------
+
+
+def _premium_rows(items: list[dict[str, Any]], store: ResultStore) -> pd.DataFrame:
+    """One row per individual design under the load: A, S, credit, matched run."""
     rows = []
     for it in items:
         matched = store.read("runs", run_ids=[it["run_id"]])
@@ -1250,17 +1273,408 @@ def run_premium(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any
                 "matched_run_id": it["run_id"],
             }
         )
+    return pd.DataFrame(rows)
+
+
+def run_matched(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any]:
+    """Phase matched: solve the ``portfolio_matched`` runs (C1 section 6b.5).
+
+    Writes ``premiums.csv`` to ``args.full``: per individual design under the
+    load, ``A``, ``S``, the credit ``1 - A / S``, the matched loading and
+    the matched and portfolio runs' premiums and budget use.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Command-line arguments.
+    plan : dict
+        The plan.
+
+    Returns
+    -------
+    dict
+        Summary entries.
+    """
+    t0 = time.perf_counter()
+    store = ResultStore(args.store)
+    items = matched_configs(plan, store)
+    seconds = solve_all({i["run_id"]: i["config"] for i in items}, store, args.jobs)
+    check_ok(store, (i["run_id"] for i in items))
     args.full.mkdir(parents=True, exist_ok=True)
-    pd.concat(frames, ignore_index=True).to_csv(
-        args.full / "premium_split.csv", index=False, float_format="%.10g"
-    )
-    pd.DataFrame(rows).to_csv(
+    _premium_rows(items, store).to_csv(
         args.full / "premiums.csv", index=False, float_format="%.10g"
     )
     return {
-        "premium_matched_runs": len(items),
-        "premium_solved_this_call": len(seconds),
-        "premium_seconds": round(time.perf_counter() - t0, 1),
+        "matched_runs": len(items),
+        "matched_solved_this_call": len(seconds),
+        "matched_seconds": round(time.perf_counter() - t0, 1),
+        "matched_solve_seconds_per_run": seconds,
+    }
+
+
+# --------------------------------------------------------------------------
+# Phase holdout: every holdout comparison on one resample per variant
+# --------------------------------------------------------------------------
+
+PAIRS: Final[tuple[tuple[str, str], ...]] = (
+    (rq2.SEPARATE, "individual"),
+    ("cluster", rq2.SEPARATE),
+    (MATCHED, "individual"),
+    ("portfolio", MATCHED),
+)
+"""Scope pairs of the derived designs: the cluster index part and joint part
+(C1 6b.6), cross-coverage and pricing diversification (C1 6b.5)."""
+
+
+def holdout_worker(
+    index: str,
+    pricing: str,
+    kappa: float,
+    members: dict[comb.Design, tuple[ExperimentConfig, str]],
+    matched: dict[str, tuple[ExperimentConfig, str]],
+    store_root: str,
+) -> tuple[dict[str, pd.DataFrame], float]:
+    """Bootstrap one variant's designs on one resample; contrast and pair them.
+
+    One worker per (index, pricing, kappa) does what ``c1_combination``'s
+    and ``c1_rq2``'s holdout workers and :func:`premium_worker` do together,
+    so each design is bootstrapped once: the 3 scopes x 4 designs of the
+    plan, the ``cluster_separate`` design of each objective (solved here)
+    and, under the load, the ``portfolio_matched`` designs (from the store).
+    All on the C1 resample of the holdout test years (B 1000, seed 0).
+
+    Parameters
+    ----------
+    index, pricing : str
+        Plan labels.
+    kappa : float
+        Budget loading.
+    members : dict
+        (scope, design) to (single-run config, run id) of the plan's runs.
+    matched : dict
+        Design to (config, run id) of its ``portfolio_matched`` run; empty
+        under pure pricing.
+    store_root : str
+        The result store.
+
+    Returns
+    -------
+    frames : dict of pandas.DataFrame
+        ``grid`` (train and test portfolio KPIs, budget use), ``contrasts``
+        (every ``c1_combination`` contrast, train and test), ``pairs`` (the
+        :data:`PAIRS` differences, test with paired intervals, train point
+        values), ``entities`` (expected payout and loss per payout entity,
+        train and test, at the config's evaluation beta) and ``runs``.
+    seconds : float
+        Wall time.
+    """
+    start = time.perf_counter()
+    store = ResultStore(Path(store_root))
+    cfg0 = members[("individual", "mse")][0]
+    prepared = c1._prepared(cfg0)
+    train, test = splits.holdout(prepared, train_fraction=0.7)
+    assert cfg0.bootstrap is not None
+    resample = resample_years(
+        test.years, cfg0.bootstrap.n_bootstrap, cfg0.bootstrap.rng()
+    )
+    level = cfg0.bootstrap.level
+    comps = cfg0.to_components()
+    basis, price = comps.basis, comps.pricing
+    config_beta = cfg0.evaluation.beta
+
+    designs: dict[comb.Design, rq2._Design] = {}
+    loadings: dict[comb.Design, float] = {}
+    for key, (cfg, rid) in members.items():
+        designs[key] = rq2._stored(cfg, rid, store)
+        loadings[key] = kappa
+    for d in sorted({k[1] for k in members}):
+        cl = designs[("cluster", d)]
+        scope = cl.scope
+        if not isinstance(scope, Cluster):
+            raise RuntimeError("the cluster run's scope is not a Cluster")
+        joint = [r.spec for r in cl.results]
+        if scope.partition(train.select(prepared)) != tuple(joint):
+            raise RuntimeError(f"{index} {pricing} k{kappa} {d}: cluster partition")
+        designs[(rq2.SEPARATE, d)] = rq2._solved(
+            rq2.SEPARATE,
+            rq2.SeparateClusters(scope),
+            members[("cluster", d)][0],
+            prepared,
+            train,
+            rq2.separate_specs(joint),
+            DEFAULT_POLICY,
+            cl.config_hash,
+        )
+        loadings[(rq2.SEPARATE, d)] = kappa
+    for d, (cfg, rid) in matched.items():
+        designs[(MATCHED, d)] = rq2._stored(cfg, rid, store)
+        loadings[(MATCHED, d)] = float(cfg.constraints[0].model_dump()["loading"])
+
+    boots: dict[float, dict[comb.Design, KpiBootstrap]] = {b: {} for b in EVAL_BETAS}
+    train_values: dict[float, dict[comb.Design, pd.Series]] = {
+        b: {} for b in EVAL_BETAS
+    }
+    hashes = {k: d.config_hash for k, d in designs.items()}
+    grid: list[pd.DataFrame] = []
+    entities: list[pd.DataFrame] = []
+    run_rows: list[dict[str, Any]] = []
+    for key, d in designs.items():
+        locs = rq2._entity_locations(d)
+        for beta in EVAL_BETAS:
+            boot = bootstrap_kpis(
+                prepared,
+                d.scope,
+                d.results,
+                basis=basis,
+                beta=beta,
+                run_id=d.run_id,
+                resample=resample,
+                sample=test,
+                pricing=price,
+                level=level,
+            )
+            pb = rq2.portfolio_rows(boot)
+            boots[beta][key] = pb
+            tr = evaluate_kpis(
+                prepared,
+                d.scope,
+                d.results,
+                basis=basis,
+                beta=beta,
+                run_id=d.run_id,
+                sample=train,
+                pricing=price,
+            )
+            trp = tr.loc[tr["level"] == "portfolio"]
+            train_values[beta][key] = trp.set_index("kpi")["value"]
+            for split, table in (("test", pb.table), ("train", trp)):
+                g = comb._grid_rows(table, beta)
+                g["split"], g["scope"], g["design"] = split, key[0], key[1]
+                g["config_hash"] = d.config_hash
+                grid.append(g)
+            if beta != config_beta:
+                continue
+            te = evaluate_kpis(
+                prepared,
+                d.scope,
+                d.results,
+                basis=basis,
+                beta=beta,
+                run_id=d.run_id,
+                sample=test,
+                pricing=price,
+            )
+            for split, table in (("train", tr), ("test", te)):
+                e = table.loc[
+                    (table["level"] == "entity") & table["kpi"].isin(ENTITY_KPIS),
+                    ["subject_id", "kpi", "value"],
+                ].copy()
+                e["split"], e["scope"], e["design"] = split, key[0], key[1]
+                e["entity_locations"] = e["subject_id"].map(locs)
+                e["config_hash"] = d.config_hash
+                entities.append(e)
+        el = float(train_values[config_beta][key]["expected_loss"])
+        use = float(sum(r.premium for r in d.results)) / (loadings[key] * el)
+        grid.append(
+            pd.DataFrame(
+                [
+                    {
+                        "kpi": "budget_use",
+                        "value": use,
+                        "ci_low": math.nan,
+                        "ci_high": math.nan,
+                        "eval_beta": math.nan,
+                        "split": "train",
+                        "scope": key[0],
+                        "design": key[1],
+                        "config_hash": d.config_hash,
+                    }
+                ]
+            )
+        )
+        run_rows.append(
+            {
+                "kind": "holdout" if key[0] in SCOPE_KINDS else "derived",
+                "scope": key[0],
+                "design": key[1],
+                "n_problems": len(d.results),
+                "statuses": d.statuses,
+                "solvers": d.solvers,
+                "budget_use": use,
+                "loading": loadings[key],
+                "config_hash": d.config_hash,
+                "run_id": d.run_id,
+                "base_config_hash": (
+                    designs[("cluster", key[1])].config_hash
+                    if key[0] == rq2.SEPARATE
+                    else d.config_hash
+                ),
+            }
+        )
+
+    items = comb.contrasts("main")
+    rows: list[dict[str, Any]] = []
+    pairs: list[pd.DataFrame] = []
+    for beta in EVAL_BETAS:
+        rows += comb.contrast_rows(boots[beta], hashes, items, split="test", beta=beta)
+        rows += comb.train_contrast_rows(train_values[beta], hashes, items, beta=beta)
+        for d in sorted({k[1] for k in members}):
+            for a_, b_ in PAIRS:
+                a, b = (a_, d), (b_, d)
+                if a not in designs or b not in designs:
+                    continue
+                diff = paired_difference(boots[beta][a], boots[beta][b])
+                pairs.append(
+                    diff.assign(
+                        split="test",
+                        scope_a=a_,
+                        scope_b=b_,
+                        design=d,
+                        eval_beta=beta,
+                        config_hash_a=hashes[a],
+                        config_hash_b=hashes[b],
+                    )
+                )
+                va, vb = train_values[beta][a], train_values[beta][b]
+                tr = pd.DataFrame(
+                    {"kpi": va.index, "value_a": va.to_numpy(), "value_b": vb[va.index]}
+                )
+                tr["difference"] = tr["value_a"] - tr["value_b"]
+                pairs.append(
+                    tr.assign(
+                        split="train",
+                        scope_a=a_,
+                        scope_b=b_,
+                        design=d,
+                        eval_beta=beta,
+                        config_hash_a=hashes[a],
+                        config_hash_b=hashes[b],
+                    )
+                )
+    frames = {
+        "grid": pd.concat(grid, ignore_index=True),
+        "contrasts": pd.DataFrame(rows),
+        "pairs": pd.concat(pairs, ignore_index=True),
+        "entities": pd.concat(entities, ignore_index=True),
+        "runs": pd.DataFrame(run_rows),
+    }
+    for frame in frames.values():
+        frame.insert(0, "kappa", kappa)
+        frame.insert(0, "pricing", pricing)
+        frame.insert(0, "eventset", index)
+        frame.insert(0, "family", FAMILY)
+    return frames, time.perf_counter() - start
+
+
+SCOPE_KINDS: Final[frozenset[str]] = frozenset({"individual", "cluster", "portfolio"})
+
+
+def _check_pairs(con: pd.DataFrame, pairs: pd.DataFrame) -> int:
+    """Raise unless the premium split adds up, on every test row.
+
+    (matched - individual) + (portfolio - matched) must equal portfolio -
+    individual, the ``adds_rq2`` or ``rq2_alone`` contrast.
+    """
+    key = ["eventset", "pricing", "kappa", "design", "kpi", "eval_beta"]
+    p = pairs.loc[pairs["split"] == "test"].set_index([*key, "scope_a", "scope_b"])[
+        "difference"
+    ]
+    c = con.loc[(con["split"] == "test") & con["joint_scope"].eq("portfolio")]
+    c = c.loc[c["contrast"].isin(["adds_rq2", "rq2_alone"])].copy()
+    c["design"] = np.where(
+        c["contrast"] == "adds_rq2", c["tail_design"], c["base_design"]
+    )
+    n = 0
+    for r in c.itertuples():
+        k = (r.eventset, r.pricing, r.kappa, r.design, r.kpi, r.eval_beta)
+        try:
+            cross = p[(*k, MATCHED, "individual")]
+            diversification = p[(*k, "portfolio", MATCHED)]
+        except KeyError:
+            continue
+        if not math.isclose(
+            float(cross + diversification), float(r.value), rel_tol=1e-9, abs_tol=1e-3
+        ):
+            raise RuntimeError(f"premium split does not add up: {k}")
+        n += 1
+    return n
+
+
+def run_holdout(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any]:
+    """Phase holdout: :func:`holdout_worker` per (index, pricing, kappa).
+
+    Needs the ``solve`` and ``matched`` phases. Writes
+    ``holdout_{grid,contrasts,pairs,entities,runs}.csv`` to ``args.full``
+    after checking the decomposition identity of every contrast and that
+    the premium split adds up to portfolio - individual.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Command-line arguments.
+    plan : dict
+        The plan.
+
+    Returns
+    -------
+    dict
+        Summary entries.
+    """
+    if tuple(plan["designs"]) != comb.DESIGNS["main"]:
+        raise RuntimeError("the holdout phase needs C1's main-line designs")
+    t0 = time.perf_counter()
+    store = ResultStore(args.store)
+    runs = holdout_runs(plan)
+    check_ok(store, (r.run_id for r in runs))
+    groups: dict[
+        tuple[str, str, float], dict[comb.Design, tuple[ExperimentConfig, str]]
+    ]
+    groups = {}
+    for r in runs:
+        groups.setdefault((r.index, r.pricing, r.kappa), {})[(r.scope, r.design)] = (
+            r.config,
+            r.run_id,
+        )
+    matched: dict[tuple[str, str, float], dict[str, tuple[ExperimentConfig, str]]] = {}
+    for it in matched_configs(plan, store):
+        if not store.has_run(it["run_id"]):
+            raise RuntimeError("portfolio_matched run missing: run the matched phase")
+        key = (it["index"], it["pricing"], it["kappa"])
+        matched.setdefault(key, {})[it["design"]] = (it["config"], it["run_id"])
+    frames: dict[str, list[pd.DataFrame]] = {}
+    seconds: dict[str, float] = {}
+    with _pool(args.jobs) as pool:
+        futs = {
+            pool.submit(
+                holdout_worker, *key, m, matched.get(key, {}), str(args.store)
+            ): key
+            for key, m in groups.items()
+        }
+        for i, fut in enumerate(as_completed(futs), 1):
+            out, sec = fut.result()
+            for name, frame in out.items():
+                frames.setdefault(name, []).append(frame)
+            seconds[_label(futs[fut])] = round(sec, 1)
+            print(
+                f"[holdout {i}/{len(futs)}] {_label(futs[fut])} {sec:.0f}s", flush=True
+            )
+    tables = {n: pd.concat(f, ignore_index=True) for n, f in frames.items()}
+    n_dec = comb._check_decomposition(tables["contrasts"])
+    n_pairs = _check_pairs(tables["contrasts"], tables["pairs"])
+    args.full.mkdir(parents=True, exist_ok=True)
+    for name, table in tables.items():
+        table.to_csv(
+            args.full / f"holdout_{name}.csv", index=False, float_format="%.10g"
+        )
+    print(
+        f"holdout: {n_dec} decompositions, {n_pairs} premium splits checked", flush=True
+    )
+    return {
+        "holdout_groups": len(groups),
+        "holdout_decompositions_checked": n_dec,
+        "holdout_premium_splits_checked": n_pairs,
+        "holdout_seconds": round(time.perf_counter() - t0, 1),
+        "holdout_seconds_per_group": seconds,
     }
 
 
@@ -1365,13 +1779,25 @@ def _guard_row(rid: str, manifest: dict[str, Any]) -> dict[str, Any]:
 
 PHASES: Final[tuple[str, ...]] = (
     "solve",
+    "matched",
+    "holdout",
+    "kfold",
+    "guard",
     "rq1",
     "rq2",
     "combination",
-    "kfold",
     "premium",
+)
+DEFAULT_PHASES: Final[tuple[str, ...]] = (
+    "solve",
+    "matched",
+    "holdout",
+    "kfold",
     "guard",
 )
+"""``rq1``, ``rq2``, ``combination`` and ``premium`` bootstrap the same
+designs again, one C1 worker each; ``holdout`` does all of it in one pass.
+They are kept to cross-check it (they agreed on the subset run of the note)."""
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1389,7 +1815,9 @@ def main(argv: list[str] | None = None) -> int:
     """
     parser = argparse.ArgumentParser(description="Florida rerun (MAR-202).")
     parser.add_argument("--jobs", type=int, default=3)
-    parser.add_argument("--phases", nargs="+", default=list(PHASES), choices=PHASES)
+    parser.add_argument(
+        "--phases", nargs="+", default=list(DEFAULT_PHASES), choices=PHASES
+    )
     parser.add_argument("--store", type=Path, default=STORE)
     parser.add_argument("--full", type=Path, default=FULL_DIR)
     parser.add_argument("--plan", type=Path, default=PLAN, help="plan YAML")
@@ -1410,6 +1838,8 @@ def main(argv: list[str] | None = None) -> int:
     args.full.mkdir(parents=True, exist_ok=True)
     runners = {
         "solve": run_solve,
+        "matched": run_matched,
+        "holdout": run_holdout,
         "rq1": run_rq1,
         "rq2": run_rq2,
         "combination": run_combination,
