@@ -149,6 +149,9 @@ near-optimal set and evaluated with the library, so such an end is a member
 of the set (an inner point of the range), reported with its status."""
 MAX_ITER: Final[int] = 2000
 """CLARABEL iteration limit of the second attempt (default 200)."""
+MAX_STARTS: Final[tuple[str, ...]] = ("stored", "alt_solver")
+"""Starts of the successive linearisation: the C1 design and the
+alternative-solver design."""
 MAX_STEPS: Final[int] = 25
 """Successive-linearisation steps per start, at most."""
 STEP_RTOL: Final[float] = 1e-9
@@ -260,10 +263,20 @@ def solve_range(prob: cp.Problem) -> str:
     :data:`MAX_ITER` iterations, suffixed ``"/long"`` when that attempt was
     made.
     """
-    prob.solve(solver=SOLVER)
+    try:
+        prob.solve(solver=SOLVER)
+    except cp.error.SolverError:
+        pass
     if prob.status == "optimal":
         return "optimal"
-    prob.solve(solver=SOLVER, max_iter=MAX_ITER)
+    try:
+        prob.solve(solver=SOLVER, max_iter=MAX_ITER)
+    except cp.error.SolverError:
+        # no iterate to keep: the caller sees theta.value None, or a stale
+        # value that admit() rechecks
+        for v in prob.variables():
+            v.value = None
+        return "solver_error/long"
     return f"{prob.status}/long"
 
 
@@ -754,7 +767,7 @@ def range_worker(group: Group, store_root: str | None) -> dict[str, Any]:
             cand[f"min|{lab}"] = thetas
             statuses[f"min|{lab}"] = status
             best: tuple[float, list[np.ndarray], int, str] | None = None
-            for start in ("stored", "alt_solver", f"min|{lab}"):
+            for start in MAX_STARTS:
                 if not np.all(np.isfinite(np.concatenate(cand[start]))):
                     continue
                 th, val, n_steps, st = linearised_maximum(
@@ -766,6 +779,11 @@ def range_worker(group: Group, store_root: str | None) -> dict[str, Any]:
             cand[f"max|{lab}"] = best[1]
             statuses[f"max|{lab}"] = best[3]
             steps[f"max|{lab}"] = best[2]
+            print(
+                f"  {group.setup} {group.pricing} {group.design} {lab}: min "
+                f"{status}, max {best[3]} ({time.perf_counter() - t0:.0f}s)",
+                flush=True,
+            )
     # every candidate must be in the near-optimal set: checked in numpy; a
     # candidate outside it (beyond OBJ_CHECK_RTOL) is reported, not used
     checks: dict[str, dict[str, float]] = {}
@@ -1323,10 +1341,20 @@ def main(argv: list[str] | None = None) -> int:
             pool.submit(range_worker, g, str(args.c1_store) if g.run_id else None): g
             for g in groups
         }
+        failed: dict[str, str] = {}
         for i, fut in enumerate(as_completed(futs), 1):
-            r = fut.result()
-            out[r["group"]] = r
             g = futs[fut]
+            try:
+                r = fut.result()
+            except Exception as exc:  # recorded and re-raised after the loop
+                failed[f"{g.setup}|{g.pricing}|{g.design}"] = repr(exc)
+                print(
+                    f"[{i}/{len(futs)}] FAILED {g.setup} {g.pricing} {g.design}: "
+                    f"{exc!r}",
+                    flush=True,
+                )
+                continue
+            out[r["group"]] = r
             print(
                 f"[{i}/{len(futs)}] {g.setup} {g.pricing} {g.design} "
                 f"{r['meta']['seconds']:.0f}s",
@@ -1344,6 +1372,9 @@ def main(argv: list[str] | None = None) -> int:
             (args.full / f"result_{stem}.json").write_text(
                 json.dumps({k: v for k, v in r.items() if k != "reps"}, default=str)
             )
+    if failed:
+        (args.full / "failed.json").write_text(json.dumps(failed, indent=2) + "\n")
+        raise RuntimeError(f"{len(failed)} groups failed: {sorted(failed)}")
     return write_tables(out, args.full, t0)
 
 
@@ -1406,6 +1437,7 @@ def write_tables(
         "solver": SOLVER,
         "max_iter": MAX_ITER,
         "max_steps": MAX_STEPS,
+        "max_starts": list(MAX_STARTS),
         "alt_policy": {
             "lp_solvers": list(rq2.ALT_POLICY.lp_solvers),
             "qp_solvers": list(rq2.ALT_POLICY.qp_solvers),
