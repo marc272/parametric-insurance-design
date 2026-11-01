@@ -502,11 +502,14 @@ def run_solve(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any]:
     """
     t0 = time.perf_counter()
     store = ResultStore(args.store)
-    todo: dict[str, ExperimentConfig] = {r.run_id: r.config for r in holdout_runs(plan)}
+    todo: dict[str, ExperimentConfig] = {}
+    if "holdout" in args.splits:
+        todo.update({r.run_id: r.config for r in holdout_runs(plan)})
     n_holdout = len(todo)
-    for cfg in kfold_configs(plan).values():
-        for s in cfg.single_runs():
-            todo[rid_of(s)] = s
+    if "kfold" in args.splits:
+        for cfg in kfold_configs(plan).values():
+            for s in cfg.single_runs():
+                todo[rid_of(s)] = s
     seconds = solve_all(todo, store, args.jobs, reverse=args.reverse)
     check_ok(store, todo)
     return {
@@ -2082,6 +2085,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--full", type=Path, default=FULL_DIR)
     parser.add_argument("--plan", type=Path, default=PLAN, help="plan YAML")
     parser.add_argument("--plan-only", action="store_true", help="print counts")
+    parser.add_argument(
+        "--splits",
+        nargs="+",
+        default=["holdout", "kfold"],
+        choices=["holdout", "kfold"],
+        help="solve phase: which runs to solve",
+    )
     parser.add_argument(
         "--reverse",
         action="store_true",
