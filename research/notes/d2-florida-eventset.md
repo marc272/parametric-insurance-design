@@ -1,24 +1,27 @@
 # D2: the Florida-counties EventSets (measurements)
 
-- Issues: [MAR-114](https://linear.app/marc-prinzing/issue/MAR-114/p-05b-build-the-florida-counties-eventset-and-exposure-summary) (P-05b, part of MAR-31), first build; [MAR-132](https://linear.app/marc-prinzing/issue/MAR-132/f-12-basin-filter-for-the-vulnerability-prior-drop-east-pacific-events) (F-12), rebuild with the basin filter of the `v_half` prior and the Monroe note; [MAR-160](https://linear.app/marc-prinzing/issue/MAR-160) (F-12), rebuild with the prior recentred on the base function. Written by worker agents on 2026-10-27 and 2026-10-31.
-- Decisions this implements: D2 (SPEC §6.6, MAR-30), on MAR-113's 67-county table (`research/notes/d2-florida-litpop-locations.md`); the owner's answers to MAR-118 Q1 (basin filter on the wind-only prior, default for C1 and the paper), Q2 (keep Monroe County and state its LitPop gap) and Q5 = b (recentre the prior on the base function, MAR-160).
+- Issues: [MAR-114](https://linear.app/marc-prinzing/issue/MAR-114/p-05b-build-the-florida-counties-eventset-and-exposure-summary) (P-05b, part of MAR-31), first build; [MAR-132](https://linear.app/marc-prinzing/issue/MAR-132/f-12-basin-filter-for-the-vulnerability-prior-drop-east-pacific-events) (F-12), rebuild with the basin filter of the `v_half` prior and the Monroe note; [MAR-160](https://linear.app/marc-prinzing/issue/MAR-160) (F-12), rebuild with the prior recentred on the base function (first with the median recentred, then, as decided on 2026-11-01, in the excess form with the expected loss matched to the base). Written by worker agents on 2026-10-27, 2026-10-31 and 2026-11-01.
+- Decisions this implements: D2 (SPEC §6.6, MAR-30), on MAR-113's 67-county table (`research/notes/d2-florida-litpop-locations.md`); the owner's answers to MAR-118 Q1 (basin filter on the wind-only prior, default for C1 and the paper), Q2 (keep Monroe County and state its LitPop gap) and Q5 = b (recentre the prior on the base function, MAR-160; option 3 of the MAR-160 escalation, chosen by the orchestrator on 2026-11-01 under Marc's delegation: the excess form, with the expected loss matched to the no-draws build).
 - Status: **observations**, not conclusions. Interpretation (which index, whether the prior's tail is acceptable) belongs to the owner and to MAR-31.
 - Checksums, content hashes and config hashes:
-  - MAR-160 rebuild (current configs): `research/data/f12-recentred-prior/checksums.json` and `summary.json`, with their `README.md`;
+  - MAR-160 rebuild (current configs): `research/data/f12-recentred-prior/checksums.json` and `summary.json`, with their `README.md`. They replace the files of the first MAR-160 build (multiplicative median), whose hashes are kept below for reference only;
   - MAR-132 rebuild: `research/data/d2-florida-eventset/checksums.json`. Its `metadata/` and `exposure-summary/` are still those of the MAR-132 EventSets.
 
   The MAR-114 values are kept below where they are compared.
-- **Open question from MAR-160 (for the owner).** Recentring the median as specified raises the Florida EAL to **1.95 times** the base function's, not about 1 time. The largest annual loss becomes **51.6 % of value**. See "Losses, MAR-160 rebuild" below.
+- **MAR-160 in one line.** With the prior recentred to the base expected loss, the Florida EAL over the draws is **1.000000 times** the no-draws build's (target 1; the first build's median recentring gave 1.953) and the largest annual loss is **33.7 % of value** (no draws 15.1 %, MAR-132 20.5 %, first MAR-160 build 51.6 %). The matched factor is `s` = 0.690130, i.e. a median `v_half` of 86.293 m/s; it depends on the portfolio and the hazard (thesis portfolio: 84.849 m/s).
 
 ## What was built
 
-Current EventSets (MAR-160 rebuild, prior recentred on the base `v_half`):
+Current EventSets (MAR-160 rebuild, prior recentred to the base expected loss):
 
 | | Index (a) | Index (b) |
 |---|---|---|
-| Config | `packages/climada/configs/florida_counties.yaml` (SHA256 `6f3d39abb38d4835975104edf04ddf3697222025693844a73c3a3204bb143c10`) | `packages/climada/configs/florida_counties_cat_in_circle.yaml` (SHA256 `af666320e4d58614cdffee0f2c33fc4a5fe02505c388c90e1b88a3eb85c56075`) |
+| Config | `packages/climada/configs/florida_counties.yaml` (SHA256 `67ab561757e1cfc5c0ae84de8fb39b49d68412b9b870640865ccf91de5f547da`) | `packages/climada/configs/florida_counties_cat_in_circle.yaml` (SHA256 `a9c030c3fd4a7e7db045b1b44ea5fc18e5f4bf1d38bb707232306a8acca4ae01`) |
 | Index | wind at the county's value-weighted centroid (m/s) | cat-in-a-circle, 50 km around the centroid, Saffir-Simpson category 0–5 |
-| EventSet content hash | `sha256:f95553d91f4dfe417838c5b4632ab86f9dde312e4b70f3b14632fc68a26c07d3` | `sha256:198573bbd5dfb4d958d379712e14559d50f26c28171fc9fc4e0bd2c8827396d8` |
+| EventSet content hash | `sha256:30b1723182e5bb3eef8abae0d0edcc605918aaf90e03b24bb09037a4c6416472` | `sha256:4d578aef7caed148181699ddfb6d9a9d877127b549d03031fbb18e4c5a26a70f` |
+| Matched factor `s`, median `v_half` | 0.690130, 86.293 m/s | 0.690130, 86.293 m/s (the same loss) |
+| Base of the match (`recentre.match.base_content_hash`) | `sha256:373e11a62ba098dfb513526edd589354fc488c10a9484d0e799e1adf672e690a` | `sha256:81a739dbc5aaa72833d7153f5f771f158059f79613ece437dc1ea2b75a41136a` |
+| First MAR-160 build (multiplicative median 74.7, superseded) | config SHA256 `6f3d39abb38d4835975104edf04ddf3697222025693844a73c3a3204bb143c10`, content hash `sha256:f95553d91f4dfe417838c5b4632ab86f9dde312e4b70f3b14632fc68a26c07d3` | config SHA256 `af666320e4d58614cdffee0f2c33fc4a5fe02505c388c90e1b88a3eb85c56075`, content hash `sha256:198573bbd5dfb4d958d379712e14559d50f26c28171fc9fc4e0bd2c8827396d8` |
 | MAR-132 build (17-event prior, not recentred) | config SHA256 `09ae66710528a14af95e198e3a82ef91912c7cf59fc5f38481a0f2556c2ed379`, content hash `sha256:cad398875afb467f5d1475e6a47952116391be18f249cc484990436f46a6cbe6` | config SHA256 `4d6323d1613b92747357548c126947263cce3a06a4eed00a6391a093b0fbe1c0`, content hash `sha256:c7d6b76519d88bba4143d999bed81c78a0ff213777528aed3d7cea5ff2dfa67f` |
 | MAR-114 build (19-event prior) | config SHA256 `eb8126a8…44a13a9`, content hash `sha256:d8698f7d2985409f5a5024101d7ba839d42a127a29d5456e5871ecaaa3385131` | config SHA256 `ed874270…9296a84`, content hash `sha256:81acd810655dc42edc3eb327f2ad6d4de3a666993c29fdfa80b48ee8b07a2d3e` |
 
@@ -28,7 +31,8 @@ Common settings: IRIS NA merged 10,000-year catalogue (SHA256 `7f7b224d…606bd`
 
 | Prior | Events | min | 5 % | 25 % | median | 75 % | 95 % | max |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| MAR-160 (current): the MAR-132 values recentred, `recentre: median` (× 74.7 / 113.5) | 17 | 38.6 | 46.1 | 59.4 | 74.7 | 105.5 | 146.8 | 153.0 |
+| MAR-160 (current): the MAR-132 values recentred, `25.7 + s · (v − 25.7)` with `s` = 0.6901 | 17 | 48.4 | 56.3 | 70.2 | 86.3 | 118.6 | 161.9 | 168.3 |
+| First MAR-160 build (superseded): the MAR-132 values × 74.7 / 113.5 | 17 | 38.6 | 46.1 | 59.4 | 74.7 | 105.5 | 146.8 | 153.0 |
 | MAR-132: wind-only, North Atlantic genesis basin (`wind_only: true`, `basins: [NA]`) | 17 | 58.6 | 70.0 | 90.2 | 113.5 | 160.3 | 223.0 | 232.4 |
 | MAR-114: wind-only, all basins (`basins: null`) | 19 | 25.8 | 35.9 | 79.1 | 95.4 | 143.7 | 221.9 | 232.4 |
 
@@ -50,10 +54,12 @@ Measured on the owner's Apple-silicon Mac (osx-arm64), CLIMADA 6.1.0, Python 3.1
 | Scratch, centroid loss, no draws, batch 500 (not kept) | 128 s | – | – |
 | MAR-132 rebuild (a), batch 100 | 2,779 s | 2,808 s | 1.56 GB |
 | MAR-132 rebuild (b), batch 100 | 2,812 s | 2,833 s | 1.38 GB |
-| MAR-160 rebuild (a), batch 100 | 1,115 s | 1,131 s | 1.38 GB |
-| MAR-160 rebuild (b), batch 100 | 1,092 s | 1,105 s | 1.50 GB |
+| First MAR-160 build (a), batch 100 | 1,115 s | 1,131 s | 1.38 GB |
+| First MAR-160 build (b), batch 100 | 1,092 s | 1,105 s | 1.50 GB |
+| MAR-160 rebuild (a), batch 100, base pass and match included | 1,784 s (base pass and match 566 s) | 1,801 s | 1.51 GB |
+| MAR-160 rebuild (b), batch 100, base pass and match included | 1,838 s (base pass and match 575 s) | 1,854 s | 1.37 GB |
 
-The MAR-132 rebuilds ran at the same time on a machine with a load average of about 40–50 from other jobs (10 cores), so their times are not comparable with MAR-114's. The MAR-160 rebuilds also ran at the same time, next to two thesis builds and a scratch no-draws run (load average about 10–12).
+The MAR-132 rebuilds ran at the same time on a machine with a load average of about 40–50 from other jobs (10 cores), so their times are not comparable with MAR-114's. The first MAR-160 builds also ran at the same time, next to two thesis builds and a scratch no-draws run (load average about 10–12). The MAR-160 rebuilds ran at the same time, next to the two thesis builds and scratch thesis builds. With the match a build runs the pipeline twice: first without draws (the base, about 9.5 minutes here), then with the draws. The root-find between the two takes about 2 s (measured separately on the captured cell winds: 13,902 storms × 10 draws × 25 grid nodes); recording the grid loss during the base pass adds about 7 s.
 
 - Rows: 13,902 storms × 10 draws = 139,020; × 67 counties = 9,314,340 `values` rows, equal to MAR-113's estimate. No storm skipped.
 - On disk: 10.8 MB (a) and 8.4 MB (b), of which `values.parquet` is 10.6 MB for (a). Not committed (only `metadata.json`, checksums and the summary).
@@ -62,55 +68,55 @@ The MAR-132 rebuilds ran at the same time on a machine with a load average of ab
 
 ## Observations (not interpreted)
 
-**Losses, MAR-160 rebuild (current configs: the 17-event prior recentred on 74.7 m/s).**
+**Losses, MAR-160 rebuild (current configs: the 17-event prior recentred to the base expected loss).**
 
 Setup:
 
-- the EventSets: content hashes `sha256:f95553d9…a26c07d3` (a) and `sha256:198573bb…8827396d8` (b);
+- the EventSets: content hashes `sha256:30b17231…c6416472` (a) and `sha256:4d578aef…5a26a70f` (b), factor `s` = 0.690130, median `v_half` 86.293 m/s, support 48.4–168.3 m/s;
 - rate-weighted over all rows;
-- the base is `configs/florida_counties_no_draws.yaml`: content hash `sha256:07eb5c9a…f1c379e5`, EAL 7,615,672,695 USD. It was rebuilt in a scratch run with the MAR-160 code and gave the same content hash. That run also captured the cell winds for the offline variants below.
+- the base is the no-draws build of the same config. The match's own base (`florida_counties.yaml` without draws, `sha256:373e11a6…672e690a`) is not written to disk; its loss matrix is that of `configs/florida_counties_no_draws.yaml` (`sha256:07eb5c9a…f1c379e5`, EAL 7,615,672,695 USD), whose loss and years were captured in a scratch run of the first MAR-160 build. Apart from the draws section and the output path, the two configs differ only in the Monroe County scenario note, which enters the content hash: hence the two hashes. The EAL of that capture equals the match's `target_expected_loss` to the last digit (7,615,672,695.469273 USD).
 
 The numbers are in `research/data/f12-recentred-prior/summary.json`.
 
-| | MAR-160 (recentred) | MAR-132 (17 events) | MAR-114 (19 events) | No draws (base) |
-|---|---:|---:|---:|---:|
-| Portfolio EAL, USD | **14.87 × 10⁹** | 3.041 × 10⁹ | 14.44 × 10⁹ | 7.616 × 10⁹ |
-| EAL / value | 0.304 % | 0.062 % | 0.295 % | 0.156 % |
-| **EAL ratio to the base function** | **1.953** | 0.399 | 1.90 | 1 |
-| Annual portfolio loss, 90 % quantile | 12.8 × 10⁹ | 2.13 × 10⁹ | 4.16 × 10⁹ | 9.36 × 10⁹ |
-| 99 % | 384 × 10⁹ | 70.8 × 10⁹ | 287 × 10⁹ | 181 × 10⁹ |
-| 99.6 % | 717 × 10⁹ | 153 × 10⁹ | 1,010 × 10⁹ | 319 × 10⁹ |
-| 99.9 % | 1,232 × 10⁹ | 319 × 10⁹ | 2,090 × 10⁹ | 460 × 10⁹ |
-| **Largest annual loss** | **2.525 × 10¹² USD, 51.6 % of value** | 1.004 × 10¹², 20.5 % | 4.49 × 10¹², 91.7 % | 15.1 % |
+| | MAR-160 (excess, EAL-matched) | First MAR-160 build (median 74.7, superseded) | MAR-132 (17 events) | MAR-114 (19 events) | No draws (base) |
+|---|---:|---:|---:|---:|---:|
+| Portfolio EAL, USD | **7.616 × 10⁹** | 14.87 × 10⁹ | 3.041 × 10⁹ | 14.44 × 10⁹ | 7.616 × 10⁹ |
+| EAL / value | 0.156 % | 0.304 % | 0.062 % | 0.295 % | 0.156 % |
+| **EAL ratio to the base function** | **1.000000** | 1.953 | 0.399 | 1.90 | 1 |
+| Annual portfolio loss, 90 % quantile | 6.19 × 10⁹ | 12.8 × 10⁹ | 2.13 × 10⁹ | 4.16 × 10⁹ | 9.36 × 10⁹ |
+| 99 % | 187 × 10⁹ | 384 × 10⁹ | 70.8 × 10⁹ | 287 × 10⁹ | 181 × 10⁹ |
+| 99.6 % | 375 × 10⁹ | 717 × 10⁹ | 153 × 10⁹ | 1,010 × 10⁹ | 319 × 10⁹ |
+| 99.9 % | 697 × 10⁹ | 1,232 × 10⁹ | 319 × 10⁹ | 2,090 × 10⁹ | 460 × 10⁹ |
+| **Largest annual loss** | **1.648 × 10¹² USD, 33.7 % of value** | 2.525 × 10¹², 51.6 % | 1.004 × 10¹², 20.5 % | 4.49 × 10¹², 91.7 % | 15.1 % |
 
-- The no-draws column now has every quantile; they come from the scratch base build, with 10,000 annual outcomes.
-- The largest annual loss is year 821, `draw_id` 8: mostly storm `NA_821_5`, at 51.5 % of value. The next four largest outcomes are 51.1, 50.7, 50.6 % (year 2444, storm `NA_2444_3`, draws 4, 1 and 7) and 50.1 % of value (year 4001, `NA_4001_4`).
-- The EAL per `draw_id` ranges from 14.08 × 10⁹ to 16.90 × 10⁹ USD across the 10 draws.
+- Annual losses are per (year, draw) outcome: 10,000 years × 10 draws = 100,000 outcomes; the no-draws column has 10,000 outcomes.
+- The largest annual loss is year 1611, `draw_id` 9: mostly storm `NA_1611_5`, at 30.6 % of value. The next four largest outcomes are 32.8 % (year 4001, `draw_id` 6, `NA_4001_4`), 31.9 % (year 4001, `draw_id` 9, `NA_4001_4`), 31.2 % (year 2444, `draw_id` 4, `NA_2444_3`) and 31.0 % (year 2444, `draw_id` 7, `NA_2444_3`).
+- The EAL per `draw_id` ranges from 7.18 × 10⁹ to 8.78 × 10⁹ USD across the 10 draws.
 - Per county:
-  - the EAL ratio to the base runs from 1.88 (Hillsborough) to 2.15 (Nassau), median 2.02;
-  - EAL / value runs from 0.227 % (Monroe) to 0.925 % (Escambia);
-  - Monroe's EAL is 1.74 × 10⁶ USD (ratio 2.02).
-- For storms with a positive portfolio loss, the median coefficient of variation across the 10 draws is 1.12 (MAR-132: 1.01).
+  - the EAL ratio to the base runs from 0.976 (Flagler) to 1.053 (Liberty), median 1.017. The match is on the portfolio total, not per county;
+  - EAL / value runs from 0.110 % (Nassau) to 0.487 % (Escambia);
+  - Monroe's EAL is 0.87 × 10⁶ USD (ratio 1.02).
+- For storms with a positive portfolio loss, the median coefficient of variation across the 10 draws is 0.99 (first MAR-160 build 1.12, MAR-132 1.01).
 - 49,250 rows and 659,190 (row, county) pairs have a positive loss, as before: whether a loss is positive depends on the wind, not on `v_half`.
-- The loss matrices of (a) and (b) are identical (`np.array_equal`).
-- Index (b): the (row, county) pairs with category 0 carry 40.0 % of the total loss (MAR-132: 36.0 %).
-- Tail dependence (q = 0.99, off-diagonal): min 0.001, median 0.093, max 0.895 (MAR-132: 0.000, 0.084, 0.889).
+- The loss matrices of (a) and (b) are identical (`np.array_equal`), and both builds matched the same factor.
+- Index (b): the (row, county) pairs with category 0 carry 37.5 % of the total loss (first MAR-160 build 40.0 %, MAR-132 36.0 %).
+- Tail dependence (q = 0.99, off-diagonal): min 0.000, median 0.084, max 0.888 (first MAR-160 build 0.001, 0.093, 0.895; MAR-132 0.000, 0.084, 0.889).
 
-**Why the EAL is not about 1 times the base (MAR-160).** Recentring makes the median `v_half` equal to 74.7 m/s, but the loss is not linear in `v_half`. At the winds that carry most of the loss, the Emanuel damage is convex in `v_half`: near `v_thresh`, `mdd ≈ ((w − v_thresh)/(v_half − v_thresh))³`. So the draws below the median add more loss than the draws above it remove. The multiplicative factor also shrinks `v_half − v_thresh` most for the smallest value: 58.6 → 38.6 m/s puts it 12.9 m/s above `v_thresh` instead of 32.9. The mean damage ratio over the recentred prior is 2.3 % at 35 m/s and 28.4 % at 55 m/s, against 0.7 % and 17.6 % for the base function (`docs/methodology/vulnerability.md`).
+**Why the first build overshot, and what the match changes.** The first MAR-160 build made the median `v_half` 74.7 m/s, but the loss is not linear in `v_half`. At the winds that carry most of the loss the Emanuel damage is convex in `v_half` (near `v_thresh`, `mdd ≈ ((w − v_thresh)/(v_half − v_thresh))³`), so draws below the median add more loss than draws above it remove: the EAL was 1.95 times the base. The current builds instead solve the factor so that the EAL equals the base's. Its matched median, 86.293 m/s, lies above the base 74.7 m/s for the same reason: a prior spread around 74.7 m/s would carry more expected loss than the base function itself.
 
-**Other recentrings, evaluated offline (MAR-160; not implemented, not built).** These use the same storms, cells and generator stream as the builds, and the same tabulated Emanuel function. The evaluator reproduces the MAR-132 and MAR-160 builds' EAL to within 1e-12 (relative), and the 1-draw base loss to 5e-15. Florida, 100,000 annual outcomes:
+**The recentrings evaluated offline before the decision (MAR-160 escalation; built: the last-but-one row).** These use the same storms, cells and generator stream as the builds, and the same tabulated Emanuel function. The evaluator reproduced the MAR-132 and first MAR-160 builds' EAL to within 1e-12 (relative), and the 1-draw base loss to 5e-15. Florida, 100,000 annual outcomes:
 
 | transform of the 17 values | smallest `v_half` | median | EAL / base | annual loss 99 % | 99.9 % | largest annual loss, share of value |
 |---|---:|---:|---:|---:|---:|---:|
 | none (MAR-132) | 58.6 | 113.5 | 0.399 | 70.8 × 10⁹ | 319 × 10⁹ | 20.5 % |
-| **multiplicative, median 74.7 (implemented, MAR-160)** | 38.6 | 74.7 | **1.953** | 384 × 10⁹ | 1,232 × 10⁹ | **51.6 %** |
+| multiplicative, median 74.7 (first MAR-160 build, superseded) | 38.6 | 74.7 | 1.953 | 384 × 10⁹ | 1,232 × 10⁹ | 51.6 % |
 | additive shift `v_half_i − 38.8`, median 74.7 | 19.8 | 74.7 | not defined: Dennis 1999 (58.6 m/s) falls 5.9 m/s below `v_thresh` | – | – | – |
 | `v_thresh + (v_half_i − v_thresh) × c`, median 74.7 | 44.1 | 74.7 | 1.602 | 310 × 10⁹ | 990 × 10⁹ | 42.3 % |
 | multiplicative, median chosen so that EAL = base | 46.1 | 89.3 | 1.000 | 185 × 10⁹ | 736 × 10⁹ | 36.3 % |
-| `v_thresh + (v_half_i − v_thresh) × c`, median chosen so that EAL = base | 48.4 | 86.3 | 1.000 | 187 × 10⁹ | 697 × 10⁹ | 33.7 % |
+| **`v_thresh + (v_half_i − v_thresh) × s`, EAL = base (implemented; the build: median 86.293, 33.7 %)** | 48.4 | 86.3 | 1.000 | 187 × 10⁹ | 697 × 10⁹ | 33.7 % |
 | no draws (base function) | 74.7 | 74.7 | 1 | 181 × 10⁹ | 460 × 10⁹ | 15.1 % |
 
-The EAL-matched medians come from a root search to ±0.05 m/s. They depend on the portfolio and the hazard; on the thesis portfolio they are 87.9 m/s (multiplicative) and 84.9 m/s (`v_thresh` + excess).
+The offline EAL-matched medians came from a root search to ±0.05 m/s. They depend on the portfolio and the hazard; on the thesis portfolio they are 87.9 m/s (multiplicative) and 84.9 m/s (excess; the build: 84.849 m/s).
 
 **Losses, MAR-132 rebuild (17-event prior, not recentred).** Setup: the MAR-132 EventSets above (content hashes `sha256:cad39887…46a6cbe6` (a) and `sha256:c7d6b765…2dfa67f` (b)); rate-weighted over all rows (draws carry `rate / 10`). The base is `configs/florida_counties_no_draws.yaml` (MAR-32: no draws, `v_half` 74.7, the same 13,902 storms, content hash `sha256:07eb5c9a808af45f7d05932b5d78f0cc9b1142f37aef8c9749138dc8c1f379e5`, EAL 7,615,672,695 USD; `research/data/p06-storm-eventset/checksums.json`), not rebuilt here.
 
@@ -138,9 +144,9 @@ The EAL-matched medians come from a root search to ±0.05 m/s. They depend on th
 
 **Index (b), cat-in-a-circle at 50 km.** 3,057 of the 13,902 storms reach category ≥ 1 within 50 km of some centroid. With the MAR-132 prior, the (row, county) pairs with category 0 carry **36.0 %** of the total loss (rate-weighted sums; MAR-114: 50.2 %); for index (a), the pairs with zero wind carry 0.015 % (MAR-114: 0.03 %). A 50 km circle around one point of a county does not cover the county; the radius is a choice to revisit (≤ 250 km allowed; MAR-133).
 
-**Tail dependence** (figure panel d): `λ_ij = P(A_i > q_i, A_j > q_j) / 0.01` on annual county losses per (year, draw), q = 0.99. Off-diagonal, MAR-132: min 0.000, median 0.084, max 0.889 (MAR-114: 0.007, 0.151, 0.919; MAR-160: 0.001, 0.093, 0.895). The figure is still MAR-132's. Every county has a positive 99 % quantile (no ties at zero). Counties are ordered by value, not by geography.
+**Tail dependence** (figure panel d): `λ_ij = P(A_i > q_i, A_j > q_j) / 0.01` on annual county losses per (year, draw), q = 0.99. Off-diagonal, MAR-132: min 0.000, median 0.084, max 0.889 (MAR-114: 0.007, 0.151, 0.919; first MAR-160 build: 0.001, 0.093, 0.895; MAR-160: 0.000, 0.084, 0.888). The figure is still MAR-132's. Every county has a positive 99 % quantile (no ties at zero). Counties are ordered by value, not by geography.
 
-**Monroe County (the Keys).** Valued at 0.765 × 10⁹ USD, rank 54 of 67; EAL 0.339 × 10⁶ USD, EAL / value 0.044 % with the MAR-132 prior (MAR-114: 1.70 × 10⁶ USD, 0.22 %; MAR-160: 1.74 × 10⁶ USD, 0.227 %).
+**Monroe County (the Keys).** Valued at 0.765 × 10⁹ USD, rank 54 of 67; EAL 0.339 × 10⁶ USD, EAL / value 0.044 % with the MAR-132 prior (MAR-114: 1.70 × 10⁶ USD, 0.22 %; first MAR-160 build: 1.74 × 10⁶ USD, 0.227 %; MAR-160: 0.87 × 10⁶ USD, 0.114 %).
 
 - Its 138 cells: 29 on the Keys (lat < 25.2; 20 positive, 0.761 × 10⁹ USD) and 109 on the mainland Everglades part (43 positive, 3.6 × 10⁶ USD). The median positive cell is worth 152 USD; the state-wide mean positive cell is 0.67 × 10⁹ USD.
 - **The LitPop file has no cell west of 81.604° W in the Keys.** Key West (about 24.56° N, 81.78° W) and the Lower Keys west of it have no LitPop cell at all, not even a zero-valued one: the file's land mask at 150 arcsec leaves them out (figure panel b). The cells that exist are LitPop's land mask; the TIGER/Line polygon includes water.
@@ -151,7 +157,7 @@ The EAL-matched medians come from a root search to ±0.05 m/s. They depend on th
 
 ## Exposure summary figure
 
-`research/data/d2-florida-eventset/exposure-summary/exposure_summary.png`, from `packages/climada/scripts/florida_exposure_summary.py` on the MAR-132 EventSet (a) (`sha256:cad39887…46a6cbe6`; not refreshed in MAR-160, so panel (d) is MAR-132's tail dependence), with its figure data (`counties.csv`, `monroe_cells.csv`, `tail_dependence.csv`, `summary.json`). Panels: (a) cells and centroids; (b) Monroe County cells against the county polygon; (c) county values with the 50 / 80 / 90 % ranks (5 / 15 / 22 counties); (d) tail dependence. The figure carries the LitPop, TIGER/Line and IRIS attribution.
+`research/data/d2-florida-eventset/exposure-summary/exposure_summary.png`, from `packages/climada/scripts/florida_exposure_summary.py` on the MAR-132 EventSet (a) (`sha256:cad39887…46a6cbe6`; not refreshed in MAR-160, so panel (d) is MAR-132's tail dependence; a refresh from the final EventSets is a proposed follow-up), with its figure data (`counties.csv`, `monroe_cells.csv`, `tail_dependence.csv`, `summary.json`). Panels: (a) cells and centroids; (b) Monroe County cells against the county polygon; (c) county values with the 50 / 80 / 90 % ranks (5 / 15 / 22 counties); (d) tail dependence. The figure carries the LitPop, TIGER/Line and IRIS attribution.
 
 ```sh
 cd packages/climada

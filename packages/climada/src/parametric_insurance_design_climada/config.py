@@ -285,7 +285,8 @@ class ExcessRecentreConfig(_Model):
     the same config with ``vulnerability: {kind: none}``, to within
     :data:`.vulnerability.MATCH_RTOL`
     (:meth:`.vulnerability.EmanuelVHalfDraws.matched`). The pipeline builds
-    the base first, so a build takes about twice as long. If no ``s`` in
+    the base first, so it runs twice (the root-find itself takes seconds).
+    If no ``s`` in
     :data:`.vulnerability.MATCH_FACTOR_BRACKET` meets the target, the build
     fails with :class:`.vulnerability.RecentringError`.
 

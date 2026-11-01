@@ -1,5 +1,5 @@
 {
-  "issue": "MAR-160 (F-12): recentre the v_half prior on the base impact function (MAR-118 Q5 = b)",
+  "issue": "MAR-160 (F-12): recentre the v_half prior on the base impact function (MAR-118 Q5 = b), excess form with the expected loss matched to the no-draws base build (decided 2026-11-01)",
   "licence": "CC-BY-4.0",
   "inputs": {
     "catalogue": {
@@ -18,10 +18,10 @@
   "builds": [
     {
       "eventset_dir": "data/eventsets/florida-counties-iris-vulnerability",
-      "content_hash": "sha256:f95553d91f4dfe417838c5b4632ab86f9dde312e4b70f3b14632fc68a26c07d3",
+      "content_hash": "sha256:30b1723182e5bb3eef8abae0d0edcc605918aaf90e03b24bb09037a4c6416472",
       "config": {
         "file": "packages/climada/configs/florida_counties.yaml",
-        "sha256": "6f3d39abb38d4835975104edf04ddf3697222025693844a73c3a3204bb143c10"
+        "sha256": "67ab561757e1cfc5c0ae84de8fb39b49d68412b9b870640865ccf91de5f547da"
       },
       "files": {
         "events.parquet": {
@@ -33,12 +33,12 @@
           "sha256": "48c1b93451afa16bf3687eeba0374d5e84e15a636fd9f45c993c0792684eb832"
         },
         "metadata.json": {
-          "bytes": 12049,
-          "sha256": "1124fb13576c98af41a33872427026d6769bc7c30a8f2e3e548db6fba53a2512"
+          "bytes": 12874,
+          "sha256": "beaa49967c2641a079104eaae22193718cf3ec1c6572fac075b444947ec4d6ef"
         },
         "values.parquet": {
           "bytes": 10596423,
-          "sha256": "1920faaaebb15d23359a9d4c6d8ddb33ab9a2844efbbb30c18c75bb80c76d20f"
+          "sha256": "0a6a377ce840d2c4390d034bb24585d87885f561e74a3567d31db01c42956a3b"
         }
       },
       "n_rows": 139020,
@@ -46,34 +46,45 @@
       "n_draws": 10,
       "n_locations": 67,
       "rate_sum": 1.3902,
-      "portfolio_expected_annual_loss": 14869621885.363081,
+      "portfolio_expected_annual_loss": 7615672695.469276,
       "prior_recentre": {
-        "statistic": "median",
-        "method": "multiplicative",
-        "target_v_half": 74.7,
+        "kind": "excess",
+        "factor": 0.6901304479036513,
+        "median_v_half": 86.29345332594143,
         "calibrated_median": 113.50000000000124,
-        "factor": 0.6581497797356757
+        "statistic": "expected_loss",
+        "target_expected_loss": 7615672695.469273,
+        "expected_loss": 7615672695.4692745,
+        "relative_tolerance": 1e-06,
+        "bracket": [
+          0.01,
+          100.0
+        ],
+        "base_content_hash": "sha256:373e11a62ba098dfb513526edd589354fc488c10a9484d0e799e1adf672e690a"
       },
       "prior_support": [
-        38.567577092510895,
-        152.95400881057296
+        48.40529173603045,
+        168.34996358168672
       ],
       "build": {
         "command": "pixi run --locked build-eventset --config configs/florida_counties.yaml",
-        "pipeline_runtime_s": 1114.9,
-        "wall_time_s": 1130.93,
-        "max_resident_set_size_bytes": 1376813056,
-        "measured_with": "/usr/bin/time -l around pixi run; the four builds and a scratch run ran at the same time",
+        "code_commit": "c3a18935420622a01be4bcc2e330f017fab2a93a",
+        "pipeline_runtime_s": 1784.0,
+        "base_pass_and_match_s": 566,
+        "match_after_last_base_batch_s": 2,
+        "wall_time_s": 1800.81,
+        "max_resident_set_size_bytes": 1513324544,
+        "measured_with": "/usr/bin/time -l around pixi run; the two Florida builds ran at the same time, next to the two thesis builds (one after the other) and scratch thesis builds; timestamps of the log lines (1 s resolution) for the base pass and the match",
         "machine": "osx-arm64 (owner's Apple-silicon Mac), CLIMADA 6.1.0, Python 3.12",
-        "date": "2026-10-31"
+        "date": "2026-11-01"
       }
     },
     {
       "eventset_dir": "data/eventsets/florida-counties-iris-cat-in-circle-50km-vulnerability",
-      "content_hash": "sha256:198573bbd5dfb4d958d379712e14559d50f26c28171fc9fc4e0bd2c8827396d8",
+      "content_hash": "sha256:4d578aef7caed148181699ddfb6d9a9d877127b549d03031fbb18e4c5a26a70f",
       "config": {
         "file": "packages/climada/configs/florida_counties_cat_in_circle.yaml",
-        "sha256": "af666320e4d58614cdffee0f2c33fc4a5fe02505c388c90e1b88a3eb85c56075"
+        "sha256": "a9c030c3fd4a7e7db045b1b44ea5fc18e5f4bf1d38bb707232306a8acca4ae01"
       },
       "files": {
         "events.parquet": {
@@ -85,12 +96,12 @@
           "sha256": "48c1b93451afa16bf3687eeba0374d5e84e15a636fd9f45c993c0792684eb832"
         },
         "metadata.json": {
-          "bytes": 12735,
-          "sha256": "abe6890093ef48f17469823fb0bae158a6e5d6ad4e1857bc5af1a0df3c668719"
+          "bytes": 13560,
+          "sha256": "31ca311e7fb45cf81ee0a99d6017115158568f4cca695496b4b7e0c359708eec"
         },
         "values.parquet": {
           "bytes": 8635897,
-          "sha256": "8ab8770333989ca6609c83b941ab4bcfec66fdb2d6976c9bd617d441675b2399"
+          "sha256": "9dbcbc821a4f711ebd4fd4c9e27439e07bfe4d43d0c0bb810e9de923b93c9abf"
         }
       },
       "n_rows": 139020,
@@ -98,34 +109,45 @@
       "n_draws": 10,
       "n_locations": 67,
       "rate_sum": 1.3902,
-      "portfolio_expected_annual_loss": 14869621885.363081,
+      "portfolio_expected_annual_loss": 7615672695.469276,
       "prior_recentre": {
-        "statistic": "median",
-        "method": "multiplicative",
-        "target_v_half": 74.7,
+        "kind": "excess",
+        "factor": 0.6901304479036513,
+        "median_v_half": 86.29345332594143,
         "calibrated_median": 113.50000000000124,
-        "factor": 0.6581497797356757
+        "statistic": "expected_loss",
+        "target_expected_loss": 7615672695.469273,
+        "expected_loss": 7615672695.4692745,
+        "relative_tolerance": 1e-06,
+        "bracket": [
+          0.01,
+          100.0
+        ],
+        "base_content_hash": "sha256:81a739dbc5aaa72833d7153f5f771f158059f79613ece437dc1ea2b75a41136a"
       },
       "prior_support": [
-        38.567577092510895,
-        152.95400881057296
+        48.40529173603045,
+        168.34996358168672
       ],
       "build": {
         "command": "pixi run --locked build-eventset --config configs/florida_counties_cat_in_circle.yaml",
-        "pipeline_runtime_s": 1091.6,
-        "wall_time_s": 1105.16,
-        "max_resident_set_size_bytes": 1504919552,
-        "measured_with": "/usr/bin/time -l around pixi run; the four builds and a scratch run ran at the same time",
+        "code_commit": "c3a18935420622a01be4bcc2e330f017fab2a93a",
+        "pipeline_runtime_s": 1838.2,
+        "base_pass_and_match_s": 575,
+        "match_after_last_base_batch_s": 4,
+        "wall_time_s": 1853.91,
+        "max_resident_set_size_bytes": 1373880320,
+        "measured_with": "/usr/bin/time -l around pixi run; the two Florida builds ran at the same time, next to the two thesis builds (one after the other) and scratch thesis builds; timestamps of the log lines (1 s resolution) for the base pass and the match",
         "machine": "osx-arm64 (owner's Apple-silicon Mac), CLIMADA 6.1.0, Python 3.12",
-        "date": "2026-10-31"
+        "date": "2026-11-01"
       }
     },
     {
       "eventset_dir": "data/eventsets/thesis-iris-vulnerability",
-      "content_hash": "sha256:b4fa0f61485ceb414ef0fb2a31289d1b6c5a94adecdc75451e46617d4797f32d",
+      "content_hash": "sha256:8b4e95b3f5312c536bc7706c8b5e940c9f98d52c8c92c5a24a0a9579535e4549",
       "config": {
         "file": "packages/climada/configs/thesis_vulnerability.yaml",
-        "sha256": "0818e0fcef637fdf272601a2eabd1a85a1c335d17f11f9378f34f282f832eeb0"
+        "sha256": "4855bcfb2d9333d9909b65318434c22db7e219f9e9dae3fff2df40385fbf06f0"
       },
       "files": {
         "events.parquet": {
@@ -137,12 +159,12 @@
           "sha256": "5908436c6e1e5d589201b9295f102c1bcc6ac038e195603b0370f22b3062e3d1"
         },
         "metadata.json": {
-          "bytes": 9746,
-          "sha256": "88c3f3f0439db9a31225262fdaf2a70e956ef5fec2b93167dbc3e2fcaa6f2f5f"
+          "bytes": 10575,
+          "sha256": "ef1c6da9118ecd9ba884dc67bf9d6d74748787753245ef48c90d1ded2a66ff89"
         },
         "values.parquet": {
           "bytes": 778234,
-          "sha256": "9fc26029cdc1cb64dc1d4a6d42404fe58505dd7eadf7ce3b91eb6da1f34720a1"
+          "sha256": "f35cd224c04e853638d094f6f2ab51ab72ff612d989ab82c9048e036aae2df31"
         }
       },
       "n_rows": 60570,
@@ -150,34 +172,45 @@
       "n_draws": 10,
       "n_locations": 9,
       "rate_sum": 0.6056999999999999,
-      "portfolio_expected_annual_loss": 413131.1150410494,
+      "portfolio_expected_annual_loss": 221480.7635353048,
       "prior_recentre": {
-        "statistic": "median",
-        "method": "multiplicative",
-        "target_v_half": 74.7,
+        "kind": "excess",
+        "factor": 0.6736833911741325,
+        "median_v_half": 84.84940174508966,
         "calibrated_median": 113.50000000000124,
-        "factor": 0.6581497797356757
+        "statistic": "expected_loss",
+        "target_expected_loss": 221480.76353530542,
+        "expected_loss": 221480.76353530478,
+        "relative_tolerance": 1e-06,
+        "bracket": [
+          0.01,
+          100.0
+        ],
+        "base_content_hash": "sha256:de756cb663ba0802ec3c67d7f36d82833d91503f9cca1fc572ae7258ad42d32e"
       },
       "prior_support": [
-        38.567577092510895,
-        152.95400881057296
+        47.86418356962927,
+        164.95035695569513
       ],
       "build": {
         "command": "pixi run --locked build-eventset --config configs/thesis_vulnerability.yaml",
-        "pipeline_runtime_s": 74.6,
-        "wall_time_s": 84.15,
-        "max_resident_set_size_bytes": 1028685824,
-        "measured_with": "/usr/bin/time -l around pixi run; the four builds and a scratch run ran at the same time",
+        "code_commit": "c3a18935420622a01be4bcc2e330f017fab2a93a",
+        "pipeline_runtime_s": 161.9,
+        "base_pass_and_match_s": 96,
+        "match_after_last_base_batch_s": 3,
+        "wall_time_s": 175.53,
+        "max_resident_set_size_bytes": 1323859968,
+        "measured_with": "/usr/bin/time -l around pixi run; the two Florida builds ran at the same time, next to the two thesis builds (one after the other) and scratch thesis builds; timestamps of the log lines (1 s resolution) for the base pass and the match",
         "machine": "osx-arm64 (owner's Apple-silicon Mac), CLIMADA 6.1.0, Python 3.12",
-        "date": "2026-10-31"
+        "date": "2026-11-01"
       }
     },
     {
       "eventset_dir": "data/eventsets/thesis-iris-cat-in-circle-50km-vulnerability",
-      "content_hash": "sha256:bbaa0b95a3c9dbd5cdd6056d17d4940ac1ef73596cb958022414d4f4b552ead6",
+      "content_hash": "sha256:06250a93adfeae89ecf82b7a88218df8f1808924d2c9c3d3bdac024299867185",
       "config": {
         "file": "packages/climada/configs/thesis_cat_in_circle_vulnerability.yaml",
-        "sha256": "9e7592c312731eae6f5ef3e71cc1f9b91941adcb7101e1e224cc29c145e0095c"
+        "sha256": "9ea6fa81cf8c3f7b0573a4552fa1666123dfffd45ca3ca8c778cf27f33ffb598"
       },
       "files": {
         "events.parquet": {
@@ -189,12 +222,12 @@
           "sha256": "5908436c6e1e5d589201b9295f102c1bcc6ac038e195603b0370f22b3062e3d1"
         },
         "metadata.json": {
-          "bytes": 10432,
-          "sha256": "2b27dccd5d2be37d611ecf13beee1a7c6088978481be8416785fe32f40a2a8e0"
+          "bytes": 11261,
+          "sha256": "23a9d37fa5eabe826f32333a227a04ba769fa452d2b8da55591bd5393b5577ce"
         },
         "values.parquet": {
           "bytes": 610410,
-          "sha256": "6374c5bd48b64ec5ee3163846e72b48f5d0b3d693888a1135eb3bd174f988c96"
+          "sha256": "2d5196f7ef723233bae3323e0bdc0feb2fb4bc21065e4013fe181626b0ccee93"
         }
       },
       "n_rows": 60570,
@@ -202,26 +235,37 @@
       "n_draws": 10,
       "n_locations": 9,
       "rate_sum": 0.6056999999999999,
-      "portfolio_expected_annual_loss": 413131.1150410494,
+      "portfolio_expected_annual_loss": 221480.7635353048,
       "prior_recentre": {
-        "statistic": "median",
-        "method": "multiplicative",
-        "target_v_half": 74.7,
+        "kind": "excess",
+        "factor": 0.6736833911741325,
+        "median_v_half": 84.84940174508966,
         "calibrated_median": 113.50000000000124,
-        "factor": 0.6581497797356757
+        "statistic": "expected_loss",
+        "target_expected_loss": 221480.76353530542,
+        "expected_loss": 221480.76353530478,
+        "relative_tolerance": 1e-06,
+        "bracket": [
+          0.01,
+          100.0
+        ],
+        "base_content_hash": "sha256:de0153d359a1b8052e232078d468b0f7d207ea2d9229ff47a9067e1b8304279a"
       },
       "prior_support": [
-        38.567577092510895,
-        152.95400881057296
+        47.86418356962927,
+        164.95035695569513
       ],
       "build": {
         "command": "pixi run --locked build-eventset --config configs/thesis_cat_in_circle_vulnerability.yaml",
-        "pipeline_runtime_s": 78.6,
-        "wall_time_s": 90.04,
-        "max_resident_set_size_bytes": 939442176,
-        "measured_with": "/usr/bin/time -l around pixi run; the four builds and a scratch run ran at the same time",
+        "code_commit": "c3a18935420622a01be4bcc2e330f017fab2a93a",
+        "pipeline_runtime_s": 81.8,
+        "base_pass_and_match_s": 40,
+        "match_after_last_base_batch_s": 1,
+        "wall_time_s": 88.85,
+        "max_resident_set_size_bytes": 1437007872,
+        "measured_with": "/usr/bin/time -l around pixi run; the two Florida builds ran at the same time, next to the two thesis builds (one after the other) and scratch thesis builds; timestamps of the log lines (1 s resolution) for the base pass and the match",
         "machine": "osx-arm64 (owner's Apple-silicon Mac), CLIMADA 6.1.0, Python 3.12",
-        "date": "2026-10-31"
+        "date": "2026-11-01"
       }
     }
   ]
