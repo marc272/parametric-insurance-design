@@ -140,3 +140,17 @@ def test_ruff_bans_the_adapters_in_examples(probe: str) -> None:
     )
     assert done.returncode == 1, done.stdout + done.stderr
     assert "TID251" in done.stdout
+
+
+def test_the_readme_quickstart_is_the_quickstart_script() -> None:
+    """The root README's quickstart block is ``quickstart.py`` minus its docstring."""
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    _, section = readme.split("\n## Quickstart\n", 1)
+    block = re.search(r"^```python\n(.*?)^```$", section, re.MULTILINE | re.DOTALL)
+    assert block is not None, "README.md's Quickstart section has no python block"
+    script = (EXAMPLES / "quickstart.py").read_text(encoding="utf-8")
+    docstring = ast.parse(script).body[0]
+    assert isinstance(docstring, ast.Expr), "quickstart.py starts with a docstring"
+    assert docstring.end_lineno is not None
+    body = "".join(script.splitlines(keepends=True)[docstring.end_lineno :])
+    assert block.group(1) == body.lstrip("\n")
