@@ -630,12 +630,14 @@ def _figure_legend(fig: Figure, handles: list, labels: list[str], *, ncol: int) 
 def _draw_caption(fig: Figure) -> None:
     """Draw :data:`JOINT_CAPTION` as the figure title, wrapped to its width.
 
-    Call before ``tight_layout``, which leaves room for it.
+    Lines of about equal length, as few as fit the figure width. Call before
+    ``tight_layout``, which leaves room for it.
     """
     size = style.FONT.subtitle_size
-    width = fig.get_figwidth() * 72.0 / (size * _CAPTION_CHAR_WIDTH)
+    fits = max(20, int(fig.get_figwidth() * 72.0 / (size * _CAPTION_CHAR_WIDTH)))
+    n_lines = math.ceil(len(JOINT_CAPTION) / fits)
     fig.suptitle(
-        textwrap.fill(JOINT_CAPTION, width=max(20, int(width))),
+        textwrap.fill(JOINT_CAPTION, width=math.ceil(len(JOINT_CAPTION) / n_lines) + 8),
         fontsize=size,
         fontstyle="italic",
     )
