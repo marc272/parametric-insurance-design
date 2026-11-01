@@ -61,7 +61,7 @@ Everything sits on one foundation: a rework of the thesis code into a tested, in
 | **Foundation** (critical path) | New repository, core library, data contract, CLIMADA hazard pipeline, thesis parity, core v1 features (F5), public-ready repository (F6, §7) | — |
 | **Website & Blog** | v1 (early release): explorers and posts 1–2. v2: robustness explorer, post 3, relaunch with the preprint | v1: F-09, F-10, the F6 repository clean-up. v2: Paper |
 | **CRC Showcase** | A joint parametric insurance showcase with CRC: an exploratory collaboration, scope to be decided after the collaboration scan (MAR-167). Candidate plan (§8): CRC/VELO assets and hazards → core → showcase notebook, pipeline and report | The collaboration scan (MAR-167), then the scope the owner agrees with the CRC team |
-| **CLIMADA Contribution** | Early release: a parametric insurance module motivated by the thesis, and its tutorial. A hazard-agnostic design module for `climada_petals` (location to be agreed with maintainers) that carries both ideas: the objective and the calibration scope | Parity gate, F-10, F-12, maintainer alignment |
+| **CLIMADA Contribution** | Early release: a parametric insurance module motivated by the thesis, and its tutorial. The module is hazard-agnostic, carries both ideas (the objective and the calibration scope) and targets `climada_petals` (location to be agreed with maintainers) | Parity gate, F-10, F-12, maintainer alignment |
 | **Paper** | Scientific basis, long track: checkpoint C1, portfolio and scenarios, robust design, manuscript | Core v1 features |
 
 Linear (team MAR):
@@ -253,7 +253,7 @@ It does **not** gate the early releases. The CLIMADA module, website v1, posts 1
 
 ### 6.5 Robust design under uncertainty (the extension)
 Uncertainty is represented as scenario EventSets S_0 (reference) … S_K. Each is one of:
-- (i) a second hazard catalogue: none. D7 was revisited on 2026-10-31 (MAR-62): there is no second hazard catalogue, because STORM is unavailable. R1 covers vulnerability and climate scenarios only, and hazard-model uncertainty is a stated limitation;
+- (i) a second hazard catalogue: none (D7 revisited 2026-10-31, MAR-62: STORM is unavailable). R1 covers vulnerability and climate scenarios only, and hazard-model uncertainty is a stated limitation;
 - (ii) a vulnerability parameter draw (§6.3);
 - (iii) a climate scenario: CLIMADA's Knutson/Jewson TC climate scaling, 2050, SSP2-4.5 and SSP5-8.5;
 - (iv) optional: a bootstrap resample of years.
