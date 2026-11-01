@@ -1,0 +1,15 @@
+# Ruff settings for examples/: the root configuration plus a ban on the adapter
+# packages (TID251), as in packages/core and packages/viz. The examples are BSD
+# under the root licence and import only core and viz (ADR 0001, ADR 0004 Q6);
+# examples/test_examples.py proves the ban fires.
+extend = "../pyproject.toml"
+
+[lint]
+extend-select = ["TID251"]
+
+[lint.extend-per-file-ignores]
+"test_*.py" = ["D"]
+
+[lint.flake8-tidy-imports.banned-api]
+"parametric_insurance_design_crc".msg = "examples never import the AGPL CRC adapter (ADR 0001, ADR 0004 Q6)"
+"parametric_insurance_design_climada".msg = "examples never import the GPL CLIMADA adapter (ADR 0001, ADR 0004 Q6)"

@@ -88,6 +88,11 @@ jobs:
       # checkout skip with that reason; -v and -ra list every pass and skip.
       - name: Test parity (committed golden data, no thesis checkout)
         run: uv run --locked pytest parity/tests -v
+      # The runnable examples (examples/, ADR 0004 Q6): each script runs in a
+      # fresh process on the committed fixture, writes only to a temp dir, and
+      # its printed setup is checked. No coverage; about 15 s.
+      - name: Test examples
+        run: uv run --locked pytest examples -v
       - name: Upload coverage reports
         if: always()
         uses: actions/upload-artifact@v7
