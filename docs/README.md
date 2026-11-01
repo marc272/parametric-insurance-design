@@ -17,6 +17,7 @@ These pages explain the two ideas the library is built on, as the code implement
 
 - [The tail-risk objective](concepts/tail-risk-objective.md): the uncovered loss, the weighted-CVaR objective α·CVaR_β(U) + (1 − α)·E[U], why the design problem is a linear program, and the premium budget.
 - [Portfolio calibration](concepts/portfolio-calibration.md): the individual, portfolio and cluster scopes, and cross-coverage for one risk owner with several assets.
+- [Combining the two ideas](concepts/combination.md): the weighted-CVaR objective on the owner's total uncovered loss in one joint design problem, how the two ideas interact, and which view answers which owner's question.
 
 ### Methodology
 
