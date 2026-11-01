@@ -300,7 +300,12 @@ def t5_contrasts(con: pd.DataFrame, pricing: str, joint: str) -> str:
 
 
 def changes(frame: pd.DataFrame, key: list[str], ends: tuple[str, str]) -> pd.DataFrame:
-    """Rows whose interval verdict or point sign differs at an end."""
+    """Rows whose interval verdict differs at a measured end.
+
+    An end without a design (the program found none inside the set) is not
+    a change; ``n_ends_missing`` counts them. ``sign_*`` are the point
+    differences' signs, reported alongside.
+    """
     test = frame.loc[frame["split"] == "test"].copy()
     test[key] = test[key].fillna("")
     test["verdict"] = [
@@ -315,9 +320,9 @@ def changes(frame: pd.DataFrame, key: list[str], ends: tuple[str, str]) -> pd.Da
     for idx, r in wide.iterrows():
         v0 = r[("verdict", "stored")]
         s0 = r[("sign", "stored")]
-        vs = {e: r[("verdict", e)] for e in ends}
-        ss = {e: r[("sign", e)] for e in ends}
-        if any(v != v0 for v in vs.values()) or any(s != s0 for s in ss.values()):
+        vs = {e: r.get(("verdict", e), math.nan) for e in ends}
+        ss = {e: r.get(("sign", e), math.nan) for e in ends}
+        if any(not pd.isna(v) and v != v0 for v in vs.values()):
             out.append(
                 dict(
                     zip(key, idx if isinstance(idx, tuple) else (idx,), strict=True),
@@ -325,6 +330,7 @@ def changes(frame: pd.DataFrame, key: list[str], ends: tuple[str, str]) -> pd.Da
                     **{f"verdict_{e}": vs[e] for e in ends},
                     sign_stored=s0,
                     **{f"sign_{e}": ss[e] for e in ends},
+                    n_ends_missing=sum(pd.isna(v) for v in vs.values()),
                 )
             )
     return pd.DataFrame(out)
@@ -411,7 +417,10 @@ def method_parts(
         f"C1 section 6b (portfolio and cluster − individual): {len(ch_rq2)} of "
         f"{n_rq2} test rows (`rq2_changes_{method}.csv`). MAR-182 contrasts: "
         f"{len(ch_con)} of {n_con} test rows (`contrasts_changes_{method}.csv`). "
-        "Verdict: `<0` / `>0` (interval excludes zero) or `0 in`.",
+        "Verdict: `<0` / `>0` (interval excludes zero) or `0 in`; `nan`: no "
+        "design found at that end (not counted as a change). Rows: the "
+        "interval at the C1 designs and at each end, and the signs of the "
+        "point values.",
         "",
     ]
     for ch in (ch_rq2, ch_con):

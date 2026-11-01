@@ -44,8 +44,15 @@ the 20 m/s threshold filter. The two runs have the same per-asset optima and
 different portfolio train E[U] (5,330.25 and 5,282.66 USD); both must lie in
 the range.
 
-Outputs: the full tables to ``results/mar198/`` (not committed); the
-committed ones, each well under 500 kB, to
+A second method, ``--method free_bins``, measures the exact part of the
+optimal set without any program: the parameters of bins without a train row
+change no train quantity, so moving them within monotonicity and the cap
+keeps every design optimal (:func:`free_bin_worker`). For MSE that family is
+the whole optimal set (the Hessian on the used bins is positive definite).
+
+Outputs: the full tables to ``--full`` (``results/mar198/...``, not
+committed); ``individual_nonuniqueness_tables.py`` writes the committed ones,
+one set per method and each well under 500 kB, to
 ``research/data/individual-nonuniqueness/``:
 
 * ``ranges.csv``: per (setup, pricing, design, split, KPI): the stored value,
@@ -62,7 +69,13 @@ committed ones, each well under 500 kB, to
 Run from the repository root (reads the C1 store; never writes to it)::
 
     uv run python research/scripts/individual_nonuniqueness.py \
-        --c1-store <C1 results>/c1/store --jobs 4
+        --c1-store <C1 results>/c1/store --full results/mar198/near --jobs 5
+    uv run python research/scripts/individual_nonuniqueness.py --method free_bins \
+        --c1-store <C1 results>/c1/store --full results/mar198/free --jobs 3
+    uv run python research/scripts/individual_nonuniqueness_tables.py
+
+``--compare-only`` rebuilds the comparisons from the saved worker results of
+``--full`` (for example after merging a group re-run with ``--only``).
 
 Observations only. The interpretation is the owner's.
 """
