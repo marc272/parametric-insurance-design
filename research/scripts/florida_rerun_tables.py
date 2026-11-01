@@ -88,6 +88,18 @@ CONFIG_BETA: Final[float] = 0.99
 TAIL: Final[frozenset[str]] = frozenset({"var_uncovered", "cvar_uncovered"})
 MONEY: Final[float] = 1e6
 """Markdown money unit: USD million (LitPop reference year 2018)."""
+NOT_UNIQUE: Final[str] = (
+    "Individual-scope near-optimal ranges are not measured yet for Florida "
+    "(MAR-203): the individual design here is the one member of its optimal "
+    "set the default solver policy returned, and individual designs are not "
+    "unique either (MAR-198)."
+)
+"""One line next to every Florida RQ2 or combination difference."""
+CONFOUNDED: Final[str] = (
+    "The cluster scope confounds the cluster index with the joint "
+    "calibration: MAR-180 (a separate cluster index) has not merged."
+)
+"""One line next to every cluster-scope difference."""
 
 
 def _read(path: Path) -> pd.DataFrame:
@@ -857,7 +869,10 @@ def markdown(t: dict[str, pd.DataFrame]) -> str:
         "## T4. RQ2: joint minus individual calibration within each design, κ 1",
         "",
         "Cluster: a different index (value-weighted mean wind or category of "
-        "3 clusters), T6 separates it from the joint calibration.",
+        "3 clusters). " + CONFOUNDED + " T6 splits the difference as C1 "
+        "section 6b.6 does.",
+        "",
+        NOT_UNIQUE,
         "",
     ]
     rows = []
@@ -910,7 +925,14 @@ def markdown(t: dict[str, pd.DataFrame]) -> str:
     ]
 
     # T5 RQ2 across kappa
-    parts += ["## T5. RQ2 across κ (holdout; CVaR₀.₉₉, train and test)", ""]
+    parts += [
+        "## T5. RQ2 across κ (holdout; CVaR₀.₉₉, train and test)",
+        "",
+        CONFOUNDED,
+        "",
+        NOT_UNIQUE,
+        "",
+    ]
     rows = []
     for idx in INDICES:
         for pricing in PRICINGS:
@@ -966,7 +988,9 @@ def markdown(t: dict[str, pd.DataFrame]) -> str:
         "",
         "Index part: `cluster_separate` (the clusters and their index, each "
         "cluster calibrated on its own) − individual. Joint part: cluster − "
-        "`cluster_separate`. Cluster − individual is in T4.",
+        "`cluster_separate`. Cluster − individual is in T4. " + CONFOUNDED,
+        "",
+        NOT_UNIQUE,
         "",
     ]
     cp = t["cluster_parts"]
@@ -1040,6 +1064,8 @@ def markdown(t: dict[str, pd.DataFrame]) -> str:
         "",
         "Read at the KPI β that matches the design β.",
         "",
+        NOT_UNIQUE,
+        "",
     ]
     rows = []
     for idx in INDICES:
@@ -1106,6 +1132,8 @@ def markdown(t: dict[str, pd.DataFrame]) -> str:
         "## T10. Both = RQ1 alone + RQ2 alone + interaction (portfolio, base MSE, κ 1)",
         "",
         "Relative to the individual MSE design's value.",
+        "",
+        NOT_UNIQUE,
         "",
     ]
     rows = []
@@ -1373,6 +1401,8 @@ def _premium_tables(t: dict[str, pd.DataFrame]) -> list[str]:
         "pricing diversification (portfolio − matched); CVaR₀.₉₉(U), every "
         "part relative to the individual design's value, so the parts add up.",
         "",
+        NOT_UNIQUE,
+        "",
     ]
     rows = []
     for r in p.sort_values(["eventset", "kappa", "design"]).itertuples():
@@ -1522,6 +1552,8 @@ def _fold_table(t: dict[str, pd.DataFrame]) -> list[str]:
         "",
         "Range over the 5 folds; train = the fold's 8,000 calibration years, "
         "test = its held-out block.",
+        "",
+        NOT_UNIQUE,
         "",
         _table(
             ["Index", "Pricing", "Design", "Train (5 folds)", "Test (5 folds)"], rows
