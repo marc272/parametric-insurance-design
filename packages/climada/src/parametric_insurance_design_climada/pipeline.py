@@ -18,7 +18,9 @@ Port of the thesis ``src/CLIMADA/engine.py``. :func:`build_eventset` runs:
    :class:`~parametric_insurance_design_climada.hooks.VulnerabilityDraws`
    (default: none, ``draw_id`` 0; the config's ``vulnerability`` section
    selects Emanuel ``v_half`` draws, MAR-25, see
-   :func:`make_vulnerability_draws`);
+   :func:`make_vulnerability_draws`). A prior recentred to the base
+   expected loss (MAR-160) runs steps 3 and 4 twice: first without draws
+   (the base), then with the draws;
 5. assemble the EventSet (schema v1): ``index`` from the builder, ``loss`` = impact,
    ``rate`` = ``1 / n_years`` (divided by the number of draws), ``year`` from
    IRIS.
@@ -132,6 +134,7 @@ from parametric_insurance_design_climada.hooks import (
     NoDraws,
     VulnerabilityDraws,
 )
+from parametric_insurance_design_climada.vulnerability import EmanuelVHalfDraws
 
 __all__ = [
     "BUILD_RECORD_NAME",
@@ -915,6 +918,34 @@ def _scenario_text(
     )
 
 
+def _match_expected_loss(
+    draws: EmanuelVHalfDraws,
+    config: PipelineConfig,
+    index_builder: IndexBuilder,
+    rng: np.random.Generator | None,
+    created_at: datetime | None,
+) -> EmanuelVHalfDraws:
+    """Match a recentred prior to the base build's expected loss (MAR-160).
+
+    Returns ``draws`` unchanged unless its match is pending; otherwise builds
+    the base (this build without draws) and returns
+    :meth:`~parametric_insurance_design_climada.vulnerability.EmanuelVHalfDraws.matched`.
+    """
+    if not draws.match_expected_loss:
+        return draws
+    logger.info("expected-loss match: building the base without draws")
+
+    def build_base(hook: VulnerabilityDraws) -> EventSet:
+        return build_eventset(
+            config,
+            index_builder=index_builder,
+            vulnerability=hook,
+            created_at=created_at,
+        ).eventset
+
+    return draws.matched(build_base, rng)
+
+
 def build_eventset(
     config: PipelineConfig,
     *,
@@ -938,7 +969,12 @@ def build_eventset(
     vulnerability : VulnerabilityDraws, optional
         Builds the loss draws. Default: the one ``config.vulnerability``
         selects (:func:`make_vulnerability_draws`; :class:`NoDraws` unless the
-        config says otherwise). A hook passed here replaces the config's.
+        config says otherwise). A hook passed here replaces the config's. An
+        :class:`~parametric_insurance_design_climada.vulnerability.EmanuelVHalfDraws`
+        with ``match_expected_loss`` (config ``prior.recentre``, MAR-160) is
+        first matched: the build runs once without draws (the base), then
+        with the prior recentred to the base's expected annual loss
+        (:meth:`~parametric_insurance_design_climada.vulnerability.EmanuelVHalfDraws.matched`).
     rng : numpy.random.Generator, optional
         Passed to ``vulnerability``; unused by :class:`NoDraws`. If None and
         the config selects draws, the pipeline creates
@@ -966,7 +1002,9 @@ def build_eventset(
         If the catalogue is malformed.
     VulnerabilityError
         If the configured prior cannot be loaded, or a draws hook gets no
-        generator.
+        generator; a
+        :class:`~parametric_insurance_design_climada.vulnerability.RecentringError`
+        if a recentred prior cannot match the base's expected loss.
     """
     start = time.perf_counter()
     index_builder = (
@@ -982,6 +1020,10 @@ def build_eventset(
         draws_config = config.vulnerability
         if rng is None and isinstance(draws_config, EmanuelVHalfDrawsConfig):
             rng = np.random.default_rng(draws_config.seed)
+    if isinstance(vulnerability, EmanuelVHalfDraws):
+        vulnerability = _match_expected_loss(
+            vulnerability, config, index_builder, rng, created_at
+        )
     n_draws = int(vulnerability.n_draws)
     if n_draws < 1:
         raise PipelineError(f"n_draws must be >= 1, got {n_draws}")

@@ -85,7 +85,7 @@ Before stopping, even after an interruption:
 
 - **Human:** never dispatched for completion. You may dispatch only the "Agent may prepare" part from the issue's "Agent vs. human" section. Then set the issue to In Review, assign it to Marc Prinzing, and wait. Only the human marks it Done, unless the owner explicitly delegates the decision to you in the conversation; record that on the issue.
 - **Gate:** downstream work stays blocked until the human marks it Done (MAR-18 parity, MAR-29 checkpoint C1).
-- **Decision:** one of D1–D7. Always also Human. The outcome is recorded on the issue, and technical outcomes also get an ADR.
+- **Decision:** one of D1–D8. Always also Human. The outcome is recorded on the issue, and technical outcomes also get an ADR.
 - **Spike, Research, Feature, Chore:** informational.
 
 **Containers.** An issue with sub-issues (MAR-17, MAR-18, MAR-19) is never dispatched. Mark it Done when all its sub-issues are Done. For a Human container (MAR-18), set it to In Review with the assembled result and let the human close it.
@@ -107,7 +107,7 @@ The Program hub sets these rules:
 2. **Then the nearest public release.** Prefer work that brings the next public output forward (website v1 and posts, CRC showcase, CLIMADA module). These are equally important, and they publish sooner than the paper.
 3. **Keep the long track moving.** Whenever the Paper project has ready work, at least one worker slot goes to it.
 4. **Raise Human issues early** when they sit on the path to a release.
-5. **Publication rule:** until C1 is Done, review every external-facing deliverable for it. The method and tool only, the setup stated, numbers from out-of-sample runs on the annual basis, and no general claim that tail optimisation outperforms.
+5. **Publication rule:** review every external-facing deliverable against the publication rule decided at C1 (MAR-29), as stated in [`AGENTS.md`](../AGENTS.md) and SPEC §1: RQ1 conditional, mechanism-based statements only; RQ2 and anything involving joint calibration method only.
 
 ## The loop
 
