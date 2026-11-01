@@ -226,6 +226,63 @@ def _pairs(
     return out.reindex(columns=PAIR_COLUMNS)
 
 
+def _premium_split(parts: pd.DataFrame, con: pd.DataFrame) -> pd.DataFrame:
+    """Add the total and take every part relative to the individual design.
+
+    The total is portfolio - individual; relative to the individual design's
+    value the parts add up in percent. The total is the ``adds_rq2`` or
+    ``rq2_alone`` contrast of the portfolio scope (the same resample and
+    pairing); its interval is that contrast's.
+    """
+    pricings = set(parts["pricing"])
+    tot = con.loc[
+        con["contrast"].isin(["adds_rq2", "rq2_alone"])
+        & (con["joint_scope"] == "portfolio")
+        & con["pricing"].isin(pricings)
+        & (con["split"] != "pooled")
+    ].copy()
+    tot["design"] = tot["tail_design"].where(
+        tot["contrast"] == "adds_rq2", tot["base_design"]
+    )
+    tot = pd.DataFrame(
+        {
+            "eventset": tot["eventset"],
+            "pricing": tot["pricing"],
+            "kappa": tot["kappa"],
+            "design": tot["design"],
+            "split": tot["split"],
+            "scope_a": "portfolio",
+            "scope_b": "individual",
+            "kpi": tot["kpi"],
+            "eval_beta": tot["eval_beta"],
+            "value_a": np.nan,
+            "value_b": tot["value_ref"],
+            "difference": tot["value"],
+            "ci_low": tot["ci_low"],
+            "ci_high": tot["ci_high"],
+            "hash_a": tot["hash_a"],
+            "hash_b": tot["hash_b"],
+        }
+    )
+    out = pd.concat([parts, tot], ignore_index=True)
+    key = ["eventset", "pricing", "kappa", "design", "split", "kpi", "eval_beta"]
+    ref = (
+        out.loc[out["scope_b"] == "individual"]
+        .fillna({"eval_beta": -1.0})
+        .groupby(key)["value_b"]
+        .first()
+    )
+    idx = pd.MultiIndex.from_frame(out[key].fillna({"eval_beta": -1.0}))
+    out["value_individual"] = ref.reindex(idx).to_numpy()
+    for col, src in (
+        ("rel", "difference"),
+        ("rel_ci_low", "ci_low"),
+        ("rel_ci_high", "ci_high"),
+    ):
+        out[col] = out[src] / out["value_individual"]
+    return out
+
+
 def build(full: Path) -> dict[str, pd.DataFrame]:
     """Return the committed tables, from the full ones.
 
@@ -294,7 +351,8 @@ def build(full: Path) -> dict[str, pd.DataFrame]:
     for c in ("hash_a", "hash_b", "hash_c", "hash_d"):
         con[c] = con[c].map(_short)
     con = con[CONTRAST_COLUMNS]
-    out["contrasts"] = con.loc[con["split"] != "train"]
+    out["contrasts"] = con.loc[con["split"] == "test"]
+    out["contrasts_pooled"] = con.loc[con["split"] == "pooled"]
     out["contrasts_train"] = con.loc[con["split"] == "train"].drop(
         columns=["ci_low", "ci_high", "rel_ci_low", "rel_ci_high"]
     )
@@ -305,10 +363,13 @@ def build(full: Path) -> dict[str, pd.DataFrame]:
         {("cluster_separate", "individual"), ("cluster", "cluster_separate")},
         kpis,
     )
-    out["premium_split"] = _pairs(
-        pairs,
-        {("portfolio_matched", "individual"), ("portfolio", "portfolio_matched")},
-        kpis,
+    out["premium_split"] = _premium_split(
+        _pairs(
+            pairs,
+            {("portfolio_matched", "individual"), ("portfolio", "portfolio_matched")},
+            kpis,
+        ),
+        con,
     )
     e = pd.read_csv(full / "holdout_entities.csv")
     ent = e.pivot_table(
@@ -327,7 +388,10 @@ def build(full: Path) -> dict[str, pd.DataFrame]:
     ).reset_index()
     ent = ent.rename(columns={"subject_id": "entity_id"})
     ent["payout_to_loss"] = ent["expected_payout"] / ent["expected_loss"]
-    out["entity_payouts"] = ent
+    # kappa 1 and the plan's scopes and cluster_separate only, to stay under
+    # 500 kB; every kappa and portfolio_matched are in the full table
+    ent = ent.loc[(ent["kappa"] == 1.0) & (ent["scope"] != "portfolio_matched")]
+    out["entity_payouts"] = ent.drop(columns=["kappa"])
     clusters = e.loc[e["scope"].isin(["cluster", "cluster_separate"])][
         ["eventset", "subject_id", "entity_locations"]
     ].drop_duplicates()
@@ -420,7 +484,10 @@ class Look:
 
     def __init__(self, t: dict[str, pd.DataFrame]) -> None:
         self.t = t
-        c = pd.concat([t["contrasts"], t["contrasts_train"]], ignore_index=True)
+        c = pd.concat(
+            [t["contrasts"], t["contrasts_pooled"], t["contrasts_train"]],
+            ignore_index=True,
+        )
         c = c.fillna({"joint_scope": "", "tail_design": "", "base_design": ""})
         self.c = c
         self.g = t["grid"]
@@ -1150,7 +1217,6 @@ def _payout_tables(t: dict[str, pd.DataFrame]) -> list[str]:
                     e = ent.loc[
                         (ent["eventset"] == idx)
                         & (ent["pricing"] == pricing)
-                        & (ent["kappa"] == 1.0)
                         & (ent["design"] == d)
                         & (ent["scope"] == scope)
                         & (ent["split"] == "train")
@@ -1205,7 +1271,6 @@ def _payout_tables(t: dict[str, pd.DataFrame]) -> list[str]:
         e = ent.loc[
             (ent["eventset"] == idx)
             & (ent["pricing"] == "pure")
-            & (ent["kappa"] == 1.0)
             & (ent["scope"] == "portfolio")
             & (ent["split"] == "train")
         ]
@@ -1245,7 +1310,6 @@ def _payout_tables(t: dict[str, pd.DataFrame]) -> list[str]:
             e = ent.loc[
                 (ent["eventset"] == idx)
                 & (ent["pricing"] == "pure")
-                & (ent["kappa"] == 1.0)
                 & (ent["scope"] == "cluster")
                 & (ent["split"] == "train")
                 & (ent["entity_id"].astype(str) == str(cid))
@@ -1253,7 +1317,6 @@ def _payout_tables(t: dict[str, pd.DataFrame]) -> list[str]:
             el_all = ent.loc[
                 (ent["eventset"] == idx)
                 & (ent["pricing"] == "pure")
-                & (ent["kappa"] == 1.0)
                 & (ent["scope"] == "cluster")
                 & (ent["split"] == "train")
                 & (ent["design"] == "mse")
@@ -1307,7 +1370,8 @@ def _premium_tables(t: dict[str, pd.DataFrame]) -> list[str]:
         "S = the sum of their 67 stand-alone premiums; credit = 1 − A / S. "
         "`portfolio_matched` = the portfolio design problem budgeted at A. "
         "Portfolio − individual = cross-coverage (matched − individual) + "
-        "pricing diversification (portfolio − matched); CVaR₀.₉₉(U).",
+        "pricing diversification (portfolio − matched); CVaR₀.₉₉(U), every "
+        "part relative to the individual design's value, so the parts add up.",
         "",
     ]
     rows = []
