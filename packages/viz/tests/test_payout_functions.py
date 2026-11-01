@@ -90,7 +90,8 @@ def test_payout_grid_smoke(toy: Fixture, scope: str) -> None:
     n_entities = len(runs[0].entity_order())
     axes = [ax for ax in out.figure.axes if ax.get_visible() and ax.axison]
     assert len(axes) == n_entities
-    assert set(out.data) == {"", "markers", "events"}
+    joint = {"caption"} if scope != "individual" else set()  # MAR-218
+    assert set(out.data) == {"", "markers", "events", *joint}
     pd.testing.assert_frame_equal(out.data[""], payout_steps(runs))
     assert tuple(out.data["markers"].columns) == MARKER_COLUMNS
     assert set(out.data["markers"]["marker"]) == {"attachment", "limit"}
