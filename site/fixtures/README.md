@@ -30,7 +30,7 @@ For `thesis-explorer/` (about a minute; `sweep` runs the baseline and both sweep
 uv run parametric-insurance-design sweep site/fixtures/thesis_explorer.yaml
 uv run parametric-insurance-design export-site site/fixtures/thesis_explorer.yaml -p alpha -p beta \
     --out site/fixtures/thesis-explorer \
-    --label "thesis-fixture data: a reduced thesis experiment (site/fixtures/thesis_explorer.yaml: location A1 only, individual scope, weighted CVaR, alpha and beta sweeps) on the thesis parity event set, in-sample, event-conditional basis. A placeholder for the site's explorer check, not a result to publish."
+    --label "thesis-fixture data: a reduced thesis experiment (site/fixtures/thesis_explorer.yaml: location A1 only, individual scope, weighted CVaR, alpha and beta sweeps) on the thesis parity event set, in-sample, event-conditional basis. A test fixture of the site bundle export with sweeps, not a result to publish."
 ```
 
 The config writes its result store to the ignored `results/site-fixtures/thesis-explorer/`.
