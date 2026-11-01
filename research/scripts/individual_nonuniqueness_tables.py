@@ -1,11 +1,15 @@
 """MAR-198: committed tables of the individual-scope ranges.
 
-Reads the full tables of ``individual_nonuniqueness.py`` (``results/mar198/
-full``, not committed) and writes the committed CSVs, ``summary.json`` and
+Reads the full tables of ``individual_nonuniqueness.py`` for its two methods
+(not committed): ``--free`` (``--method free_bins``: the exact optimal set's
+free bins, tolerance 0) and ``--near`` (``--method near_optimal_set``: C1
+T11's tolerance; the pure MSE group may come from a separate directory,
+``--near-extra``). Writes the committed CSVs, ``summary_<method>.json`` and
 ``tables.md`` to ``research/data/individual-nonuniqueness/``. Run from the
 repository root::
 
-    uv run python research/scripts/individual_nonuniqueness_tables.py
+    uv run python research/scripts/individual_nonuniqueness_tables.py \
+        --free results/mar198/free --near results/mar198/near
 
 Observations only.
 """
@@ -24,7 +28,12 @@ from typing import Any, Final
 import pandas as pd
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
-FULL_DIR: Final[Path] = REPO_ROOT / "results" / "mar198" / "full"
+FREE_DIR: Final[Path] = REPO_ROOT / "results" / "mar198" / "free"
+NEAR_DIR: Final[Path] = REPO_ROOT / "results" / "mar198" / "near"
+METHOD_NAMES: Final[dict[str, str]] = {
+    "free_bins": "free bins (exact optimal designs, tolerance 0)",
+    "near_optimal": "near-optimal set (C1 T11's tolerance 1e-5)",
+}
 OUT_DIR: Final[Path] = REPO_ROOT / "research" / "data" / "individual-nonuniqueness"
 DESIGN_NAMES: Final[dict[str, str]] = {
     "mse": "MSE",
@@ -240,11 +249,15 @@ def t4_rq2(rq2: pd.DataFrame, kpis: tuple[str, ...]) -> str:
 def t5_contrasts(con: pd.DataFrame, pricing: str, joint: str) -> str:
     """T5: MAR-182's contrasts at the ends (matched KPI and E[U])."""
     rows: list[list[str]] = []
-    sel = con.loc[(con["pricing"] == pricing) & (con["joint_scope"] == joint)]
+    con = con.copy()
+    roles = ["joint_scope", "tail_design", "base_design"]
+    con[roles] = con[roles].fillna("")
+    sel = con.loc[(con["pricing"] == pricing) & con["joint_scope"].isin([joint, ""])]
     for (contrast, tail, base, kpi, split), sub in sel.groupby(
         ["contrast", "tail_design", "base_design", "kpi", "split"], sort=False
     ):
-        if kpi not in (MATCHED[str(tail)], "eu"):
+        matched = MATCHED.get(str(tail), "cvar@0.99")
+        if kpi not in (matched, "eu"):
             continue
         cells: dict[str, str] = {}
         for end in ("stored", "low", "high"):
@@ -264,8 +277,8 @@ def t5_contrasts(con: pd.DataFrame, pricing: str, joint: str) -> str:
         rows.append(
             [
                 str(contrast),
-                DESIGN_NAMES[str(tail)],
-                DESIGN_NAMES[str(base)],
+                DESIGN_NAMES.get(str(tail), "–"),
+                DESIGN_NAMES.get(str(base), "–"),
                 KPI_NAMES[str(kpi)],
                 str(split),
                 cells["stored"],
@@ -289,6 +302,7 @@ def t5_contrasts(con: pd.DataFrame, pricing: str, joint: str) -> str:
 def changes(frame: pd.DataFrame, key: list[str], ends: tuple[str, str]) -> pd.DataFrame:
     """Rows whose interval verdict or point sign differs at an end."""
     test = frame.loc[frame["split"] == "test"].copy()
+    test[key] = test[key].fillna("")
     test["verdict"] = [
         verdict(lo, hi) for lo, hi in zip(test["ci_low"], test["ci_high"], strict=True)
     ]
@@ -316,6 +330,107 @@ def changes(frame: pd.DataFrame, key: list[str], ends: tuple[str, str]) -> pd.Da
     return pd.DataFrame(out)
 
 
+def t3_free(assets: pd.DataFrame) -> str:
+    """T3a: the free bins per asset (identical bins for every design)."""
+    c1 = assets.loc[assets["setup"] == "c1"]
+    groups = list(dict.fromkeys(zip(c1["pricing"], c1["design"], strict=True)))
+    header = ["Asset", "Bins without a train row", "Their test rows", "MSE Hessian"]
+    header += [f"{PRICING_NAMES[p]} {DESIGN_NAMES[d]}" for p, d in groups]
+    rows: list[list[str]] = []
+    for asset in sorted(c1["entity_id"].unique()):
+        a = c1.loc[c1["entity_id"] == asset]
+        first = a.iloc[0]
+        free = first["free_bins"]
+        row = [
+            asset,
+            "none" if pd.isna(free) else str(free),
+            str(int(first["free_bins_test_rows"])),
+            f"{first['mse_hessian_min_eig_rel_used_bins']:.4f}",
+        ]
+        for p, d in groups:
+            r = a.loc[(a["pricing"] == p) & (a["design"] == d)].iloc[0]
+            row.append(f"{r['free_param_width_to_cap']:.3f}")
+        rows.append(row)
+    return md_table(header, rows)
+
+
+def method_parts(
+    method: str, ranges: pd.DataFrame, rq2: pd.DataFrame, con: pd.DataFrame, out: Path
+) -> list[str]:
+    """Tables T1, T4, T5 and T6 of one method; write its change lists."""
+    tag = {"free_bins": "a", "near_optimal": "b"}[method]
+    rq2_key = ["pricing", "design", "scope_a", "kpi"]
+    con_key = [
+        "pricing",
+        "contrast",
+        "joint_scope",
+        "tail_design",
+        "base_design",
+        "kpi",
+    ]
+    ch_rq2 = changes(rq2, rq2_key, ("min", "max"))
+    ch_con = changes(con, con_key, ("low", "high"))
+    ch_rq2.to_csv(out / f"rq2_changes_{method}.csv", index=False)
+    ch_con.to_csv(out / f"contrasts_changes_{method}.csv", index=False)
+    n_rq2 = len(rq2.loc[(rq2["split"] == "test") & (rq2["individual_at"] == "stored")])
+    n_con = len(con.loc[(con["split"] == "test") & (con["individual_at"] == "stored")])
+    name = METHOD_NAMES[method]
+    parts = [
+        f"## T1{tag}. Range of the individual scope's portfolio KPIs: {name}",
+        "",
+        t1_ranges(ranges),
+        "",
+        f"## T4{tag}. C1 section 6b, joint − individual at the range ends: {name}",
+        "",
+        "Relative to the individual design's value used in that column. Test: "
+        "paired 90 % interval on the C1 resample of the test years. `min`: the "
+        "individual design with the smallest value of the row's KPI (so the "
+        "largest joint − individual difference); `max`: the largest found. "
+        "CVaR₀.₉₅ rows are in the CSV.",
+        "",
+        t4_rq2(rq2, ("cvar@0.99", "cvar@0.995", "eu")),
+        "",
+    ]
+    for pricing in ("pure", "coc_r0.06"):
+        parts += [
+            f"## T5{tag} ({PRICING_NAMES[pricing]}). MAR-182 contrasts, portfolio "
+            f"scope, at the range ends: {name}",
+            "",
+            "Relative to MAR-182's reference (the individual baseline design's "
+            "C1 value). `low`: every individual term at the end that lowers the "
+            "contrast; `high`: the reverse. Matched KPI β and E[U]; every KPI and "
+            "the cluster scope are in the CSV.",
+            "",
+            t5_contrasts(con, pricing, "portfolio"),
+            "",
+        ]
+    parts += [
+        f"## T6{tag}. Test intervals whose verdict or sign changes at a range end: "
+        f"{name}",
+        "",
+        f"C1 section 6b (portfolio and cluster − individual): {len(ch_rq2)} of "
+        f"{n_rq2} test rows (`rq2_changes_{method}.csv`). MAR-182 contrasts: "
+        f"{len(ch_con)} of {n_con} test rows (`contrasts_changes_{method}.csv`). "
+        "Verdict: `<0` / `>0` (interval excludes zero) or `0 in`.",
+        "",
+    ]
+    for ch in (ch_rq2, ch_con):
+        if len(ch):
+            parts += [
+                md_table(
+                    list(ch.columns), [[str(x) for x in r] for r in ch.to_numpy()]
+                ),
+                "",
+            ]
+    return parts
+
+
+def _read(dirs: list[Path], name: str) -> pd.DataFrame:
+    """Concatenate one full table over directories (later ones replace groups)."""
+    frames = [pd.read_csv(d / name) for d in dirs if (d / name).exists()]
+    return pd.concat(frames, ignore_index=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Write the committed tables.
 
@@ -330,40 +445,27 @@ def main(argv: list[str] | None = None) -> int:
         Exit status.
     """
     parser = argparse.ArgumentParser(description="MAR-198 tables.")
-    parser.add_argument("--full", type=Path, default=FULL_DIR)
+    parser.add_argument("--free", type=Path, default=FREE_DIR)
+    parser.add_argument("--near", type=Path, default=NEAR_DIR)
     parser.add_argument("--out", type=Path, default=OUT_DIR)
     args = parser.parse_args(argv)
     args.out.mkdir(parents=True, exist_ok=True)
-    ranges = pd.read_csv(args.full / "ranges.csv")
-    assets = pd.read_csv(args.full / "asset_ranges.csv")
-    rq2 = pd.read_csv(args.full / "rq2_ends.csv")
-    con = pd.read_csv(args.full / "contrasts_ends.csv")
-    summary: dict[str, Any] = json.loads((args.full / "summary.json").read_text())
-    for name, frame in (
-        ("ranges", ranges),
-        ("asset_ranges", assets),
-        ("rq2_ends", rq2),
-        ("contrasts_ends", con),
-    ):
-        frame.to_csv(args.out / f"{name}.csv", index=False, float_format="%.10g")
-    (args.out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
-
-    rq2_key = ["pricing", "design", "scope_a", "kpi"]
-    con_key = [
-        "pricing",
-        "contrast",
-        "joint_scope",
-        "tail_design",
-        "base_design",
-        "kpi",
-    ]
-    ch_rq2 = changes(rq2, rq2_key, ("min", "max"))
-    ch_con = changes(con, con_key, ("low", "high"))
-    ch_rq2.to_csv(args.out / "rq2_changes.csv", index=False)
-    ch_con.to_csv(args.out / "contrasts_changes.csv", index=False)
-    n_rq2 = len(rq2.loc[(rq2["split"] == "test") & (rq2["individual_at"] == "stored")])
-    n_con = len(con.loc[(con["split"] == "test") & (con["individual_at"] == "stored")])
-
+    tables: dict[str, dict[str, pd.DataFrame]] = {}
+    for method, full in (("free_bins", args.free), ("near_optimal", args.near)):
+        t = {
+            n: pd.read_csv(full / f"{n}.csv")
+            for n in ("ranges", "asset_ranges", "rq2_ends", "contrasts_ends")
+        }
+        tables[method] = t
+        for n, frame in t.items():
+            frame.to_csv(
+                args.out / f"{n}_{method}.csv", index=False, float_format="%.8g"
+            )
+        summary: dict[str, Any] = json.loads((full / "summary.json").read_text())
+        (args.out / f"summary_{method}.json").write_text(
+            json.dumps(summary, indent=2) + "\n"
+        )
+    free, near = tables["free_bins"], tables["near_optimal"]
     parts = [
         "# MAR-198 tables: the individual scope's portfolio-level KPIs over its "
         "optimal set",
@@ -371,85 +473,45 @@ def main(argv: list[str] | None = None) -> int:
         "Generated by `research/scripts/individual_nonuniqueness_tables.py` from "
         "`individual_nonuniqueness.py`'s full tables. Thesis portfolio, annual "
         "basis, thesis noise layer, holdout (train years 0–6,999, test "
-        "7,000–9,999), κ 1, step payout 15 bins (`first_bin`), default solver "
-        f"policy; near-optimal set: each asset's objective within "
-        f"{summary['rel_tol']:g} (relative) of its optimum. Money in USD per year. "
-        "Hashes: first 12 hex digits of the config hash. `*`: the paired 90 % "
-        "interval excludes zero. Notes: `research/notes/individual-nonuniqueness.md`.",
-        "",
-        "## T1. Range of the individual scope's portfolio KPIs (κ = 1)",
-        "",
-        "Smallest value over the near-optimal set (exact), largest value found "
-        "(successive linearisation: an inner bound), and an outer bound on the "
-        "largest (the KPI at the coordinate-wise smallest parameters).",
-        "",
-        t1_ranges(ranges),
+        "7,000–9,999), κ 1, step payout 15 bins (`first_bin`), C1 designs from "
+        "the default solver policy. Two families of alternative individual "
+        "designs: (a) **free bins**, every design that differs from the C1 one "
+        "only in the parameters of bins without a train row (exactly optimal; "
+        "for MSE the whole optimal set); (b) the **near-optimal set**, each "
+        "asset's objective within 1e-5 (relative) of its optimum (C1 T11). "
+        "Money in USD per year. Hashes: first 12 hex digits of the config hash. "
+        "`*`: the paired 90 % interval excludes zero. Notes: "
+        "`research/notes/individual-nonuniqueness.md`.",
         "",
         "## T2. The MAR-165 check (example config, no noise layer, `zero` below "
-        "the attachment, E[U], pure, κ 1)",
+        "the attachment, E[U], pure, κ 1): near-optimal set",
         "",
-        t2_mar165(ranges),
+        t2_mar165(near["ranges"]),
         "",
-        "## T3. Per-asset train E[π_i] / E[L_i] over each asset's near-optimal "
-        "set (κ = 1)",
+        "## T3a. Bins without a train row, per asset",
+        "",
+        "Bin numbers 0–14 (bin 12 is [60, 63.3) m/s, bin 13 [63.3, 66.7)). Their "
+        "test rows (13 rows = one event in 13 noise copies). MSE Hessian: smallest "
+        "over largest eigenvalue of the MSE Hessian on the used bins (> 0: the "
+        "MSE optimum is unique there). Design columns: the widest free "
+        "parameter range relative to the asset's cap.",
+        "",
+        t3_free(free["asset_ranges"]),
+        "",
+        "## T3b. Per-asset train E[π_i] / E[L_i] over each asset's near-optimal set",
         "",
         "C1 design, and in brackets the smallest and largest value over the set "
         "(T11's measure, individual scope). Last row: the largest change of any "
         "asset's payout parameter, relative to its cap, between the C1 design "
-        "and any design found here.",
+        "and any design found.",
         "",
-        t3_assets(assets),
-        "",
-        "## T4. C1 section 6b: joint − individual at the ends of the individual "
-        "range (κ = 1)",
-        "",
-        "Relative to the individual design's value used in that column. Test: "
-        "paired 90 % interval on the C1 resample of the test years. The `min` "
-        "column takes the individual design with the smallest value of the KPI "
-        "of the row (so the largest joint − individual difference), the `max` "
-        "column the one with the largest found.",
-        "",
-        t4_rq2(rq2, ("cvar@0.99", "cvar@0.995", "eu")),
-        "",
-        "CVaR₀.₉₅ rows are in `rq2_ends.csv`.",
+        t3_assets(near["asset_ranges"]),
         "",
     ]
-    for pricing in ("pure", "coc_r0.06"):
-        parts += [
-            f"## T5 ({PRICING_NAMES[pricing]}). MAR-182 contrasts, portfolio scope, "
-            "at the ends (κ = 1)",
-            "",
-            "Relative to MAR-182's reference (the individual baseline design's "
-            "C1 value). `low`: every individual term at the end that lowers the "
-            "contrast; `high`: the reverse. Matched KPI β and E[U]; every KPI and "
-            "the cluster scope are in `contrasts_ends.csv`.",
-            "",
-            t5_contrasts(con, pricing, "portfolio"),
-            "",
-        ]
-    parts += [
-        "## T6. Test intervals whose verdict or sign changes at a range end",
-        "",
-        f"C1 section 6b (portfolio and cluster − individual): {len(ch_rq2)} of "
-        f"{n_rq2} test rows (`rq2_changes.csv`). MAR-182 contrasts: "
-        f"{len(ch_con)} of {n_con} test rows (`contrasts_changes.csv`). Verdict: "
-        "`<0` / `>0` (interval excludes zero) or `0 in`.",
-        "",
-    ]
-    if len(ch_rq2):
-        parts += [
-            md_table(
-                list(ch_rq2.columns), [[str(x) for x in r] for r in ch_rq2.to_numpy()]
-            ),
-            "",
-        ]
-    if len(ch_con):
-        parts += [
-            md_table(
-                list(ch_con.columns), [[str(x) for x in r] for r in ch_con.to_numpy()]
-            ),
-            "",
-        ]
+    for method, t in tables.items():
+        parts += method_parts(
+            method, t["ranges"], t["rq2_ends"], t["contrasts_ends"], args.out
+        )
     (args.out / "tables.md").write_text("\n".join(parts))
     print(f"wrote {args.out}")
     return 0
