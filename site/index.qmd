@@ -1,0 +1,19 @@
+---
+title: "Parametric insurance design"
+subtitle: "Site skeleton: one placeholder page, no results yet"
+---
+
+This site will hold interactive explorers and posts on designing parametric insurance payouts. The method has two ideas:
+
+- **Tail-risk–optimised payout design.** The payout is chosen to minimise a weighted mix of the expected uncovered loss and its conditional value-at-risk (CVaR, the mean of its worst outcomes), solved as a linear programme.
+- **Portfolio-level calibration.** When one owner holds many sites, their payouts can be calibrated for each site on its own, jointly per cluster of sites, or jointly for the whole portfolio (the individual, cluster and portfolio scopes).
+
+The site only reads precomputed bundles. It never runs an optimisation.
+
+::: {.callout-warning}
+## Placeholder
+
+The site is being built. Its one page, the [α/β payout explorer](explorers/alpha-beta.qmd), shows **thesis-fixture data**: a small in-sample test set that checks the site's layout and data pipeline. It shows no results.
+:::
+
+The code, the method and the documentation are in the [GitHub repository](https://github.com/marc272/parametric-insurance-design).

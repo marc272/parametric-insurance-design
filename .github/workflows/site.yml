@@ -1,0 +1,85 @@
+name: Site
+
+# The project website (site/, Quarto + OJS, ADR 0003; MAR-201). Pull
+# requests that touch the site build it; a push to main builds it and deploys
+# it to GitHub Pages (source "GitHub Actions", the github-pages environment,
+# https://marc272.github.io/parametric-insurance-design/).
+#
+# Bundle source: the pages read the committed fixture bundles under
+# site/fixtures/ (thesis-fixture data, under the 500 kB pre-commit limit).
+# The build checks them against their manifests' SHA-256 before rendering.
+
+on:
+  pull_request:
+    paths:
+      - "site/**"
+      - ".github/workflows/site.yml"
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# PR builds of the same branch cancel each other; deploys on main queue, so a
+# deploy is never cut off halfway.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Pinned Quarto CLI. site/_quarto.yml requires the same version
+  # (quarto-required); change both together.
+  QUARTO_VERSION: "1.10.19"
+
+jobs:
+  build:
+    name: build (Quarto site)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Check the fixture bundles against their manifests
+        run: |
+          for bundle in site/fixtures/*/; do
+            echo "== $bundle"
+            (cd "$bundle" && jq -r '.files[] | "\(.sha256 | ltrimstr("sha256:"))  \(.path)"' manifest.json | sha256sum --check --strict)
+          done
+      - uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661b # v2.2.0
+        with:
+          version: ${{ env.QUARTO_VERSION }}
+      - name: Render the site
+        run: quarto render site
+      - name: Check the rendered pages and the bundle
+        run: |
+          for f in index.html explorers/alpha-beta.html blog/index.html blog/index.xml \
+                   fixtures/thesis-explorer/manifest.json fixtures/thesis-explorer/sweep.alpha.payouts.arrow; do
+            test -s "site/_site/$f" || { echo "missing: site/_site/$f"; exit 1; }
+          done
+          du -sh site/_site
+      - name: Upload the Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site/_site
+
+  deploy:
+    name: deploy (GitHub Pages)
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

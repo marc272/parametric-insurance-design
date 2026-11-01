@@ -1,0 +1,192 @@
+---
+title: "α/β payout explorer"
+subtitle: "Placeholder on thesis-fixture data"
+description: "Move α or β of the weighted-CVaR objective and see the step payout and the exceedance curves of one design. Placeholder page on thesis-fixture data."
+echo: false
+---
+
+::: {.callout-warning}
+## Placeholder: thesis-fixture data, not results
+
+This page checks the site's layout and data pipeline. Its data are a small **thesis-fixture** test set: one site of the thesis portfolio, calibrated and evaluated **in-sample** on the **event-conditional** basis. The publication rule asks for out-of-sample numbers on the annual basis, so no number on this page is a result. The full setup of every number is under [Setup](#setup).
+:::
+
+The design minimises a weighted mix of the expected uncovered loss $U$ and its tail:
+
+$$F_{\alpha,\beta} = \alpha\,\mathrm{CVaR}_\beta(U) + (1-\alpha)\,\mathbb{E}[U],$$
+
+where $\mathrm{CVaR}_\beta(U)$ is the mean of the worst $1-\beta$ share of outcomes. α sets the weight of the tail, β how far out the tail starts. The bundle holds one sweep per parameter, one factor at a time: moving α keeps β at its baseline value, and the other way round.
+
+```{ojs}
+//| output: false
+// Pinned Observable Plot (Quarto's built-in Plot follows the CDN's latest).
+Plot = import("https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6.17/+esm")
+```
+
+```{ojs}
+//| output: false
+// The bundle (site/fixtures/thesis-explorer, written by export-site).
+manifest = {
+  const m = await FileAttachment("../fixtures/thesis-explorer/manifest.json").json();
+  if (m.format !== "parametric-insurance-design/site-bundle" || m.format_version !== 1) {
+    throw new Error(`unsupported bundle: ${m.format} version ${m.format_version}`);
+  }
+  return m;
+}
+runIndex = FileAttachment("../fixtures/thesis-explorer/runs.json").json()
+locationIndex = FileAttachment("../fixtures/thesis-explorer/locations.json").json()
+tables = ({
+  alpha: {
+    payouts: rows(await FileAttachment("../fixtures/thesis-explorer/sweep.alpha.payouts.arrow").arrow()),
+    exceedance: rows(await FileAttachment("../fixtures/thesis-explorer/sweep.alpha.exceedance.arrow").arrow())
+  },
+  beta: {
+    payouts: rows(await FileAttachment("../fixtures/thesis-explorer/sweep.beta.payouts.arrow").arrow()),
+    exceedance: rows(await FileAttachment("../fixtures/thesis-explorer/sweep.beta.exceedance.arrow").arrow())
+  }
+})
+// Arrow table to plain objects: dictionary columns decode to strings,
+// int32 to numbers, and null stays null (payouts.lower: -inf, see the manifest).
+rows = (table) => table.toArray().map((row) => row.toJSON())
+```
+
+```{ojs}
+//| output: false
+baselineRun = runIndex.runs.find((r) => r.run_id === manifest.runs.baseline[0])
+location = locationIndex.locations[0]
+symbols = ({alpha: "α", beta: "β"})
+points = manifest.runs.sweeps[parameter]
+sweepValues = points.map((p) => p.value)
+decimals = d3.max(sweepValues, (v) => (String(v).split(".")[1] ?? "").length)
+step = +d3.min(d3.pairs(sweepValues), ([a, b]) => b - a).toFixed(decimals)
+```
+
+```{ojs}
+viewof parameter = Inputs.radio(
+  new Map([["α, tail weight", "alpha"], ["β, CVaR level", "beta"]]),
+  {label: "Vary", value: "alpha"}
+)
+```
+
+```{ojs}
+viewof requested = Inputs.range(d3.extent(sweepValues), {
+  label: `${symbols[parameter]}`,
+  step,
+  format: (v) => v.toFixed(decimals),
+  value: baselineRun.parameters[parameter]
+})
+```
+
+```{ojs}
+//| output: false
+// Snap to the nearest exported sweep point.
+point = d3.least(points, (p) => Math.abs(p.value - requested))
+run = runIndex.runs.find((r) => r.run_id === point.run_id)
+other = parameter === "alpha" ? "beta" : "alpha"
+```
+
+```{ojs}
+md`Showing the design for **${symbols[parameter]} = ${point.value}**, with ${symbols[other]} = ${run.parameters[other]} (its baseline value), at site ${location.location_id} (${location.name.replaceAll("_", " ")}).`
+```
+
+### Step payout
+
+```{ojs}
+//| output: false
+payoutRows = tables[parameter].payouts.filter((d) => d.entity_id === location.location_id)
+bins = payoutRows.filter((d) => d.run_id === point.run_id)
+payoutX = [manifest.setup.payout.attachment - 5, manifest.setup.payout.limit + 5]
+payoutYMax = d3.max(payoutRows, (d) => d.value) / 1e6
+```
+
+```{ojs}
+Plot.plot({
+  width,
+  height: Math.round(Math.min(340, Math.max(240, width * 0.6))),
+  marginLeft: 48,
+  style: {background: "transparent"},
+  x: {domain: payoutX, label: `${manifest.eventset.index.unit === "m/s" ? "Wind speed" : "Index"} at the site (${manifest.eventset.index.unit}) →`},
+  y: {domain: [0, payoutYMax * 1.05], grid: true, label: `↑ Payout (${manifest.eventset.loss.currency} million)`},
+  marks: [
+    Plot.rectY(bins, {
+      // A null lower edge is -inf (the zero row below the attachment).
+      x1: (d) => d.lower ?? payoutX[0],
+      x2: "upper",
+      y: (d) => d.value / 1e6,
+      fill: "#3a86c8",
+      inset: 0.5,
+      tip: {format: {x1: true, x2: true, y: (v) => `${v.toFixed(2)} M`}}
+    }),
+    Plot.ruleY([0])
+  ]
+})
+```
+
+The payout is a step function of the wind-speed index: one level per bin between the attachment and the limit. Bars that look empty pay (close to) nothing.
+
+### Exceedance curves
+
+```{ojs}
+//| output: false
+quantityColours = ({loss: "#8c8c8c", payout: "#3a86c8", uncovered: "#e0533d"})
+basisUnit = ({event_conditional: "events above the threshold, not years", event: "years, approximately", annual: "years"})[manifest.setup.basis]
+exceedanceRows = tables[parameter].exceedance.filter((d) => d.level === "entity" && d.subject_id === location.location_id)
+curves = exceedanceRows.filter((d) => d.run_id === point.run_id)
+exceedanceYMax = d3.max(exceedanceRows, (d) => d.value) / 1e6
+```
+
+```{ojs}
+Plot.plot({
+  width,
+  height: Math.round(Math.min(340, Math.max(240, width * 0.6))),
+  marginLeft: 48,
+  style: {background: "transparent"},
+  x: {type: "log", label: `Return period (${basisUnit}) →`},
+  y: {domain: [0, exceedanceYMax * 1.05], grid: true, label: `↑ Value (${manifest.eventset.loss.currency} million)`},
+  color: {domain: Object.keys(quantityColours), range: Object.values(quantityColours), legend: true},
+  marks: [
+    // Tick and label every return period of the bundle: a log axis labels
+    // only some of them, whatever its tickFormat.
+    Plot.axisX(manifest.setup.evaluation.return_periods, {tickFormat: () => "", label: `Return period (${basisUnit}) →`}),
+    Plot.text(manifest.setup.evaluation.return_periods, {x: (d) => d, text: (d) => String(d), frameAnchor: "bottom", lineAnchor: "top", dy: 9}),
+    Plot.ruleY([0]),
+    Plot.line(curves, {x: "return_period", y: (d) => d.value / 1e6, stroke: "quantity", strokeWidth: 2}),
+    Plot.dot(curves, {x: "return_period", y: (d) => d.value / 1e6, fill: "quantity", r: 3, tip: {format: {y: (v) => `${v.toFixed(2)} M`}}})
+  ]
+})
+```
+
+The value exceeded at each return period, for the site's loss, the payout and the uncovered loss (loss minus payout) of the design above.
+
+## Setup {#setup}
+
+```{ojs}
+//| output: false
+setupRows = {
+  const s = manifest.setup;
+  const n = s.basis_risk.noise;
+  const t = s.basis_risk.threshold;
+  const budget = s.constraints.filter((c) => c.kind === "budget").map((c) => `budget, loading ${c.loading}`).join("; ");
+  return [
+    ["Data", manifest.label],
+    ["Portfolio", `${s.portfolio.location_ids.join(", ")}: ${location.name.replaceAll("_", " ")}, insured value ${(location.value / 1e6).toFixed(0)} M ${manifest.eventset.loss.currency}`],
+    ["Event set", `${manifest.eventset.hazard.name}, ${manifest.eventset.n_years.toLocaleString("en")} simulated years; licence ${manifest.eventset.licence}`],
+    ["Index", `${manifest.eventset.index.definition} (${manifest.eventset.index.unit})`],
+    ["Design", `${run.scope} scope, ${run.objective.replace("_", " ")} objective, α = ${run.parameters.alpha}, β = ${run.parameters.beta}`],
+    ["Payout", `${s.payout.kind}, ${s.payout.n_bins} bins from ${s.payout.attachment} to ${s.payout.limit} ${manifest.eventset.index.unit}`],
+    ["Basis", s.basis.replace("_", "-")],
+    ["Basis-risk model", `${n.kind} noise on the index, level ${n.level}, ${n.n_copies} copies, seed ${n.seed}, bounds ${n.bounds.join(" to ")}; events with ${t.column} below ${t.value} dropped`],
+    ["Pricing", `${s.pricing.kind}; ${budget}`],
+    ["Split", `${s.split.kind}: ${s.split.out_of_sample ? "out-of-sample" : "in-sample, calibration and evaluation on the same events"}`],
+    ["Evaluation", `CVaR level ${s.evaluation.beta}; return periods ${s.evaluation.return_periods.join(", ")}`],
+    ["Config", `${manifest.config.name}, ${manifest.config.hash}`],
+    ["Run", run.run_id]
+  ];
+}
+```
+
+```{ojs}
+html`<table class="setup-table"><tbody>${setupRows.map(([k, v]) => html`<tr><th scope="row">${k}</th><td>${v}</td></tr>`)}</tbody></table>`
+```
+
+The bundle is `site/fixtures/thesis-explorer/` in the [repository](https://github.com/marc272/parametric-insurance-design/tree/main/site/fixtures), written by `parametric-insurance-design export-site` from the config `site/fixtures/thesis_explorer.yaml`.
