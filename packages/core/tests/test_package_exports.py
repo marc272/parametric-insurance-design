@@ -27,15 +27,16 @@ STORY_NAMES = {
     "MSE": objectives.MSE,
     "ExpectedUncovered": objectives.ExpectedUncovered,
     "WeightedCVaR": objectives.WeightedCVaR,
-    "StepPayout": payout.StepPayout,
-    "PurePremium": pricing.PurePremium,
-    "CostOfCapitalLoad": pricing.CostOfCapitalLoad,
-    "Budget": constraints.Budget,
     # portfolio calibration
     "Individual": scopes.Individual,
     "Portfolio": scopes.Portfolio,
     "Cluster": scopes.Cluster,
     "ThesisWardClustering": clustering.ThesisWardClustering,
+    # the rest of a design
+    "StepPayout": payout.StepPayout,
+    "PurePremium": pricing.PurePremium,
+    "CostOfCapitalLoad": pricing.CostOfCapitalLoad,
+    "Budget": constraints.Budget,
     # one call
     "design": workflow.design,
 }

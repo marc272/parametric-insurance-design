@@ -115,9 +115,10 @@ def design(
 
     Examples
     --------
-    Calibrate one joint payout function per asset on the first 70 % of the
-    years of the parity fixture, with the tail-risk objective and a premium
-    budget of the expected loss (run from the repository root):
+    One payout function per asset, calibrated jointly (the portfolio scope)
+    on the first 70 % of the years of the parity fixture, with the tail-risk
+    objective and a premium budget of the expected loss (run from the
+    repository root):
 
     >>> import parametric_insurance_design as pid
     >>> es = pid.EventSet.from_parquet("parity/tests/data/thesis_eventset")

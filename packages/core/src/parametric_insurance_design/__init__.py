@@ -18,14 +18,16 @@ distributions. By convention it is imported as ``pid``::
         sample=train,
     )
 
-The top level is a curated list (ADR 0004, Q2; ADR 0002 §1), grouped by the
-library's two stories:
+The top level is a curated list (ADR 0004, Q2; ADR 0002 §1), built around
+the library's two stories:
 
-* **Tail-risk objective:** ``MSE``, ``ExpectedUncovered``, ``WeightedCVaR``;
-  the payout family ``StepPayout``; the pricing ``PurePremium`` and
-  ``CostOfCapitalLoad``, and the premium ``Budget``.
+* **Tail-risk objective:** the objectives ``WeightedCVaR``,
+  ``ExpectedUncovered`` and ``MSE``.
 * **Portfolio calibration:** the scopes ``Individual``, ``Portfolio`` and
   ``Cluster``, and the clustering ``ThesisWardClustering``.
+* **The rest of a design:** the payout family ``StepPayout``, the pricings
+  ``PurePremium`` and ``CostOfCapitalLoad``, and the premium budget
+  ``Budget``.
 * **One call:** :func:`design` builds and solves every design problem of a
   scope.
 * **Data contract and shared types:** ``EventSet``, ``EventSetMetadata``,
@@ -43,8 +45,9 @@ Two library modules are not imported here, so they are off the top level and
 are imported by their full names: ``parametric_insurance_design.noise``, the
 thesis noise layer (the SPEC §6.3 baseline), and
 ``parametric_insurance_design.robust``, the robust designs of SPEC §6.5,
-which aren't implemented yet. Neither are the command line (``cli``) and the
-experiment layer (``parametric_insurance_design.experiment``).
+which aren't implemented yet. The command line (``cli``) and the experiment
+layer (``parametric_insurance_design.experiment``) aren't imported here
+either.
 """
 
 from importlib.metadata import version
