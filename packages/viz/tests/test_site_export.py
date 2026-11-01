@@ -806,8 +806,8 @@ def test_a_pooled_table_that_does_not_fit_is_refused(
         export(toy, out, pooled_kpis=table)
 
 
-def _where(frame: pd.DataFrame, mask: pd.Series) -> pd.DataFrame:
-    return frame.loc[mask.to_numpy(dtype=bool)].reset_index(drop=True)
+def _where(frame: pd.DataFrame, mask: object) -> pd.DataFrame:
+    return frame.loc[np.asarray(mask, dtype=bool)].reset_index(drop=True)
 
 
 def test_kfold_designs_with_a_failed_fold_are_listed(tmp_path: Path) -> None:
