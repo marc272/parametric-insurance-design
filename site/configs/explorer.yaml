@@ -9,18 +9,22 @@
 # annual basis, a holdout split (first 70 % of the 10,000 simulated years
 # train, the last 30 % test), pure pricing, budget loading 1.0, 15 bins from
 # 20 to 70 m/s, evaluation beta 0.99, and the weighted-CVaR objective at
-# alpha 0.9, beta 0.99.
+# alpha 0.9, beta 0.99, with C1's block-bootstrap intervals (B = 1000, seed
+# 0, level 0.9).
 #
-# Reductions against C1, so that the Site workflow solves it in a few minutes
-# on a GitHub runner (the bundle's label states them too):
+# Sweeps, one factor at a time around the baseline: alpha, the thesis grid
+# (0.1 to 1.0 by 0.1); beta, C1's range (0.95 to 0.995); kappa, 0.5 to 1.5
+# by 0.125.
+#
+# Reductions against C1 and the thesis sweeps, so that the Site workflow
+# solves it in a few minutes on a GitHub runner and every file stays inside
+# the bundle's 2 MB budget (the bundle's label states them too):
 #   1. One scope, individual: each location calibrated on its own. No cluster
 #      or portfolio scope, so the bundle makes no joint-calibration
 #      statement (the RQ2 rule).
-#   2. No bootstrap section: point values only, no confidence intervals
-#      (C1 has B = 1000; it would about double the solve time).
-#   3. Coarse sweep grids, one factor at a time around the baseline:
-#      alpha 6 values (C1 / thesis: 10), beta 5 values (C1: 0.95 ... 0.995),
-#      kappa 5 values (thesis: 11, 0.5 to 1.5 by 0.1). No n_bins sweep.
+#   2. kappa 9 values, not the thesis' 11 (0.5 to 1.5 by 0.1): 11 would put
+#      sweep.budget_loading.exceedance.arrow over 2 MB.
+#   3. No n_bins sweep.
 #
 # The description below is the bundle's label (export-site's default): it
 # names the setup and every reduction, and says which rows may be published.
@@ -42,10 +46,11 @@ description: >-
   thesis noise layer, annual basis, holdout split (years 0-6999 train, 7000-9999
   test), pure pricing, budget loading 1.0, 15 bins from 20 to 70 m/s, evaluation
   beta 0.99; objectives MSE, E[U] and weighted CVaR (alpha 0.9, beta 0.99).
-  Reduced for CI - individual scope only, no bootstrap intervals, coarse sweeps
-  (alpha 6 values, beta 5, budget loading 5). Out-of-sample numbers are the
-  eval_split "test" rows; the "train" rows are in sample and are not to be
-  published.
+  Block-bootstrap intervals B = 1000, level 0.9. Sweeps - alpha 0.1 to 1.0 by
+  0.1, beta 0.95 to 0.995, budget loading 0.5 to 1.5 by 0.125. Reduced for CI -
+  individual scope only, budget loading 9 values (thesis 11), no n_bins sweep.
+  Out-of-sample numbers are the eval_split "test" rows; the "train" rows are
+  in sample and are not to be published.
 eventset:
   path: ../../parity/tests/data/thesis_eventset
   checksum: sha256:404b0c3a3aefa38965ad3ace2747d308685a67e3b218cb835d45a9ab375294df
@@ -84,12 +89,16 @@ constraints:
   loading: 1.0
 evaluation:
   beta: 0.99
+bootstrap:
+  seed: 0
+  n_bootstrap: 1000
+  level: 0.9
 sweeps:
 - parameter: alpha
-  values: [0.1, 0.3, 0.5, 0.7, 0.9, 1.0]
+  values: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 - parameter: beta
-  values: [0.95, 0.97, 0.98, 0.99, 0.995]
+  values: [0.95, 0.96, 0.97, 0.98, 0.99, 0.995]
 - parameter: budget_loading
-  values: [0.5, 0.75, 1.0, 1.25, 1.5]
+  values: [0.5, 0.625, 0.75, 0.875, 1.0, 1.125, 1.25, 1.375, 1.5]
 output:
   directory: ../../results/site/explorer
