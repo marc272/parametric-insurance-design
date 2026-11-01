@@ -4,7 +4,7 @@ subtitle: "Designing a cover for the storms that matter most"
 author: Marc Prinzing
 status: revised draft for owner review
 date: 2026-10-25
-revised: 2026-10-31
+revised: 2026-11-01
 issue: MAR-57 (W-03, post 1)
 channels: [blog, LinkedIn]
 figures:
@@ -14,13 +14,17 @@ figures:
 
 <!--
 Draft prepared by an agent for MAR-57. Marc Prinzing edits, approves and publishes.
-Do not publish before owner approval, and not before the README refresh (MAR-164).
-Publication rule (Program hub): until checkpoint C1 (MAR-29) is Done, present the
-method and the tool, state the setup of every number, make no general claim that tail
-optimisation outperforms, and make no general claim that joint (portfolio or cluster)
-calibration outperforms individual calibration.
-Revised on 2026-10-31 with the owner's answers on MAR-57. Notes for the owner are in
-this comment and in the "Notes for the owner" section at the end. Remove both before
+Do not publish before owner approval, and not before the README refresh and the
+repository's About box are done.
+Publication rule (decided at checkpoint C1, 2026-11-01): present the method and the
+tool; state the setup of every number; use only out-of-sample numbers on the annual
+basis; on the tail objective, make only conditional, mechanism-based statements tied to
+a stated setup, with no general claim that tail optimisation outperforms; on joint
+calibration, and on its combination with the tail objective, say only what it is and
+what it optimises, with no comparative claim in either direction; link no private
+project-tracker pages.
+Revised on 2026-10-31 and 2026-11-01 with the owner's answers. Notes for the owner are
+in this comment and in the "Notes for the owner" section at the end. Remove both before
 publishing.
 -->
 
@@ -78,7 +82,7 @@ subject to a premium budget, a payout that never decreases as the index rises, a
 
 Two technical points make this practical. First, the payout is a step function of the index, so the design reduces to choosing one payout level per index band. Second, a result by Rockafellar and Uryasev (2000) turns CVaR minimisation over a set of simulated events into a **linear program**, which solves exactly and quickly, even for large event sets.
 
-The thesis had a second idea, about portfolios. A single owner with several sites, such as a city with a hospital, a water plant and a port, cares about its total shortfall, not about each site on its own. The same linear program can calibrate a separate payout for each site jointly, against the owner's total uncovered loss and under one shared budget. Because only the total counts, a payout at one site can make up for a shortfall at another. Joint calibration does not depend on the tail objective: it can be paired with an average fit too. That is the subject of the next post.
+The thesis had a second idea, about portfolios. A single owner with several sites, such as a city with a hospital, a water plant and a port, cares about its total shortfall, not about each site on its own. The same linear program can calibrate a separate payout for each site jointly, against the owner's total uncovered loss and under one shared budget. Because only the total counts, a payout at one site can make up for a shortfall at another. Joint calibration does not depend on the tail objective: it can be paired with an average fit too. So the two ideas can be used separately or together, depending on the owner's situation: a single site with a tail objective, many sites calibrated jointly to an average fit, or many sites calibrated jointly with a tail objective. Portfolios are the subject of the next post.
 
 Neither CVaR nor tail-risk objectives are new. CVaR is a standard risk measure in finance and insurance, and tail measures have been used before to design index insurance (for example Fan, Tan and Zhang, 2023). Asymmetric criteria have been used too: Maier and Scherer (2026) design expectile-based payments for a single risk, weighting under- and over-compensation differently. The first design choice in this work is the objective: a weighted tail objective on the buyer's uncovered loss, solved exactly as one linear program. The second, a design choice in its own right, is the scope: one owner's sites are calibrated jointly, against their total uncovered loss, rather than each site on its own. This post does not claim that either choice protects the buyer better; that is what the tests described below are for.
 
@@ -136,17 +140,16 @@ We are rebuilding the thesis code as an open, tested Python library, [`parametri
 
 ## LinkedIn version
 
-<!-- 1,549 characters including spaces and line breaks (LinkedIn's limit is 3,000). -->
+<!-- 857 characters including spaces, line breaks and hashtags, without these comments (792 without the hashtag line; LinkedIn's limit is 3,000). The previous draft had 1,549. -->
 
-Parametric insurance pays on an index, such as the wind speed at a site, not on a damage assessment. That makes it fast. It also means the payout never matches the loss exactly. That gap is basis risk.
+Parametric insurance pays on an index, such as the wind speed at a site, not on a damage assessment. That makes it fast, but the payout never matches the loss exactly. That gap is basis risk.
 
-Payouts are often calibrated to fit modelled losses on average, for example by minimising the mean squared gap. That is a sensible start, but it averages over all events, most of them moderate, and treats paying too much in a mild storm like paying too little in a severe one. For the buyer, they are not the same.
+Payouts are often fitted to modelled losses on average. My master's thesis explored two design choices: giving weight to the tail of the buyer's uncovered loss (CVaR, the average of the worst outcomes), and calibrating one owner's sites jointly, against their total shortfall, under one budget. The two can be used separately or together, depending on the owner's situation.
 
-My master's thesis explored two design choices. The first is the objective: calibrate the payout against the buyer's uncovered loss, with a weight on its tail (CVaR, the average of the worst outcomes). A dial sets the balance between average and tail, and the problem stays an exact linear program. The second, a choice in its own right, is the scope: when one owner has many sites, calibrate their payouts jointly against the owner's total shortfall, under one budget, rather than site by site.
+The open question: when does each choice pay off, and when not? We are testing that out of sample and will publish the answers either way.
 
-The thesis was a simple first test, and this post does not claim that either choice is better. Two questions are open. Does the tail focus still help out of sample, with realistic basis risk and loaded premiums? And when does joint calibration pay off, compared with calibrating each site on its own? We are testing both now and will publish the answers either way.
-
-The full post is on my blog. The code is open: https://github.com/marc272/parametric-insurance-design
+Method and open-source code: https://github.com/marc272/parametric-insurance-design
+<!-- swap in once the site is live (website v1): https://marc272.github.io/parametric-insurance-design/ -->
 
 #ParametricInsurance #ClimateRisk #RiskManagement #CatModelling
 
@@ -172,6 +175,14 @@ Ideas not made, for the owner to decide:
 
 Remove this section before publishing.
 
+Revised on 2026-11-01 with your answers:
+
+- **LinkedIn, shorter:** 857 characters with the hashtags (792 without), down from 1,549. It keeps the basis-risk hook, the tail idea and joint calibration in one sentence, the combination in one clause, the open question, and no claims. It drops the MSE paragraph, the α dial, the "simple first test" paragraph and the two separate questions, which now read as one: when does each choice pay off, and when not?
+- **LinkedIn, one link:** "The full post is on my blog" is gone. The post ends with one link, "Method and open-source code:", to the repository. The website URL sits in a comment on the next line, to swap in once the site is live. The lead-in fits either link.
+- **Combination:** one sentence in "The weighted CVaR objective", after the portfolio idea: the two ideas can be used separately or together, depending on the owner's situation (a single site with a tail objective, many sites calibrated jointly to an average fit, or many sites calibrated jointly with a tail objective). The next sentence now says "Portfolios are the subject of the next post", so that "That" no longer points at the combination. On LinkedIn: "The two can be used separately or together, depending on the owner's situation."
+- **Maier and Scherer:** the journal paper only (European Actuarial Journal, 2026), unchanged.
+- **Header comment:** now states the publication rule as decided at C1.
+
 Revised on 2026-10-31 with your answers on MAR-57:
 
 - **Positioning:** two sentences in the "not new" paragraph, one per idea. The first is the weighted tail objective as an exact LP; the second is joint calibration across one owner's sites, as a design choice in its own right (RQ2). The paragraph ends by saying the post does not claim that either choice protects the buyer better. Joint calibration is now presented as the thesis's second idea, with its own open question in "Where this comes from, and what we are testing now" and in the LinkedIn version.
@@ -186,6 +197,5 @@ Still true from the first draft:
 - **One-sided measure.** The post presents the uncovered loss as the buyer's natural quantity, but does not claim that the one-sidedness is what makes the tail term distinctive (see observation O1 in `research/lit/notes.md`).
 - **Average-fit criteria treated fairly.** Following observation O5, the post says that RMSE already weights large errors and that Steinmann et al. chose it partly for that reason. It does not present MSE as wrong, only as an average.
 - **Thesis title.** The reference keeps the submitted title's spelling ("Optimized"), while the post otherwise uses British spelling like the repository docs.
-- **LinkedIn and the blog post.** The LinkedIn version says the full post is on the blog but gives only the repository link. Add the blog post's URL when you publish, if you want one.
-- **Publishing order.** Publish only after the README refresh (MAR-164), because both versions link the repository.
+- **Publishing order.** Publish only after the README refresh and the repository's About box are done, because both versions link the repository.
 - **Not mentioned on purpose:** the CLIMADA module (posting K-01 is on hold), the CRC collaboration, the paper and any timeline.
