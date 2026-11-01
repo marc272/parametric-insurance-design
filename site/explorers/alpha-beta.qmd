@@ -1,7 +1,7 @@
 ---
 title: "Payout and exceedance explorer"
-subtitle: "How the tail weight α, the tail level β and the budget loading κ shape a step payout"
-description: "Move α, β or the budget loading κ, switch between the MSE, E[U] and weighted-CVaR objectives, and see the step payout of one site, the payout relative to the MSE design, and the out-of-sample exceedance curves of the uncovered loss."
+subtitle: "How the tail weight α, the tail level β, the budget loading κ and the number of bins shape a step payout"
+description: "Move α, β, the budget loading κ or the number of bins, switch between the MSE, E[U] and weighted-CVaR objectives, and see the step payout of one site, the payout relative to the MSE design, and the out-of-sample exceedance curves of the uncovered loss."
 echo: false
 page-layout: full
 css: explorer.css
@@ -29,7 +29,7 @@ The three objectives:
 - **Expected uncovered loss, E[U]:** $\mathbb{E}[U]$.
 - **Weighted CVaR:** $\alpha\,\mathrm{CVaR}_\beta(U) + (1-\alpha)\,\mathbb{E}[U]$. $\mathrm{CVaR}_\beta(U)$ is the mean of the worst $1-\beta$ share of years, so **α** sets the weight of the tail and **β** how far out the tail starts. α and β are parameters of this objective only.
 
-Every design meets the same budget: its premium, the expected annual payout over the calibration years (pure pricing), is at most **κ** times the expected annual loss. The bundle holds one sweep per parameter, one at a time around a baseline (α = 0.9, β = 0.99, κ = 1.0); moving one keeps the other two at their baseline values. The number of bins is fixed at 15: this bundle has no bin-count sweep.
+Every design meets the same budget: its premium, the expected annual payout over the calibration years (pure pricing), is at most **κ** times the expected annual loss. The payout has equal-width bins from the attachment to the limit, and the **number of bins** sets how finely it can follow the index: each bin count has its own bin edges and its own designs. The bundle holds one sweep per parameter, one at a time around a baseline (α = 0.9, β = 0.99, κ = 1.0, 15 bins); moving one keeps the other three at their baseline values.
 
 The page shows what the designs are and how they behave on years they were not calibrated on. It does not rank the objectives: whatever the charts show holds for the setup stated under each chart, not in general.
 
@@ -78,7 +78,8 @@ fileNames = ({
   baseline: {payouts: "baseline.payouts.arrow", exceedance: "baseline.exceedance.arrow"},
   alpha: {payouts: "sweep.alpha.payouts.arrow", exceedance: "sweep.alpha.exceedance.arrow"},
   beta: {payouts: "sweep.beta.payouts.arrow", exceedance: "sweep.beta.exceedance.arrow"},
-  budget_loading: {payouts: "sweep.budget_loading.payouts.arrow", exceedance: "sweep.budget_loading.exceedance.arrow"}
+  budget_loading: {payouts: "sweep.budget_loading.payouts.arrow", exceedance: "sweep.budget_loading.exceedance.arrow"},
+  n_bins: {payouts: "sweep.n_bins.payouts.arrow", exceedance: "sweep.n_bins.exceedance.arrow"}
 })
 // FileAttachment needs literal names (Quarto resolves them at render time).
 files = ({
@@ -97,6 +98,10 @@ files = ({
   budget_loading: {
     payouts: FileAttachment("../bundles/explorer/sweep.budget_loading.payouts.arrow"),
     exceedance: FileAttachment("../bundles/explorer/sweep.budget_loading.exceedance.arrow")
+  },
+  n_bins: {
+    payouts: FileAttachment("../bundles/explorer/sweep.n_bins.payouts.arrow"),
+    exceedance: FileAttachment("../bundles/explorer/sweep.n_bins.exceedance.arrow")
   }
 })
 runIndex = { manifest; return FileAttachment("../bundles/explorer/runs.json").json(); }
@@ -126,13 +131,24 @@ objectiveShort = ({mse: "MSE", expected_uncovered: "E[U]", weighted_cvar: "weigh
 // The baseline design of each objective (the config's single runs).
 baselineRuns = Object.fromEntries(manifest.runs.baseline.map((id) => runById.get(id)).map((r) => [r.objective, r]))
 objectives = objectiveOrder.filter((o) => o in baselineRuns)
-parameterOrder = ["alpha", "beta", "budget_loading"].filter((p) => p in manifest.runs.sweeps)
-parameterSymbol = ({alpha: "α", beta: "β", budget_loading: "κ"})
-parameterName = ({alpha: "α, tail weight", beta: "β, tail level", budget_loading: "κ, budget loading"})
+parameterOrder = ["alpha", "beta", "budget_loading", "n_bins"].filter((p) => p in manifest.runs.sweeps)
+parameterSymbol = ({alpha: "α", beta: "β", budget_loading: "κ", n_bins: "Bins"})
+parameterName = ({alpha: "α, tail weight", beta: "β, tail level", budget_loading: "κ, budget loading", n_bins: "Number of bins"})
+// A sweep value in words: "α = 0.9", or "15 bins".
+valueText = (p, v) => p === "n_bins" ? `${v} bins` : `${parameterSymbol[p]} = ${v}`
+// The other values of a sweep, for the captions: "the other values of α in the
+// sweep (0.1, 0.2)", or "the other numbers of bins in the sweep (5, 10)".
+otherValuesText = (p, values) => `the other ${p === "n_bins" ? "numbers of bins" : `values of ${parameterSymbol[p]}`} in the sweep (${values.join(", ")})`
 budgetLoading = manifest.setup.constraints.find((c) => c.kind === "budget")?.loading
-// The baseline value of a parameter: α and β of the weighted-CVaR design, κ of the budget.
-baselineValue = (p) => p === "budget_loading" ? budgetLoading : baselineRuns.weighted_cvar?.parameters[p]
-runValue = (r, p) => p === "budget_loading" ? r.parameters.budget_loading : r.parameters[p]
+// The baseline value of a parameter: α and β of the weighted-CVaR design, κ of
+// the budget, the number of bins of the payout.
+baselineValue = (p) => p === "budget_loading" ? budgetLoading
+  : p === "n_bins" ? manifest.setup.payout.n_bins
+  : baselineRuns.weighted_cvar?.parameters[p]
+// Parameters with their own MSE design at each value: the relative chart
+// compares a design with the MSE design at the same value (same κ, or same
+// bins, hence the same bin edges).
+ownBenchmark = ["budget_loading", "n_bins"]
 locations = locationIndex.locations
 siteName = (l) => l.name.replaceAll("_", " ")
 currency = manifest.eventset.loss.currency
@@ -276,7 +292,7 @@ designLine = {
   const params = run.objective === "weighted_cvar"
     ? `α = ${run.parameters.alpha}, β = ${run.parameters.beta}, κ = ${run.parameters.budget_loading}`
     : `κ = ${run.parameters.budget_loading}`;
-  return `${objectiveLabel[run.objective]}, ${params}`;
+  return `${objectiveLabel[run.objective]}, ${params}, ${run.parameters.n_bins} bins`;
 }
 ```
 
@@ -356,7 +372,7 @@ Plot.plot({
 ```
 
 ```{ojs}
-html`<p class="chart-caption"><span class="swatch" style="background:${colours.payout}"></span> the design shown${applies ? html`; <span class="swatch faint" style="background:${colours.payout}"></span> the designs at the other values of ${parameterSymbol[parameter]} in the sweep (${points.map((p) => p.value).join(", ")})` : ""}. The payout of an event is the level of the bin its wind speed falls in; below the attachment the design pays the first bin's level, at and above the limit the last bin's.</p>`
+html`<p class="chart-caption"><span class="swatch" style="background:${colours.payout}"></span> the design shown${applies ? html`; <span class="swatch faint" style="background:${colours.payout}"></span> the designs at ${otherValuesText(parameter, otherRuns.map((r) => r.parameters[parameter]))}` : ""}. The payout of an event is the level of the bin its wind speed falls in; below the attachment the design pays the first bin's level, at and above the limit the last bin's.</p>`
 ```
 
 ```{ojs}
@@ -368,14 +384,23 @@ setupNote("design")
 ```{ojs}
 //| output: false
 // The thesis' normalised payout: each bin's level relative to the level of
-// the residual-loss (MSE) design in the same bin, at the same κ. A bin where
+// the residual-loss (MSE) design in the same bin, at the same κ and with the
+// same bins (so the same bin edges). A bin where
 // the MSE design pays zero, to solver precision (1e-6 of its largest level, as
 // in the viz package), has no relative value and is left out.
-benchmarkRun = parameter === "budget_loading" && applies
-  ? manifest.runs.sweeps.budget_loading.map((p) => runById.get(p.run_id))
-      .find((r) => r.objective === "mse" && r.parameters.budget_loading === run.parameters.budget_loading)
-  : baselineRuns.mse
-benchmarkTable = group === "budget_loading" ? data.payouts : base.payouts
+ownBenchmarkShown = ownBenchmark.includes(parameter) && applies
+benchmarkRun = {
+  const r = ownBenchmarkShown
+    ? manifest.runs.sweeps[parameter].map((p) => runById.get(p.run_id))
+        .find((r) => r.objective === "mse" && r.parameters[parameter] === run.parameters[parameter])
+    : baselineRuns.mse;
+  // Like with like: the benchmark has the design's κ and bin edges.
+  if (!r || r.parameters.budget_loading !== run.parameters.budget_loading || r.parameters.n_bins !== run.parameters.n_bins) {
+    throw new Error(`the bundle has no MSE design with κ = ${run.parameters.budget_loading} and ${run.parameters.n_bins} bins`);
+  }
+  return r;
+}
+benchmarkTable = ownBenchmarkShown ? data.payouts : base.payouts
 benchmarkBins = binsOf(benchmarkTable, benchmarkRun.run_id)
 benchmarkScale = d3.max(benchmarkBins, (d) => Math.abs(d.value))
 relativeBins = (bins) => bins.filter((b) => b.param_index >= 0).map((b) => {
@@ -390,7 +415,7 @@ relativeLine = (bins, runId) => relativeBins(bins).flatMap((b) => [
 ])
 selectedRelative = relativeBins(selectedBins)
 relativeSelectedLine = relativeLine(selectedBins, run.run_id)
-relativeOtherLines = parameter === "budget_loading" ? [] : otherRuns.flatMap((r) => relativeLine(binsOf(data.payouts, r.run_id), r.run_id))
+relativeOtherLines = ownBenchmark.includes(parameter) ? [] : otherRuns.flatMap((r) => relativeLine(binsOf(data.payouts, r.run_id), r.run_id))
 relativeCap = 300
 relativeMax = Math.min(relativeCap, Math.max(150, d3.max([...relativeSelectedLine, ...relativeOtherLines], (d) => d.y) ?? 0))
 relativeClipped = [...relativeSelectedLine, ...relativeOtherLines].some((d) => d.y != null && d.y > relativeCap)
@@ -421,7 +446,7 @@ Plot.plot({
 ```
 
 ```{ojs}
-html`<p class="chart-caption">Each bin's payout divided by the payout of the residual-loss (MSE) design${parameter === "budget_loading" && applies ? " at the same κ" : ` at κ = ${benchmarkRun.parameters.budget_loading}`}, in percent: 100 % means the same payout as the MSE design in that bin.${objective === "mse" ? " The design shown is the MSE design itself." : ""}${relativeUndefined > 0 ? ` ${relativeUndefined} ${relativeUndefined === 1 ? "bin is" : "bins are"} left out: the MSE design pays nothing there, so the ratio is undefined.` : ""}${relativeClipped ? ` The axis stops at ${relativeCap} %: higher ratios are cut off (the table below has every value).` : ""}${parameter === "budget_loading" ? " Each κ has its own MSE design, so only the design shown is drawn." : ""}</p>`
+html`<p class="chart-caption">Each bin's payout divided by the payout of the residual-loss (MSE) design ${ownBenchmarkShown ? (parameter === "n_bins" ? `with the same bins (${run.parameters.n_bins})` : "at the same κ") : `at κ = ${benchmarkRun.parameters.budget_loading}, ${benchmarkRun.parameters.n_bins} bins`}, in percent: 100 % means the same payout as the MSE design in that bin.${objective === "mse" ? " The design shown is the MSE design itself." : ""}${relativeUndefined > 0 ? ` ${relativeUndefined} ${relativeUndefined === 1 ? "bin is" : "bins are"} left out: the MSE design pays nothing there, so the ratio is undefined.` : ""}${relativeClipped ? ` The axis stops at ${relativeCap} %: higher ratios are cut off (the table below has every value).` : ""}${parameter === "budget_loading" ? " Each κ has its own MSE design, so only the design shown is drawn." : ""}${parameter === "n_bins" ? " Each number of bins has its own bin edges and its own MSE design, so only the design shown is drawn." : ""}</p>`
 ```
 
 ```{ojs}
@@ -480,7 +505,7 @@ Plot.plot({
 ```
 
 ```{ojs}
-html`<p class="chart-caption">The value exceeded on average once in each return period, over the test years: for the ${subjectLevel === "portfolio" ? `whole portfolio (the sum over its ${locations.length} sites, each with its own design of this objective)` : `site ${site.location_id}`}, of the loss (dashed), the payout and the uncovered loss of the design shown${applies && otherUncovered.length ? `; the faint lines are the uncovered loss of the designs at the other values of ${parameterSymbol[parameter]}` : ""}. ${curveKind === "aep" ? "AEP: each year's total over its events, the quantity the objectives are calibrated on." : "OEP: each year's largest event."}</p>`
+html`<p class="chart-caption">The value exceeded on average once in each return period, over the test years: for the ${subjectLevel === "portfolio" ? `whole portfolio (the sum over its ${locations.length} sites, each with its own design of this objective)` : `site ${site.location_id}`}, of the loss (dashed), the payout and the uncovered loss of the design shown${applies && otherUncovered.length ? `; the faint lines are the uncovered loss of the designs at ${otherValuesText(parameter, otherRuns.map((r) => r.parameters[parameter]))}` : ""}. ${curveKind === "aep" ? "AEP: each year's total over its events, the quantity the objectives are calibrated on." : "OEP: each year's largest event."}</p>`
 ```
 
 ```{ojs}
@@ -530,7 +555,7 @@ basisRiskText = `the thesis noise layer: ${noise.kind} noise on the index, level
 pricingText = `${manifest.setup.pricing.kind} pricing (premium = expected annual payout); budget: premium at most κ times the expected annual loss`
 splitText = `${manifest.setup.split.kind}: designs calibrated on years ${fmtYears(0)}–${fmtYears(nTrain - 1)}, curves evaluated out of sample on years ${fmtYears(nTrain)}–${fmtYears(nYears - 1)}`
 splitFilter = manifest.split_filter?.eval_split
-payoutText = `${manifest.setup.payout.kind} payout, ${manifest.setup.payout.n_bins} equal bins from ${attachment} to ${limit} ${indexUnit} (no bin-count sweep in this bundle)`
+payoutText = `${manifest.setup.payout.kind} payout, equal bins from ${attachment} to ${limit} ${indexUnit}: ${manifest.setup.payout.n_bins} at the baseline${"n_bins" in manifest.runs.sweeps ? `, ${[...new Set(manifest.runs.sweeps.n_bins.map((q) => q.value))].sort(d3.ascending).join(", ")} in the bin-count sweep` : " (no bin-count sweep in this bundle)"}; the design shown has ${run.parameters.n_bins}`
 // The setup line under each chart: everything a number on it depends on,
 // in short; the table below has the long form.
 setupNote = (kind) => {
@@ -542,8 +567,8 @@ setupNote = (kind) => {
     `the thesis portfolio (${locations.length} sites in Miami), ${where}`,
     `${run.scope} scope`,
     designLine,
-    ...(kind === "relative" ? [`benchmark: the MSE design at κ = ${benchmarkRun.parameters.budget_loading}`] : []),
-    `${manifest.setup.payout.n_bins} bins from ${attachment} to ${limit} ${indexUnit}`,
+    ...(kind === "relative" ? [`benchmark: the MSE design at κ = ${benchmarkRun.parameters.budget_loading} with the same ${benchmarkRun.parameters.n_bins} bins`] : []),
+    `${run.parameters.n_bins} equal bins from ${attachment} to ${limit} ${indexUnit}`,
     `${manifest.setup.basis} basis`,
     `basis-risk model: the thesis noise layer (${noise.kind}, level ${noise.level}, ${noise.n_copies} copies)`,
     `${manifest.setup.pricing.kind} pricing, κ = ${kappa}`,
@@ -569,7 +594,7 @@ setupRows = {
     ["Split", splitText],
     ["Rows in the bundle", splitFilter ? `eval_split = "${splitFilter}" only: the exceedance curves are out of sample` : "no split filter"],
     ["Evaluation", `CVaR level of the reported KPIs ${s.evaluation.beta}; return periods ${returnPeriods.join(", ")} years`],
-    ["Sweeps", parameterOrder.map((p) => `${parameterSymbol[p]}: ${[...new Set(manifest.runs.sweeps[p].map((q) => q.value))].join(", ")}`).join("; ")],
+    ["Sweeps", parameterOrder.map((p) => `${p === "n_bins" ? "number of bins" : parameterSymbol[p]}: ${[...new Set(manifest.runs.sweeps[p].map((q) => q.value))].join(", ")}`).join("; ")],
     ["Bundle", manifest.label],
     ["Config", `${manifest.config.name}, ${manifest.config.hash}`],
     ["Run", `${run.run_id}${run.problems.find((p) => p.problem_id === siteId) ? `, problem ${siteId}: ${run.problems.find((p) => p.problem_id === siteId).status}` : ""}`]
