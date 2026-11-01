@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 import pandas as pd
 import pytest
+from matplotlib.figure import Figure
 
 from parametric_insurance_design import cli
 from parametric_insurance_design.experiment.runner import load_input
@@ -636,3 +637,31 @@ def test_bad_transaction_costs_are_an_error(
     with pytest.raises(VizError, match=match):
         draw(swept, tmp_path, sweeps=swept.sweeps, transaction_costs=costs)
     assert not list(tmp_path.iterdir())  # checked before drawing
+
+
+def test_money_tick_labels_are_distinct(
+    swept: SweepFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # MAR-197: the thesis "%.0f" / "%.0fk" / "%.1fM" labels repeat on small
+    # values (0.5 and 0 were both "0"); the toy losses are small
+    saved: dict[str, list[tuple[str, list[str]]]] = {}
+    savefig = Figure.savefig
+
+    def spy(fig: Figure, fname: Any, *args: Any, **kwargs: Any) -> None:  # noqa: ANN401
+        fig.canvas.draw()
+        saved[Path(str(fname)).name.split(".")[1]] = [
+            (axis.get_label_text(), [t.get_text() for t in axis.get_ticklabels()])
+            for ax in fig.axes
+            for axis in (ax.xaxis, ax.yaxis)
+            if axis.get_ticklabels()
+        ]
+        savefig(fig, fname, *args, **kwargs)
+
+    monkeypatch.setattr(Figure, "savefig", spy)
+    draw(swept, tmp_path, sweeps=swept.sweeps, transaction_costs=(2.0, 0.5, 0.0))
+    for name in ("net_advantage_cluster", "breakeven_cost_cluster"):
+        axes = saved[name]
+        for label, ticks in axes:
+            assert len(set(ticks)) == len(ticks), (name, label, ticks)
+    colorbar = [t for label, t in saved["net_advantage_cluster"] if "cost" in label]
+    assert colorbar == [["0.0", "0.5", "2.0"]]  # was "0", "0", "2"
