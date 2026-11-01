@@ -619,4 +619,3 @@ Rate-weighted share of the prepared rows with zero portfolio loss; the guard fir
 | cic75 | kfold | 3 | test | 27,600 | 63.66 % | 0.9 | no |
 | cic75 | kfold | 4 | train | 111,730 | 64.58 % | 0.9 | no |
 | cic75 | kfold | 4 | test | 27,290 | 64.57 % | 0.9 | no |
-

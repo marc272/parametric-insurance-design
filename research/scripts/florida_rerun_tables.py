@@ -1601,7 +1601,7 @@ def main(argv: list[str] | None = None) -> int:
         size = path.stat().st_size
         if size > 500_000:
             raise RuntimeError(f"{path} is {size} bytes, over the 500 kB limit")
-    (args.out / "tables.md").write_text(markdown(tables) + "\n")
+    (args.out / "tables.md").write_text(markdown(tables).rstrip("\n") + "\n")
     summary: dict[str, Any] = {"issue": "MAR-202", "phases": {}}
     for p in sorted(args.full.glob("summary_*.json")):
         s = json.loads(p.read_text())
