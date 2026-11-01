@@ -98,6 +98,40 @@ No silent failures
 * Any other exception (an input or configuration error, or a bug) propagates
   and nothing is written for that run.
 
+Degenerate tail objectives (MAR-173)
+------------------------------------
+Every design problem's manifest entry (``problems``) records, on the
+calibration measure (the problem's ``OutcomeMeasure``, which carries the
+basis and the calibration sample):
+
+* ``p_zero_loss``: ``P(L_o = 0)``, the probability of the outcomes in which
+  the design problem has no loss. It depends on the data, not on the design.
+* ``tail_outcomes`` (weighted-CVaR runs; ``None`` otherwise):
+  ``(1 - beta) / p_min``, with ``p_min`` the smallest positive outcome
+  probability: how many outcomes the CVaR tail holds if each has the
+  smallest probability. On a measure whose outcomes are equally likely (the
+  annual basis always) it is ``(1 - beta) * n_outcomes``.
+* ``degenerate_tail`` (:data:`DEGENERATE_TAILS`; ``None`` when not
+  degenerate, and for other objectives):
+
+  - ``"expected_uncovered"`` when ``beta <= p_zero_loss``. Then
+    ``VaR_beta(U) = 0`` for every design, so the weighted-CVaR objective is
+    ``(alpha / (1 - beta) + 1 - alpha) * E[U]``: an E[U] run, with the same
+    minimisers (design review MAR-161, F4).
+  - ``"single_outcome"`` when ``tail_outcomes <= 1``. Then ``1 - beta`` is at
+    most every outcome's probability, so ``CVaR_beta(U)`` is the single worst
+    outcome and the objective a minimax over outcomes (F15). If both hold,
+    the flag is ``"expected_uncovered"``.
+
+  Both comparisons allow :data:`DEGENERATE_TAIL_ATOL` for the rounding of
+  summed probabilities. The flags concern the CVaR term; with ``alpha = 0``
+  the objective is E[U] by construction, which the config already says.
+
+The flags are recorded, not raised: the runs are valid, only their reading
+changes. The manifest is not part of the cache key, so run ids and config
+hashes are unchanged. A failed build (``problem_id = "*"``) records ``None``
+for all three.
+
 k-fold: a run per fold
 ----------------------
 A k-fold experiment calibrates once per fold, and the ``runs`` key is
@@ -129,6 +163,7 @@ import numpy as np
 import pandas as pd
 
 from parametric_insurance_design import splits
+from parametric_insurance_design.basis import PROBABILITY_ATOL
 from parametric_insurance_design.bootstrap import bootstrap_kpis, resample_years
 from parametric_insurance_design.errors import (
     ConfigError,
@@ -145,12 +180,14 @@ from parametric_insurance_design.experiment.config import (
 )
 from parametric_insurance_design.experiment.store import ResultStore, RunTables
 from parametric_insurance_design.interfaces import (
+    Objective,
     Sample,
     SolverAttempt,
     SolveResult,
     SolveStatus,
 )
 from parametric_insurance_design.noise import add_noise
+from parametric_insurance_design.objectives import WeightedCVaR
 from parametric_insurance_design.problem import BuiltProblem, build_problems
 from parametric_insurance_design.records import (
     ALL_PROBLEMS,
@@ -163,6 +200,10 @@ from parametric_insurance_design.records import (
 from parametric_insurance_design.solve import DEFAULT_POLICY, SolverPolicy, solve
 
 __all__ = [
+    "DEGENERATE_TAILS",
+    "DEGENERATE_TAIL_ATOL",
+    "DEGENERATE_TAIL_EXPECTED_UNCOVERED",
+    "DEGENERATE_TAIL_SINGLE_OUTCOME",
     "MANIFEST_FORMAT",
     "PACKAGE",
     "PROVENANCE_PACKAGES",
@@ -212,6 +253,24 @@ PROVENANCE_PACKAGES: Final[tuple[str, ...]] = (
     "highspy",
 )
 """Distributions whose versions every manifest records (None if absent)."""
+
+DEGENERATE_TAIL_EXPECTED_UNCOVERED: Final[str] = "expected_uncovered"
+"""``degenerate_tail`` of a weighted-CVaR problem with ``beta <= P(L_o = 0)``:
+its objective is a positive multiple of E[U] (MAR-173)."""
+
+DEGENERATE_TAIL_SINGLE_OUTCOME: Final[str] = "single_outcome"
+"""``degenerate_tail`` of a weighted-CVaR problem whose CVaR tail is the
+single worst outcome, ``tail_outcomes <= 1`` (MAR-173)."""
+
+DEGENERATE_TAILS: Final[tuple[str, ...]] = (
+    DEGENERATE_TAIL_EXPECTED_UNCOVERED,
+    DEGENERATE_TAIL_SINGLE_OUTCOME,
+)
+"""Values of a manifest problem entry's ``degenerate_tail`` besides None."""
+
+DEGENERATE_TAIL_ATOL: Final[float] = PROBABILITY_ATOL
+"""Tolerance of the ``degenerate_tail`` comparisons, for the rounding of
+summed probabilities: the outcome measure's own ``PROBABILITY_ATOL``."""
 
 
 class ChecksumMismatchError(InputMismatchError):
@@ -727,6 +786,54 @@ def _attempts(attempts: tuple[SolverAttempt, ...]) -> list[dict[str, Any]]:
     ]
 
 
+_NO_TAIL_RECORD: Final[Mapping[str, Any]] = {
+    "p_zero_loss": None,
+    "tail_outcomes": None,
+    "degenerate_tail": None,
+}
+"""Tail record of a run-level failure (``problem_id = "*"``): no measure."""
+
+
+def _tail_record(problem: BuiltProblem, objective: Objective) -> dict[str, Any]:
+    """Return a design problem's ``p_zero_loss``, ``tail_outcomes`` and flag.
+
+    See the module docstring, "Degenerate tail objectives".
+
+    Parameters
+    ----------
+    problem : BuiltProblem
+        The design problem, built on the calibration sample.
+    objective : Objective
+        The run's objective.
+
+    Returns
+    -------
+    dict
+        ``p_zero_loss`` (float), ``tail_outcomes`` (float, or None if the
+        objective is not :class:`~parametric_insurance_design.objectives.WeightedCVaR`)
+        and ``degenerate_tail`` (one of :data:`DEGENERATE_TAILS`, or None).
+    """
+    measure = problem.context.measure
+    # Unscaled losses are >= 0, so an outcome sum is 0 only if every row is 0.
+    outcome_loss = measure.aggregate(problem.context.problem.loss)
+    p_zero = float(measure.probability[outcome_loss == 0.0].sum())
+    record: dict[str, Any] = {
+        "p_zero_loss": p_zero,
+        "tail_outcomes": None,
+        "degenerate_tail": None,
+    }
+    if not isinstance(objective, WeightedCVaR):
+        return record
+    positive = measure.probability[measure.probability > 0.0]
+    tail = (1.0 - objective.beta) / float(positive.min())
+    record["tail_outcomes"] = tail
+    if objective.beta <= p_zero + DEGENERATE_TAIL_ATOL:
+        record["degenerate_tail"] = DEGENERATE_TAIL_EXPECTED_UNCOVERED
+    elif tail <= 1.0 + DEGENERATE_TAIL_ATOL:
+        record["degenerate_tail"] = DEGENERATE_TAIL_SINGLE_OUTCOME
+    return record
+
+
 def execute(
     config: ExperimentConfig,
     data: RunInput,
@@ -824,13 +931,31 @@ def execute(
         _log.warning("run %s: building failed: %s", run_id, exc)
         runs.append(_failure_row(base, ALL_PROBLEMS, SolveStatus.ERROR, exc, seconds))
         problems.append(
-            _problem_log(ALL_PROBLEMS, SolveStatus.ERROR, exc=exc, build=seconds)
+            _problem_log(
+                ALL_PROBLEMS,
+                SolveStatus.ERROR,
+                tail=_NO_TAIL_RECORD,
+                exc=exc,
+                build=seconds,
+            )
         )
     build_seconds = time.perf_counter() - build_start
 
     solve_start = time.perf_counter()
     for problem in built:
         spec = problem.spec
+        tail = _tail_record(problem, objective)
+        if tail["degenerate_tail"] is not None:
+            _log.info(
+                "run %s, problem %s: degenerate tail (%s): beta %s, "
+                "P(L_o = 0) %.6g, tail outcomes %.6g",
+                run_id,
+                spec.problem_id,
+                tail["degenerate_tail"],
+                getattr(objective, "beta", None),
+                tail["p_zero_loss"],
+                tail["tail_outcomes"],
+            )
         entity_rows.extend(
             {
                 "run_id": run_id,
@@ -854,13 +979,19 @@ def execute(
             )
             problems.append(
                 _problem_log(
-                    spec.problem_id, exc.status, exc=exc, build=problem.build_seconds
+                    spec.problem_id,
+                    exc.status,
+                    tail=tail,
+                    exc=exc,
+                    build=problem.build_seconds,
                 )
             )
             continue
         results.append(result)
         runs.append(_success_row(base, result))
-        problems.append(_problem_log(spec.problem_id, result.status, result=result))
+        problems.append(
+            _problem_log(spec.problem_id, result.status, tail=tail, result=result)
+        )
         lower, upper = result.payout_structure.parameter_bounds()
         payout_rows.extend(
             {
@@ -1075,11 +1206,16 @@ def _problem_log(
     problem_id: str,
     status: SolveStatus,
     *,
+    tail: Mapping[str, Any],
     result: SolveResult | None = None,
     exc: Exception | None = None,
     build: float | None = None,
 ) -> dict[str, Any]:
-    """Manifest entry of one design problem: status, attempts, diagnostics."""
+    """Manifest entry of one design problem: status, attempts, diagnostics.
+
+    ``tail`` (:func:`_tail_record`) adds ``p_zero_loss``, ``tail_outcomes``
+    and ``degenerate_tail`` (MAR-173).
+    """
     if result is not None:
         return {
             "problem_id": problem_id,
@@ -1096,6 +1232,7 @@ def _problem_log(
             },
             "error_type": None,
             "error_message": None,
+            **tail,
         }
     attempts = _error_attempts(exc)
     return {
@@ -1111,6 +1248,7 @@ def _problem_log(
         "diagnostics": {},
         "error_type": type(exc).__name__,
         "error_message": str(exc),
+        **tail,
     }
 
 
