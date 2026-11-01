@@ -32,11 +32,12 @@ content hash, the index-table hash and the loss-matrix hash),
 the figure ``radius_sensitivity.png`` (EventSets passed with
 ``--provisional`` are in the CSVs, flagged, but not in the figure).
 
-From ``packages/climada``::
+From ``packages/climada`` (the configs are in ``research/configs/climada/``)::
 
+    cfg=../../research/configs/climada
     pixi run --locked python scripts/cat_in_circle_radius_sensitivity.py \\
         --eventset ../../data/eventsets/florida-counties-iris-cat-in-circle-50km \\
-        --config configs/florida_counties_cat_in_circle_50km_no_draws.yaml \\
+        --config $cfg/florida_counties_cat_in_circle_50km_no_draws.yaml \\
         ... (one --eventset/--config pair per radius) \\
         --out-dir ../../research/data/cat-in-circle-radius-sensitivity
 
