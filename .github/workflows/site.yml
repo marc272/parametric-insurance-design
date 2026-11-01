@@ -18,12 +18,14 @@ name: Site
 #     publication rule (annual basis, out of sample, config hash, no failed
 #     run) before the Pages artifact is uploaded.
 
-# The two path lists are the same: the site, this workflow, and the code, lock
-# and event set the explorer bundle is solved and exported from.
+# The two path lists are the same: the site, the concept docs the method pages
+# include at render time (MAR-166), this workflow, and the code, lock and event
+# set the explorer bundle is solved and exported from.
 on:
   pull_request:
     paths:
       - "site/**"
+      - "docs/concepts/**"
       - ".github/workflows/site.yml"
       - "packages/core/src/**"
       - "packages/core/pyproject.toml"
@@ -36,6 +38,7 @@ on:
     branches: [main]
     paths:
       - "site/**"
+      - "docs/concepts/**"
       - ".github/workflows/site.yml"
       - "packages/core/src/**"
       - "packages/core/pyproject.toml"
