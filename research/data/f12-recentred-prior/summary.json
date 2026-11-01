@@ -1,0 +1,575 @@
+{
+  "issue": "MAR-160 (F-12), MAR-118 Q5 = b; option 3 decided 2026-11-01",
+  "status": "observations, not conclusions",
+  "conventions": "EAL rate-weighted over all rows (draw rows carry rate / n_draws), rates @ loss summed over locations; annual losses per (year, draw_id) outcome, n_years x n_draws outcomes including zero years (the base: n_years outcomes); numpy linear quantiles; tail dependence P(A_i > q_i, A_j > q_j) / 0.01 on annual location losses, q = 0.99, off-diagonal",
+  "prior": {
+    "kind": "eberenz2021_edr",
+    "region": "NA2",
+    "wind_only": true,
+    "basins": [
+      "NA"
+    ],
+    "recentre": {
+      "kind": "excess",
+      "match": "expected_loss"
+    },
+    "rule": "v_thresh + s * (v_half_i - v_thresh), s solved per build",
+    "calibrated_median": 113.50000000000124,
+    "florida": {
+      "factor": 0.6901304479036513,
+      "median_v_half": 86.29345332594143,
+      "support": [
+        48.40529173603045,
+        168.34996358168672
+      ]
+    },
+    "thesis": {
+      "factor": 0.6736833911741325,
+      "median_v_half": 84.84940174508966,
+      "support": [
+        47.86418356962927,
+        164.95035695569513
+      ]
+    }
+  },
+  "florida": {
+    "eventset": "data/eventsets/florida-counties-iris-vulnerability (index (a); index (b) has the same loss matrix)",
+    "content_hash": "sha256:30b1723182e5bb3eef8abae0d0edcc605918aaf90e03b24bb09037a4c6416472",
+    "base": "configs/florida_counties_no_draws.yaml (MAR-32, sha256:07eb5c9a...): the same loss matrix as the match's base (florida_counties.yaml without draws, recentre.base_content_hash; the two differ in the Monroe scenario note); loss and years from a scratch run of the earlier MAR-160 build",
+    "base_content_hash": "sha256:07eb5c9a808af45f7d05932b5d78f0cc9b1142f37aef8c9749138dc8c1f379e5",
+    "n_rows": 139020,
+    "n_locations": 67,
+    "n_draws": 10,
+    "n_outcomes": 100000,
+    "total_value": 4893413434485.621,
+    "eal": 7615672695.46927,
+    "base_eal": 7615672695.469273,
+    "eal_ratio": 0.9999999999999997,
+    "eal_over_value": 0.001556310905961659,
+    "eal_ratio_per_location": {
+      "min": 0.9760483728145982,
+      "min_at": "Flagler",
+      "median": 1.016539683956171,
+      "max": 1.0525251920007699,
+      "max_at": "Liberty"
+    },
+    "eal_over_value_per_location": {
+      "min": 0.001100664694315288,
+      "min_at": "Nassau",
+      "max": 0.0048662284064248384,
+      "max_at": "Escambia"
+    },
+    "annual_loss_quantiles": {
+      "0.9": 6194702802.69348,
+      "0.99": 187041212095.49692,
+      "0.996": 375431208562.7939,
+      "0.999": 697285289799.6774
+    },
+    "base_annual_loss_quantiles": {
+      "0.9": 9361099518.725035,
+      "0.99": 180528850912.84982,
+      "0.996": 318783279056.55853,
+      "0.999": 460019033794.98096
+    },
+    "largest_annual_losses": [
+      {
+        "year": 1611,
+        "draw_id": 9,
+        "loss": 1648347342429.87,
+        "share_of_value": 0.33685020987872827,
+        "storms_share_of_value": {
+          "NA_1611_5": 0.30616807150887565,
+          "NA_1611_1": 0.030682138369852657
+        }
+      },
+      {
+        "year": 4001,
+        "draw_id": 6,
+        "loss": 1605436133324.0752,
+        "share_of_value": 0.32808103276334616,
+        "storms_share_of_value": {
+          "NA_4001_4": 0.32807575255417987,
+          "NA_4001_0": 5.28020916630547e-06
+        }
+      },
+      {
+        "year": 4001,
+        "draw_id": 9,
+        "loss": 1558597753723.7664,
+        "share_of_value": 0.3185093135069632,
+        "storms_share_of_value": {
+          "NA_4001_4": 0.3185074604699515,
+          "NA_4001_0": 1.8530370117108658e-06
+        }
+      },
+      {
+        "year": 2444,
+        "draw_id": 4,
+        "loss": 1528756152634.7053,
+        "share_of_value": 0.3124109934919903,
+        "storms_share_of_value": {
+          "NA_2444_3": 0.3116550175549806,
+          "NA_2444_0": 0.0005574674384592885,
+          "NA_2444_1": 0.00019850849855041972
+        }
+      },
+      {
+        "year": 2444,
+        "draw_id": 7,
+        "loss": 1517864990520.3237,
+        "share_of_value": 0.31018531559655077,
+        "storms_share_of_value": {
+          "NA_2444_3": 0.31005655896250056,
+          "NA_2444_0": 8.55261984710182e-05,
+          "NA_2444_1": 4.323043557918122e-05
+        }
+      }
+    ],
+    "base_largest_annual_loss_share": 0.1513804444381556,
+    "eal_per_draw": {
+      "min": 7179276632.912765,
+      "max": 8784231219.030838
+    },
+    "median_cv_across_draws": 0.9860003193139028,
+    "rows_with_positive_loss": 49250,
+    "positive_row_location_pairs": 659190,
+    "tail_dependence_offdiag": {
+      "min": 0.0,
+      "median": 0.084,
+      "max": 0.888
+    },
+    "monroe": {
+      "eal": 871634.0037913584,
+      "eal_over_value": 0.0011399806786865044,
+      "eal_ratio": 1.0152302629249035
+    },
+    "recentre": {
+      "kind": "excess",
+      "factor": 0.6901304479036513,
+      "median_v_half": 86.29345332594143,
+      "calibrated_median": 113.50000000000124,
+      "support": [
+        48.40529173603045,
+        168.34996358168672
+      ],
+      "quantiles": {
+        "0.05": 56.30038406004833,
+        "0.25": 70.21341388978614,
+        "0.5": 86.29345332594143,
+        "0.75": 118.5915582878328,
+        "0.95": 161.89034258930855
+      },
+      "target_expected_loss": 7615672695.469273,
+      "expected_loss": 7615672695.4692745,
+      "relative_tolerance": 1e-06,
+      "bracket": [
+        0.01,
+        100.0
+      ],
+      "base_content_hash": "sha256:373e11a62ba098dfb513526edd589354fc488c10a9484d0e799e1adf672e690a"
+    },
+    "eal_over_target": 0.9999999999999997,
+    "base_eal_over_target": 1.0,
+    "first_location": {
+      "name": "Alachua",
+      "aal_per_draw": [
+        89929004.34560528,
+        81864007.44628341,
+        79401807.1989894,
+        75706054.74281289,
+        84345232.28781283,
+        81947709.60620867,
+        87438525.80566224,
+        81710668.02057406,
+        80089578.68285634,
+        98066499.2108456
+      ],
+      "base_aal": 83904346.53020641
+    },
+    "median_cv_per_location": {
+      "min": 0.978951902268715,
+      "max": 1.0109215097522504
+    },
+    "mean_damage_ratio": {
+      "35.0": {
+        "over_prior": 0.008182094071838081,
+        "at_median": 0.0036025030762040834,
+        "base": 0.006790495604105169
+      },
+      "55.0": {
+        "over_prior": 0.1687658624178137,
+        "at_median": 0.10157935922993572,
+        "base": 0.1761433569521351
+      },
+      "75.0": {
+        "over_prior": 0.4064630113821095,
+        "at_median": 0.3500570779411841,
+        "base": 0.5045777092933046
+      }
+    },
+    "loss_equal_to_other": true,
+    "index_b_content_hash": "sha256:4d578aef7caed148181699ddfb6d9a9d877127b549d03031fbb18e4c5a26a70f",
+    "index_b_recentre": {
+      "kind": "excess",
+      "factor": 0.6901304479036513,
+      "median_v_half": 86.29345332594143,
+      "calibrated_median": 113.50000000000124,
+      "support": [
+        48.40529173603045,
+        168.34996358168672
+      ],
+      "quantiles": {
+        "0.05": 56.30038406004833,
+        "0.25": 70.21341388978614,
+        "0.5": 86.29345332594143,
+        "0.75": 118.5915582878328,
+        "0.95": 161.89034258930855
+      },
+      "target_expected_loss": 7615672695.469273,
+      "expected_loss": 7615672695.4692745,
+      "relative_tolerance": 1e-06,
+      "bracket": [
+        0.01,
+        100.0
+      ],
+      "base_content_hash": "sha256:81a739dbc5aaa72833d7153f5f771f158059f79613ece437dc1ea2b75a41136a"
+    },
+    "index_b_cat0_loss_share": 0.3754892893355831,
+    "loss_equal_a_b": true
+  },
+  "thesis": {
+    "eventset": "data/eventsets/thesis-iris-vulnerability (centroid wind; the cat-in-a-circle build has the same loss matrix)",
+    "content_hash": "sha256:8b4e95b3f5312c536bc7706c8b5e940c9f98d52c8c92c5a24a0a9579535e4549",
+    "base": "configs/thesis.yaml (no draws), built 2026-11-01: content hash equal to recentre.base_content_hash",
+    "base_content_hash": "sha256:de756cb663ba0802ec3c67d7f36d82833d91503f9cca1fc572ae7258ad42d32e",
+    "n_rows": 60570,
+    "n_locations": 9,
+    "n_draws": 10,
+    "n_outcomes": 100000,
+    "total_value": 156500000.0,
+    "eal": 221480.76353530498,
+    "base_eal": 221480.76353530542,
+    "eal_ratio": 0.999999999999998,
+    "eal_over_value": 0.0014152125465514696,
+    "eal_ratio_per_location": {
+      "min": 0.9935499115337203,
+      "min_at": "MiamiBeach_Hotel",
+      "median": 1.0026979994408758,
+      "max": 1.0146362982940662,
+      "max_at": "Aventura_Mall"
+    },
+    "eal_over_value_per_location": {
+      "min": 0.0013737416240199888,
+      "min_at": "Hialeah_Warehouse",
+      "max": 0.0014751936499940999,
+      "max_at": "Aventura_Mall"
+    },
+    "annual_loss_quantiles": {
+      "0.9": 0.0,
+      "0.99": 4764185.780090261,
+      "0.996": 15792848.84176392,
+      "0.999": 42333388.53428335
+    },
+    "base_annual_loss_quantiles": {
+      "0.9": 0.0,
+      "0.99": 6565298.492123413,
+      "0.996": 15393760.834337633,
+      "0.999": 34510388.902683005
+    },
+    "largest_annual_losses": [
+      {
+        "year": 7562,
+        "draw_id": 8,
+        "loss": 135803952.59043026,
+        "share_of_value": 0.8677568855618547,
+        "storms_share_of_value": {
+          "NA_7562_6": 0.8677568855618547
+        }
+      },
+      {
+        "year": 7562,
+        "draw_id": 5,
+        "loss": 119945003.17367087,
+        "share_of_value": 0.7664217455186637,
+        "storms_share_of_value": {
+          "NA_7562_6": 0.7664217455186637
+        }
+      },
+      {
+        "year": 5114,
+        "draw_id": 7,
+        "loss": 108663737.41521962,
+        "share_of_value": 0.6943369802889433,
+        "storms_share_of_value": {
+          "NA_5114_0": 0.6943369802889433
+        }
+      },
+      {
+        "year": 5114,
+        "draw_id": 9,
+        "loss": 108005755.50265644,
+        "share_of_value": 0.690132623020169,
+        "storms_share_of_value": {
+          "NA_5114_0": 0.690132623020169
+        }
+      },
+      {
+        "year": 5114,
+        "draw_id": 3,
+        "loss": 107256898.6775232,
+        "share_of_value": 0.6853475953835348,
+        "storms_share_of_value": {
+          "NA_5114_0": 0.6853475953835348
+        }
+      }
+    ],
+    "base_largest_annual_loss_share": 0.41285216623492904,
+    "eal_per_draw": {
+      "min": 197305.15566077508,
+      "max": 245737.78124724422
+    },
+    "median_cv_across_draws": 0.9888699722824112,
+    "rows_with_positive_loss": 7260,
+    "positive_row_location_pairs": 51190,
+    "tail_dependence_offdiag": {
+      "min": 0.568,
+      "median": 0.833,
+      "max": 0.9339999999999999
+    },
+    "recentre": {
+      "kind": "excess",
+      "factor": 0.6736833911741325,
+      "median_v_half": 84.84940174508966,
+      "calibrated_median": 113.50000000000124,
+      "support": [
+        47.86418356962927,
+        164.95035695569513
+      ],
+      "quantiles": {
+        "0.05": 55.57112156466146,
+        "0.25": 69.15257873073216,
+        "0.5": 84.84940174508966,
+        "0.75": 116.37778445203953,
+        "0.95": 158.64468041430524
+      },
+      "target_expected_loss": 221480.76353530542,
+      "expected_loss": 221480.76353530478,
+      "relative_tolerance": 1e-06,
+      "bracket": [
+        0.01,
+        100.0
+      ],
+      "base_content_hash": "sha256:de756cb663ba0802ec3c67d7f36d82833d91503f9cca1fc572ae7258ad42d32e"
+    },
+    "eal_over_target": 0.999999999999998,
+    "base_eal_over_target": 1.0,
+    "first_location": {
+      "name": "Brickell_HighRise",
+      "aal_per_draw": [
+        73573.85490296119,
+        61564.88773255529,
+        67548.81668878853,
+        77549.5863839044,
+        69443.16498816112,
+        68663.01028634586,
+        66416.07246627465,
+        72880.33343038778,
+        69796.29765075246,
+        71139.2712134635
+      ],
+      "base_aal": 70220.17696766238
+    },
+    "median_cv_per_location": {
+      "min": 0.9781710754493085,
+      "max": 0.9996938803292613
+    },
+    "mean_damage_ratio": {
+      "35.0": {
+        "over_prior": 0.008782227849197492,
+        "at_median": 0.003871800852085598,
+        "base": 0.006790495604105169
+      },
+      "55.0": {
+        "over_prior": 0.1773735623473139,
+        "at_median": 0.10837609434243888,
+        "base": 0.1761433569521351
+      },
+      "75.0": {
+        "over_prior": 0.41920059663526377,
+        "at_median": 0.3666937258510227,
+        "base": 0.5045777092933046
+      }
+    },
+    "loss_equal_to_cat_in_circle_build": true,
+    "cat_in_circle_content_hash": "sha256:06250a93adfeae89ecf82b7a88218df8f1808924d2c9c3d3bdac024299867185",
+    "cat_in_circle_recentre": {
+      "kind": "excess",
+      "factor": 0.6736833911741325,
+      "median_v_half": 84.84940174508966,
+      "calibrated_median": 113.50000000000124,
+      "support": [
+        47.86418356962927,
+        164.95035695569513
+      ],
+      "quantiles": {
+        "0.05": 55.57112156466146,
+        "0.25": 69.15257873073216,
+        "0.5": 84.84940174508966,
+        "0.75": 116.37778445203953,
+        "0.95": 158.64468041430524
+      },
+      "target_expected_loss": 221480.76353530542,
+      "expected_loss": 221480.76353530478,
+      "relative_tolerance": 1e-06,
+      "bracket": [
+        0.01,
+        100.0
+      ],
+      "base_content_hash": "sha256:de0153d359a1b8052e232078d468b0f7d207ea2d9229ff47a9067e1b8304279a"
+    }
+  },
+  "base_builds": {
+    "thesis.yaml (2026-11-01)": "sha256:de756cb663ba0802ec3c67d7f36d82833d91503f9cca1fc572ae7258ad42d32e",
+    "thesis_cat_in_circle.yaml (2026-11-01)": "sha256:de0153d359a1b8052e232078d468b0f7d207ea2d9229ff47a9067e1b8304279a",
+    "note": "each equals the recentre.match.base_content_hash of the matching thesis draws build; thesis.yaml's losses equal the MAR-132 base (sha256:7b0cf281..., built before the MAR-109 licence change)"
+  },
+  "default_off_keeps_hashes": {
+    "method": "configs built with the final MAR-160 code, without recentre, compared with the hashes recorded in MAR-132",
+    "thesis_vulnerability.yaml (origin/main, no recentre)": "sha256:18170363488026aeee05a6f7371a0fdf24ca7cd854955b40bf5cc7f56fa849e9",
+    "thesis_vulnerability_all_events.yaml (unchanged)": "sha256:b8d24a6f64c574bd9824c71433cd05fbd84e7dd3a2d1d7deb121a2cdf94289fd",
+    "all_equal_to_the_recorded_hashes": true
+  },
+  "variants": {
+    "note": "Offline evaluation before the decision (MAR-160 escalation), not built: the same storms, cells (Florida) or assets (thesis), generator stream and tabulated Emanuel function as the builds. EAL-matched medians: root search to +-0.05 m/s. The implemented option is 'excess, EAL-matched'; the builds now solve its factor exactly.",
+    "florida": {
+      "kind": "florida",
+      "base_eal": 7615672695.469273,
+      "total_value": 4893413434485.621,
+      "base_largest_annual_loss_share": 0.1513804444381556,
+      "calibrated_median": 113.50000000000124,
+      "variants": {
+        "none (MAR-132 prior)": {
+          "min_v_half": 58.600000000000456,
+          "median_v_half": 113.50000000000124,
+          "mean_v_half": 124.62941176470729,
+          "eal": 3040588695.5446677,
+          "eal_ratio": 0.39925411938377803,
+          "largest_annual_loss_share": 0.20518770627635644,
+          "q99": 70846278881.57681,
+          "q999": 319304216909.01245
+        },
+        "multiplicative, median = 74.7 (MAR-160 as specified)": {
+          "min_v_half": 38.567577092510895,
+          "median_v_half": 74.7,
+          "mean_v_half": 82.02481990152893,
+          "eal": 14869621885.36308,
+          "eal_ratio": 1.9525027505724264,
+          "largest_annual_loss_share": 0.5160811478267664,
+          "q99": 383776990228.6219,
+          "q999": 1231766270280.2573
+        },
+        "excess v_thresh + (v - v_thresh) * c, median = 74.7": {
+          "min_v_half": 44.06104783599089,
+          "median_v_half": 74.7,
+          "mean_v_half": 80.91117513064451,
+          "eal": 12199409700.238539,
+          "eal_ratio": 1.6018820907962903,
+          "largest_annual_loss_share": 0.4229061209989247,
+          "q99": 310149310630.487,
+          "q999": 990308415080.4601
+        },
+        "multiplicative, EAL-matched (EAL ratio 1)": {
+          "median_v_half": 89.33182802784192,
+          "min_v_half": 46.12198345754644,
+          "mean_v_half": 98.09139364736396,
+          "eal": 7615312557.742467,
+          "eal_ratio": 0.9999527109762714,
+          "largest_annual_loss_share": 0.36334600910115394,
+          "q99": 185279158090.24722,
+          "q999": 736488996546.9714
+        },
+        "excess, EAL-matched (EAL ratio 1)": {
+          "median_v_half": 86.29453217554332,
+          "min_v_half": 48.405695997441626,
+          "mean_v_half": 93.97541485517137,
+          "eal": 7615358318.002958,
+          "eal_ratio": 0.9999587196720651,
+          "largest_annual_loss_share": 0.3368436520252597,
+          "q99": 187032676330.04047,
+          "q999": 697260565651.2003
+        }
+      },
+      "additive_shift": {
+        "shift": -38.80000000000123,
+        "min_value": 19.799999999999223,
+        "n_at_or_below_v_thresh": 1,
+        "feasible": false
+      }
+    },
+    "thesis": {
+      "kind": "thesis",
+      "base_eal": 221480.76353530545,
+      "total_value": 156500000.0,
+      "base_largest_annual_loss_share": 0.41285216623492904,
+      "calibrated_median": 113.50000000000124,
+      "variants": {
+        "none (MAR-132 prior)": {
+          "min_v_half": 58.600000000000456,
+          "median_v_half": 113.50000000000124,
+          "mean_v_half": 124.62941176470729,
+          "eal": 82025.93793754981,
+          "eal_ratio": 0.370352425322366,
+          "largest_annual_loss_share": 0.6758025921425181,
+          "q99": 1496562.5616184548,
+          "q999": 16067451.083578523
+        },
+        "multiplicative, median = 74.7 (MAR-160 as specified)": {
+          "min_v_half": 38.567577092510895,
+          "median_v_half": 74.7,
+          "mean_v_half": 82.02481990152893,
+          "eal": 413131.1150410494,
+          "eal_ratio": 1.8653137565836215,
+          "largest_annual_loss_share": 0.9683498154152004,
+          "q99": 9546905.335278796,
+          "q999": 75123602.77025685
+        },
+        "excess v_thresh + (v - v_thresh) * c, median = 74.7": {
+          "min_v_half": 44.06104783599089,
+          "median_v_half": 74.7,
+          "mean_v_half": 80.91117513064451,
+          "eal": 339696.48073994694,
+          "eal_ratio": 1.5337516239228477,
+          "largest_annual_loss_share": 0.9187768885528814,
+          "q99": 8145549.141147345,
+          "q999": 61280044.504453324
+        },
+        "multiplicative, EAL-matched (EAL ratio 1)": {
+          "median_v_half": 87.85501614993407,
+          "min_v_half": 45.35950613556054,
+          "mean_v_half": 96.46977077837025,
+          "eal": 221460.8941188042,
+          "eal_ratio": 0.9999102882968972,
+          "largest_annual_loss_share": 0.9012224543909956,
+          "q99": 4487396.903158925,
+          "q999": 43306631.01134802
+        },
+        "excess, EAL-matched (EAL ratio 1)": {
+          "median_v_half": 84.85007588644596,
+          "min_v_half": 47.864436180684194,
+          "mean_v_half": 92.34786119913228,
+          "eal": 221474.81264292923,
+          "eal_ratio": 0.9999731313352852,
+          "largest_annual_loss_share": 0.8677531027776325,
+          "q99": 4764029.199000808,
+          "q999": 42332352.7208903
+        }
+      },
+      "additive_shift": {
+        "shift": -38.80000000000123,
+        "min_value": 19.799999999999223,
+        "n_at_or_below_v_thresh": 1,
+        "feasible": false
+      }
+    }
+  }
+}

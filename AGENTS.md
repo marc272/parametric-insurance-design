@@ -4,7 +4,13 @@ This repository is built by several worker agents coordinated by an orchestrator
 
 ## The program in brief
 
-- **Goal:** turn a master's thesis on parametric insurance into public outputs. The thesis ideas are tail-risk–optimised payout design (a weighted CVaR objective, solved as an LP) and portfolio-level calibration across assets.
+- **Goal:** turn a master's thesis on parametric insurance into public outputs. The thesis had two ideas: tail-risk–optimised payout design (a weighted CVaR objective, solved as an LP) and portfolio-level calibration (payouts calibrated jointly across assets: individual, cluster and portfolio scopes).
+- **Two co-equal stories, and their combination.** Each idea is a core story of the program and must stand on its own, not only in combination:
+  - **RQ1, tail:** when does a tail-optimised (weighted-CVaR) design pay against MSE and E[U] designs?
+  - **RQ2, portfolio:** when does joint calibration (portfolio or cluster scope) pay against calibrating each asset on its own, under each objective (MSE, E[U], weighted CVaR)? The use case is one risk owner with many sites, who cares about the total shortfall, so sites can cover each other.
+  - **Combination (RQ1 × RQ2):** a weighted-CVaR objective calibrated jointly across one owner's sites. The two ideas can be studied in isolation and in combination, depending on the use case: one site calls for the tail view; many sites with an average-fit mandate, the portfolio view; many sites with a tail mandate, the combination.
+
+  C1, the paper, the posts and the outputs report both stories and their combination, each with its own evidence.
 - **Outputs, equally important:**
   - a website with explorers, plus blog/LinkedIn posts;
   - a showcase on Climate Risk Commons data;
@@ -12,7 +18,16 @@ This repository is built by several worker agents coordinated by an orchestrator
   - a peer-reviewed paper.
 - **One shared core:** everything builds on this repository's core library, `parametric_insurance_design`. Foundation work is the critical path.
 - **Early vs. long track:** the website, posts, CRC showcase and CLIMADA module are early releases that ship once the core v1 features exist. The paper is the long track, and its results feed later updates.
-- **Publication rule:** until checkpoint C1 (MAR-29) is Done, anything public presents the method and the tool, states the setup of every number, and makes no general claim that tail optimisation outperforms.
+- **Publication rule** (decided at C1, 2026-11-01; MAR-29). Every external output (website, posts, READMEs, docs pages, the CLIMADA module's text):
+  - presents the method and the tool;
+  - states the setup of every number shown: portfolio, basis, basis-risk model, pricing and split;
+  - uses numbers from out-of-sample runs on the annual basis;
+  - RQ1 (tail): makes only conditional, mechanism-based statements tied to a stated setup (e.g. "on the thesis portfolio, under pure pricing, …"). No general claim that tail optimisation outperforms;
+  - RQ2 (joint calibration): method only, meaning what joint calibration is and what it optimises. No comparative claim, in either direction;
+  - the combination: any statement involving joint calibration follows the RQ2 rule;
+  - links no private Linear pages.
+
+  The owner revisits the RQ2 rule after the Florida rerun (MAR-152 item 4).
 - **Hard boundaries:**
   - `core` and `viz` never import an adapter;
   - the CLIMADA stream never touches CRC/VELO code or data;

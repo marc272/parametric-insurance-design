@@ -1,0 +1,164 @@
+{
+  "committed_rows": {
+    "grid.csv": 1764,
+    "grid_f12.csv": 1080,
+    "contrasts.csv": 1980,
+    "contrasts_train.csv": 1620,
+    "contrasts_f12.csv": 1600,
+    "runs.csv": 300
+  },
+  "holdout_f12": {
+    "issue": "MAR-182",
+    "base_config": "research/configs/c1/c1_main.yaml",
+    "designs": {
+      "main": [
+        "mse",
+        "eu",
+        "wcvar@0.99",
+        "wcvar@0.995"
+      ],
+      "f12": [
+        "mse",
+        "eu",
+        "wcvar@0.99"
+      ]
+    },
+    "eval_betas": [
+      0.95,
+      0.99,
+      0.995
+    ],
+    "package_versions": {
+      "parametric-insurance-design": "0.1.0.dev0",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.0",
+      "pyarrow": "26.0.0",
+      "pydantic": "2.14.1",
+      "pyyaml": "6.0.3",
+      "cvxpy": "1.9.3",
+      "clarabel": "0.11.1",
+      "osqp": "1.1.3",
+      "scs": "3.3.1",
+      "highspy": "1.15.1"
+    },
+    "holdout_groups": 8,
+    "holdout_designs": 72,
+    "checked_kpi_rows_against_c1": 504,
+    "checked_contrast_rows_against_c1_and_mar158": 480,
+    "checked_budget_uses_against_c1": 72,
+    "checked_decompositions": 576,
+    "holdout_seconds": 144.1,
+    "holdout_seconds_per_group": {
+      "f12|cic50|pure|1": 12.0,
+      "f12|cic50|coc_r0.06|1": 20.9,
+      "f12|vuln|pure|1": 22.5,
+      "f12|vuln|coc_r0.06|1": 38.3,
+      "f12|vuln_basins_null|pure|1": 22.5,
+      "f12|cic50_vuln|pure|1": 73.1,
+      "f12|vuln_basins_null|coc_r0.06|1": 30.2,
+      "f12|cic50_vuln|coc_r0.06|1": 115.7
+    }
+  },
+  "holdout_main": {
+    "issue": "MAR-182",
+    "base_config": "research/configs/c1/c1_main.yaml",
+    "designs": {
+      "main": [
+        "mse",
+        "eu",
+        "wcvar@0.99",
+        "wcvar@0.995"
+      ],
+      "f12": [
+        "mse",
+        "eu",
+        "wcvar@0.99"
+      ]
+    },
+    "eval_betas": [
+      0.95,
+      0.99,
+      0.995
+    ],
+    "package_versions": {
+      "parametric-insurance-design": "0.1.0.dev0",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.0",
+      "pyarrow": "26.0.0",
+      "pydantic": "2.14.1",
+      "pyyaml": "6.0.3",
+      "cvxpy": "1.9.3",
+      "clarabel": "0.11.1",
+      "osqp": "1.1.3",
+      "scs": "3.3.1",
+      "highspy": "1.15.1"
+    },
+    "holdout_groups": 9,
+    "holdout_designs": 108,
+    "checked_kpi_rows_against_c1": 756,
+    "checked_contrast_rows_against_c1_and_mar158": 900,
+    "checked_budget_uses_against_c1": 108,
+    "checked_decompositions": 1296,
+    "holdout_seconds": 155.2,
+    "holdout_seconds_per_group": {
+      "main|thesis|pure|1.5": 34.0,
+      "main|thesis|pure|1": 35.9,
+      "main|thesis|pure|0.5": 36.0,
+      "main|thesis|coc_r0.06|0.5": 56.1,
+      "main|thesis|coc_r0.06|1": 55.7,
+      "main|thesis|coc_r0.06|1.5": 56.2,
+      "main|thesis|coc_r0.10|0.5": 58.5,
+      "main|thesis|coc_r0.10|1": 57.7,
+      "main|thesis|coc_r0.10|1.5": 58.2
+    }
+  },
+  "kfold": {
+    "issue": "MAR-182",
+    "base_config": "research/configs/c1/c1_main.yaml",
+    "designs": {
+      "main": [
+        "mse",
+        "eu",
+        "wcvar@0.99",
+        "wcvar@0.995"
+      ],
+      "f12": [
+        "mse",
+        "eu",
+        "wcvar@0.99"
+      ]
+    },
+    "eval_betas": [
+      0.95,
+      0.99,
+      0.995
+    ],
+    "package_versions": {
+      "parametric-insurance-design": "0.1.0.dev0",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.0",
+      "pyarrow": "26.0.0",
+      "pydantic": "2.14.1",
+      "pyyaml": "6.0.3",
+      "cvxpy": "1.9.3",
+      "clarabel": "0.11.1",
+      "osqp": "1.1.3",
+      "scs": "3.3.1",
+      "highspy": "1.15.1"
+    },
+    "kfold_experiment_config_hashes": {
+      "pure|a": "sha256:dcfc293da2862fcf0e990c90aeb7c4f94504906bd1fd29a909b497898a920915",
+      "pure|b": "sha256:0b9b994ccdda0d3ba8b9be7f92f087aa4593efee610dd73ee8794efe5c451b52",
+      "coc_r0.06|a": "sha256:e365ed1566e43f9b81f9421de35e3484d1d2ed15c07da31da6e7eabe082eb43d",
+      "coc_r0.06|b": "sha256:46bdbdf8095fd029f919c475dcb34ca09c18d03cada0a2f382dc852dc97dcc31"
+    },
+    "kfold_runs": 120,
+    "checked_against_pooled_difference": 108,
+    "checked_pooled_against_mar158": 48,
+    "checked_decompositions": 144,
+    "kfold_seconds": 40.7
+  }
+}

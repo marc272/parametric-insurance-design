@@ -43,6 +43,9 @@ vulnerability:
     region: NA2
     wind_only: true
     basins: [NA]   # MAR-132 default: North Atlantic events only (17 NA2 events)
+    # MAR-160: v_thresh + s * (v_half_i - v_thresh), with s solved at build
+    # time so that the expected annual loss equals the no-draws build's
+    recentre: {kind: excess, match: expected_loss}
 loss:
   kind: cells
   cells: ../../../data/litpop-florida/locations/cells.parquet

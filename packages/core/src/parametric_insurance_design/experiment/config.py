@@ -85,7 +85,7 @@ from parametric_insurance_design.interfaces import (
 )
 from parametric_insurance_design.noise import NoiseKind
 from parametric_insurance_design.objectives import MSE, ExpectedUncovered, WeightedCVaR
-from parametric_insurance_design.payout import StepPayout
+from parametric_insurance_design.payout import BelowAttachment, StepPayout
 from parametric_insurance_design.pricing import CostOfCapitalLoad, PurePremium
 from parametric_insurance_design.scopes import Cluster, Individual, Portfolio
 
@@ -437,6 +437,21 @@ class StepPayoutConfig(_Model):
     breakpoints : tuple of float or None, default None
         Explicit breakpoints (``n_bins + 1`` values from ``attachment`` to
         ``limit``); uniform if None.
+    below_attachment : {"first_bin", "zero"}, default "first_bin"
+        What an index below ``attachment`` pays (MAR-170): the first bin's
+        level (``"first_bin"``, the thesis code) or nothing (``"zero"``, the
+        thesis text). ``"zero"`` makes a threshold filter at the attachment
+        exact on the ``event`` and ``annual`` bases; see
+        :mod:`~parametric_insurance_design.payout`.
+
+    Notes
+    -----
+    ``below_attachment`` is left out of :func:`to_dict`, :func:`dump_config`
+    and :func:`canonical_json` when it is ``"first_bin"``, its default,
+    whether unset or written out. A config that does not set ``"zero"``
+    therefore dumps and hashes exactly as before MAR-170 (the parity config
+    and its config hashes and run ids are unchanged); a config that sets
+    ``"zero"`` has a hash of its own.
     """
 
     kind: Literal["step"] = "step"
@@ -444,6 +459,17 @@ class StepPayoutConfig(_Model):
     limit: StrictFloat
     n_bins: PositiveInt
     breakpoints: tuple[StrictFloat, ...] | None = None
+    below_attachment: BelowAttachment = "first_bin"
+
+    @model_serializer(mode="wrap")
+    def _drop_default_below_attachment(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> Any:  # noqa: ANN401
+        """Leave ``below_attachment`` out of every dump while it is the default."""
+        data = handler(self)
+        if self.below_attachment == "first_bin" and isinstance(data, dict):
+            data.pop("below_attachment", None)
+        return data
 
     @model_validator(mode="after")
     def _check(self) -> Self:
@@ -458,6 +484,7 @@ class StepPayoutConfig(_Model):
             limit=self.limit,
             n_bins=self.n_bins,
             breakpoints=self.breakpoints,
+            below_attachment=self.below_attachment,
         )
 
 
@@ -1395,8 +1422,9 @@ def to_dict(config: ExperimentConfig) -> dict[str, Any]:
 
     Every field is written, defaults included, so the output is complete,
     except the opt-in fields left out at their default: an absent
-    ``bootstrap`` (:data:`OMITTED_WHEN_ABSENT`), a False ``cap_n_clusters``
-    and the default ``evaluation.return_periods``.
+    ``bootstrap`` (:data:`OMITTED_WHEN_ABSENT`), a False ``cap_n_clusters``,
+    the default ``evaluation.return_periods`` and a ``"first_bin"``
+    ``payout.below_attachment``.
     Paths are written as POSIX strings.
     """
     data = _drop_absent(config.model_dump(mode="json", round_trip=True))
@@ -1536,7 +1564,8 @@ def config_hash(config: ExperimentConfig) -> str:
 
     Any change to the canonical form or the exclusions changes
     :data:`CONFIG_HASH_DOMAIN`. (Omitting an absent ``bootstrap``, a False
-    ``cap_n_clusters`` or a default ``evaluation.return_periods`` did not:
+    ``cap_n_clusters``, a default ``evaluation.return_periods`` or a
+    ``"first_bin"`` ``payout.below_attachment`` did not:
     the canonical JSON of every config that existed before them is
     unchanged.) Adding a schema field with a default that is hashed changes
     the hash of every config, because defaults are hashed; that is a schema

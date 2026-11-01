@@ -20,9 +20,10 @@ Owner: MAR-64. Executes one configured run end to end and persists it in a
    calibrate on the fold's training years, evaluate on its training and
    test samples (``splits.year_block_kfold``).
 5. **Build, solve, evaluate.** ``problem.build_problems``, then
-   ``solve.solve`` for every design problem, with the run's pricing, so the
-   recorded premium is ``pricing.premium_value`` of the realised payout
-   (MAR-143), then ``evaluate.kpis`` and
+   ``solve.solve`` for every design problem, which carries the run's pricing
+   (``BuiltProblem.pricing``, MAR-171), so the recorded premium is
+   ``pricing.premium_value`` of the realised payout (MAR-143), then
+   ``evaluate.kpis`` and
    ``evaluate.exceedance_curves`` (at ``evaluation.return_periods``, MAR-117)
    when every design problem was solved.
    With a ``bootstrap`` config section (MAR-23), ``bootstrap.bootstrap_kpis``
@@ -485,6 +486,15 @@ def run_parameters(config: ExperimentConfig, eventset: EventSet) -> dict[str, An
     that name, so a sweep's ``runs`` rows can be read without parsing the
     config. A key is present only when its component is configured.
 
+    ``below_attachment`` (MAR-178) is present only when the payout's mode is
+    not the default ``"first_bin"``, i.e. for ``"zero"`` (MAR-170), so that
+    readers of the ``runs`` table, such as the viz payout figures, can tell
+    what the payout pays below the attachment. A run without the key pays
+    the first bin's level there. Leaving the default out keeps the stored
+    parameters of every ``"first_bin"`` run as they were before MAR-178 (the
+    MAR-131/MAR-170 pattern). The parameters are not part of :func:`run_key`,
+    so no run id changes either way.
+
     Parameters
     ----------
     config : ExperimentConfig
@@ -496,7 +506,8 @@ def run_parameters(config: ExperimentConfig, eventset: EventSet) -> dict[str, An
     -------
     dict
         ``attachment``, ``limit``, ``n_bins``, ``n_assets``,
-        ``evaluation_beta``, ``sample``; ``train_fraction`` (holdout);
+        ``evaluation_beta``, ``sample``; ``below_attachment`` (``"zero"``
+        payout); ``train_fraction`` (holdout);
         ``k``, ``fold`` (k-fold); ``n_clusters``, ``beta_tail``, ``linkage``
         (cluster scope); ``scope_index`` (if set); ``alpha``, ``beta`` (weighted CVaR);
         ``pricing_rate``, ``pricing_q`` (cost of capital); ``budget_loading``
@@ -513,6 +524,8 @@ def run_parameters(config: ExperimentConfig, eventset: EventSet) -> dict[str, An
         "evaluation_beta": config.evaluation.beta,
         "sample": config.sample.kind,
     }
+    if payout.below_attachment != "first_bin":
+        params["below_attachment"] = payout.below_attachment
     sample = config.sample
     if sample.kind == "holdout":
         params["train_fraction"] = sample.train_fraction
@@ -829,7 +842,9 @@ def execute(
             for location_id in entity.location_ids
         )
         try:
-            result = solve(problem, policy, pricing=components.pricing)
+            # The problem carries the run's pricing (MAR-171), so the premium
+            # is pricing.premium_value of the realised payout (MAR-143).
+            result = solve(problem, policy)
         except SolveError as exc:
             _log.warning("run %s: %s", run_id, exc)
             runs.append(

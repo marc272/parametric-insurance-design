@@ -32,13 +32,33 @@ Differences from the thesis code, all deliberate:
 * Axis labels name the index generically ("Index") with its unit from the
   EventSet metadata, as the core is hazard-agnostic; the thesis wrote "Wind
   speed".
+
+Below the attachment (MAR-178)
+------------------------------
+:func:`payout_grid` draws each run's payout below the attachment ``b_0`` as
+the run's :class:`~parametric_insurance_design.payout.StepPayout` pays it
+(:func:`below_attachment_mode`):
+
+* ``"first_bin"`` (the default and the thesis code): the first bin's level,
+  so the step extends to the left edge of the axis, as in the thesis. Runs
+  whose ``runs.parameters`` have no ``below_attachment`` key, every run
+  written before MAR-178 among them, are drawn this way.
+* ``"zero"`` (MAR-170, recorded in ``runs.parameters`` since MAR-178): 0, with
+  a step up to the first level at ``b_0``. The figure data show it as one
+  more row per entity, before its bins: ``param_index`` is
+  :data:`~parametric_insurance_design.payout.NO_BIN` (-1), ``lower`` is
+  ``-inf``, ``upper`` is ``b_0`` and ``value`` is 0.
+
+:func:`normalised_payout` draws nothing below the attachment in either mode,
+as in the thesis; under ``"zero"`` both payouts are 0 there, so their ratio
+is undefined anyway.
 """
 
 from __future__ import annotations
 
 import math
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final, cast
 
@@ -51,6 +71,11 @@ from matplotlib.ticker import FuncFormatter, ScalarFormatter
 from numpy.typing import NDArray
 from scipy.stats import gaussian_kde
 
+from parametric_insurance_design.payout import (
+    BELOW_ATTACHMENT_MODES,
+    NO_BIN,
+    BelowAttachment,
+)
 from parametric_insurance_design_viz import style
 from parametric_insurance_design_viz.errors import (
     FigureDataError,
@@ -65,6 +90,7 @@ __all__ = [
     "MARKER_COLUMNS",
     "STEP_COLUMNS",
     "AxisLabels",
+    "below_attachment_mode",
     "normalised_payout",
     "payout_grid",
     "payout_steps",
@@ -89,7 +115,12 @@ STEP_COLUMNS: Final[tuple[str, ...]] = (
     "upper",
     "value",
 )
-"""Columns of :func:`payout_steps` and of the grid's figure data."""
+"""Columns of :func:`payout_steps` and of the grid's figure data.
+
+The grid's figure data also have a row with ``param_index`` equal to
+:data:`~parametric_insurance_design.payout.NO_BIN` for each entity of a
+``"zero"`` run: the index range below the attachment, which pays 0 (see the
+module docstring)."""
 
 MARKER_COLUMNS: Final[tuple[str, ...]] = ("entity_id", "marker", "level", "value")
 """Columns of the ``markers`` table: vertical reference lines."""
@@ -193,6 +224,57 @@ def _attachment_limit(runs: Sequence[RunResult]) -> tuple[float, float]:
     return pairs.pop()
 
 
+def below_attachment_mode(run: RunResult) -> BelowAttachment:
+    """Return what a run's step payout pays below the attachment.
+
+    Read from ``runs.parameters``: the runner records ``below_attachment``
+    only when it is not the default ``"first_bin"`` (MAR-178), so a run
+    without the key pays the first bin's level there. The run's manifest
+    config must agree. A ``"zero"`` run written before MAR-178 has the mode
+    in its config but not in its parameters; its run id did not change, so
+    re-running it is a cache hit and keeps the old parameters. Drawing it as
+    ``"first_bin"`` would be wrong, so it raises instead.
+
+    Parameters
+    ----------
+    run : RunResult
+        A run.
+
+    Returns
+    -------
+    {"first_bin", "zero"}
+        The mode
+        (:data:`~parametric_insurance_design.payout.BelowAttachment`).
+
+    Raises
+    ------
+    FigureDataError
+        If the recorded value is not a mode.
+    InconsistentRunsError
+        If ``runs.parameters`` and the payout of the manifest's config
+        disagree, e.g. a ``"zero"`` run written before MAR-178.
+    """
+    recorded = run.parameters.get("below_attachment", "first_bin")
+    if recorded not in BELOW_ATTACHMENT_MODES:
+        raise FigureDataError(
+            f"run {run.run_id}: runs.parameters records below_attachment "
+            f"{recorded!r}, not one of {list(BELOW_ATTACHMENT_MODES)}"
+        )
+    config = run.manifest.get("config")
+    payout = config.get("payout") if isinstance(config, Mapping) else None
+    if isinstance(payout, Mapping):
+        configured = payout.get("below_attachment", "first_bin")
+        if configured != recorded:
+            raise InconsistentRunsError(
+                f"run {run.run_id}: its config pays {configured!r} below the "
+                f"attachment, but runs.parameters says {recorded!r}. A run "
+                "written before MAR-178 does not record 'zero' in its "
+                "parameters; recompute it (`parametric-insurance-design run "
+                "--force`, or a new result store) to draw it"
+            )
+    return cast(BelowAttachment, recorded)
+
+
 def payout_steps(runs: Sequence[RunResult]) -> pd.DataFrame:
     """Return the fitted step payout functions of runs as one tidy table.
 
@@ -240,6 +322,34 @@ def payout_steps(runs: Sequence[RunResult]) -> pd.DataFrame:
                 f"run {run_id}, entity {entity_id}: payout bins are not contiguous"
             )
     return steps
+
+
+def _grid_steps(
+    steps: pd.DataFrame, modes: Mapping[str, BelowAttachment]
+) -> pd.DataFrame:
+    """Return the grid's figure data: ``steps`` plus the zero rows.
+
+    Each entity of a run whose mode is ``"zero"`` gets one row before its
+    bins, a copy of its first bin with ``param_index = NO_BIN``,
+    ``lower = -inf``, ``upper = b_0`` and ``value = 0``. Without such runs
+    ``steps`` is returned unchanged.
+    """
+    if all(mode == "first_bin" for mode in modes.values()):
+        return steps
+    parts: list[pd.DataFrame] = []
+    for key, bins in steps.groupby(["run_id", "entity_id"], sort=False):
+        run_id, _ = cast(tuple[str, str], key)
+        if modes[run_id] == "zero":
+            parts.append(
+                bins.iloc[[0]].assign(
+                    param_index=NO_BIN,
+                    lower=-np.inf,
+                    upper=float(bins["lower"].iloc[0]),
+                    value=0.0,
+                )
+            )
+        parts.append(bins)
+    return pd.concat(parts, ignore_index=True)
 
 
 def _breakpoints(bins: pd.DataFrame) -> NDArray[np.float64]:
@@ -313,17 +423,21 @@ def _step_xy(
     breakpoints: NDArray[np.float64],
     levels: NDArray[np.float64],
     xlim: tuple[float, float],
+    mode: BelowAttachment,
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     """Points for ``ax.step(where="post")`` over the whole axis.
 
-    Below the attachment the payout is the first level and above the limit
-    the last one (``StepPayout`` clips the index into the first and last
-    bins), so the steps extend to the axis edges, as in the thesis.
+    Above the limit the payout is the last level (``StepPayout`` clips the
+    index into the last bin). Below the attachment it is the first level
+    under ``mode="first_bin"`` (clipped into the first bin, as in the thesis)
+    and 0 under ``"zero"``, which draws a step at the attachment ``b_0``. The
+    steps extend to the axis edges.
     """
     left = min(xlim[0], float(breakpoints[0]))
     right = max(xlim[1], float(breakpoints[-1]))
+    below = 0.0 if mode == "zero" else levels[0]
     x = np.concatenate([[left], breakpoints, [right]])
-    y = np.concatenate([[levels[0]], levels, [levels[-1], levels[-1]]])
+    y = np.concatenate([[below], levels, [levels[-1], levels[-1]]])
     return x, y
 
 
@@ -430,9 +544,11 @@ def payout_grid(
     Returns
     -------
     FigureOutput
-        The figure, its steps (main table, :data:`STEP_COLUMNS`), the
-        ``markers`` table (attachment and limit) and, with ``events``, the
-        ``events`` table it scatters.
+        The figure, its steps (main table, :data:`STEP_COLUMNS`; for a
+        ``"zero"`` run each entity also has its zero row below the
+        attachment, see the module docstring), the ``markers`` table
+        (attachment and limit) and, with ``events``, the ``events`` table it
+        scatters.
 
     Raises
     ------
@@ -440,11 +556,18 @@ def payout_grid(
         If a run has a failed design problem.
     InconsistentRunsError
         If the runs mix scopes, repeat an objective, differ in entities,
-        attachment or limit, or an entity is unknown.
+        attachment or limit, or an entity is unknown; or a run's parameters
+        and config disagree on what it pays below the attachment
+        (:func:`below_attachment_mode`).
+    FigureDataError
+        If a run records an unknown ``below_attachment`` mode.
     """
     runs = _scope_runs(runs)
     labels = labels or AxisLabels()
     attachment, limit = _attachment_limit(runs)
+    modes: dict[str, BelowAttachment] = {
+        run.run_id: below_attachment_mode(run) for run in runs
+    }
     xlim = xlim or _default_xlim(attachment, limit)
     members = _membership(runs[0])
     order = runs[0].entity_order()
@@ -493,7 +616,10 @@ def payout_grid(
                     (steps["run_id"] == run.run_id) & (steps["entity_id"] == entity_id),
                 )
                 x, y = _step_xy(
-                    _breakpoints(bins), bins["value"].to_numpy(dtype=np.float64), xlim
+                    _breakpoints(bins),
+                    bins["value"].to_numpy(dtype=np.float64),
+                    xlim,
+                    modes[run.run_id],
                 )
                 color = style.objective_color(run.objective)
                 ax.step(
@@ -542,7 +668,10 @@ def payout_grid(
         ],
         columns=list(MARKER_COLUMNS),
     )
-    data: dict[str, pd.DataFrame] = {MAIN_TABLE: steps, "markers": markers}
+    data: dict[str, pd.DataFrame] = {
+        MAIN_TABLE: _grid_steps(steps, modes),
+        "markers": markers,
+    }
     if events is not None:
         data["events"] = _where(
             events, events["entity_id"].isin(entity_ids)
@@ -613,7 +742,8 @@ def normalised_payout(
     bin divided by the benchmark's level in the same bin, in percent, so the
     benchmark is the flat 100 % line. With ``events``, the entity's event
     density is drawn on a second axis and its ``tail_level`` quantile is
-    marked.
+    marked. The ratios are drawn from the attachment to the limit only, in
+    both ``below_attachment`` modes (module docstring).
 
     Parameters
     ----------
