@@ -9,7 +9,7 @@ To install the library and run the tests, see the [repository README](../README.
 
 ## Understand the method
 
-Read the concepts first, then the methodology, then the data sources.
+Read the concepts first, then the methodology, then the data sources. These pages describe the method and the tool. They don't claim that either idea, or the two combined, outperforms the alternatives.
 
 ### Concepts
 
@@ -32,8 +32,6 @@ These pages explain how a design is evaluated. Each one names the code and the c
 
 - [Data sources](data-sources.md): the data the project uses, and the licence and terms of each source.
 
-These pages describe the method and the tool. They don't claim that either idea, or the two combined, outperforms the alternatives.
-
 ## How it's built
 
 Worker agents build this repository, and an orchestrator agent coordinates them:
@@ -45,7 +43,7 @@ Worker agents build this repository, and an orchestrator agent coordinates them:
 The plan, the decisions and their status are tracked in Linear. That workspace is private, so the Linear links in some of these files don't open for visitors.
 
 - [`AGENTS.md`](../AGENTS.md): the working agreement that binds every worker. It covers scope, branches and pull requests, the engineering standards, the publication rule and when to escalate. The root `CLAUDE.md` loads it for Claude Code.
-- [`ORCHESTRATION.md`](ORCHESTRATION.md): the orchestrator's runbook. It covers the loop, delegation to workers, the merge policy and owner alerts. The `/orchestrate` skill in `.claude/skills/` starts the loop.
+- [`ORCHESTRATION.md`](ORCHESTRATION.md): the orchestrator's runbook. It covers the loop, delegation to workers, the merge policy and owner alerts. The [`/orchestrate` skill](../.claude/skills/orchestrate/SKILL.md) starts the loop.
 - [`SPEC.md`](SPEC.md): the specification. It covers the method, the architecture, the EventSet data contract, the engineering standards and the decision log.
 - [Architecture decision records](adr/):
   - [ADR 0001](adr/0001-name-and-licence.md): the project name and the licence of each package.
