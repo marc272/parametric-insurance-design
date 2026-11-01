@@ -30,11 +30,11 @@ from parametric_insurance_design_viz.errors import (
 from parametric_insurance_design_viz.figure_data import write_figure
 from parametric_insurance_design_viz.payout_functions import (
     STEP_COLUMNS,
-    _step_xy,
     below_attachment_mode,
     normalised_payout,
     payout_grid,
     payout_steps,
+    step_points,
 )
 from parametric_insurance_design_viz.reader import ResultReader, RunResult
 
@@ -145,14 +145,14 @@ def test_an_unknown_mode_is_refused(toy: Fixture, bad: object) -> None:
 def test_step_points_in_both_modes() -> None:
     bp = np.array([20.0, 30.0, 40.0])
     levels = np.array([2.0, 5.0])
-    x, y = _step_xy(bp, levels, (10.0, 50.0), "first_bin")
+    x, y = step_points(bp, levels, (10.0, 50.0), "first_bin")
     np.testing.assert_array_equal(x, [10.0, 20.0, 30.0, 40.0, 50.0])
     np.testing.assert_array_equal(y, [2.0, 2.0, 5.0, 5.0, 5.0])
-    x, y = _step_xy(bp, levels, (10.0, 50.0), "zero")
+    x, y = step_points(bp, levels, (10.0, 50.0), "zero")
     np.testing.assert_array_equal(x, [10.0, 20.0, 30.0, 40.0, 50.0])
     np.testing.assert_array_equal(y, [0.0, 2.0, 5.0, 5.0, 5.0])
     # An axis that starts above the attachment leaves no room below it.
-    x, y = _step_xy(bp, levels, (25.0, 35.0), "zero")
+    x, y = step_points(bp, levels, (25.0, 35.0), "zero")
     np.testing.assert_array_equal(x, [20.0, 20.0, 30.0, 40.0, 40.0])
     np.testing.assert_array_equal(y, [0.0, 2.0, 5.0, 5.0, 5.0])
 

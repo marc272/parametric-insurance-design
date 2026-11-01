@@ -74,6 +74,13 @@ whenever a drawn entity belongs to a joint problem:
 Figures of runs without a joint problem (the individual scope) are unchanged
 in both modes. External outputs (website, posts, examples) show per-entity
 payout functions of a joint design only with the caption.
+
+Step helpers (MAR-193)
+----------------------
+:func:`step_points`, :func:`bin_breakpoints`, :func:`with_zero_rows` and
+:func:`shared_attachment_limit` are public, so the payout sweep
+(``sweep_figures``) draws and tabulates its step payouts with the same code
+as :func:`payout_grid`.
 """
 
 from __future__ import annotations
@@ -120,11 +127,15 @@ __all__ = [
     "JointEntities",
     "JointEntitiesError",
     "below_attachment_mode",
+    "bin_breakpoints",
     "is_joint_design",
     "normalised_payout",
     "payout_grid",
     "payout_steps",
+    "shared_attachment_limit",
+    "step_points",
     "weighted_quantile",
+    "with_zero_rows",
 ]
 
 BENCHMARK_ZERO_RTOL: Final[float] = 1e-6
@@ -272,8 +283,28 @@ def _membership(run: RunResult) -> dict[str, tuple[str, ...]]:
     }
 
 
-def _attachment_limit(runs: Sequence[RunResult]) -> tuple[float, float]:
-    """Return the attachment and limit the runs share (``runs.parameters``)."""
+def shared_attachment_limit(runs: Sequence[RunResult]) -> tuple[float, float]:
+    """Return the attachment and limit that the runs of one figure share.
+
+    Used by every payout-function figure, the payout grid, the normalised
+    payout and the payout sweep (``sweep_figures``), to place the reference
+    lines and the default axis range.
+
+    Parameters
+    ----------
+    runs : sequence of RunResult
+        The runs drawn into one figure.
+
+    Returns
+    -------
+    (float, float)
+        ``(attachment, limit)`` from the runs' ``runs.parameters``.
+
+    Raises
+    ------
+    InconsistentRunsError
+        If the runs differ in attachment or limit, or ``runs`` is empty.
+    """
     pairs = {
         (float(r.parameters["attachment"]), float(r.parameters["limit"])) for r in runs
     }
@@ -462,16 +493,41 @@ def payout_steps(runs: Sequence[RunResult]) -> pd.DataFrame:
     return steps
 
 
-def _grid_steps(
+def with_zero_rows(
     steps: pd.DataFrame, modes: Mapping[str, BelowAttachment]
 ) -> pd.DataFrame:
-    """Return the grid's figure data: ``steps`` plus the zero rows.
+    """Return step figure data with the zero rows below the attachment.
 
-    Each entity of a run whose mode is ``"zero"`` gets one row before its
-    bins, a copy of its first bin with ``param_index = NO_BIN``,
-    ``lower = -inf``, ``upper = b_0`` and ``value = 0``. Without such runs
-    ``steps`` is returned unchanged.
+    The figure data of the payout grid and the payout sweep (MAR-178,
+    MAR-192; module docstring, "Below the attachment"). Each entity of a run
+    whose mode is ``"zero"`` gets one row before its bins, a copy of its
+    first bin with ``param_index = NO_BIN``, ``lower = -inf``,
+    ``upper = b_0`` and ``value = 0``.
+
+    Parameters
+    ----------
+    steps : pandas.DataFrame
+        Step table with at least the columns ``run_id``, ``entity_id``,
+        ``param_index``, ``lower``, ``upper`` and ``value``, each entity's
+        bins in order (e.g. from :func:`payout_steps`).
+    modes : mapping of str to BelowAttachment
+        Each run's ``below_attachment`` mode by ``run_id``
+        (:func:`below_attachment_mode`); must cover every run in ``steps``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        ``steps`` itself when every mode is ``"first_bin"``; otherwise a new
+        table with the zero rows inserted and a fresh ``RangeIndex``.
+
+    Raises
+    ------
+    FigureDataError
+        If a run in ``steps`` has no mode in ``modes``.
     """
+    unknown = sorted(set(steps["run_id"]) - set(modes))
+    if unknown:
+        raise FigureDataError(f"no below_attachment mode for runs {unknown}")
     if all(mode == "first_bin" for mode in modes.values()):
         return steps
     parts: list[pd.DataFrame] = []
@@ -490,8 +546,28 @@ def _grid_steps(
     return pd.concat(parts, ignore_index=True)
 
 
-def _breakpoints(bins: pd.DataFrame) -> NDArray[np.float64]:
-    """Breakpoints ``b_0 .. b_n`` of one entity's bins (in order)."""
+def bin_breakpoints(bins: pd.DataFrame) -> NDArray[np.float64]:
+    """Return the breakpoints ``b_0 .. b_n`` of one entity's bins.
+
+    Parameters
+    ----------
+    bins : pandas.DataFrame
+        The ``n`` bins of one run's entity, in ``param_index`` order, with
+        columns ``lower`` and ``upper`` (rows of :func:`payout_steps`).
+
+    Returns
+    -------
+    ndarray of float
+        ``n + 1`` breakpoints: every bin's ``lower``, then the last
+        ``upper``.
+
+    Raises
+    ------
+    FigureDataError
+        If ``bins`` is empty.
+    """
+    if bins.empty:
+        raise FigureDataError("an entity needs at least one bin for its breakpoints")
     lower = bins["lower"].to_numpy(dtype=np.float64)
     return np.append(lower, float(bins["upper"].iloc[-1]))
 
@@ -557,20 +633,50 @@ def _default_xlim(attachment: float, limit: float) -> tuple[float, float]:
     return attachment - margin, limit + margin
 
 
-def _step_xy(
+def step_points(
     breakpoints: NDArray[np.float64],
     levels: NDArray[np.float64],
     xlim: tuple[float, float],
     mode: BelowAttachment,
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    """Points for ``ax.step(where="post")`` over the whole axis.
+    """Return the points of a step payout for ``ax.step(where="post")``.
 
-    Above the limit the payout is the last level (``StepPayout`` clips the
-    index into the last bin). Below the attachment it is the first level
-    under ``mode="first_bin"`` (clipped into the first bin, as in the thesis)
-    and 0 under ``"zero"``, which draws a step at the attachment ``b_0``. The
-    steps extend to the axis edges.
+    The payout grid and the payout sweep (``sweep_figures``) draw every
+    step payout function with these points. Above the limit the payout is
+    the last level (``StepPayout`` clips the index into the last bin).
+    Below the attachment it is the first level under ``mode="first_bin"``
+    (clipped into the first bin, as in the thesis) and 0 under ``"zero"``,
+    which draws a step at the attachment ``b_0``. The steps extend to the
+    axis edges, or to the outer breakpoints if those lie outside ``xlim``.
+
+    Parameters
+    ----------
+    breakpoints : ndarray of float
+        ``b_0 .. b_n``, increasing (:func:`bin_breakpoints`).
+    levels : ndarray of float
+        The ``n`` payout levels, one per bin.
+    xlim : (float, float)
+        The axis range.
+    mode : {"first_bin", "zero"}
+        What the step payout pays below the attachment
+        (:func:`below_attachment_mode`).
+
+    Returns
+    -------
+    x, y : ndarray of float
+        ``n + 3`` points each: the left edge, the breakpoints and the right
+        edge, with the payout from each point to the next.
+
+    Raises
+    ------
+    FigureDataError
+        If ``levels`` is empty or ``breakpoints`` does not have one more
+        element than ``levels``.
     """
+    if len(levels) == 0 or len(breakpoints) != len(levels) + 1:
+        raise FigureDataError(
+            f"{len(breakpoints)} breakpoints do not bound {len(levels)} levels"
+        )
     left = min(xlim[0], float(breakpoints[0]))
     right = max(xlim[1], float(breakpoints[-1]))
     below = 0.0 if mode == "zero" else levels[0]
@@ -729,7 +835,7 @@ def payout_grid(
     _check_joint_mode(joint_entities)
     runs = _scope_runs(runs)
     labels = labels or AxisLabels()
-    attachment, limit = _attachment_limit(runs)
+    attachment, limit = shared_attachment_limit(runs)
     modes: dict[str, BelowAttachment] = {
         run.run_id: below_attachment_mode(run) for run in runs
     }
@@ -781,8 +887,8 @@ def payout_grid(
                     steps,
                     (steps["run_id"] == run.run_id) & (steps["entity_id"] == entity_id),
                 )
-                x, y = _step_xy(
-                    _breakpoints(bins),
+                x, y = step_points(
+                    bin_breakpoints(bins),
                     bins["value"].to_numpy(dtype=np.float64),
                     xlim,
                     modes[run.run_id],
@@ -837,7 +943,7 @@ def payout_grid(
         columns=list(MARKER_COLUMNS),
     )
     data: dict[str, pd.DataFrame] = {
-        MAIN_TABLE: _grid_steps(steps, modes),
+        MAIN_TABLE: with_zero_rows(steps, modes),
         "markers": markers,
     }
     if events is not None:
@@ -984,7 +1090,7 @@ def normalised_payout(
     caption = _joint_caption(
         runs[0], (entity_id,), joint_entities, figure="normalised_payout"
     )
-    attachment, limit = _attachment_limit(runs)
+    attachment, limit = shared_attachment_limit(runs)
     xlim = xlim or _default_xlim(attachment, limit)
     if tail_level is None:
         levels = {float(r.parameters["evaluation_beta"]) for r in runs}
@@ -996,7 +1102,7 @@ def normalised_payout(
     steps = payout_steps(runs)
     steps = _where(steps, steps["entity_id"] == entity_id).reset_index(drop=True)
     bench_bins = _where(steps, steps["run_id"] == by_objective[benchmark].run_id)
-    bench_bp = _breakpoints(bench_bins)
+    bench_bp = bin_breakpoints(bench_bins)
     bench_levels = bench_bins["value"].to_numpy(dtype=np.float64)
     rows = _entity_events(events, entity_id)
     aggregate = len(members[entity_id]) > 1
@@ -1028,7 +1134,7 @@ def normalised_payout(
 
         for run in runs:
             bins = _where(steps, steps["run_id"] == run.run_id)
-            bp = _breakpoints(bins)
+            bp = bin_breakpoints(bins)
             bench, relative = _normalised_levels(
                 bp, bins["value"].to_numpy(dtype=np.float64), bench_bp, bench_levels
             )

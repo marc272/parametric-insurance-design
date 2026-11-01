@@ -126,10 +126,12 @@ from parametric_insurance_design_viz.figure_data import MAIN_TABLE, FigureOutput
 from parametric_insurance_design_viz.payout_functions import (
     STEP_COLUMNS,
     AxisLabels,
-    _grid_steps,  # pyright: ignore[reportPrivateUsage]
-    _step_xy,  # pyright: ignore[reportPrivateUsage]
     below_attachment_mode,
+    bin_breakpoints,
     payout_steps,
+    shared_attachment_limit,
+    step_points,
+    with_zero_rows,
 )
 from parametric_insurance_design_viz.reader import RunResult
 
@@ -841,34 +843,17 @@ def _scaled_unit(labels: AxisLabels, prefix: str) -> str:
 # --------------------------------------------------------------------------
 
 
-def _breakpoints(bins: pd.DataFrame) -> NDArray[np.float64]:
-    lower = bins["lower"].to_numpy(dtype=np.float64)
-    return np.append(lower, float(bins["upper"].iloc[-1]))
-
-
 def _sweep_step_xy(
     bins: pd.DataFrame, xlim: tuple[float, float], mode: BelowAttachment
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     """Step points of one run's bins over the whole axis.
 
-    The payout grid's step points (``payout_functions._step_xy``): above the
-    limit the last level; below the attachment the first level under
-    ``"first_bin"`` and 0 under ``"zero"``, with a step at ``b_0``.
+    The payout grid's step points (:func:`~.payout_functions.step_points`):
+    above the limit the last level; below the attachment the first level
+    under ``"first_bin"`` and 0 under ``"zero"``, with a step at ``b_0``.
     """
     levels = bins["value"].to_numpy(dtype=np.float64)
-    return _step_xy(_breakpoints(bins), levels, xlim, mode)
-
-
-def _attachment_limit(runs: Sequence[RunResult]) -> tuple[float, float]:
-    pairs = {
-        (float(r.parameters["attachment"]), float(r.parameters["limit"])) for r in runs
-    }
-    if len(pairs) != 1:
-        raise InconsistentRunsError(
-            f"the runs of one figure must share attachment and limit, got "
-            f"{sorted(pairs)}"
-        )
-    return pairs.pop()
+    return step_points(bin_breakpoints(bins), levels, xlim, mode)
 
 
 def payout_sweep(
@@ -939,7 +924,7 @@ def payout_sweep(
         )
     runs = [r for _, r in ok]
     drawn = runs + ([benchmark] if benchmark is not None else [])
-    attachment, limit = _attachment_limit(drawn)
+    attachment, limit = shared_attachment_limit(drawn)
     modes: dict[str, BelowAttachment] = {
         run.run_id: below_attachment_mode(run) for run in drawn
     }
@@ -951,7 +936,7 @@ def payout_sweep(
     if lacking:
         raise InconsistentRunsError(f"entity {entity_id!r} is not in runs {lacking}")
     value_of = {r.run_id: p.value for p, r in ok}
-    table = _grid_steps(steps, modes)
+    table = with_zero_rows(steps, modes)
     table = table.assign(
         role=[
             "baseline" if benchmark is not None and rid == benchmark.run_id else "sweep"
