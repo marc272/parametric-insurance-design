@@ -244,12 +244,18 @@ def validation_groups() -> list[Group]:
 def solve_range(prob: cp.Problem) -> str:
     """Solve a range program (:data:`SOLVERS`); return ``status/solver``."""
     for solver in SOLVERS:
+        # clear the last iterate: cvxpy's piecewise-linear canonicalisation
+        # (HiGHS path) copies variable values and refuses out-of-bound ones
+        for v in prob.variables():
+            v.value = None
         try:
             prob.solve(solver=solver)
         except cp.error.SolverError:
             continue
         if prob.status == "optimal":
             return f"optimal/{solver}"
+    for v in prob.variables():
+        v.value = None
     prob.solve(solver=SOLVERS[0])
     return f"{prob.status}/{SOLVERS[0]}"
 
