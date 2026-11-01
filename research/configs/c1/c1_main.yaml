@@ -1,0 +1,74 @@
+# Checkpoint C1 (MAR-29), main line: the thesis portfolio (9 Miami assets,
+# thesis noise layer) on the paper basis (annual), out of sample (holdout,
+# first 70 % of years train) with block-bootstrap intervals (B = 1000, seed 0,
+# level 0.9). Everything else is parity/configs/thesis.yaml.
+#
+# This file is the base of every C1 run. research/scripts/c1_checkpoint.py
+# derives the single runs from it (one scope x one objective each) and varies
+# only: the pricing (pure; cost of capital r 0.06 / 0.10, q 0.99), the budget
+# loading kappa (0.5, 1, 1.5), the weighted-CVaR beta (0.95 ... 0.995), the
+# basis (event_conditional reference column) and, for the provisional F-12
+# sensitivities, the EventSet, noise, threshold and payout. Each run's
+# config_hash is recorded in research/data/c1/.
+#
+# evaluation.beta is 0.99 (the 100-year level of the annual uncovered loss,
+# SPEC 6.2), not the thesis 0.95: on the annual basis about 5 % of years have
+# an uncovered loss, so CVaR_0.95 is E[U] / 0.05 for most designs (MAR-24).
+# The script also bootstraps the test KPIs at 0.95 and 0.995.
+#
+# Paths are relative to this file.
+schema_version: 1
+name: c1-main
+description: Checkpoint C1 (MAR-29) main line, annual basis, holdout, bootstrap.
+eventset:
+  path: ../../../parity/tests/data/thesis_eventset
+  checksum: sha256:404b0c3a3aefa38965ad3ace2747d308685a67e3b218cb835d45a9ab375294df
+portfolio:
+  location_ids: [A1, A2, A3, A4, A5, A6, A7, A8, A9]
+noise:
+  kind: heteroscedastic
+  level: 0.3
+  n_copies: 13
+  seed: 42
+  bounds: [20.0, 70.0]
+threshold:
+  value: 20.0
+  column: index
+basis: annual
+sample:
+  kind: holdout
+  train_fraction: 0.7
+payout:
+  kind: step
+  attachment: 20.0
+  limit: 70.0
+  n_bins: 15
+scopes:
+- kind: individual
+- kind: cluster
+  n_clusters: 3
+  strategy:
+    kind: thesis_ward
+    beta_tail: 0.9
+    linkage: ward
+- kind: portfolio
+objectives:
+- kind: mse
+- kind: expected_uncovered
+- kind: weighted_cvar
+  alpha: 0.9
+  beta: 0.99
+pricing:
+  kind: pure
+constraints:
+- kind: budget
+  loading: 1.0
+evaluation:
+  beta: 0.99
+bootstrap:
+  seed: 0
+  n_bootstrap: 1000
+  level: 0.9
+sweeps: []
+output:
+  directory: ../../../results/c1/store

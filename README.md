@@ -4,6 +4,11 @@ A Python library for designing parametric insurance payout functions. Given an e
 
 **Status: pre-alpha.** The repository has just been set up and the packages are skeletons. The design is in [`docs/SPEC.md`](docs/SPEC.md).
 
+## Concepts
+
+- [The tail-risk objective](docs/concepts/tail-risk-objective.md): the weighted CVaR of the uncovered loss, solved as a linear program.
+- [Portfolio calibration](docs/concepts/portfolio-calibration.md): individual, portfolio and cluster scopes, and cross-coverage for a single risk owner. Glossary: [`docs/concepts/`](docs/concepts/README.md#glossary).
+
 ## Repository layout
 
 ```
