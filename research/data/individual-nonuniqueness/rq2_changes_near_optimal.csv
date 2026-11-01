@@ -1,0 +1,11 @@
+pricing,design,scope_a,kpi,verdict_stored,verdict_min,verdict_max,sign_stored,sign_min,sign_max,n_ends_missing
+coc_r0.06,eu,cluster,cvar@0.95,0 in,0 in,<0,-,-,-,0
+coc_r0.06,eu,cluster,cvar@0.99,0 in,0 in,<0,-,+,-,0
+coc_r0.06,eu,cluster,eu,0 in,0 in,<0,-,-,-,0
+pure,eu,cluster,cvar@0.95,0 in,>0,0 in,+,+,+,0
+pure,eu,cluster,cvar@0.99,0 in,>0,0 in,+,+,+,0
+pure,eu,cluster,cvar@0.995,0 in,>0,0 in,+,+,+,0
+pure,eu,cluster,eu,0 in,>0,0 in,+,+,+,0
+pure,mse,cluster,eu,0 in,>0,0 in,+,+,+,0
+pure,wcvar@0.99,portfolio,cvar@0.95,0 in,0 in,<0,-,-,-,0
+pure,wcvar@0.99,portfolio,eu,0 in,0 in,<0,-,-,-,0
