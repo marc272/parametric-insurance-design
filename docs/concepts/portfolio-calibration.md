@@ -134,6 +134,13 @@ It z-scores the features and cuts a Ward-linkage tree into `n_clusters` clusters
 
 So a difference between the cluster and portfolio scopes mixes a change of trigger, the thesis's zonal basis risk, with the change of calibration.
 
+**Separating the index from the calibration.** The same holds against the individual scope: the cluster scope changes the index and the calibration at once. `pid.Cluster(strategy, n_clusters, joint=False)` (config: `joint: false` in the cluster scope) keeps the clusters and the cluster index, but calibrates each cluster on its own. Each cluster is one design problem (`problem_id = "cluster:C1"`, …), on its cluster's index and summed loss, with its own objective and its own budget $\mathrm{Premium}(\pi_c) \le \kappa \mathbb{E}[\sum_{i\in c} L_i]$, as the individual scope does per asset. So:
+
+- `Cluster(joint=False)` against `Individual` changes only the index (asset index → cluster index), with calibration on its own in both;
+- `Cluster(joint=True)` against `Cluster(joint=False)` changes only the calibration (joint → on its own), with the same clusters and the same index.
+
+With one asset per cluster, `joint=False` is the individual scope (`test_one_location_per_cluster_separate_is_the_individual_scope`). The default, `joint=True`, is the thesis's cluster scope; a config that leaves `joint` out keeps its config hash.
+
 ## Per-asset results of joint designs are not unique
 
 A joint design is identified only through the portfolio ([review finding F8](../reviews/core-design-review.md#f8-per-asset-kpis-and-payout-functions-of-joint-designs-are-not-identified-defect-known-mar-100-mar-91)):
