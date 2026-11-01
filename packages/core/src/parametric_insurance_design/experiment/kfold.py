@@ -19,6 +19,12 @@ The pooled rule
     * Only the **portfolio level** is pooled. Entity and design-problem
       subjects are not comparable across folds: the cluster scope's partition
       differs per fold, so "cluster C1" of fold 0 is not that of fold 1.
+      Under an allocation rule (``evaluation.allocation``, MAR-217) each
+      fold's run stores per-location rows (``location_by_value`` or
+      ``location_by_loss``) for its ``train`` and ``test`` samples; they stay
+      in the store as written and are not pooled either. The pooled table is
+      the same under every rule, and the drift guard compares the portfolio
+      rows only.
     * **Paired intervals.** One ``bootstrap.resample_years(all_years, B,
       default_rng(seed))`` (the config's ``bootstrap`` section) is drawn
       once and shared by every design, so differences between designs are

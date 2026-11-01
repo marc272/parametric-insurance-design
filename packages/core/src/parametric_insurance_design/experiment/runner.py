@@ -25,7 +25,12 @@ Owner: MAR-64. Executes one configured run end to end and persists it in a
    ``pricing.premium_value`` of the realised payout (MAR-143), then
    ``evaluate.kpis`` and
    ``evaluate.exceedance_curves`` (at ``evaluation.return_periods``, MAR-117)
-   when every design problem was solved.
+   when every design problem was solved. Both get the config's
+   ``evaluation.allocation`` (MAR-217): under ``"value"`` or ``"loss"`` the
+   stored tables add per-location rows (``level = "location_by_value"`` or
+   ``"location_by_loss"``); under the default ``"none"`` they are as before.
+   An allocation rule is part of the config hash, so such a run is a cache
+   entry of its own (``EvaluationConfig``, Notes).
    With a ``bootstrap`` config section (MAR-23), ``bootstrap.bootstrap_kpis``
    replaces ``evaluate.kpis``: the same point values plus block-bootstrap
    confidence intervals in the ``ci_*`` columns, with a fresh generator
@@ -554,6 +559,11 @@ def run_parameters(config: ExperimentConfig, eventset: EventSet) -> dict[str, An
     MAR-131/MAR-170 pattern). The parameters are not part of :func:`run_key`,
     so no run id changes either way.
 
+    ``allocation`` (MAR-217) follows the same pattern: present only when
+    ``evaluation.allocation`` is ``"value"`` or ``"loss"``, so readers of the
+    ``runs`` table can tell which runs hold per-location KPI rows and under
+    which rule. A ``"none"`` run's parameters are as before MAR-217.
+
     Parameters
     ----------
     config : ExperimentConfig
@@ -566,7 +576,8 @@ def run_parameters(config: ExperimentConfig, eventset: EventSet) -> dict[str, An
     dict
         ``attachment``, ``limit``, ``n_bins``, ``n_assets``,
         ``evaluation_beta``, ``sample``; ``below_attachment`` (``"zero"``
-        payout); ``train_fraction`` (holdout);
+        payout); ``allocation`` (an allocation rule other than ``"none"``);
+        ``train_fraction`` (holdout);
         ``k``, ``fold`` (k-fold); ``n_clusters``, ``beta_tail``, ``linkage``
         (cluster scope); ``scope_index`` (if set); ``alpha``, ``beta`` (weighted CVaR);
         ``pricing_rate``, ``pricing_q`` (cost of capital); ``budget_loading``
@@ -585,6 +596,8 @@ def run_parameters(config: ExperimentConfig, eventset: EventSet) -> dict[str, An
     }
     if payout.below_attachment != "first_bin":
         params["below_attachment"] = payout.below_attachment
+    if config.evaluation.allocation != "none":
+        params["allocation"] = config.evaluation.allocation
     sample = config.sample
     if sample.kind == "holdout":
         params["train_fraction"] = sample.train_fraction
@@ -727,6 +740,22 @@ class RunOutcome:
             ),
             evaluated=bool(manifest["evaluation"]["evaluated"]),
         )
+
+
+def _evaluation_entry(config: ExperimentConfig, skipped: str | None) -> dict[str, Any]:
+    """Return the manifest's ``evaluation`` entry.
+
+    ``allocation`` is written only for a rule other than ``"none"``
+    (MAR-217), so a ``"none"`` run's manifest has the keys it had before.
+    """
+    entry: dict[str, Any] = {
+        "evaluated": skipped is None,
+        "skipped_reason": skipped,
+        "beta": config.evaluation.beta,
+    }
+    if config.evaluation.allocation != "none":
+        entry["allocation"] = config.evaluation.allocation
+    return entry
 
 
 def _check_single(config: ExperimentConfig) -> None:
@@ -1033,6 +1062,7 @@ def execute(
                         run_id=run_id,
                         sample=sample,
                         pricing=components.pricing,
+                        allocation=config.evaluation.allocation,
                     )
                 )
             else:
@@ -1074,6 +1104,7 @@ def execute(
                     run_id=run_id,
                     return_periods=config.evaluation.return_periods,
                     sample=sample,
+                    allocation=config.evaluation.allocation,
                 )
             )
     evaluate_seconds = time.perf_counter() - evaluate_start
@@ -1131,11 +1162,7 @@ def execute(
             "packages": package_versions(),
         },
         "problems": problems,
-        "evaluation": {
-            "evaluated": skipped is None,
-            "skipped_reason": skipped,
-            "beta": config.evaluation.beta,
-        },
+        "evaluation": _evaluation_entry(config, skipped),
         "bootstrap": (
             None
             if config.bootstrap is None
