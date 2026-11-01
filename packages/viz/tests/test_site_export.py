@@ -916,3 +916,137 @@ def test_the_committed_thesis_fixture_matches_its_manifest() -> None:
             assert arrow(THESIS_FIXTURE / entry["path"]).num_rows == entry["rows"]
         else:
             strict_json(THESIS_FIXTURE / entry["path"])
+
+
+# -- the split filter (MAR-213) -------------------------------------------------------
+
+
+SPLIT_TABLES = [
+    "baseline.kpis.arrow",
+    "baseline.exceedance.arrow",
+    "baseline.map.arrow",
+    "sweep.alpha.kpis.arrow",
+    "sweep.alpha.exceedance.arrow",
+]
+
+
+@dataclass(frozen=True)
+class Held:
+    """A holdout toy store with an alpha sweep, exported with and without filter."""
+
+    toy: Fixture
+    sweeps: tuple[SweepRun, ...]
+    plain: Path
+    test: Path
+    report: ExportReport
+
+    @property
+    def manifest(self) -> dict[str, Any]:
+        return strict_json(self.test / MANIFEST)
+
+
+@pytest.fixture(scope="module")
+def held(tmp_path_factory: pytest.TempPathFactory) -> Held:
+    toy = build_fixture(
+        tmp_path_factory.mktemp("site-holdout"),
+        sample={"kind": "holdout", "train_fraction": 0.7},
+        sweeps=[{"parameter": "alpha", "values": [0.5, 0.9]}],
+    )
+    run_sweeps(toy.config, store=toy.store, baseline=False)
+    sweeps = sweep_runs(toy)
+    out = tmp_path_factory.mktemp("site-holdout-bundles")
+    export(toy, out / "plain", sweeps=sweeps)
+    report = export(toy, out / "test", sweeps=sweeps, eval_split="test")
+    return Held(
+        toy=toy, sweeps=sweeps, plain=out / "plain", test=out / "test", report=report
+    )
+
+
+def test_the_split_filter_keeps_the_test_rows_only(held: Held) -> None:
+    for name in SPLIT_TABLES:
+        plain = arrow(held.plain / name).to_pandas()
+        test = arrow(held.test / name).to_pandas()
+        assert set(plain["eval_split"]) == {"train", "test"}, name
+        assert set(test["eval_split"]) == {"test"}, name
+        kept = plain.loc[plain["eval_split"] == "test"].reset_index(drop=True)
+        pd.testing.assert_frame_equal(
+            test.astype(str), kept.astype(str), check_dtype=False
+        )
+
+
+def test_the_split_filter_leaves_the_payouts_alone(held: Held) -> None:
+    for name in ("baseline.payouts.arrow", "sweep.alpha.payouts.arrow"):
+        assert (held.test / name).read_bytes() == (held.plain / name).read_bytes()
+    runs = (held.test / "runs.json").read_bytes()
+    assert runs == (held.plain / "runs.json").read_bytes()
+
+
+def test_the_manifest_records_the_split_filter(held: Held) -> None:
+    section = held.manifest["split_filter"]
+    assert section["eval_split"] == "test"
+    assert section["slices"] == ["kpis", "exceedance", "map"]
+    assert section["rule"] == site_export._SPLIT_KEPT.format(split="test")
+    removed: dict[str, int] = {}
+    for name in SPLIT_TABLES:
+        plain = arrow(held.plain / name).to_pandas()
+        removed[name] = int((plain["eval_split"] != "test").sum())
+        assert removed[name] > 0
+    assert section["rows_removed"] == removed
+    # What was removed is the train rows of the exported runs in the store.
+    baseline = ResultReader(held.toy.store).runs(held.toy.run_ids)
+    train = sum(
+        int(np.count_nonzero(r.kpis["eval_split"].to_numpy() == "train"))
+        for r in baseline
+    )
+    assert removed["baseline.kpis.arrow"] == train
+    plain_section = strict_json(held.plain / MANIFEST)["split_filter"]
+    assert plain_section == {
+        "eval_split": None,
+        "slices": [],
+        "rows_removed": {},
+        "rule": site_export._SPLIT_NONE,
+    }
+    assert read_bundle(held.test) == held.manifest
+    assert held.manifest["setup"]["split"]["out_of_sample"] is True
+
+
+def test_the_split_filter_shrinks_only_the_split_slices(held: Held) -> None:
+    files = strict_json(held.plain / MANIFEST)["files"]
+    plain = {f["path"]: f["bytes"] for f in files}
+    assert [f.path for f in held.report.files] == list(plain)
+    for file in held.report.files:
+        if file.slice in ("kpis", "exceedance", "map"):
+            assert file.bytes < plain[file.path], file.path
+        else:
+            assert file.bytes == plain[file.path], file.path
+
+
+def test_an_unknown_split_is_refused(held: Held, tmp_path: Path) -> None:
+    with pytest.raises(BundleError, match="eval_split must be one of"):
+        export(held.toy, tmp_path / "b", eval_split="pooled")
+    assert site_export.EVAL_SPLITS == ("full", "train", "test")
+    assert not (tmp_path / "b").exists()
+
+
+def test_a_split_the_runs_lack_is_refused(
+    toy: Fixture, held: Held, tmp_path: Path
+) -> None:
+    with pytest.raises(BundleError, match="no KPI rows of eval_split 'test'"):
+        export(toy, tmp_path / "b", eval_split="test")  # a full sample
+    with pytest.raises(BundleError, match="no KPI rows of eval_split 'full'"):
+        export(held.toy, tmp_path / "b", sweeps=held.sweeps, eval_split="full")
+    assert not (tmp_path / "b").exists()
+    full = export(toy, tmp_path / "full", eval_split="full")
+    assert full.manifest["split_filter"]["rows_removed"]["baseline.kpis.arrow"] == 0
+
+
+def test_a_kfold_bundle_refuses_the_split_filter(kfold: Pooled, tmp_path: Path) -> None:
+    with pytest.raises(BundleError, match="is k-fold"):
+        export(
+            kfold.toy,
+            tmp_path / "b",
+            pooled_kpis=kfold.pooled.table,
+            eval_split="test",
+        )
+    assert not (tmp_path / "b").exists()
+    assert kfold.manifest["split_filter"]["eval_split"] is None
