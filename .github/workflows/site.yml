@@ -13,10 +13,12 @@ name: Site
 #     every build from site/configs/explorer.yaml (out of sample, annual
 #     basis) on the committed thesis parity event set. No download, no cache:
 #     the run keys do not include the code version, so a cached store could
-#     serve results of older code. It is written into the rendered site and
-#     checked against its manifest (SHA-256, sizes, no other files) and the
+#     serve results of older code. It is exported with --split test (MAR-213),
+#     so it holds the out-of-sample rows only, written into the rendered site
+#     and checked against its manifest (SHA-256, sizes, no other files) and the
 #     publication rule (annual basis, out of sample, config hash, no failed
-#     run) before the Pages artifact is uploaded.
+#     run, no row of an evaluation split other than "test") before the Pages
+#     artifact is uploaded.
 
 # The two path lists are the same: the site, the concept docs the method pages
 # include at render time (MAR-166), this workflow, and the code, lock and event
@@ -102,9 +104,11 @@ jobs:
       - name: Render the site
         run: quarto render site
       # After the render, which empties site/_site. The label is the config's
-      # description. A failed run exits 1 and fails the build.
+      # description. --split test: the KPI, exceedance and map files hold the
+      # out-of-sample rows only (MAR-213). A failed run exits 1 and fails the
+      # build.
       - name: Export the explorer bundle into the site
-        run: uv run --locked parametric-insurance-design export-site "$EXPLORER_CONFIG" --out "$EXPLORER_BUNDLE"
+        run: uv run --locked parametric-insurance-design export-site "$EXPLORER_CONFIG" --split test --out "$EXPLORER_BUNDLE"
       - name: Check the rendered pages and the bundles
         run: |
           for f in index.html explorers/alpha-beta.html blog/index.html blog/index.xml \
@@ -131,7 +135,41 @@ jobs:
           test "$(jq -r '.config.hash' "$manifest")" = "$hash" || { echo "config hash differs from $EXPLORER_CONFIG ($hash)"; exit 1; }
           echo "== publication rule: annual basis, out of sample, no run left out"
           jq -e '.setup.basis == "annual" and .setup.split.out_of_sample == true and .setup.split.kind != "full" and (.runs.skipped | length) == 0' "$manifest"
-          jq '{label, config, budget: .budget, split: .setup.split, files: (.files | length)}' "$manifest"
+          echo "== publication rule: out-of-sample rows only (MAR-213)"
+          jq -e '.split_filter.eval_split == "test"' "$manifest"
+          # Read every table back: each kpis, exceedance and map file must have
+          # an eval_split column holding "test" alone, so no in-sample (train)
+          # row is deployed.
+          uv run --locked python - "$EXPLORER_BUNDLE" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          import pyarrow as pa
+
+          root = Path(sys.argv[1])
+          manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+          split_slices = {"kpis", "exceedance", "map"}
+          checked = 0
+          for entry in manifest["files"]:
+              if entry["format"] != "arrow":
+                  continue
+              with pa.memory_map(str(root / entry["path"])) as source:
+                  table = pa.ipc.open_file(source).read_all()
+              if "eval_split" not in table.column_names:
+                  if entry["slice"] in split_slices:
+                      sys.exit(f"{entry['path']}: no eval_split column")
+                  continue
+              splits = set(table.column("eval_split").to_pylist())
+              if splits != {"test"}:
+                  sys.exit(f"{entry['path']}: eval_split {sorted(map(str, splits))}, only 'test' may be published")
+              print(f"{entry['path']}: {table.num_rows} rows, eval_split test only")
+              checked += 1
+          expected = sum(e["slice"] in split_slices for e in manifest["files"])
+          if checked == 0 or checked != expected:
+              sys.exit(f"checked {checked} tables with eval_split, expected {expected}")
+          PY
+          jq '{label, config, budget: .budget, split: .setup.split, split_filter: (.split_filter | {eval_split, rows_removed}), files: (.files | length)}' "$manifest"
       - name: Upload the Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
