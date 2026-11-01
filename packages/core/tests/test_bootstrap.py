@@ -9,6 +9,8 @@
 * Paired differences, undefined replicates and error paths.
 * Paired differences across scopes (MAR-179): portfolio-level rows only,
   reproducing MAR-158's ``problem_id`` relabelling on the parity fixture.
+* Repeated pairing keys (MAR-211): a typed ``BootstrapError``, not pandas'
+  ``MergeError``; separately calibrated cluster designs pair as any scope.
 * Coverage on a synthetic case with a known answer.
 """
 
@@ -16,7 +18,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -54,7 +56,7 @@ from parametric_insurance_design.payout import StepPayout
 from parametric_insurance_design.pricing import CostOfCapitalLoad, PurePremium
 from parametric_insurance_design.problem import build_problems
 from parametric_insurance_design.records import ALL_PROBLEMS, KPIS, KpiName
-from parametric_insurance_design.scopes import Individual, Portfolio
+from parametric_insurance_design.scopes import Cluster, Individual, Portfolio
 from parametric_insurance_design.solve import solve
 from parametric_insurance_design.splits import holdout
 
@@ -1043,6 +1045,140 @@ def test_across_scopes_refuses_full_tables_empty_tables_and_other_resamples(
     )
     with pytest.raises(BootstrapError, match=r"no partner.*same portfolio"):
         paired_difference(fewer, individual.portfolio_rows(), across_scopes=True)
+
+
+# --------------------------------------------------------------------------
+# Paired differences: typed errors for repeated keys (MAR-211)
+# --------------------------------------------------------------------------
+
+
+def stacked(*boots: KpiBootstrap) -> KpiBootstrap:
+    """The rows and replicates of several bootstraps in one table."""
+    return KpiBootstrap(
+        table=pd.concat([b.table for b in boots], ignore_index=True),
+        replicates=np.vstack([b.replicates for b in boots]),
+        resample=boots[0].resample,
+        level=boots[0].level,
+    )
+
+
+def test_paired_difference_refuses_a_table_of_several_runs(
+    toy_eventset: EventSet,
+) -> None:
+    # Two runs' rows in one table repeat every PAIR_KEY (it has no run_id):
+    # a BootstrapError naming the runs, not pandas' MergeError.
+    joint, _, joint_wcvar = scope_designs(toy_eventset)
+    both = stacked(joint, joint_wcvar)
+    pattern = (
+        r"design {side} has {n} KPI rows whose pairing key repeats.*"
+        r"run_id \['joint', 'joint_wcvar'\].*one bootstrap_kpis result per design"
+    )
+    n = len(both.table)
+    with pytest.raises(BootstrapError, match=pattern.format(side="a", n=n)):
+        paired_difference(both, joint)
+    with pytest.raises(BootstrapError, match=pattern.format(side="b", n=n)):
+        paired_difference(joint_wcvar, both)
+
+
+@pytest.mark.parametrize("level", ["entity", "problem", "portfolio"])
+def test_paired_difference_refuses_a_repeated_row_on_the_default_path(
+    toy_eventset: EventSet, level: str
+) -> None:
+    # A row at any level, e.g. a problem-level row, that appears twice in one
+    # table has no unique partner; the default path checks every level.
+    _, individual, _ = scope_designs(toy_eventset)
+    mask = col(individual.table, "level") == level
+    extra = KpiBootstrap(
+        table=individual.table.loc[mask].reset_index(drop=True),
+        replicates=individual.replicates[mask],
+        resample=individual.resample,
+        level=individual.level,
+    )
+    twice = stacked(individual, extra)
+    match = rf"design a has {2 * int(mask.sum())} KPI rows.*level='{level}'"
+    with pytest.raises(BootstrapError, match=match):
+        paired_difference(twice, individual)
+
+
+def test_across_scopes_refuses_portfolio_rows_of_several_problem_ids(
+    toy_eventset: EventSet,
+) -> None:
+    # PORTFOLIO_PAIR_KEY has no problem_id: the portfolio rows of two scopes
+    # in one table collide, and the error names both problem ids.
+    joint, individual, _ = scope_designs(toy_eventset)
+    both = stacked(joint.portfolio_rows(), individual.portfolio_rows())
+    match = (
+        r"design b has .* pairing key repeats.*problem_id \['\*', 'portfolio'\]"
+        r".*across_scopes ignores problem_id"
+    )
+    with pytest.raises(BootstrapError, match=match):
+        paired_difference(joint.portfolio_rows(), both, across_scopes=True)
+    # The check runs after the portfolio-only check, which still comes first.
+    with pytest.raises(BootstrapError, match="portfolio-level rows only"):
+        paired_difference(stacked(joint, individual), both, across_scopes=True)
+
+
+@dataclasses.dataclass(frozen=True)
+class OneClusterPerLocation:
+    """Clustering test double: location ``i`` (EventSet order) is cluster ``i + 1``."""
+
+    def assign(self, eventset: EventSet, n_clusters: int) -> Mapping[str, int]:
+        return {loc: i + 1 for i, loc in enumerate(eventset.location_ids)}
+
+
+def test_paired_difference_of_separately_calibrated_cluster_designs(
+    toy_eventset: EventSet,
+) -> None:
+    # Cluster(joint=False) (MAR-180): problem ids "cluster:C<k>". Two such
+    # designs pair on the default path, row for row; stacked, they're refused.
+    data = random_rows(toy_eventset, n_years=30, n_draws=1, seed=4)
+    rs = resample_years(np.arange(30), 300, np.random.default_rng(6))
+    scope = Cluster(OneClusterPerLocation(), n_clusters=2, joint=False)
+    out: list[KpiBootstrap] = []
+    for run_id, objective in (
+        ("sep_wcvar", WeightedCVaR(alpha=0.9, beta=0.8)),
+        ("sep_mse", MSE()),
+    ):
+        built = build_problems(
+            data,
+            scope,
+            StepPayout(attachment=0.0, limit=40.0, n_bins=4),
+            objective,
+            PurePremium(),
+            (),
+            basis=Basis.ANNUAL,
+        )
+        results = [solve(p) for p in built]
+        out.append(
+            bootstrap_kpis(
+                data,
+                scope,
+                results,
+                basis=Basis.ANNUAL,
+                beta=BETA,
+                run_id=run_id,
+                resample=rs,
+            )
+        )
+    a, b = out
+    assert set(a.table["problem_id"]) == {"cluster:C1", "cluster:C2", ALL_PROBLEMS}
+    diff = paired_difference(a, b)
+    assert len(diff) == len(a.table) == len(b.table)
+    assert set(diff["problem_id"]) == set(a.table["problem_id"])
+    np.testing.assert_array_equal(
+        col(diff, "difference"), col(diff, "value_a") - col(diff, "value_b")
+    )
+    across = paired_difference(
+        a.portfolio_rows(), b.portfolio_rows(), across_scopes=True
+    )
+    plain = diff.loc[col(diff, "level") == "portfolio"].reset_index(drop=True)
+    pd.testing.assert_frame_equal(
+        across.drop(columns=["problem_id_a", "problem_id_b"]),
+        plain.drop(columns=["problem_id"]),
+        check_exact=True,
+    )
+    with pytest.raises(BootstrapError, match=r"sep_mse', 'sep_wcvar'"):
+        paired_difference(stacked(a, b), b)
 
 
 @needs_fixture

@@ -1057,7 +1057,8 @@ def paired_difference(
         The two designs on the same sample, e.g. weighted CVaR (``a``) and
         MSE (``b``) of one scope. Their KPI rows are paired on
         :data:`PAIR_KEY`, so they must describe the same subjects (the same
-        scope and portfolio). With ``across_scopes=True``: the
+        scope and portfolio), and each table must hold one run, so that every
+        row has its own key. With ``across_scopes=True``: the
         portfolio-level rows of two designs of possibly different scopes on
         the same portfolio, e.g. ``a.portfolio_rows()`` and
         ``b.portfolio_rows()``.
@@ -1093,9 +1094,13 @@ def paired_difference(
     Raises
     ------
     BootstrapError
-        If the resamples differ, a KPI row has no partner, or ``level`` is
-        not in ``(0, 1)``; with ``across_scopes=True``, also if a table has a
-        row that is not at the portfolio level, or no rows.
+        If the resamples differ, a KPI row has no partner, two rows of one
+        table have the same pairing key (e.g. the rows of several runs in one
+        table), or ``level`` is not in ``(0, 1)``; with ``across_scopes=True``,
+        also if a table has a row that is not at the portfolio level, or no
+        rows, or portfolio rows of several problem ids for one KPI (e.g. the
+        ``portfolio_rows()`` of two runs stacked). Every refusal is checked
+        before the rows are paired (MAR-211).
 
     Examples
     --------
@@ -1120,6 +1125,8 @@ def paired_difference(
     else:
         key = list(PAIR_KEY)
         carried = []
+    _check_unique_keys(a, key, "a", across_scopes)
+    _check_unique_keys(b, key, "b", across_scopes)
     left = a.table[[*key, *carried, "run_id", "value"]].copy()
     left["_ia"] = np.arange(len(left))
     right = b.table[[*key, *carried, "run_id", "value"]].copy()
@@ -1176,3 +1183,37 @@ def _check_portfolio_only(boot: KpiBootstrap, side: str) -> None:
         raise BootstrapError(
             f"across_scopes: design {side} has no portfolio-level KPI rows"
         )
+
+
+def _check_unique_keys(
+    boot: KpiBootstrap, key: list[str], side: str, across_scopes: bool
+) -> None:
+    """Raise unless every row of ``boot`` has its own pairing ``key``.
+
+    Two rows with the same key can't each have one partner, so the
+    one-to-one pairing is undefined. One run's table never has them (its
+    ``kpis`` key is unique and holds one ``run_id``); a table that stacks
+    the rows of several runs does, and, with ``across_scopes=True``, so
+    does one that stacks portfolio rows of several problem ids, since
+    :data:`PORTFOLIO_PAIR_KEY` has no ``problem_id``.
+    """
+    repeated = boot.table.duplicated(subset=key, keep=False).to_numpy()
+    if not repeated.any():
+        return
+    groups = boot.table.groupby(key, dropna=False, sort=False).ngroup().to_numpy()
+    i = int(np.flatnonzero(repeated)[0])
+    first = boot.table.iloc[i]
+    group = boot.table.loc[groups == groups[i]]
+    shown = ", ".join(f"{column}={first[column]!r}" for column in key)
+    hint = (
+        "across_scopes ignores problem_id, so pass one run's "
+        "KpiBootstrap.portfolio_rows()"
+        if across_scopes
+        else "pass one bootstrap_kpis result per design"
+    )
+    raise BootstrapError(
+        f"design {side} has {int(repeated.sum())} KPI rows whose pairing key "
+        f"repeats, so they can't be paired one to one; e.g. {len(group)} rows "
+        f"with {shown} (run_id {sorted(set(group['run_id'].astype(str)))}, "
+        f"problem_id {sorted(set(group['problem_id'].astype(str)))}). {hint}"
+    )
