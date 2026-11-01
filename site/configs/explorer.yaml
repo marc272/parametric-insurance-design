@@ -9,8 +9,7 @@
 # annual basis, a holdout split (first 70 % of the 10,000 simulated years
 # train, the last 30 % test), pure pricing, budget loading 1.0, 15 bins from
 # 20 to 70 m/s, evaluation beta 0.99, and the weighted-CVaR objective at
-# alpha 0.9, beta 0.99, with C1's block-bootstrap intervals (B = 1000, seed
-# 0, level 0.9).
+# alpha 0.9, beta 0.99, with block-bootstrap intervals (seed 0, level 0.9).
 #
 # Sweeps, one factor at a time around the baseline: alpha, the thesis grid
 # (0.1 to 1.0 by 0.1); beta, C1's range (0.95 to 0.995); kappa, 0.5 to 1.5
@@ -25,6 +24,8 @@
 #   2. kappa 9 values, not the thesis' 11 (0.5 to 1.5 by 0.1): 11 would put
 #      sweep.budget_loading.exceedance.arrow over 2 MB.
 #   3. No n_bins sweep.
+#   4. Bootstrap B = 200, not C1's 1000: at B = 1000 the bootstrap took
+#      about 30 s per sweep point on a GitHub runner (325 s for the solve).
 #
 # The description below is the bundle's label (export-site's default): it
 # names the setup and every reduction, and says which rows may be published.
@@ -46,11 +47,11 @@ description: >-
   thesis noise layer, annual basis, holdout split (years 0-6999 train, 7000-9999
   test), pure pricing, budget loading 1.0, 15 bins from 20 to 70 m/s, evaluation
   beta 0.99; objectives MSE, E[U] and weighted CVaR (alpha 0.9, beta 0.99).
-  Block-bootstrap intervals B = 1000, level 0.9. Sweeps - alpha 0.1 to 1.0 by
-  0.1, beta 0.95 to 0.995, budget loading 0.5 to 1.5 by 0.125. Reduced for CI -
-  individual scope only, budget loading 9 values (thesis 11), no n_bins sweep.
-  Out-of-sample numbers are the eval_split "test" rows; the "train" rows are
-  in sample and are not to be published.
+  Block-bootstrap intervals, level 0.9. Sweeps - alpha 0.1 to 1.0 by 0.1, beta
+  0.95 to 0.995, budget loading 0.5 to 1.5 by 0.125. Reduced for CI - individual
+  scope only, budget loading 9 values (thesis 11), no n_bins sweep, bootstrap
+  B = 200 (C1 1000). Out-of-sample numbers are the eval_split "test" rows; the
+  "train" rows are in sample and are not to be published.
 eventset:
   path: ../../parity/tests/data/thesis_eventset
   checksum: sha256:404b0c3a3aefa38965ad3ace2747d308685a67e3b218cb835d45a9ab375294df
@@ -91,7 +92,7 @@ evaluation:
   beta: 0.99
 bootstrap:
   seed: 0
-  n_bootstrap: 1000
+  n_bootstrap: 200
   level: 0.9
 sweeps:
 - parameter: alpha
