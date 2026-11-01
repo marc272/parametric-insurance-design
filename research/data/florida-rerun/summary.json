@@ -1,0 +1,102 @@
+{
+  "issue": "MAR-202",
+  "phases": {
+    "guard": {
+      "issue": "MAR-202",
+      "plan": "research/configs/florida/plan.yaml",
+      "package_versions": {
+        "parametric-insurance-design": "0.1.0.dev0",
+        "numpy": "2.5.4",
+        "scipy": "1.18.1",
+        "pandas": "3.1.0",
+        "pyarrow": "26.0.0",
+        "pydantic": "2.14.1",
+        "pyyaml": "6.0.3",
+        "cvxpy": "1.9.3",
+        "clarabel": "0.11.1",
+        "osqp": "1.1.3",
+        "scs": "3.3.1",
+        "highspy": "1.15.1"
+      },
+      "solver_policy": "DEFAULT_POLICY",
+      "guard_samples": 24,
+      "guard_fires": 0,
+      "guard_runs_scanned": 173,
+      "tail_records": 1656,
+      "tail_records_flagged": 0,
+      "tail_flags_by_scope": {},
+      "manifest_tail_records_equal_recomputed": 450,
+      "phase_seconds": 120.8
+    },
+    "holdout": {
+      "issue": "MAR-202",
+      "plan": "results/florida/plan_a.yaml",
+      "package_versions": {
+        "parametric-insurance-design": "0.1.0.dev0",
+        "numpy": "2.5.4",
+        "scipy": "1.18.1",
+        "pandas": "3.1.0",
+        "pyarrow": "26.0.0",
+        "pydantic": "2.14.1",
+        "pyyaml": "6.0.3",
+        "cvxpy": "1.9.3",
+        "clarabel": "0.11.1",
+        "osqp": "1.1.3",
+        "scs": "3.3.1",
+        "highspy": "1.15.1"
+      },
+      "solver_policy": "DEFAULT_POLICY",
+      "holdout_groups": 6,
+      "holdout_decompositions_checked": 864,
+      "holdout_premium_splits_checked": 108,
+      "holdout_seconds": 3911.5,
+      "holdout_seconds_per_group": {
+        "a|coc_r0.06|0.5": 1324.2,
+        "a|coc_r0.06|1": 1330.6,
+        "a|coc_r0.06|1.5": 1250.8
+      },
+      "phase_seconds": 3911.5
+    },
+    "matched": {
+      "issue": "MAR-202",
+      "plan": "results/florida/plan_a.yaml",
+      "package_versions": {
+        "parametric-insurance-design": "0.1.0.dev0",
+        "numpy": "2.5.4",
+        "scipy": "1.18.1",
+        "pandas": "3.1.0",
+        "pyarrow": "26.0.0",
+        "pydantic": "2.14.1",
+        "pyyaml": "6.0.3",
+        "cvxpy": "1.9.3",
+        "clarabel": "0.11.1",
+        "osqp": "1.1.3",
+        "scs": "3.3.1",
+        "highspy": "1.15.1"
+      },
+      "solver_policy": "DEFAULT_POLICY",
+      "matched_runs": 12,
+      "matched_solved_this_call": 0,
+      "matched_seconds": 0.8,
+      "matched_solve_seconds_per_run": {},
+      "phase_seconds": 0.8
+    }
+  },
+  "guard_fires": 0,
+  "committed_tables": [
+    "cluster_parts.csv",
+    "clusters.csv",
+    "contrasts.csv",
+    "contrasts_pooled.csv",
+    "contrasts_train.csv",
+    "entity_payouts.csv",
+    "grid.csv",
+    "guard.csv",
+    "guard_tail_counties.csv",
+    "guard_tails.csv",
+    "kfold_folds.csv",
+    "premium_split.csv",
+    "premiums.csv",
+    "runs.csv"
+  ]
+}
