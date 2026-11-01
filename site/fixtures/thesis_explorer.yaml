@@ -1,7 +1,9 @@
-# Reduced thesis-fixture config for the site's explorer check (MAR-201).
+# Reduced thesis-fixture config of the committed test bundle
+# site/fixtures/thesis-explorer/ (MAR-201; a test fixture only since MAR-210:
+# no page reads it, and it is not copied into the site).
 #
 # The thesis experiment (parity/configs/thesis.yaml) cut down to what the
-# placeholder alpha/beta explorer page needs: one location of the thesis
+# former placeholder alpha/beta explorer page needed: one location of the thesis
 # portfolio (A1, Brickell_HighRise, the largest insured value), one scope
 # (individual), one objective (weighted CVaR) and its alpha and beta sweeps.
 # Everything else (event set, noise layer, threshold, basis, sample, payout,

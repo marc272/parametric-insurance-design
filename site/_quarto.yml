@@ -13,10 +13,10 @@ project:
     - index.qmd
     - explorers/*.qmd
     - blog/index.qmd
-  # The bundles the pages read with FileAttachment, copied as they are.
-  resources:
-    - fixtures/thesis-explorer/*.json
-    - fixtures/thesis-explorer/*.arrow
+  # No resources: the committed bundles under fixtures/ are test fixtures
+  # (thesis-fixture data, in sample) and stay out of the site (MAR-210). The
+  # pages read the explorer bundle, which the Site workflow exports into
+  # _site/bundles/explorer/ after the render (site/README.md, "Bundles").
 
 quarto-required: "1.10.19"
 
