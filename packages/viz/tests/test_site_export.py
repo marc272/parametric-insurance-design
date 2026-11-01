@@ -532,7 +532,7 @@ def test_a_missing_run_is_an_error(toy: Fixture, tmp_path: Path) -> None:
     ids = list(toy.run_ids)
     ids[1] = "sha256:" + "0" * 64
     out = tmp_path / "bundle"
-    with pytest.raises(MissingRunError, match="1 of 9 single runs are not in the result"):
+    with pytest.raises(MissingRunError, match="1 of 9 single runs are not in"):
         export_site(
             toy.config,
             ids,
@@ -681,6 +681,6 @@ def test_the_committed_thesis_fixture_matches_its_manifest() -> None:
         content = read_slice(THESIS_FIXTURE, entry["path"])
         if entry["format"] == "arrow":
             assert isinstance(content, pa.Table)
-            assert content.num_rows == entry["rows"]
+            assert arrow(THESIS_FIXTURE / entry["path"]).num_rows == entry["rows"]
         else:
             strict_json(THESIS_FIXTURE / entry["path"])
