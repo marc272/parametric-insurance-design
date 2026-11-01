@@ -7,6 +7,8 @@
   event basis has a "no event" outcome).
 * Point estimates: ``bootstrap_kpis`` keeps ``evaluate.kpis``'s values.
 * Paired differences, undefined replicates and error paths.
+* Paired differences across scopes (MAR-179): portfolio-level rows only,
+  reproducing MAR-158's ``problem_id`` relabelling on the parity fixture.
 * Coverage on a synthetic case with a known answer.
 """
 
@@ -15,6 +17,7 @@ from __future__ import annotations
 import dataclasses
 import math
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -26,6 +29,8 @@ from parametric_insurance_design.basis import Basis, OutcomeMeasure, outcome_mea
 from parametric_insurance_design.bootstrap import (  # pyright: ignore[reportPrivateUsage]
     DEFAULT_LEVEL,
     DEFAULT_N_BOOTSTRAP,
+    PAIR_KEY,
+    PORTFOLIO_PAIR_KEY,
     BootstrapError,
     KpiBootstrap,
     YearResample,
@@ -41,14 +46,26 @@ from parametric_insurance_design.bootstrap import (  # pyright: ignore[reportPri
 from parametric_insurance_design.errors import ComponentConfigError, InputMismatchError
 from parametric_insurance_design.evaluate import evaluate_results, kpis, var_cvar
 from parametric_insurance_design.eventset import EventSet
+from parametric_insurance_design.experiment.config import load_config, parse_config
+from parametric_insurance_design.experiment.runner import load_input, prepare_eventset
 from parametric_insurance_design.interfaces import Sample, SolveResult
 from parametric_insurance_design.objectives import MSE, WeightedCVaR
 from parametric_insurance_design.payout import StepPayout
 from parametric_insurance_design.pricing import CostOfCapitalLoad, PurePremium
 from parametric_insurance_design.problem import build_problems
-from parametric_insurance_design.records import KPIS, KpiName
+from parametric_insurance_design.records import ALL_PROBLEMS, KPIS, KpiName
 from parametric_insurance_design.scopes import Individual, Portfolio
 from parametric_insurance_design.solve import solve
+from parametric_insurance_design.splits import holdout
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+PARITY_EVENTSET = REPO_ROOT / "parity" / "tests" / "data" / "thesis_eventset"
+PARITY_CONFIG = REPO_ROOT / "parity" / "configs" / "thesis.yaml"
+
+needs_fixture = pytest.mark.skipif(
+    not (PARITY_EVENTSET.is_dir() and PARITY_CONFIG.is_file()),
+    reason="the parity fixture is only in a repository checkout",
+)
 
 BETA = 0.83
 """KPI level. Not a multiple of the toy probabilities (1/12, 1/36, 1/40, ...),
@@ -815,6 +832,295 @@ def test_paired_difference_needs_the_same_resample(toy_eventset: EventSet) -> No
     fewer = dataclasses.replace(b, table=b.table.iloc[1:].reset_index(drop=True))
     with pytest.raises(BootstrapError, match="no partner"):
         paired_difference(a, fewer)
+
+
+# --------------------------------------------------------------------------
+# Paired differences across scopes (MAR-179)
+# --------------------------------------------------------------------------
+
+DIFFERENCE_COLUMNS = [
+    "run_id_a",
+    "run_id_b",
+    "value_a",
+    "value_b",
+    "difference",
+    "ci_low",
+    "ci_high",
+    "ci_level",
+    "n_bootstrap",
+]
+
+
+def relabelled_portfolio_rows(boot: KpiBootstrap) -> KpiBootstrap:
+    """MAR-158's workaround, ``research/scripts/c1_rq2.py::portfolio_rows``.
+
+    Kept here verbatim as the reference the library pairing must reproduce:
+    the portfolio-level rows, every ``problem_id`` relabelled to ``"*"``.
+    """
+    mask = (boot.table["level"] == "portfolio").to_numpy()
+    table = boot.table.loc[mask].copy().reset_index(drop=True)
+    table["problem_id"] = ALL_PROBLEMS
+    return KpiBootstrap(
+        table=table,
+        replicates=boot.replicates[mask],
+        resample=boot.resample,
+        level=boot.level,
+    )
+
+
+def assert_same_as_relabelled(
+    new: pd.DataFrame, a: KpiBootstrap, b: KpiBootstrap
+) -> None:
+    """``new`` equals the workaround's pairing of ``a`` and ``b`` bit for bit."""
+    old = paired_difference(relabelled_portfolio_rows(a), relabelled_portfolio_rows(b))
+    assert list(new.columns) == [
+        "problem_id_a",
+        "problem_id_b",
+        *PORTFOLIO_PAIR_KEY,
+        *DIFFERENCE_COLUMNS,
+    ]
+    pd.testing.assert_frame_equal(
+        new.drop(columns=["problem_id_a", "problem_id_b"]),
+        old.drop(columns=["problem_id"]),
+        check_exact=True,
+    )
+    for name in ("value_a", "value_b", "difference", "ci_low", "ci_high"):
+        assert np.array_equal(col(new, name), col(old, name), equal_nan=True)
+
+
+def scope_designs(
+    toy_eventset: EventSet,
+) -> tuple[KpiBootstrap, KpiBootstrap, KpiBootstrap]:
+    """Portfolio-scope MSE, individual-scope MSE and portfolio-scope CVaR."""
+    data = random_rows(toy_eventset, n_years=30, n_draws=1, seed=4)
+    rs = resample_years(np.arange(30), 300, np.random.default_rng(6))
+    out: list[KpiBootstrap] = []
+    for run_id, scope, objective in (
+        ("joint", Portfolio(), MSE()),
+        ("individual", Individual(), MSE()),
+        ("joint_wcvar", Portfolio(), WeightedCVaR(alpha=0.9, beta=0.8)),
+    ):
+        results = solved(data, scope, objective, Basis.ANNUAL)
+        out.append(
+            bootstrap_kpis(
+                data,
+                scope,
+                results,
+                basis=Basis.ANNUAL,
+                beta=BETA,
+                run_id=run_id,
+                resample=rs,
+                pricing=PurePremium(),
+            )
+        )
+    return out[0], out[1], out[2]
+
+
+def test_portfolio_rows_keeps_the_portfolio_rows_and_their_replicates(
+    toy_eventset: EventSet,
+) -> None:
+    _, individual, _ = scope_designs(toy_eventset)
+    rows = individual.portfolio_rows()
+    mask = col(individual.table, "level") == "portfolio"
+    assert mask.sum() == len(rows.table) > 0
+    assert set(rows.table["level"].astype(str)) == {"portfolio"}
+    assert set(rows.table["problem_id"]) == {ALL_PROBLEMS}
+    np.testing.assert_array_equal(rows.replicates, individual.replicates[mask])
+    pd.testing.assert_frame_equal(
+        rows.table, individual.table.loc[mask].reset_index(drop=True)
+    )
+    assert rows.resample is individual.resample
+    assert rows.level == individual.level
+
+
+def test_paired_difference_across_scopes(toy_eventset: EventSet) -> None:
+    joint, individual, _ = scope_designs(toy_eventset)
+    # Without the option the portfolio rows don't pair: "portfolio" vs "*".
+    with pytest.raises(BootstrapError, match="no partner"):
+        paired_difference(joint.portfolio_rows(), individual.portfolio_rows())
+    a, b = joint.portfolio_rows(), individual.portfolio_rows()
+    diff = paired_difference(a, b, across_scopes=True)
+    assert len(diff) == len(a.table) == len(b.table)
+    assert set(diff["kpi"]) >= {"expected_uncovered", "cvar_uncovered", "premium"}
+    assert set(diff["problem_id_a"]) == {"portfolio"}
+    assert set(diff["problem_id_b"]) == {ALL_PROBLEMS}
+    assert set(diff["level"].astype(str)) == {"portfolio"}
+    assert set(diff["run_id_a"]) == {"joint"}
+    assert set(diff["run_id_b"]) == {"individual"}
+    np.testing.assert_array_equal(
+        col(diff, "difference"), col(diff, "value_a") - col(diff, "value_b")
+    )
+    for i, kpi in enumerate(diff["kpi"]):
+        (ia,) = np.flatnonzero(col(a.table, "kpi") == kpi)
+        (ib,) = np.flatnonzero(col(b.table, "kpi") == kpi)
+        assert col(diff, "value_a")[i] == col(a.table, "value")[ia]
+        assert col(diff, "value_b")[i] == col(b.table, "value")[ib]
+        low, high = percentile_interval(a.replicates[ia] - b.replicates[ib], 0.9)
+        assert np.array_equal(
+            [col(diff, "ci_low")[i], col(diff, "ci_high")[i]],
+            [low, high],
+            equal_nan=True,
+        )
+    # Same losses under both scopes: the expected-loss difference is exactly 0.
+    el = col(diff, "kpi") == "expected_loss"
+    for name in ("difference", "ci_low", "ci_high"):
+        np.testing.assert_array_equal(col(diff, name)[el], 0.0)
+    assert_same_as_relabelled(diff, joint, individual)
+    # The level argument still applies.
+    assert set(paired_difference(a, b, level=0.5, across_scopes=True)["ci_level"]) == {
+        0.5
+    }
+
+
+def test_across_scopes_agrees_with_the_plain_pairing_within_a_scope(
+    toy_eventset: EventSet,
+) -> None:
+    joint, _, joint_wcvar = scope_designs(toy_eventset)
+    plain = paired_difference(joint_wcvar, joint)
+    plain = plain.loc[col(plain, "level") == "portfolio"].reset_index(drop=True)
+    across = paired_difference(
+        joint_wcvar.portfolio_rows(), joint.portfolio_rows(), across_scopes=True
+    )
+    assert (across["problem_id_a"] == plain["problem_id"]).all()
+    assert (across["problem_id_b"] == plain["problem_id"]).all()
+    pd.testing.assert_frame_equal(
+        across.drop(columns=["problem_id_a", "problem_id_b"]),
+        plain.drop(columns=["problem_id"]),
+        check_exact=True,
+    )
+
+
+@pytest.mark.parametrize("level", ["location", "entity", "problem"])
+def test_across_scopes_refuses_rows_below_the_portfolio_level(
+    toy_eventset: EventSet, level: str
+) -> None:
+    joint, individual, _ = scope_designs(toy_eventset)
+    # evaluate.kpis writes no location rows today; relabel entity rows.
+    source = "entity" if level == "location" else level
+    mask = col(individual.table, "level") == source
+    assert mask.any()
+    table = individual.table.loc[mask].reset_index(drop=True)
+    table["level"] = level
+    rows = KpiBootstrap(
+        table=table,
+        replicates=individual.replicates[mask],
+        resample=individual.resample,
+        level=individual.level,
+    )
+    with pytest.raises(BootstrapError, match=rf"design b has .* at level {level}"):
+        paired_difference(joint.portfolio_rows(), rows, across_scopes=True)
+    with pytest.raises(BootstrapError, match=rf"design a has .* at level {level}"):
+        paired_difference(rows, joint.portfolio_rows(), across_scopes=True)
+
+
+def test_across_scopes_refuses_full_tables_empty_tables_and_other_resamples(
+    toy_eventset: EventSet,
+) -> None:
+    joint, individual, _ = scope_designs(toy_eventset)
+    with pytest.raises(BootstrapError, match="portfolio-level rows only"):
+        paired_difference(joint, individual, across_scopes=True)
+    with pytest.raises(BootstrapError, match=r"design b has .* entity, problem"):
+        paired_difference(joint.portfolio_rows(), individual, across_scopes=True)
+    empty = KpiBootstrap(
+        table=joint.table.iloc[:0],
+        replicates=joint.replicates[:0],
+        resample=joint.resample,
+        level=joint.level,
+    )
+    with pytest.raises(BootstrapError, match="design a has no portfolio-level"):
+        paired_difference(empty, individual.portfolio_rows(), across_scopes=True)
+    other = dataclasses.replace(
+        individual.portfolio_rows(),
+        resample=resample_years(np.arange(30), 300, np.random.default_rng(7)),
+    )
+    with pytest.raises(BootstrapError, match="different resamples"):
+        paired_difference(joint.portfolio_rows(), other, across_scopes=True)
+    fewer = joint.portfolio_rows()
+    fewer = dataclasses.replace(
+        fewer,
+        table=fewer.table.iloc[1:].reset_index(drop=True),
+        replicates=fewer.replicates[1:],
+    )
+    with pytest.raises(BootstrapError, match=r"no partner.*same portfolio"):
+        paired_difference(fewer, individual.portfolio_rows(), across_scopes=True)
+
+
+@needs_fixture
+def test_across_scopes_reproduces_the_c1_relabelling_on_the_parity_fixture() -> None:
+    """MAR-179 acceptance: MAR-158's ``scope_paired.csv`` pairing, fixture-sized.
+
+    The C1 RQ2 holdout set-up (``research/scripts/c1_rq2.py``,
+    ``holdout_worker``) on the parity fixture: annual basis, 70/30 holdout,
+    pure pricing, budget at kappa 1, weighted CVaR at beta 0.99, test KPIs at
+    beta 0.95 and 0.99 bootstrapped on one resample of the test years. B is
+    200 instead of 1000 and there is no noise layer, to keep it CI-sized.
+    For every C1 pair of scopes, the library pairing equals the workaround's
+    bit for bit. The same check on the real C1 rows is in the PR (local).
+    """
+    base = load_config(PARITY_CONFIG)
+    config = parse_config(
+        {
+            **base.model_dump(mode="json"),
+            "noise": None,
+            "basis": "annual",
+            "sample": {"kind": "holdout", "train_fraction": 0.7},
+            "objectives": [{"kind": "weighted_cvar", "alpha": 0.9, "beta": 0.99}],
+            "sweeps": [],
+        }
+    )
+    prepared = prepare_eventset(config, load_input(config).eventset)
+    train, test = holdout(prepared, train_fraction=0.7)
+    comps = config.to_components()
+    resample = resample_years(test.years, 200, np.random.default_rng(0))
+    boots: dict[tuple[str, float], KpiBootstrap] = {}
+    for scope_config, scope in zip(config.scopes, comps.scopes, strict=True):
+        built = build_problems(
+            prepared,
+            scope,
+            comps.payout,
+            comps.objectives[0],
+            comps.pricing,
+            comps.constraints,
+            basis=comps.basis,
+            sample=train,
+        )
+        results = [solve(b, pricing=comps.pricing) for b in built]
+        for beta in (0.95, 0.99):
+            boots[(scope_config.kind, beta)] = bootstrap_kpis(
+                prepared,
+                scope,
+                results,
+                basis=comps.basis,
+                beta=beta,
+                run_id=scope_config.kind,
+                resample=resample,
+                sample=test,
+                pricing=comps.pricing,
+            )
+    pairs = (
+        ("portfolio", "individual"),
+        ("cluster", "individual"),
+        ("cluster", "portfolio"),
+    )
+    for a, b in pairs:
+        for beta in (0.95, 0.99):
+            boot_a, boot_b = boots[(a, beta)], boots[(b, beta)]
+            diff = paired_difference(
+                boot_a.portfolio_rows(), boot_b.portfolio_rows(), across_scopes=True
+            )
+            assert_same_as_relabelled(diff, boot_a, boot_b)
+            assert len(diff) == int((col(boot_a.table, "level") == "portfolio").sum())
+            assert not np.all(np.isnan(col(diff, "ci_low")))
+    # The individual and cluster runs have several problems ("*"), the
+    # portfolio run one ("portfolio"): the pair the plain call refuses.
+    joint = boots[("portfolio", 0.99)].portfolio_rows()
+    individual = boots[("individual", 0.99)].portfolio_rows()
+    assert set(joint.table["problem_id"]) == {"portfolio"}
+    assert set(individual.table["problem_id"]) == {ALL_PROBLEMS}
+    with pytest.raises(BootstrapError, match="no partner"):
+        paired_difference(joint, individual)
+    assert "problem_id" in PAIR_KEY
+    assert "problem_id" not in PORTFOLIO_PAIR_KEY
 
 
 # --------------------------------------------------------------------------
