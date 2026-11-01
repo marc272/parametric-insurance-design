@@ -92,8 +92,20 @@ class KpiLevel(StrEnum):
     ----------
     LOCATION : str
         One location (asset): its loss against the payout it receives.
+        Reserved: ``evaluate.kpis`` doesn't write it, because the payout a
+        location receives from a joint design isn't identified (MAR-100).
+        Per-location rows carry the allocation rule in their level, below.
+    LOCATION_BY_VALUE : str
+        One location: its loss against its share of its design problem's
+        payout, pro rata to insured value (``evaluate`` allocation
+        ``"value"``, MAR-100).
+    LOCATION_BY_LOSS : str
+        One location: its loss against its share of its design problem's
+        payout, pro rata to its loss in each row (``evaluate`` allocation
+        ``"loss"``, MAR-100).
     ENTITY : str
-        One payout entity (an asset or a cluster).
+        One payout entity (an asset or a cluster). For a joint scope, one
+        member of the set of optimal designs (MAR-100).
     PROBLEM : str
         The objective level of one design problem.
     PORTFOLIO : str
@@ -102,6 +114,8 @@ class KpiLevel(StrEnum):
     """
 
     LOCATION = "location"
+    LOCATION_BY_VALUE = "location_by_value"
+    LOCATION_BY_LOSS = "location_by_loss"
     ENTITY = "entity"
     PROBLEM = "problem"
     PORTFOLIO = "portfolio"
