@@ -1,11 +1,15 @@
 # The paper's main EventSet, index (b) variant (D2, SPEC §6.6 and §6.3;
 # MAR-114). Every setting is configs/florida_counties.yaml's except the index:
 # the cat-in-a-circle (MAR-26) around each county's value-weighted centroid,
-# the maximum Saffir-Simpson category of the track within 50 km
-# (radius_km <= proximity_km / 2). Rows, seed and per-cell loss draws are the
-# same, so the loss matrix equals that of florida_counties.yaml. For a step
-# payout on this category index, use attachment 0 and integer category
-# breakpoints.
+# the maximum Saffir-Simpson category of the track within 75 km
+# (radius_km <= proximity_km / 2). The radius is the owner's answer to
+# MAR-118 Q6 (2026-10-31), from MAR-133's sensitivity over 50, 75, 100 and
+# 150 km (research/notes/cat-in-circle-radius-sensitivity.md); it was 50 km
+# until MAR-145. Rows, seed and per-cell loss draws are the same, so the loss
+# matrix equals that of florida_counties.yaml. For a step payout on this
+# category index, use integer category breakpoints with attachment 1 and
+# below_attachment: zero (MAR-170, decided 2026-11-01), so that category 0
+# pays nothing; see research/data/d2-florida-eventset/README.md.
 #
 #   pixi run build-eventset --config configs/florida_counties_cat_in_circle.yaml
 #
@@ -30,7 +34,7 @@ impact_function:
   scale: 1.0
 index:
   kind: cat_in_circle
-  radius_km: 50
+  radius_km: 75
   metric: category
   breakpoints_kn: [64, 83, 96, 113, 137]
   track_step_hours: 0.5
@@ -57,4 +61,4 @@ scenario_notes:
   - "Attribution: asset values from the CLIMADA data API, dataset LitPop_150arcsec_USA v3 (uuid 678e9551-32ca-40f3-9881-9bd38412c1cd), CC BY 4.0, Eberenz et al. (2020), Earth Syst. Sci. Data 12, 817-833, doi:10.5194/essd-12-817-2020, archive doi:10.3929/ethz-b-000331316; county boundaries: U.S. Census Bureau, 2025 TIGER/Line Shapefiles; hazard: IRIS (Sparks and Toumi 2024), data descriptor doi:10.1038/s41597-024-03250-y, collection doi:10.6084/m9.figshare.c.6724251.v1."
   - "Monroe County (the Florida Keys, GEOID 12087) is in the portfolio with a known exposure gap: the LitPop_150arcsec_USA grid has no cell centred west of 81.604 deg W in the Keys, so Key West and the Lower Keys west of it carry no asset value (LitPop's land mask at 150 arcsec leaves them out; they have no cell at all, not a zero-valued one). Monroe's value (0.765e9 USD, 0.016 % of the 4.893e12 USD portfolio) and its losses are therefore understated; the gap is not filled from another source (MAR-132; owner decision on MAR-118)."
 licence: CC-BY-4.0
-output: ../../../data/eventsets/florida-counties-iris-cat-in-circle-50km-vulnerability
+output: ../../../data/eventsets/florida-counties-iris-cat-in-circle-75km-vulnerability
