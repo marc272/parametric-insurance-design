@@ -12,8 +12,8 @@
 # alpha 0.9, beta 0.99, with block-bootstrap intervals (seed 0, level 0.9).
 #
 # Sweeps, one factor at a time around the baseline: alpha, the thesis grid
-# (0.1 to 1.0 by 0.1); beta, C1's range (0.95 to 0.995); kappa, 0.5 to 1.5
-# by 0.125.
+# (0.1 to 1.0 by 0.1); beta, C1's range (0.95 to 0.995); kappa, the thesis
+# grid (0.5 to 1.5 by 0.1).
 #
 # Reductions against C1 and the thesis sweeps, so that the Site workflow
 # solves it in a few minutes on a GitHub runner and every file stays inside
@@ -21,23 +21,29 @@
 #   1. One scope, individual: each location calibrated on its own. No cluster
 #      or portfolio scope, so the bundle makes no joint-calibration
 #      statement (the RQ2 rule).
-#   2. kappa 9 values, not the thesis' 11 (0.5 to 1.5 by 0.1): 11 would put
-#      sweep.budget_loading.exceedance.arrow over 2 MB.
-#   3. No n_bins sweep.
-#   4. Bootstrap B = 200, not C1's 1000: at B = 1000 the bootstrap took
+#   2. No n_bins sweep.
+#   3. Bootstrap B = 200, not C1's 1000: at B = 1000 the bootstrap took
 #      about 30 s per sweep point on a GitHub runner (325 s for the solve).
+# (Until MAR-213, kappa had 9 values: with the train rows in the bundle, the
+# thesis' 11 put sweep.budget_loading.exceedance.arrow over 2 MB. The test
+# rows alone take about 1.0 MB.)
+#
+# Out of sample only (MAR-213). A holdout run stores KPIs and exceedance
+# curves on the train years (eval_split "train", in sample) and on the test
+# years ("test", out of sample). The bundle is exported with --split test,
+# so its kpis, exceedance and map files hold the "test" rows only (the
+# publication rule); the manifest records the filter (split_filter), and
+# the Site workflow fails if any other row is in the bundle. The payout
+# tables have no split.
 #
 # The description below is the bundle's label (export-site's default): it
-# names the setup and every reduction, and says which rows may be published.
-# A holdout run stores KPIs and exceedance curves on the train years
-# (eval_split "train", in sample) and on the test years ("test", out of
-# sample); a published page shows the "test" rows only.
+# names the setup and every reduction.
 #
 # Build it from the repository root (the workflow runs the same commands):
 #   uv run parametric-insurance-design sweep site/configs/explorer.yaml --jobs 4
 #   quarto render site
 #   uv run parametric-insurance-design export-site site/configs/explorer.yaml \
-#       --out site/_site/bundles/explorer
+#       --split test --out site/_site/bundles/explorer
 # Relative paths are relative to this file's directory.
 schema_version: 1
 name: site-explorer
@@ -48,10 +54,10 @@ description: >-
   test), pure pricing, budget loading 1.0, 15 bins from 20 to 70 m/s, evaluation
   beta 0.99; objectives MSE, E[U] and weighted CVaR (alpha 0.9, beta 0.99).
   Block-bootstrap intervals, level 0.9. Sweeps - alpha 0.1 to 1.0 by 0.1, beta
-  0.95 to 0.995, budget loading 0.5 to 1.5 by 0.125. Reduced for CI - individual
-  scope only, budget loading 9 values (thesis 11), no n_bins sweep, bootstrap
-  B = 200 (C1 1000). Out-of-sample numbers are the eval_split "test" rows; the
-  "train" rows are in sample and are not to be published.
+  0.95 to 0.995, budget loading 0.5 to 1.5 by 0.1. Reduced for CI - individual
+  scope only, no n_bins sweep, bootstrap B = 200 (C1 1000). Out of sample only -
+  the KPIs, exceedance curves and map numbers are those of the test years
+  (eval_split "test"); the in-sample "train" rows are not in the bundle.
 eventset:
   path: ../../parity/tests/data/thesis_eventset
   checksum: sha256:404b0c3a3aefa38965ad3ace2747d308685a67e3b218cb835d45a9ab375294df
@@ -100,6 +106,6 @@ sweeps:
 - parameter: beta
   values: [0.95, 0.96, 0.97, 0.98, 0.99, 0.995]
 - parameter: budget_loading
-  values: [0.5, 0.625, 0.75, 0.875, 1.0, 1.125, 1.25, 1.375, 1.5]
+  values: [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
 output:
   directory: ../../results/site/explorer

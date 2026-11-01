@@ -99,6 +99,21 @@ Rules (stated in the manifest, under ``rules``)
   ``max_bundle_bytes``. Over budget is a :class:`BundleBudgetError` raised
   before anything is written, never a truncation.
 
+Split filter (MAR-213)
+----------------------
+A holdout run stores its KPIs and exceedance curves on the train years
+(``eval_split = "train"``, in sample) and on the test years (``"test"``, out
+of sample). ``eval_split="test"`` (``export-site --split test``) keeps only
+the rows of that evaluation split in the ``kpis``, ``exceedance`` and ``map``
+slices of the baseline and of every sweep, so a published bundle holds
+out-of-sample numbers only (the publication rule, AGENTS.md). The payout
+tables are unaffected: a design has no split. The manifest records the
+filter under ``split_filter``: the split kept (null without a filter), the
+slices it applies to and the rows it removed per file. Every exported run
+must hold rows of the split kept, else :class:`BundleError` (e.g. ``"test"``
+of a ``full``-sample config); a k-fold bundle, which holds the pooled
+out-of-sample KPIs only, refuses the filter (:class:`BundleError`).
+
 No silent failures
 ------------------
 * A k-fold config without ``pooled_kpis``, or one that fixes
@@ -151,7 +166,7 @@ from parametric_insurance_design.experiment.kfold import (
 )
 from parametric_insurance_design.experiment.store import ResultStore
 from parametric_insurance_design.payout import NO_BIN
-from parametric_insurance_design.records import KpiLevel
+from parametric_insurance_design.records import KpiLevel, Split
 from parametric_insurance_design_viz.command import SweepRun
 from parametric_insurance_design_viz.errors import (
     InconsistentRunsError,
@@ -175,6 +190,7 @@ __all__ = [
     "BUNDLE_FORMAT_VERSION",
     "DEFAULT_MAX_BUNDLE_BYTES",
     "DEFAULT_MAX_FILE_BYTES",
+    "EVAL_SPLITS",
     "MANIFEST",
     "SITE_SWEEP_PARAMETERS",
     "BundleBudgetError",
@@ -207,6 +223,9 @@ SITE_SWEEP_PARAMETERS: Final[tuple[str, ...]] = (
     "n_bins",
 )
 """Sweep parameters the explorers show: alpha, beta, budget loading, bins."""
+
+EVAL_SPLITS: Final[tuple[str, ...]] = tuple(s.value for s in Split)
+"""Evaluation splits the split filter accepts: ``full``, ``train``, ``test``."""
 
 DEFAULT_MAX_FILE_BYTES: Final[int] = 2_000_000
 """Default budget per file: 2 MB (decimal)."""
@@ -309,6 +328,20 @@ _KFOLD_NOT_EXPORTED: Final[Mapping[str, str]] = {
     ),
 }
 """Slices a k-fold bundle leaves out, with the reason (``kfold.not_exported``)."""
+
+_SPLIT_SLICES: Final[tuple[str, ...]] = ("kpis", "exceedance", "map")
+"""Slices with an ``eval_split`` column, which the split filter applies to."""
+_SPLIT_KEPT: Final[str] = (
+    "Only the rows with eval_split {split!r} of the kpis, exceedance and map "
+    "slices (baseline and every sweep) are exported (export-site --split "
+    "{split}); the rows of the other evaluation splits were removed "
+    "(rows_removed, per file). The payout tables are unaffected: a design has "
+    "no split."
+)
+_SPLIT_NONE: Final[str] = (
+    "No split filter: the kpis, exceedance and map slices hold the rows of "
+    "every evaluation split the runs stored (their eval_split column)."
+)
 
 
 # --------------------------------------------------------------------------
@@ -867,6 +900,71 @@ class _Builder:
             )
 
 
+@dataclass
+class _SplitFilter:
+    """The split filter of a bundle and the rows it removed, per file."""
+
+    eval_split: str | None
+    removed: dict[str, int] = field(default_factory=dict)
+
+    def check(self, runs: Iterable[_Exported]) -> None:
+        """Raise :class:`BundleError` if a run has no KPI row of the split kept."""
+        if self.eval_split is None:
+            return
+        for item in runs:
+            stored = sorted({str(s) for s in item.run.kpis["eval_split"]})
+            if self.eval_split not in stored:
+                raise BundleError(
+                    f"run {item.run.run_id} ({item.scope_key} x "
+                    f"{item.run.objective}) has no KPI rows of eval_split "
+                    f"{self.eval_split!r}, only of {stored}: the split filter "
+                    "would leave its numbers out. Export a split its sample "
+                    "evaluates (a holdout sample: 'test' out of sample)"
+                )
+
+    def apply(self, path: str, frame: pd.DataFrame) -> pd.DataFrame:
+        """Keep the rows of the split kept; record how many were removed."""
+        if self.eval_split is None:
+            return frame
+        keep = (frame["eval_split"].astype(str) == self.eval_split).to_numpy()
+        self.removed[path] = int((~keep).sum())
+        return _rows(frame, keep).reset_index(drop=True)
+
+    def section(self) -> dict[str, Any]:
+        """Return the manifest's ``split_filter`` section."""
+        if self.eval_split is None:
+            return {
+                "eval_split": None,
+                "slices": [],
+                "rows_removed": {},
+                "rule": _SPLIT_NONE,
+            }
+        return {
+            "eval_split": self.eval_split,
+            "slices": list(_SPLIT_SLICES),
+            "rows_removed": dict(self.removed),
+            "rule": _SPLIT_KEPT.format(split=self.eval_split),
+        }
+
+
+def _check_split(
+    config: ExperimentConfig, eval_split: str | None, k: int | None
+) -> None:
+    """Raise :class:`BundleError` for an unknown split or one asked of k-fold."""
+    if eval_split is None:
+        return
+    if eval_split not in EVAL_SPLITS:
+        raise BundleError(
+            f"eval_split must be one of {list(EVAL_SPLITS)}, got {eval_split!r}"
+        )
+    if k is not None:
+        raise BundleError(
+            f"config {config.name!r} is k-fold: its bundle holds the pooled "
+            f"out-of-sample KPIs only (eval_split {POOLED_SPLIT!r}), so the "
+            f"split filter (eval_split {eval_split!r}) does not apply"
+        )
+
+
 def _scope_keys(config: ExperimentConfig) -> list[str]:
     """Name per configured scope: its kind, numbered on repeats (as figures)."""
     kinds = [s.kind for s in config.scopes]
@@ -1198,6 +1296,7 @@ def export_site(
     budget: SizeBudget | None = None,
     label: str | None = None,
     pooled_kpis: pd.DataFrame | None = None,
+    eval_split: str | None = None,
 ) -> ExportReport:
     """Export a config's site bundle from its result store.
 
@@ -1237,6 +1336,12 @@ def export_site(
         run_ids).table`` (columns ``POOLED_COLUMNS``), as the
         ``export-site`` command computes it. Written to
         ``baseline.pooled_kpis.arrow``.
+    eval_split : {"full", "train", "test"}, optional
+        The split filter (MAR-213): keep only the rows of this evaluation
+        split in the ``kpis``, ``exceedance`` and ``map`` slices, e.g.
+        ``"test"`` for a published bundle (out of sample only). Default: no
+        filter, every split the runs stored. Recorded in the manifest
+        (``split_filter``). Not for k-fold configs.
 
     Returns
     -------
@@ -1260,7 +1365,9 @@ def export_site(
     BundleError
         If a sweep parameter is not exportable or not configured, or
         ``out_dir`` holds files that are not part of a bundle; for k-fold,
-        if sweeps or events are asked for.
+        if sweeps or events are asked for; if ``eval_split`` is not a split,
+        is given for a k-fold config, or an exported run has no KPI rows of
+        it.
     BundleValueError
         If a value breaks the infinity, NaN or integer rule.
     BundleBudgetError
@@ -1278,10 +1385,14 @@ def export_site(
     (the baseline ``run_id`` per single run, the ``run_id`` per point of
     each exported sweep, the skipped runs), ``sweeps_not_exported``, the
     ``events`` switch, the ``budget`` with the bundle's total, the
-    ``files`` (:meth:`BundleFile.to_dict`) and the ``rules``; a k-fold
-    bundle also its ``kfold`` section (module docstring).
+    ``files`` (:meth:`BundleFile.to_dict`), the ``split_filter`` (the
+    split kept or null, the slices filtered, the rows removed per file) and
+    the ``rules``; a k-fold bundle also its ``kfold`` section (module
+    docstring).
     """
     k = _check_kfold(config, parameters, include_events, pooled_kpis)
+    _check_split(config, eval_split, k)
+    split = _SplitFilter(eval_split)
     if k is not None:
         parameters, sweeps = [], ()
     budget = SizeBudget() if budget is None else budget
@@ -1330,11 +1441,12 @@ def export_site(
         baseline = [
             _Exported(results[r], scope_key[r]) for r in ids if r not in skipped
         ]
-        _add_group(builder, baseline, group=_BASELINE)
+        split.check(baseline)
+        _add_group(builder, baseline, split, group=_BASELINE)
         builder.add_table(
             "baseline.map.arrow",
             "map",
-            _map(baseline),
+            split.apply("baseline.map.arrow", _map(baseline)),
             (*_RUN_COLUMNS, *_MAP_COLUMNS),
             group=_BASELINE,
         )
@@ -1360,7 +1472,8 @@ def export_site(
             for p in points
             if p.parameter == parameter and p.run_id not in skipped
         ]
-        _add_group(builder, runs, group=_SWEEP, parameter=parameter)
+        split.check(runs)
+        _add_group(builder, runs, split, group=_SWEEP, parameter=parameter)
 
     manifest: dict[str, Any] = {
         "format": BUNDLE_FORMAT,
@@ -1400,6 +1513,7 @@ def export_site(
             "bundle_bytes": sum(f.bytes for f in builder.files),
         },
         "files": [f.to_dict() for f in builder.files],
+        "split_filter": split.section(),
         "rules": dict(_RULES),
     }
     if kfold_section is not None:
@@ -1740,11 +1854,16 @@ def _pooled_frame(
 def _add_group(
     builder: _Builder,
     runs: Sequence[_Exported],
+    split: _SplitFilter,
     *,
     group: str,
     parameter: str | None = None,
 ) -> None:
-    """Add the payouts, KPIs and exceedance curves of one group of runs."""
+    """Add the payouts, KPIs and exceedance curves of one group of runs.
+
+    The KPIs and exceedance curves pass through the split filter; the payouts
+    do not (a design has no split).
+    """
     stem = _BASELINE if parameter is None else f"{_SWEEP}.{parameter}"
     labels = _RUN_COLUMNS if parameter is None else (*_RUN_COLUMNS, _SWEEP_VALUE)
     slices: tuple[tuple[str, pd.DataFrame, tuple[_Col, ...]], ...] = (
@@ -1757,8 +1876,11 @@ def _add_group(
         ),
     )
     for name, frame, columns in slices:
+        path = f"{stem}.{name}.arrow"
+        if name in _SPLIT_SLICES:
+            frame = split.apply(path, frame)
         builder.add_table(
-            f"{stem}.{name}.arrow",
+            path,
             name,
             frame,
             (*labels, *columns),

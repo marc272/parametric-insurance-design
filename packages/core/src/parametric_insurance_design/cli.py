@@ -57,15 +57,21 @@ Commands
     default). ``--max-file-bytes N`` and ``--max-bundle-bytes N`` set the
     size budget (default 2 MB per file, 10 MB of data files); over budget
     is an error (exit code 3) and nothing is written. ``--label TEXT`` says
-    what the data are. A run with a failed design problem is listed and
-    left out (exit code 1). For a k-fold config (MAR-208) it first computes
-    the pooled out-of-sample portfolio KPIs from the store, as ``figures``
-    does (:func:`~parametric_insurance_design.experiment.kfold.pooled_kpis`,
-    with its drift guard; nothing is solved), passes them as
-    ``pooled_kpis=``, and prints a ``pooled k-fold KPIs`` line (and a ``not
-    pooled`` line per scope x objective with a failed fold); the bundle holds
-    no sweeps and no events, so ``--parameter`` and ``--events`` are refused
-    (exit code 3). Accepts ``--policy``, ``-v`` and ``-q``.
+    what the data are. ``--split S`` (``full``, ``train`` or ``test``;
+    MAR-213) keeps only the rows of evaluation split ``S`` in the KPI,
+    exceedance and map slices (``--split test``: out of sample only, for a
+    published bundle); the payout tables are unaffected, the manifest records
+    the filter (``split_filter``), and a run without rows of ``S`` or a
+    k-fold config is refused (exit code 3). A run with a failed design
+    problem is listed and left out (exit code 1). For a k-fold config
+    (MAR-208) it first computes the pooled out-of-sample portfolio KPIs
+    from the store, as ``figures`` does
+    (:func:`~parametric_insurance_design.experiment.kfold.pooled_kpis`, with
+    its drift guard; nothing is solved), passes them as ``pooled_kpis=``,
+    and prints a ``pooled k-fold KPIs`` line (and a ``not pooled`` line per
+    scope x objective with a failed fold); the bundle holds no sweeps and no
+    events, so ``--parameter`` and ``--events`` are refused (exit code 3).
+    Accepts ``--policy``, ``-v`` and ``-q``.
 
 Common options of ``run`` and ``sweep``:
 
@@ -163,6 +169,7 @@ from parametric_insurance_design.experiment.sweeps import (
     run_sweeps,
     sweep_points,
 )
+from parametric_insurance_design.records import Split
 from parametric_insurance_design.solve import (
     DEFAULT_POLICY,
     THESIS_POLICY,
@@ -459,6 +466,17 @@ def _add_export_site(commands: argparse._SubParsersAction[Any]) -> None:
         default=None,
         metavar="TEXT",
         help="what the data are, for the site (default: the config's description)",
+    )
+    export.add_argument(
+        "--split",
+        choices=tuple(s.value for s in Split),
+        default=None,
+        metavar="S",
+        help=(
+            "keep only the KPI, exceedance and map rows of evaluation split S "
+            "(full, train or test; 'test' for a published bundle: out of sample "
+            "only); payouts are unaffected (default: every split)"
+        ),
     )
     verbosity = export.add_mutually_exclusive_group()
     verbosity.add_argument(
@@ -956,6 +974,7 @@ def _export_site(config: ExperimentConfig, args: argparse.Namespace) -> ExitCode
         include_events=args.events,
         budget=export.SizeBudget(**budget_options),
         label=args.label,
+        eval_split=args.split,
         **options,
     )
     manifest = report.manifest
@@ -974,6 +993,13 @@ def _export_site(config: ExperimentConfig, args: argparse.Namespace) -> ExitCode
             _out(
                 f"  not pooled: {failure.scope} x {failure.objective}: {failure.reason}"
             )
+    split = manifest["split_filter"]
+    if split["eval_split"] is not None:
+        removed = sum(split["rows_removed"].values())
+        _out(
+            f"  split filter: eval_split {split['eval_split']!r} kept, {removed:,} "
+            "rows of other splits removed (kpis, exceedance, map)"
+        )
     for file in report.files:
         _out(f"  wrote   {file.path}  ({file.bytes:,} bytes)")
     for name in report.removed:
