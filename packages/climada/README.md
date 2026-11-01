@@ -1,6 +1,6 @@
 # parametric-insurance-design-climada
 
-Adapter from CLIMADA to the EventSet of [parametric-insurance-design](https://github.com/marc272/parametric-insurance-design): tracks → CLIMADA hazard and impact → EventSet.
+Adapter from CLIMADA to the EventSet of [parametric-insurance-design](https://github.com/marc272/parametric-insurance-design): tracks → CLIMADA hazard and impact → EventSet. The repository's [README](https://github.com/marc272/parametric-insurance-design#readme) has the project's status and a quickstart.
 
 ```python
 from parametric_insurance_design_climada.config import load_config
@@ -10,11 +10,16 @@ result = build_eventset(load_config("configs/thesis.yaml"))
 result.eventset.to_parquet("data/eventsets/thesis-iris")
 ```
 
-Status: the IRIS download (MAR-72) and the track → wind → impact pipeline (MAR-73) are in. Parity with the thesis event-loss table is verified under MAR-20. The cat-in-a-circle index (MAR-26) and the vulnerability draws (MAR-25) are in.
+What it does today:
+
+- downloads the IRIS hurricane catalogue and builds EventSets from its tracks: track → CLIMADA wind field → impact. On the thesis portfolio, the build regenerates the thesis's event-loss table bit for bit (the adapter section of [`parity/REPORT.md`](https://github.com/marc272/parametric-insurance-design/blob/main/parity/REPORT.md));
+- offers a cat-in-a-circle index and vulnerability draws, optionally with the prior recentred on the base impact function (sections below).
+
+A parametric insurance module for CLIMADA itself, carrying the core's two ideas, is planned work and is not part of this package. Version 0.1.0.dev0, not released.
 
 ## Environment
 
-This package is **not a member of the uv workspace**. CLIMADA comes from conda-forge, and its pins would clash with the CRC adapter's pandas ≥ 3 requirement, so this package has its own **pixi** environment (`docs/SPEC.md` §4.1):
+This package is **not a member of the uv workspace**. CLIMADA comes from conda-forge, and its pins would clash with the pandas ≥ 3 of the CRC SDK, which the CRC adapter will import, so this package has its own **pixi** environment (`docs/SPEC.md` §4.1):
 
 - `pixi.toml` and the committed `pixi.lock` in this folder define it: CLIMADA 6.1.0 on Python 3.12 from conda-forge, the core installed editable from `../core`, and this package installed editable from `.`.
 - The core's dependencies come from conda-forge too, so no PyPI wheel shadows the conda numpy/scipy stack.

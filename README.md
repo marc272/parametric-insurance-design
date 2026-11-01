@@ -104,7 +104,7 @@ parametric-insurance-design/
 ## Environments
 
 - **uv workspace** for `core`, `viz` and `crc`, with one lockfile (`uv.lock`). The core supports Python 3.11 to 3.13 with numpy ≥ 1.26 and pandas ≥ 2.1. The CRC package needs Python ≥ 3.12, so the workspace uses Python 3.12 or later (`.python-version` selects 3.12).
-- **pixi** for `packages/climada`, which is not a uv workspace member: CLIMADA comes from conda-forge, and its pins would clash with the CRC package's requirements. Its README says how to set it up.
+- **pixi** for `packages/climada`, which is not a uv workspace member: CLIMADA comes from conda-forge, and its pins would clash with the pandas ≥ 3 of the CRC SDK, which the CRC package will import. Its README says how to set it up.
 
 The two environments share data only through EventSet Parquet files ([`docs/SPEC.md`](docs/SPEC.md) §5).
 
