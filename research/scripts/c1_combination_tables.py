@@ -112,7 +112,10 @@ def _short(h: object) -> str:
 
 
 def _int(x: float) -> str:
-    return "n/a" if x is None or math.isnan(x) else f"{x:,.0f}".replace("-", "−")
+    if x is None or math.isnan(x):
+        return "n/a"
+    # no "-0" for a tiny negative value
+    return f"{round(x) + 0:,.0f}".replace("-", "−")
 
 
 def _pct(x: float) -> str:
