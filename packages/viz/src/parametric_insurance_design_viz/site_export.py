@@ -111,7 +111,11 @@ from parametric_insurance_design.experiment.config import (
 from parametric_insurance_design.experiment.store import ResultStore
 from parametric_insurance_design.payout import NO_BIN
 from parametric_insurance_design_viz.command import SweepRun
-from parametric_insurance_design_viz.errors import InconsistentRunsError, VizError
+from parametric_insurance_design_viz.errors import (
+    InconsistentRunsError,
+    MissingRunError,
+    VizError,
+)
 from parametric_insurance_design_viz.kpi_figures import KFoldRunsError
 from parametric_insurance_design_viz.payout_functions import (
     below_attachment_mode,
@@ -1180,6 +1184,7 @@ def export_site(
         scope_key.setdefault(point.run_id, keys[point.single // per_scope])
 
     all_ids = tuple(scope_key)
+    _require(store, ids, points)
     results = {r.run_id: r for r in ResultReader(store).runs(all_ids)}
     _check_runs(config, results.values(), eventset)
     skipped = {
@@ -1321,6 +1326,32 @@ def _plan(
             f"no sweep points were given for the sweeps {empty}"
         )
     return ids, chosen, not_exported, points
+
+
+def _require(
+    store: ResultStore, ids: Sequence[str], points: Sequence[SweepRun]
+) -> None:
+    """Raise :class:`MissingRunError` if a run or a sweep point is not stored."""
+    missing = [r for r in dict.fromkeys(ids) if not store.has_run(r)]
+    if missing:
+        raise MissingRunError(
+            f"{len(missing)} of {len(ids)} single runs are not in the result "
+            f"store {store.root}: {missing}; export-site reads the store and "
+            "never solves, so run the config first (parametric-insurance-design "
+            "run CONFIG)"
+        )
+    gone = [p for p in points if not store.has_run(p.run_id)]
+    if gone:
+        per_sweep = Counter(p.parameter for p in gone)
+        totals = Counter(p.parameter for p in points)
+        counts = ", ".join(f"{k} {n}/{totals[k]}" for k, n in per_sweep.items())
+        raise MissingRunError(
+            f"{len(gone)} of {len(points)} sweep points are not in the result "
+            f"store {store.root} ({counts}), e.g. {gone[0].parameter}="
+            f"{gone[0].value!r} {gone[0].run_id}; export-site never solves, so "
+            "run the sweeps first (parametric-insurance-design sweep CONFIG), or "
+            "export fewer (--parameter P, --no-sweeps)"
+        )
 
 
 _SETUP_FIELDS: Final[tuple[str, ...]] = (

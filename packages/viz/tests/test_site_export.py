@@ -532,7 +532,7 @@ def test_a_missing_run_is_an_error(toy: Fixture, tmp_path: Path) -> None:
     ids = list(toy.run_ids)
     ids[1] = "sha256:" + "0" * 64
     out = tmp_path / "bundle"
-    with pytest.raises(MissingRunError, match="1 of 9 runs are not in the result"):
+    with pytest.raises(MissingRunError, match="1 of 9 single runs are not in the result"):
         export_site(
             toy.config,
             ids,

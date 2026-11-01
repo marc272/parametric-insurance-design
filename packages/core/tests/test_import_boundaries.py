@@ -13,13 +13,15 @@ A dynamic import fails the check when
 * its module argument is not a string literal (a name, an f-string, a
   concatenation, ...), unless the call site is allow-listed.
 
-The allow-list holds one call site, keyed by module and enclosing function:
+The allow-list holds two call sites, keyed by module and enclosing function:
 ``parametric_insurance_design.cli._import_viz``, the MAR-110 lazy import of
-the viz package. Its argument is the module constant ``VIZ_MODULE``, not a
-literal, so the allow-list entry also pins that argument expression, and
+the viz package for ``figures``, and ``parametric_insurance_design.cli.
+_import_export``, the MAR-200 one for ``export-site``. Their arguments are the
+module constants ``VIZ_MODULE`` and ``EXPORT_MODULE``, not literals, so each
+allow-list entry also pins that argument expression, and
 :func:`test_the_allowed_call_site_imports_viz` checks at runtime that the
-constant names the viz module (not an adapter) and that the call site still
-exists, so the allow-list cannot go stale.
+constants name viz modules (not an adapter) and that the call sites still
+exist, so the allow-list cannot go stale.
 
 A runtime check (MAR-123) complements both static ones: a fresh interpreter
 imports the core and every one of its submodules (found with
@@ -60,8 +62,10 @@ IMPORT_FUNCTIONS = frozenset({"import_module", "__import__"})
 ALLOWED: dict[tuple[str, str], str] = {
     # (module, enclosing function): the argument expression, as source text
     (f"{CORE_PACKAGE}.cli", "_import_viz"): "VIZ_MODULE",
+    (f"{CORE_PACKAGE}.cli", "_import_export"): "EXPORT_MODULE",
 }
-"""Call sites allowed a non-literal module argument (MAR-110 lazy viz import)."""
+"""Call sites allowed a non-literal module argument (the lazy viz imports of
+``figures``, MAR-110, and ``export-site``, MAR-200)."""
 
 
 @dataclass(frozen=True)
@@ -182,6 +186,8 @@ def test_the_allowed_call_site_imports_viz() -> None:
         assert found.get(site) == argument, f"allow-listed call site gone: {site}"
     assert cli.VIZ_MODULE == "parametric_insurance_design_viz.command"
     assert not names_adapter(cli.VIZ_MODULE)
+    assert cli.EXPORT_MODULE == "parametric_insurance_design_viz.site_export"
+    assert not names_adapter(cli.EXPORT_MODULE)
 
 
 @pytest.mark.parametrize(
