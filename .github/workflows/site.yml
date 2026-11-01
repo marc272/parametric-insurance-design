@@ -1,24 +1,52 @@
 name: Site
 
 # The project website (site/, Quarto + OJS, ADR 0003; MAR-201). Pull
-# requests that touch the site build it; a push to main builds it and deploys
-# it to GitHub Pages (source "GitHub Actions", the github-pages environment,
+# requests that touch the site, or the code and data its bundle is built
+# from, build it; a push to main builds it and deploys it to GitHub Pages
+# (source "GitHub Actions", the github-pages environment,
 # https://marc272.github.io/parametric-insurance-design/).
 #
-# Bundle source: the pages read the committed fixture bundles under
-# site/fixtures/ (thesis-fixture data, under the 500 kB pre-commit limit).
-# The build checks them against their manifests' SHA-256 before rendering.
+# Bundle sources (ADR 0003, "Where bundles come from in CI"; MAR-208):
+#   - site/fixtures/: committed thesis-fixture bundles (in sample, not for
+#     publication), checked against their manifests' SHA-256;
+#   - bundles/explorer/: the explorer bundle, solved and exported here on
+#     every build from site/configs/explorer.yaml (out of sample, annual
+#     basis) on the committed thesis parity event set. No download, no cache:
+#     the run keys do not include the code version, so a cached store could
+#     serve results of older code. It is written into the rendered site and
+#     checked against its manifest (SHA-256, sizes, no other files) and the
+#     publication rule (annual basis, out of sample, config hash, no failed
+#     run) before the Pages artifact is uploaded.
 
+# The two path lists are the same: the site, the concept docs the method pages
+# include at render time (MAR-166), this workflow, and the code, lock and event
+# set the explorer bundle is solved and exported from.
 on:
   pull_request:
     paths:
       - "site/**"
+      - "docs/concepts/**"
       - ".github/workflows/site.yml"
+      - "packages/core/src/**"
+      - "packages/core/pyproject.toml"
+      - "packages/viz/src/**"
+      - "packages/viz/pyproject.toml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "parity/tests/data/thesis_eventset/**"
   push:
     branches: [main]
     paths:
       - "site/**"
+      - "docs/concepts/**"
       - ".github/workflows/site.yml"
+      - "packages/core/src/**"
+      - "packages/core/pyproject.toml"
+      - "packages/viz/src/**"
+      - "packages/viz/pyproject.toml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "parity/tests/data/thesis_eventset/**"
   workflow_dispatch:
 
 permissions:
@@ -34,12 +62,18 @@ env:
   # Pinned Quarto CLI. site/_quarto.yml requires the same version
   # (quarto-required); change both together.
   QUARTO_VERSION: "1.10.19"
+  # The explorer bundle (MAR-208): its config, and where it goes in the site.
+  EXPLORER_CONFIG: site/configs/explorer.yaml
+  EXPLORER_BUNDLE: site/_site/bundles/explorer
 
 jobs:
   build:
     name: build (Quarto site)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash # -e -o pipefail: a failing jq in a pipe fails the step
     steps:
       - uses: actions/checkout@v7
         with:
@@ -50,18 +84,54 @@ jobs:
             echo "== $bundle"
             (cd "$bundle" && jq -r '.files[] | "\(.sha256 | ltrimstr("sha256:"))  \(.path)"' manifest.json | sha256sum --check --strict)
           done
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          python-version: "3.12"
+      - name: Sync the workspace
+        run: uv sync --locked
+      # Every run and sweep point of the config, in 4 worker processes (the
+      # runner's vCPUs). A failed run exits 1 and fails the build.
+      - name: Solve the explorer runs
+        run: |
+          start=$SECONDS
+          uv run --locked parametric-insurance-design sweep "$EXPLORER_CONFIG" --jobs 4
+          echo "solve time: $((SECONDS - start)) s"
       - uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661b # v2.2.0
         with:
           version: ${{ env.QUARTO_VERSION }}
       - name: Render the site
         run: quarto render site
-      - name: Check the rendered pages and the bundle
+      # After the render, which empties site/_site. The label is the config's
+      # description. A failed run exits 1 and fails the build.
+      - name: Export the explorer bundle into the site
+        run: uv run --locked parametric-insurance-design export-site "$EXPLORER_CONFIG" --out "$EXPLORER_BUNDLE"
+      - name: Check the rendered pages and the bundles
         run: |
           for f in index.html explorers/alpha-beta.html blog/index.html blog/index.xml \
-                   fixtures/thesis-explorer/manifest.json fixtures/thesis-explorer/sweep.alpha.payouts.arrow; do
+                   fixtures/thesis-explorer/manifest.json fixtures/thesis-explorer/sweep.alpha.payouts.arrow \
+                   bundles/explorer/manifest.json bundles/explorer/sweep.alpha.payouts.arrow; do
             test -s "site/_site/$f" || { echo "missing: site/_site/$f"; exit 1; }
           done
-          du -sh site/_site
+          du -sh site/_site "$EXPLORER_BUNDLE"
+      # The last step before the upload: what is checked is what is deployed.
+      - name: Check the explorer bundle against its manifest and the publication rule
+        run: |
+          manifest="$EXPLORER_BUNDLE/manifest.json"
+          echo "== checksums"
+          (cd "$EXPLORER_BUNDLE" && jq -r '.files[] | "\(.sha256 | ltrimstr("sha256:"))  \(.path)"' manifest.json | sha256sum --check --strict)
+          echo "== sizes"
+          jq -r '.files[] | "\(.bytes) \(.path)"' "$manifest" | while read -r bytes path; do
+            actual=$(stat -c %s "$EXPLORER_BUNDLE/$path")
+            test "$actual" = "$bytes" || { echo "size of $path: $actual, manifest: $bytes"; exit 1; }
+          done
+          echo "== no files beyond the manifest's"
+          diff <(jq -r '.files[].path, "manifest.json"' "$manifest" | sort) <(ls -A "$EXPLORER_BUNDLE" | sort)
+          echo "== the config it came from"
+          hash=$(uv run --locked python -c 'import sys; from parametric_insurance_design.experiment.config import config_hash, load_config; print(config_hash(load_config(sys.argv[1])))' "$EXPLORER_CONFIG")
+          test "$(jq -r '.config.hash' "$manifest")" = "$hash" || { echo "config hash differs from $EXPLORER_CONFIG ($hash)"; exit 1; }
+          echo "== publication rule: annual basis, out of sample, no run left out"
+          jq -e '.setup.basis == "annual" and .setup.split.out_of_sample == true and .setup.split.kind != "full" and (.runs.skipped | length) == 0' "$manifest"
+          jq '{label, config, budget: .budget, split: .setup.split, files: (.files | length)}' "$manifest"
       - name: Upload the Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:

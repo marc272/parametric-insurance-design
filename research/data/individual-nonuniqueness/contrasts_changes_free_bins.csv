@@ -1,0 +1,20 @@
+pricing,contrast,joint_scope,tail_design,base_design,kpi,verdict_stored,verdict_low,verdict_high,sign_stored,sign_low,sign_high,n_ends_missing
+coc_r0.06,adds_rq2,portfolio,wcvar@0.99,,cvar@0.995,0 in,0 in,>0,+,+,+,0
+coc_r0.06,interaction,portfolio,wcvar@0.99,eu,cvar@0.995,>0,0 in,>0,+,+,+,0
+pure,adds_rq2,portfolio,wcvar@0.99,,cvar@0.95,0 in,<0,0 in,-,-,-,0
+pure,adds_rq2,portfolio,wcvar@0.99,,eu,0 in,<0,0 in,-,-,-,0
+pure,interaction,cluster,wcvar@0.99,eu,cvar@0.95,<0,<0,0 in,-,-,-,0
+pure,interaction,cluster,wcvar@0.99,eu,eu,<0,<0,0 in,-,-,-,0
+pure,interaction,cluster,wcvar@0.99,mse,cvar@0.95,0 in,<0,0 in,-,-,-,0
+pure,interaction,cluster,wcvar@0.99,mse,eu,0 in,<0,0 in,-,-,-,0
+pure,interaction,cluster,wcvar@0.995,mse,cvar@0.95,<0,<0,0 in,-,-,-,0
+pure,interaction,cluster,wcvar@0.995,mse,eu,<0,<0,0 in,-,-,-,0
+pure,interaction,portfolio,wcvar@0.99,eu,cvar@0.95,<0,<0,0 in,-,-,-,0
+pure,interaction,portfolio,wcvar@0.99,eu,cvar@0.995,>0,0 in,>0,+,+,+,0
+pure,interaction,portfolio,wcvar@0.99,eu,eu,<0,<0,0 in,-,-,-,0
+pure,interaction,portfolio,wcvar@0.99,mse,cvar@0.95,<0,<0,0 in,-,-,-,0
+pure,interaction,portfolio,wcvar@0.99,mse,eu,<0,<0,0 in,-,-,-,0
+pure,rq1_alone,,wcvar@0.995,eu,cvar@0.995,<0,<0,0 in,-,-,-,0
+pure,rq1_alone,,wcvar@0.995,mse,cvar@0.995,<0,<0,0 in,-,-,-,0
+pure,rq2_alone,cluster,,eu,cvar@0.95,0 in,0 in,>0,+,+,+,0
+pure,rq2_alone,cluster,,eu,eu,0 in,0 in,>0,+,+,+,0
