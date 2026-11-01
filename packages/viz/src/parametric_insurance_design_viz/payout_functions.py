@@ -52,15 +52,38 @@ the run's :class:`~parametric_insurance_design.payout.StepPayout` pays it
 :func:`normalised_payout` draws nothing below the attachment in either mode,
 as in the thesis; under ``"zero"`` both payouts are 0 there, so their ratio
 is undefined anyway.
+
+Joint designs (MAR-218, design review F8)
+-----------------------------------------
+A run is a joint design (:func:`is_joint_design`) when one of its design
+problems calibrates more than one payout entity: the portfolio scope, and
+the cluster scope with more than one cluster. Such a problem is identified
+only through the sum over its entities, so its per-entity payout functions
+are one of several optimal designs, the one the solver returned (see
+``docs/concepts/portfolio-calibration.md``, "Per-asset results of joint
+designs are not unique"). Unlike per-asset KPIs (``evaluate.kpis``,
+``allocation``), payout functions have no allocation rule, so both figures
+take a keyword ``joint_entities`` (:data:`JOINT_ENTITIES_MODES`) that applies
+whenever a drawn entity belongs to a joint problem:
+
+* ``"caption"`` (the default): the figure carries :data:`JOINT_CAPTION` as its
+  title, and its data hold a ``caption`` table (:data:`CAPTION_COLUMNS`, one
+  row per joint problem drawn), so the CSVs keep the caption too.
+* ``"refuse"``: raise :class:`JointEntitiesError` before drawing.
+
+Figures of runs without a joint problem (the individual scope) are unchanged
+in both modes. External outputs (website, posts, examples) show per-entity
+payout functions of a joint design only with the caption.
 """
 
 from __future__ import annotations
 
 import math
 import re
+import textwrap
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Final, cast
+from typing import Final, Literal, cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -80,17 +103,24 @@ from parametric_insurance_design_viz import style
 from parametric_insurance_design_viz.errors import (
     FigureDataError,
     InconsistentRunsError,
+    VizError,
 )
 from parametric_insurance_design_viz.figure_data import MAIN_TABLE, FigureOutput
 from parametric_insurance_design_viz.reader import RunResult
 
 __all__ = [
     "BENCHMARK_ZERO_RTOL",
+    "CAPTION_COLUMNS",
     "DENSITY_POINTS",
+    "JOINT_CAPTION",
+    "JOINT_ENTITIES_MODES",
     "MARKER_COLUMNS",
     "STEP_COLUMNS",
     "AxisLabels",
+    "JointEntities",
+    "JointEntitiesError",
     "below_attachment_mode",
+    "is_joint_design",
     "normalised_payout",
     "payout_grid",
     "payout_steps",
@@ -125,6 +155,28 @@ module docstring)."""
 MARKER_COLUMNS: Final[tuple[str, ...]] = ("entity_id", "marker", "level", "value")
 """Columns of the ``markers`` table: vertical reference lines."""
 
+JointEntities = Literal["caption", "refuse"]
+"""How a payout figure treats the per-entity panels of a joint design."""
+
+JOINT_ENTITIES_MODES: Final[tuple[JointEntities, ...]] = ("caption", "refuse")
+"""The values of ``joint_entities`` (module docstring, "Joint designs")."""
+
+JOINT_CAPTION: Final[str] = (
+    "Joint design: the payout split across entities is not unique. These "
+    "per-entity payout functions are one of several optimal designs, chosen "
+    "by the solver; read the portfolio level."
+)
+"""Caption of the per-entity payout panels of a joint design (MAR-218)."""
+
+CAPTION_COLUMNS: Final[tuple[str, ...]] = (
+    "scope",
+    "problem_id",
+    "entity_ids",
+    "caption",
+)
+"""Columns of the ``caption`` table: one row per joint problem drawn;
+``entity_ids`` joins its drawn entities, in panel order, with ``";"``."""
+
 _SHADE_ALPHA: Final[float] = 0.15
 _SCATTER_ALPHA: Final[float] = 0.25
 _SCATTER_SIZE: Final[float] = 8
@@ -132,6 +184,15 @@ _DENSITY_ALPHA: Final[float] = 0.25
 _PANEL_FONT: Final[float] = 9  # thesis _plot_payout_subfigure axis labels
 _LABEL_Y: Final[float] = 0.05  # height of vertical-line labels, axes fraction
 _SCI_OFFSET: Final[re.Pattern[str]] = re.compile(r"1e([+-]?\d+)")
+_CAPTION_CHAR_WIDTH: Final[float] = 0.55  # mean glyph width, in font sizes
+
+
+class JointEntitiesError(VizError):
+    """A payout figure would show per-entity panels of a joint design.
+
+    Raised under ``joint_entities="refuse"`` (module docstring, "Joint
+    designs").
+    """
 
 
 @dataclass(frozen=True)
@@ -273,6 +334,83 @@ def below_attachment_mode(run: RunResult) -> BelowAttachment:
                 "--force`, or a new result store) to draw it"
             )
     return cast(BelowAttachment, recorded)
+
+
+def is_joint_design(run: RunResult) -> bool:
+    """Return whether a run has a design problem with several payout entities.
+
+    The per-entity payout functions of such a problem are one of several
+    optimal designs (design review F8; module docstring, "Joint designs").
+
+    Parameters
+    ----------
+    run : RunResult
+        A run.
+
+    Returns
+    -------
+    bool
+        True for the portfolio scope and a cluster scope with more than one
+        cluster; False for the individual scope.
+    """
+    return any(len(spec.entities) > 1 for spec in run.problem_specs())
+
+
+def _check_joint_mode(joint_entities: str) -> None:
+    """Raise if ``joint_entities`` is not one of :data:`JOINT_ENTITIES_MODES`."""
+    if joint_entities not in JOINT_ENTITIES_MODES:
+        raise FigureDataError(
+            f"joint_entities must be one of {list(JOINT_ENTITIES_MODES)}, "
+            f"got {joint_entities!r}"
+        )
+
+
+def _joint_caption(
+    run: RunResult,
+    entity_ids: Sequence[str],
+    joint_entities: JointEntities,
+    *,
+    figure: str,
+) -> pd.DataFrame | None:
+    """Return the ``caption`` table of the drawn entities, or None.
+
+    One row per joint problem (more than one entity) with a drawn entity;
+    None if no drawn entity belongs to one. Under ``"refuse"`` such entities
+    raise instead.
+
+    Raises
+    ------
+    JointEntitiesError
+        Under ``"refuse"``, if a drawn entity belongs to a joint problem.
+    """
+    rows: list[dict[str, str]] = []
+    for spec in run.problem_specs():
+        if len(spec.entities) < 2:
+            continue
+        ids = {entity.entity_id for entity in spec.entities}
+        drawn = [e for e in entity_ids if e in ids]
+        if not drawn:
+            continue
+        if joint_entities == "refuse":
+            raise JointEntitiesError(
+                f"{figure}: scope {run.scope!r} is a joint design (problem "
+                f"{spec.problem_id!r} calibrates {len(spec.entities)} entities "
+                "jointly), so its per-entity payout functions are one of "
+                "several optimal designs, chosen by the solver. Pass "
+                "joint_entities='caption' to draw them with a caption that "
+                "says so, or read the portfolio-level KPIs"
+            )
+        rows.append(
+            {
+                "scope": run.scope,
+                "problem_id": spec.problem_id,
+                "entity_ids": ";".join(drawn),
+                "caption": JOINT_CAPTION,
+            }
+        )
+    if not rows:
+        return None
+    return pd.DataFrame(rows, columns=list(CAPTION_COLUMNS))
 
 
 def payout_steps(runs: Sequence[RunResult]) -> pd.DataFrame:
@@ -489,6 +627,20 @@ def _figure_legend(fig: Figure, handles: list, labels: list[str], *, ncol: int) 
     )
 
 
+def _draw_caption(fig: Figure) -> None:
+    """Draw :data:`JOINT_CAPTION` as the figure title, wrapped to its width.
+
+    Call before ``tight_layout``, which leaves room for it.
+    """
+    size = style.FONT.subtitle_size
+    width = fig.get_figwidth() * 72.0 / (size * _CAPTION_CHAR_WIDTH)
+    fig.suptitle(
+        textwrap.fill(JOINT_CAPTION, width=max(20, int(width))),
+        fontsize=size,
+        fontstyle="italic",
+    )
+
+
 def _entity_title(entity_id: str, locations: tuple[str, ...]) -> str:
     """Panel title: the entity id, plus its locations if it has several."""
     if locations == (entity_id,):
@@ -512,6 +664,7 @@ def payout_grid(
     labels: AxisLabels | None = None,
     xlim: tuple[float, float] | None = None,
     name: str | None = None,
+    joint_entities: JointEntities = "caption",
 ) -> FigureOutput:
     """Draw the calibrated payout functions of a scope, one panel per entity.
 
@@ -540,6 +693,10 @@ def payout_grid(
         of attachment and limit (the thesis 10 to 80 for 20 and 70).
     name : str, optional
         Figure name. Default ``"payout_grid_<scope>"``.
+    joint_entities : {"caption", "refuse"}, default "caption"
+        Panels of a joint design's entities (:func:`is_joint_design`):
+        draw them under :data:`JOINT_CAPTION`, or refuse them (module
+        docstring, "Joint designs").
 
     Returns
     -------
@@ -547,8 +704,9 @@ def payout_grid(
         The figure, its steps (main table, :data:`STEP_COLUMNS`; for a
         ``"zero"`` run each entity also has its zero row below the
         attachment, see the module docstring), the ``markers`` table
-        (attachment and limit) and, with ``events``, the ``events`` table it
-        scatters.
+        (attachment and limit), with ``events`` the ``events`` table it
+        scatters and, for a joint design, the ``caption`` table
+        (:data:`CAPTION_COLUMNS`).
 
     Raises
     ------
@@ -560,8 +718,13 @@ def payout_grid(
         and config disagree on what it pays below the attachment
         (:func:`below_attachment_mode`).
     FigureDataError
-        If a run records an unknown ``below_attachment`` mode.
+        If a run records an unknown ``below_attachment`` mode, or
+        ``joint_entities`` is not a mode.
+    JointEntitiesError
+        Under ``joint_entities="refuse"``, if a drawn entity belongs to a
+        joint design problem.
     """
+    _check_joint_mode(joint_entities)
     runs = _scope_runs(runs)
     labels = labels or AxisLabels()
     attachment, limit = _attachment_limit(runs)
@@ -579,6 +742,7 @@ def payout_grid(
             f"entities {unknown or '(none)'} are not entities of the runs ({order})"
         )
     entity_ids = tuple(entity_ids)
+    caption = _joint_caption(runs[0], entity_ids, joint_entities, figure="payout_grid")
     steps = payout_steps(runs)
     steps = _where(steps, steps["entity_id"].isin(entity_ids)).reset_index(drop=True)
     scope = runs[0].scope
@@ -656,6 +820,8 @@ def payout_grid(
             ax.yaxis.get_offset_text().set_fontsize(style.FONT.tick_size)
         for j in range(len(entity_ids), nrows * ncols):
             axes[divmod(j, ncols)].set_axis_off()
+        if caption is not None:
+            _draw_caption(fig)
         fig.tight_layout()
         handles, legend_labels = axes[0, 0].get_legend_handles_labels()
         _figure_legend(fig, handles, legend_labels, ncol=len(handles))
@@ -676,6 +842,8 @@ def payout_grid(
         data["events"] = _where(
             events, events["entity_id"].isin(entity_ids)
         ).reset_index(drop=True)
+    if caption is not None:
+        data["caption"] = caption
     return FigureOutput(name=name or f"payout_grid_{scope}", figure=fig, data=data)
 
 
@@ -735,6 +903,7 @@ def normalised_payout(
     labels: AxisLabels | None = None,
     xlim: tuple[float, float] | None = None,
     name: str | None = None,
+    joint_entities: JointEntities = "caption",
 ) -> FigureOutput:
     """Draw one entity's payout per bin relative to the benchmark objective.
 
@@ -769,14 +938,19 @@ def normalised_payout(
     name : str, optional
         Figure name. Default ``"normalised_payout_<scope>_<entity>"``
         (lowercase).
+    joint_entities : {"caption", "refuse"}, default "caption"
+        If the entity belongs to a joint design problem
+        (:func:`is_joint_design`): draw it under :data:`JOINT_CAPTION`, or
+        refuse it (module docstring, "Joint designs").
 
     Returns
     -------
     FigureOutput
         The figure; its main table (:data:`STEP_COLUMNS` plus
         ``benchmark_value`` and ``relative_pct``), ``density`` (index,
-        density; empty without events) and ``markers`` (attachment, limit
-        and, with events, the tail quantile).
+        density; empty without events), ``markers`` (attachment, limit
+        and, with events, the tail quantile) and, for an entity of a joint
+        design, ``caption`` (:data:`CAPTION_COLUMNS`).
 
     Raises
     ------
@@ -785,7 +959,13 @@ def normalised_payout(
     InconsistentRunsError
         If the runs are inconsistent (:func:`payout_grid`), the benchmark
         objective is missing or the entity is unknown.
+    FigureDataError
+        If ``joint_entities`` is not a mode.
+    JointEntitiesError
+        Under ``joint_entities="refuse"``, if the entity belongs to a joint
+        design problem.
     """
+    _check_joint_mode(joint_entities)
     runs = _scope_runs(runs)
     labels = labels or AxisLabels()
     by_objective = {r.objective: r for r in runs}
@@ -799,6 +979,9 @@ def normalised_payout(
         raise InconsistentRunsError(
             f"{entity_id!r} is not an entity of the runs ({runs[0].entity_order()})"
         )
+    caption = _joint_caption(
+        runs[0], (entity_id,), joint_entities, figure="normalised_payout"
+    )
     attachment, limit = _attachment_limit(runs)
     xlim = xlim or _default_xlim(attachment, limit)
     if tail_level is None:
@@ -897,6 +1080,8 @@ def normalised_payout(
         ax.set_xlabel(labels.index(aggregate=aggregate))
         ax.set_ylabel(r"Payout $Y_P(x)$ relative to benchmark [%]")
         ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0f}%"))
+        if caption is not None:
+            _draw_caption(fig)
         fig.tight_layout()
         handles, legend_labels = ax.get_legend_handles_labels()
         h2, l2 = ax2.get_legend_handles_labels()
@@ -905,8 +1090,11 @@ def normalised_payout(
     main = pd.concat(tables, ignore_index=True)
     markers = pd.DataFrame(marker_rows, columns=list(MARKER_COLUMNS))
     scope = runs[0].scope
+    data = {MAIN_TABLE: main, "density": density, "markers": markers}
+    if caption is not None:
+        data["caption"] = caption
     return FigureOutput(
         name=name or f"normalised_payout_{scope}_{entity_id}".lower(),
         figure=fig,
-        data={MAIN_TABLE: main, "density": density, "markers": markers},
+        data=data,
     )
