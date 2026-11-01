@@ -25,6 +25,10 @@ installed font when the style is applied, because matplotlib looks fonts up
 when a figure is saved, which may be after the style block has ended; so
 there are no font warnings and saved figures use the font they were drawn
 with.
+
+Money axes label their ticks with :class:`MoneyFormatter` (MAR-197): the
+thesis formats ``1.5M``, ``200k``, ``50``, with as many decimals as the ticks
+need, so neighbouring ticks never share a label.
 """
 
 from __future__ import annotations
@@ -247,7 +251,7 @@ class MoneyFormatter(Formatter):
 
     def set_locs(self, locs: list[float]) -> None:
         """Choose the decimals of each prefix from the tick locations."""
-        self.locs = locs
+        super().set_locs(locs)
         scaled: dict[str, list[float]] = {}
         for value in map(float, locs):
             if math.isfinite(value):
