@@ -392,7 +392,11 @@ def _cost_rank(config: ExperimentConfig) -> tuple[int, int, int]:
 
 
 def solve_all(
-    todo: dict[str, ExperimentConfig], store: ResultStore, jobs: int
+    todo: dict[str, ExperimentConfig],
+    store: ResultStore,
+    jobs: int,
+    *,
+    reverse: bool = False,
 ) -> dict[str, float]:
     """Solve the runs not yet in the store; the parent writes them.
 
@@ -409,6 +413,10 @@ def solve_all(
         Target store.
     jobs : int
         Worker processes.
+    reverse : bool, default False
+        Holdout still first, but the shortest runs first within each split,
+        for a second process on the same store (it meets the first one in
+        the middle instead of solving its runs again).
 
     Returns
     -------
@@ -417,6 +425,11 @@ def solve_all(
     """
     missing = {rid: cfg for rid, cfg in todo.items() if not store.has_run(rid)}
     queue = sorted(missing.items(), key=lambda kv: _cost_rank(kv[1]))
+    if reverse:  # holdout still first, but the shortest first within a split
+        queue = sorted(
+            missing.items(),
+            key=lambda kv: (_cost_rank(kv[1])[0], *(-x for x in _cost_rank(kv[1])[1:])),
+        )
     queue.reverse()  # pop() from the end
     print(f"{len(todo)} runs, {len(missing)} to solve", flush=True)
     seconds: dict[str, float] = {}
@@ -492,7 +505,7 @@ def run_solve(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any]:
     for cfg in kfold_configs(plan).values():
         for s in cfg.single_runs():
             todo[rid_of(s)] = s
-    seconds = solve_all(todo, store, args.jobs)
+    seconds = solve_all(todo, store, args.jobs, reverse=args.reverse)
     check_ok(store, todo)
     return {
         "n_holdout_runs": n_holdout,
@@ -2042,6 +2055,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--full", type=Path, default=FULL_DIR)
     parser.add_argument("--plan", type=Path, default=PLAN, help="plan YAML")
     parser.add_argument("--plan-only", action="store_true", help="print counts")
+    parser.add_argument(
+        "--reverse",
+        action="store_true",
+        help="solve phase: shortest runs first (a second process on the same store)",
+    )
     args = parser.parse_args(argv)
     plan = load_plan(args.plan)
     if args.plan_only:
