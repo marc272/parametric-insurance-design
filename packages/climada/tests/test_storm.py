@@ -449,7 +449,8 @@ def test_storm_config_differs_from_the_iris_reference_only_in_the_hazard() -> No
     storm_b = _load("florida_counties_storm_cat_in_circle.yaml")
     assert {k for k in iris if iris[k] != storm_a[k]} == HAZARD_KEYS
     assert {k for k in storm_a if storm_a[k] != storm_b[k]} == {"index", "output"}
-    cat = _load("florida_counties_cat_in_circle.yaml")
+    # D2 (b) moved to 75 km in MAR-145; MAR-185 deletes this with the STORM configs.
+    cat = _load("florida_counties_cat_in_circle_50km_no_draws.yaml")
     assert storm_b["index"] == cat["index"]
 
 
