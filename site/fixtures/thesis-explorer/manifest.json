@@ -1,0 +1,1261 @@
+{
+  "format": "parametric-insurance-design/site-bundle",
+  "format_version": 1,
+  "label": "thesis-fixture data: a reduced thesis experiment (site/fixtures/thesis_explorer.yaml: location A1 only, individual scope, weighted CVaR, alpha and beta sweeps) on the thesis parity event set, in-sample, event-conditional basis. A placeholder for the site's explorer check, not a result to publish.",
+  "config": {
+    "name": "thesis-explorer",
+    "description": "Reduced thesis experiment for the site's explorer check (MAR-201) - location A1 only, individual scope, weighted CVaR, alpha and beta sweeps - on the thesis parity event set.",
+    "hash": "sha256:19d35dcb12b0fb20cb17d0ddca87a9a98981019990966cdb7304f0994a802a38"
+  },
+  "versions": {
+    "parametric-insurance-design": "0.1.0.dev0",
+    "parametric-insurance-design-viz": "0.1.0.dev0",
+    "pyarrow": "26.0.0"
+  },
+  "eventset": {
+    "input_checksums": [
+      "sha256:404b0c3a3aefa38965ad3ace2747d308685a67e3b218cb835d45a9ab375294df"
+    ],
+    "prepared_content_hash": "sha256:a4d1cda7e72084fc0717228bacd43a3ddea6cfb8d189ae8d78fb669df0e19d43",
+    "hazard": {
+      "name": "IRIS",
+      "release": "Sparks & Toumi (2024) 10,000-year event set, figshare collection 10.6084/m9.figshare.c.6724251.v1 (Main dataset 10.6084/m9.figshare.24894186.v1), North Atlantic basin"
+    },
+    "scenario": "Thesis parity event set: IRIS North Atlantic 10,000-year synthetic catalogue (present climate, from 1980-2021 tracks) for the 9 Miami assets of the thesis. One row per storm whose track passes within 500 km of any asset (6,057 rows, 4,762 of them with zero wind and loss at every asset); years without such a storm are implicit zero-loss years. Losses from CLIMADA's Emanuel (2011) USA tropical-cyclone impact function. No noise or vulnerability draws (draw_id 0): the thesis noise layer is applied downstream.",
+    "n_years": 10000,
+    "licence": "CC-BY-4.0",
+    "index": {
+      "definition": "Maximum 1-minute sustained wind speed at 10 m above ground at the asset over the storm's lifetime: CLIMADA 6.0.1 TropCyclone.from_tracks intensity with CLIMADA's default wind model; winds below CLIMADA's 17.5 m/s intensity threshold are stored as 0",
+      "unit": "m/s"
+    },
+    "loss": {
+      "unit": "USD",
+      "currency": "USD"
+    },
+    "n_rows": 11505,
+    "n_locations": 1
+  },
+  "setup": {
+    "portfolio": {
+      "location_ids": [
+        "A1"
+      ]
+    },
+    "basis": "event_conditional",
+    "basis_risk": {
+      "noise": {
+        "kind": "heteroscedastic",
+        "level": 0.3,
+        "n_copies": 13,
+        "seed": 42,
+        "bounds": [
+          20.0,
+          70.0
+        ]
+      },
+      "threshold": {
+        "value": 20.0,
+        "column": "index"
+      }
+    },
+    "pricing": {
+      "kind": "pure"
+    },
+    "constraints": [
+      {
+        "kind": "budget",
+        "loading": 1.0
+      }
+    ],
+    "split": {
+      "kind": "full",
+      "out_of_sample": false
+    },
+    "payout": {
+      "kind": "step",
+      "attachment": 20.0,
+      "limit": 70.0,
+      "n_bins": 15,
+      "breakpoints": null
+    },
+    "evaluation": {
+      "beta": 0.95,
+      "return_periods": [
+        2.0,
+        5.0,
+        10.0,
+        20.0,
+        50.0,
+        100.0,
+        200.0,
+        500.0
+      ]
+    },
+    "bootstrap": null
+  },
+  "runs": {
+    "baseline": [
+      "sha256:74c5fbf1cf3d00f0cd6c57c5983b2b1baa6c592f732116d9816947f4ff743e11"
+    ],
+    "sweeps": {
+      "alpha": [
+        {
+          "value": 0.1,
+          "run_id": "sha256:f4c4f58abec816d95d1674be61d8496eef998914215a44d89f8706cd6491e05c",
+          "single": 0
+        },
+        {
+          "value": 0.2,
+          "run_id": "sha256:dfdbcd23626d6aff20931ea9193f75bf91c47960de4f16ebdac984379d696dfa",
+          "single": 0
+        },
+        {
+          "value": 0.3,
+          "run_id": "sha256:6b3d56a9645aed0a19842c99d85052250c3a03f9dc3ff6723133ecfb1510788a",
+          "single": 0
+        },
+        {
+          "value": 0.4,
+          "run_id": "sha256:512805cc32e77aa0e96892090c0a950f342f8911edbbc921a9bd26a02bb78074",
+          "single": 0
+        },
+        {
+          "value": 0.5,
+          "run_id": "sha256:2153ad3fd79d37cf974eb0f407354d9534455dd71ebba1caf98a3e0147b239e6",
+          "single": 0
+        },
+        {
+          "value": 0.6,
+          "run_id": "sha256:d6aa8223aac6fb7a5b2d717eea22b8527203bcfb9cdc2ea5a04a231ebb327245",
+          "single": 0
+        },
+        {
+          "value": 0.7,
+          "run_id": "sha256:900d9d07f2ea86d0b9d350770fd28a15cce137628c9c342a5a1dae92587076d2",
+          "single": 0
+        },
+        {
+          "value": 0.8,
+          "run_id": "sha256:5a1553c209c6c4703f0d347736b8c2b3166d35f51d60e6b3c65e29a02fe91d64",
+          "single": 0
+        },
+        {
+          "value": 0.9,
+          "run_id": "sha256:74c5fbf1cf3d00f0cd6c57c5983b2b1baa6c592f732116d9816947f4ff743e11",
+          "single": 0
+        },
+        {
+          "value": 1.0,
+          "run_id": "sha256:4b5b3eb2226237a68650d65633a9387940326bcce11421d5ba872bf33b23f73d",
+          "single": 0
+        }
+      ],
+      "beta": [
+        {
+          "value": 0.9,
+          "run_id": "sha256:525070e0f4eefa07cc107a446d9a2d0b40b85355ff1170544a0c0802a0a0c924",
+          "single": 0
+        },
+        {
+          "value": 0.91,
+          "run_id": "sha256:13d7e43bd74787221bc9821d128f9e7a9a33f6de44c7d17aa0e310dce9dc02d3",
+          "single": 0
+        },
+        {
+          "value": 0.92,
+          "run_id": "sha256:4a5e3350a00b923a1e7212079cecc363b9620ffe650398731db2e03dc95e93fb",
+          "single": 0
+        },
+        {
+          "value": 0.93,
+          "run_id": "sha256:38a33615ad8f072c6515e17c5efbe2e84c1bf4f02ef0eb8585f1aa8983ad0110",
+          "single": 0
+        },
+        {
+          "value": 0.94,
+          "run_id": "sha256:59e7ddf2be97f8690243d3d95ff74dbcb378d8cc97edad97b2fcc83f127b4886",
+          "single": 0
+        },
+        {
+          "value": 0.95,
+          "run_id": "sha256:74c5fbf1cf3d00f0cd6c57c5983b2b1baa6c592f732116d9816947f4ff743e11",
+          "single": 0
+        },
+        {
+          "value": 0.96,
+          "run_id": "sha256:8992a9f3f499c07900381ad9a7614740dea2eff7709527d97ee94b984a5b0b0d",
+          "single": 0
+        },
+        {
+          "value": 0.97,
+          "run_id": "sha256:9b9411d71bb3145700252bc5e1ae45b19389a1d877a0bf557b1199ce3f2707e6",
+          "single": 0
+        },
+        {
+          "value": 0.98,
+          "run_id": "sha256:e9db8001af01f171c95b1ce3e8b2bf646c4aabd5d63e67b1d4ebf1048ba1c4f5",
+          "single": 0
+        },
+        {
+          "value": 0.99,
+          "run_id": "sha256:ba87f631ef9a82e295dac9781c1d51ea7ee09bc070231aab00c88f37ed7153a2",
+          "single": 0
+        }
+      ]
+    },
+    "skipped": []
+  },
+  "sweeps_not_exported": [],
+  "events": {
+    "included": false,
+    "scopes": [],
+    "note": "the event data under each entity (baseline.events.arrow): left out by default (about 6 MB per grid on the thesis set), included with export-site --events"
+  },
+  "budget": {
+    "max_file_bytes": 2000000,
+    "max_bundle_bytes": 10000000,
+    "bundle_bytes": 183321
+  },
+  "files": [
+    {
+      "path": "runs.json",
+      "format": "json",
+      "slice": "runs",
+      "group": null,
+      "parameter": null,
+      "bytes": 14877,
+      "sha256": "sha256:3407357f7606ef0c310f6398c6660763b4dacbdbad50b1ec095589bdf6768a78"
+    },
+    {
+      "path": "locations.json",
+      "format": "json",
+      "slice": "locations",
+      "group": null,
+      "parameter": null,
+      "bytes": 112,
+      "sha256": "sha256:8bc57172fc146de96769279154a31c220d1647f019fba994d598511c126d07e6"
+    },
+    {
+      "path": "baseline.payouts.arrow",
+      "format": "arrow",
+      "slice": "payouts",
+      "group": "baseline",
+      "parameter": null,
+      "bytes": 5122,
+      "sha256": "sha256:e882ccf2676ef72f4e40326fb393bbd87f38f798aa1ba4da742ed01782028b4f",
+      "rows": 15,
+      "columns": [
+        {
+          "name": "run_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope_key",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "objective",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "problem_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "entity_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "location_ids",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "below_attachment",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "param_index",
+          "type": "int32",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "lower",
+          "type": "double",
+          "nulls": 0,
+          "null_means": "-inf"
+        },
+        {
+          "name": "upper",
+          "type": "double",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "value",
+          "type": "double",
+          "nulls": 0,
+          "null_means": null
+        }
+      ]
+    },
+    {
+      "path": "baseline.kpis.arrow",
+      "format": "arrow",
+      "slice": "kpis",
+      "group": "baseline",
+      "parameter": null,
+      "bytes": 7642,
+      "sha256": "sha256:d22817f6f8a5339aee8ba0fe79d78712d67c3a83514937096c6a8840d8200785",
+      "rows": 26,
+      "columns": [
+        {
+          "name": "run_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope_key",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "objective",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "problem_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "eval_split",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "fold",
+          "type": "int32",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "basis",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "level",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "subject_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "kpi",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "beta",
+          "type": "double",
+          "nulls": 20,
+          "null_means": "not a VaR/CVaR KPI"
+        },
+        {
+          "name": "value",
+          "type": "double",
+          "nulls": 0,
+          "null_means": "undefined (the store's null: e.g. a zero-variance correlation)"
+        },
+        {
+          "name": "ci_low",
+          "type": "double",
+          "nulls": 26,
+          "null_means": "no confidence bounds (the config has no bootstrap section)"
+        },
+        {
+          "name": "ci_high",
+          "type": "double",
+          "nulls": 26,
+          "null_means": "no confidence bounds (the config has no bootstrap section)"
+        },
+        {
+          "name": "ci_level",
+          "type": "double",
+          "nulls": 26,
+          "null_means": "no confidence bounds (the config has no bootstrap section)"
+        },
+        {
+          "name": "n_bootstrap",
+          "type": "int32",
+          "nulls": 26,
+          "null_means": "no confidence bounds (the config has no bootstrap section)"
+        }
+      ]
+    },
+    {
+      "path": "baseline.exceedance.arrow",
+      "format": "arrow",
+      "slice": "exceedance",
+      "group": "baseline",
+      "parameter": null,
+      "bytes": 8002,
+      "sha256": "sha256:ec09f52a0c02bcd030d5f6ff447442b912944862207a069147a5f8960121325b",
+      "rows": 72,
+      "columns": [
+        {
+          "name": "run_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope_key",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "objective",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "problem_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "eval_split",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "fold",
+          "type": "int32",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "basis",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "level",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "subject_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "quantity",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "curve",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "return_period",
+          "type": "double",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "value",
+          "type": "double",
+          "nulls": 0,
+          "null_means": null
+        }
+      ]
+    },
+    {
+      "path": "baseline.map.arrow",
+      "format": "arrow",
+      "slice": "map",
+      "group": "baseline",
+      "parameter": null,
+      "bytes": 5586,
+      "sha256": "sha256:a3f69f723c9401a20cb24981b5bd792e3ce5e46aa192c390204f1287ca425aeb",
+      "rows": 1,
+      "columns": [
+        {
+          "name": "run_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope_key",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "objective",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "eval_split",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "fold",
+          "type": "int32",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "basis",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "location_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "problem_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "entity_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "kpi_level",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": "not available per location: the location's entity covers several locations (see the entity's rows in kpis)"
+        },
+        {
+          "name": "expected_loss",
+          "type": "double",
+          "nulls": 0,
+          "null_means": "not available per location: the location's entity covers several locations (see the entity's rows in kpis)"
+        },
+        {
+          "name": "expected_payout",
+          "type": "double",
+          "nulls": 0,
+          "null_means": "not available per location: the location's entity covers several locations (see the entity's rows in kpis)"
+        },
+        {
+          "name": "expected_uncovered",
+          "type": "double",
+          "nulls": 0,
+          "null_means": "not available per location: the location's entity covers several locations (see the entity's rows in kpis)"
+        }
+      ]
+    },
+    {
+      "path": "sweep.alpha.payouts.arrow",
+      "format": "arrow",
+      "slice": "payouts",
+      "group": "sweep",
+      "parameter": "alpha",
+      "bytes": 12026,
+      "sha256": "sha256:8220dad8cc6ecc95e48cf2b26c56afeb9da0cc4ff5e22e810a88a61d2d43ab69",
+      "rows": 150,
+      "columns": [
+        {
+          "name": "run_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope_key",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "objective",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "sweep_value",
+          "type": "double",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "problem_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "entity_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "location_ids",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "below_attachment",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "param_index",
+          "type": "int32",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "lower",
+          "type": "double",
+          "nulls": 0,
+          "null_means": "-inf"
+        },
+        {
+          "name": "upper",
+          "type": "double",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "value",
+          "type": "double",
+          "nulls": 0,
+          "null_means": null
+        }
+      ]
+    },
+    {
+      "path": "sweep.alpha.kpis.arrow",
+      "format": "arrow",
+      "slice": "kpis",
+      "group": "sweep",
+      "parameter": "alpha",
+      "bytes": 24274,
+      "sha256": "sha256:86553385769a713be0b4ca90895560360e8ae49f500842ddeadde7233a1b5664",
+      "rows": 260,
+      "columns": [
+        {
+          "name": "run_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope_key",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "objective",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "sweep_value",
+          "type": "double",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "problem_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "eval_split",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "fold",
+          "type": "int32",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "basis",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "level",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "subject_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "kpi",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "beta",
+          "type": "double",
+          "nulls": 200,
+          "null_means": "not a VaR/CVaR KPI"
+        },
+        {
+          "name": "value",
+          "type": "double",
+          "nulls": 0,
+          "null_means": "undefined (the store's null: e.g. a zero-variance correlation)"
+        },
+        {
+          "name": "ci_low",
+          "type": "double",
+          "nulls": 260,
+          "null_means": "no confidence bounds (the config has no bootstrap section)"
+        },
+        {
+          "name": "ci_high",
+          "type": "double",
+          "nulls": 260,
+          "null_means": "no confidence bounds (the config has no bootstrap section)"
+        },
+        {
+          "name": "ci_level",
+          "type": "double",
+          "nulls": 260,
+          "null_means": "no confidence bounds (the config has no bootstrap section)"
+        },
+        {
+          "name": "n_bootstrap",
+          "type": "int32",
+          "nulls": 260,
+          "null_means": "no confidence bounds (the config has no bootstrap section)"
+        }
+      ]
+    },
+    {
+      "path": "sweep.alpha.exceedance.arrow",
+      "format": "arrow",
+      "slice": "exceedance",
+      "group": "sweep",
+      "parameter": "alpha",
+      "bytes": 34690,
+      "sha256": "sha256:2832e6a9746018e14248c06f9ef7d52d7a87b336705a87c0f950a644e8d7e2fc",
+      "rows": 720,
+      "columns": [
+        {
+          "name": "run_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope_key",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "objective",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "sweep_value",
+          "type": "double",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "problem_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "eval_split",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "fold",
+          "type": "int32",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "basis",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "level",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "subject_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "quantity",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "curve",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "return_period",
+          "type": "double",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "value",
+          "type": "double",
+          "nulls": 0,
+          "null_means": null
+        }
+      ]
+    },
+    {
+      "path": "sweep.beta.payouts.arrow",
+      "format": "arrow",
+      "slice": "payouts",
+      "group": "sweep",
+      "parameter": "beta",
+      "bytes": 12026,
+      "sha256": "sha256:458aa9441b13fca59b2d6a93c04ad49352f6f083404aa5c7617dd4b22e5b9bba",
+      "rows": 150,
+      "columns": [
+        {
+          "name": "run_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope_key",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "objective",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "sweep_value",
+          "type": "double",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "problem_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "entity_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "location_ids",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "below_attachment",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "param_index",
+          "type": "int32",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "lower",
+          "type": "double",
+          "nulls": 0,
+          "null_means": "-inf"
+        },
+        {
+          "name": "upper",
+          "type": "double",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "value",
+          "type": "double",
+          "nulls": 0,
+          "null_means": null
+        }
+      ]
+    },
+    {
+      "path": "sweep.beta.kpis.arrow",
+      "format": "arrow",
+      "slice": "kpis",
+      "group": "sweep",
+      "parameter": "beta",
+      "bytes": 24274,
+      "sha256": "sha256:fa57094edf9874fe473b3c249736544f9f702f6e9926da57e40ac5dc214e33ec",
+      "rows": 260,
+      "columns": [
+        {
+          "name": "run_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope_key",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "objective",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "sweep_value",
+          "type": "double",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "problem_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "eval_split",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "fold",
+          "type": "int32",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "basis",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "level",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "subject_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "kpi",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "beta",
+          "type": "double",
+          "nulls": 200,
+          "null_means": "not a VaR/CVaR KPI"
+        },
+        {
+          "name": "value",
+          "type": "double",
+          "nulls": 0,
+          "null_means": "undefined (the store's null: e.g. a zero-variance correlation)"
+        },
+        {
+          "name": "ci_low",
+          "type": "double",
+          "nulls": 260,
+          "null_means": "no confidence bounds (the config has no bootstrap section)"
+        },
+        {
+          "name": "ci_high",
+          "type": "double",
+          "nulls": 260,
+          "null_means": "no confidence bounds (the config has no bootstrap section)"
+        },
+        {
+          "name": "ci_level",
+          "type": "double",
+          "nulls": 260,
+          "null_means": "no confidence bounds (the config has no bootstrap section)"
+        },
+        {
+          "name": "n_bootstrap",
+          "type": "int32",
+          "nulls": 260,
+          "null_means": "no confidence bounds (the config has no bootstrap section)"
+        }
+      ]
+    },
+    {
+      "path": "sweep.beta.exceedance.arrow",
+      "format": "arrow",
+      "slice": "exceedance",
+      "group": "sweep",
+      "parameter": "beta",
+      "bytes": 34690,
+      "sha256": "sha256:0f9bc980aef07e27a7b7471e229641b915fe2d7934eebe3cd67a68e0ca6f3433",
+      "rows": 720,
+      "columns": [
+        {
+          "name": "run_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "scope_key",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "objective",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "sweep_value",
+          "type": "double",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "problem_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "eval_split",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "fold",
+          "type": "int32",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "basis",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "level",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "subject_id",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "quantity",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "curve",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "return_period",
+          "type": "double",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "value",
+          "type": "double",
+          "nulls": 0,
+          "null_means": null
+        }
+      ]
+    }
+  ],
+  "rules": {
+    "infinity": "Strict JSON has no infinities: an infinite value is written as null, in JSON and in Arrow alike, only in the columns whose manifest entry has null_means '-inf' (payouts.lower: the zero row of a below_attachment 'zero' run, param_index -1, covers the index range below the attachment). Any other infinite value is refused at export.",
+    "nan": "NaN is never written. In a column whose store schema allows undefined values it is written as null, and the column's manifest entry gives its null count and what null means there; in any other column it is refused at export. A column has at most one meaning of null.",
+    "types": "Integers are 32-bit (Arrow JS reads 64-bit integers as BigInt); strings are dictionary-encoded UTF-8 with the narrowest signed index (int8, int16 or int32); floats are 64-bit.",
+    "arrow": "Tables are Arrow IPC files (.arrow), uncompressed, one record batch: Quarto OJS reads them with FileAttachment(path).arrow().",
+    "budget": "Every file, the manifest included, fits max_file_bytes, and the data files together fit max_bundle_bytes (both in bytes). Over budget is an error at export, never a truncation.",
+    "checksums": "Every data file is listed under files with its size in bytes and the SHA-256 of its bytes; the manifest itself is not."
+  }
+}
