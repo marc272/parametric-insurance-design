@@ -2,8 +2,9 @@
 # from LitPop (MAR-113), IRIS North Atlantic 10,000 years, index (a) wind at
 # each county's value-weighted centroid, and vulnerability uncertainty in the
 # loss (MAR-25: Emanuel v_half drawn from Eberenz et al. 2021, region NA2,
-# wind-only North Atlantic events, the MAR-103 and MAR-132 defaults, recentred
-# on the base function's v_half 74.7: MAR-118 Q5, MAR-160). Monroe
+# wind-only North Atlantic events, the MAR-103 and MAR-132 defaults,
+# recentred so that the expected annual loss equals the no-draws build's:
+# MAR-118 Q5, MAR-160). Monroe
 # County's LitPop gap (Key West and the Lower Keys have no cell) is stated in
 # the scenario notes (MAR-132). A county's loss is the sum of the
 # impacts on its LitPop cells (loss: cells), not the impact at its centroid.
@@ -47,7 +48,9 @@ vulnerability:
     region: NA2
     wind_only: true
     basins: [NA]   # MAR-132 default: North Atlantic events only (17 NA2 events)
-    recentre: median  # MAR-160: median v_half = impact_function.v_half (74.7)
+    # MAR-160: v_thresh + s * (v_half_i - v_thresh), with s solved at build
+    # time so that the expected annual loss equals the no-draws build's
+    recentre: {kind: excess, match: expected_loss}
 loss:
   kind: cells
   cells: ../../../data/litpop-florida/locations/cells.parquet

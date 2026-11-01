@@ -67,6 +67,7 @@ __all__ = [
     "CentroidWindIndexConfig",
     "EberenzEdrPriorConfig",
     "EmanuelVHalfDrawsConfig",
+    "ExcessRecentreConfig",
     "ImpactFunctionConfig",
     "IndexConfig",
     "IrisTracksConfig",
@@ -273,6 +274,33 @@ class NoVulnerabilityDrawsConfig(_Model):
     kind: Literal["none"] = "none"
 
 
+class ExcessRecentreConfig(_Model):
+    """Recentre the Eberenz prior by the excess form, matched to the base loss.
+
+    ``{kind: excess, match: expected_loss}`` (MAR-160, the form decided on
+    2026-11-01): the prior draws from ``v_thresh + s * (v_half_i - v_thresh)``,
+    one factor ``s`` for every calibrated value, so the values keep their
+    order and stay above ``v_thresh``. ``s`` is solved at build time so that
+    the expected annual loss of the draws equals that of the **base build**,
+    the same config with ``vulnerability: {kind: none}``, to within
+    :data:`.vulnerability.MATCH_RTOL`
+    (:meth:`.vulnerability.EmanuelVHalfDraws.matched`). The pipeline builds
+    the base first, so a build takes about twice as long. If no ``s`` in
+    :data:`.vulnerability.MATCH_FACTOR_BRACKET` meets the target, the build
+    fails with :class:`.vulnerability.RecentringError`.
+
+    Attributes
+    ----------
+    kind : {"excess"}
+        The transform: rescale the excess over ``v_thresh``.
+    match : {"expected_loss"}
+        What the factor matches: the base build's expected annual loss.
+    """
+
+    kind: Literal["excess"]
+    match: Literal["expected_loss"]
+
+
 class EberenzEdrPriorConfig(_Model):
     """Event-wise calibrated ``v_half`` of one region (Eberenz et al. 2021).
 
@@ -300,16 +328,14 @@ class EberenzEdrPriorConfig(_Model):
         the sensitivity option; with ``wind_only: false`` too it is the
         published distribution (43 NA2 events). A region event with no known
         basin raises :class:`.vulnerability.UnknownBasinError` at build time.
-    recentre : {"median"} or None
+    recentre : ExcessRecentreConfig or None
         Recentre the prior on the base impact function (MAR-160, the owner's
-        answer to MAR-118 Q5). ``median`` rescales the event-wise values
-        multiplicatively, ``v_half_i * (impact_function.v_half / median_i
-        v_half_i)``, so that their median is ``impact_function.v_half``; ratios
-        between values are kept (:meth:`.vulnerability.EberenzEdrPrior.recentred`).
-        A rescaled value at or below ``v_thresh`` raises
-        :class:`.vulnerability.RecentringError` at build time; nothing is
-        clipped. Default None: the calibrated values, so that a config without
-        the key builds what it built before.
+        answer to MAR-118 Q5): ``{kind: excess, match: expected_loss}``
+        rescales every value's excess over ``v_thresh`` by one factor, solved
+        at build time so that the expected annual loss of the draws equals
+        that of the same config without draws (see
+        :class:`ExcessRecentreConfig`). Default None: the calibrated values,
+        so that a config without the key builds what it built before.
     """
 
     kind: Literal["eberenz2021_edr"] = "eberenz2021_edr"
@@ -318,7 +344,7 @@ class EberenzEdrPriorConfig(_Model):
     basins: tuple[Literal["NA", "SA", "EP", "WP", "NI", "SI", "SP"], ...] | None = (
         Field(default=("NA",), min_length=1)  # vulnerability.DEFAULT_BASINS
     )
-    recentre: Literal["median"] | None = None
+    recentre: ExcessRecentreConfig | None = None
 
     @field_validator("basins")
     @classmethod
@@ -403,25 +429,25 @@ class EmanuelVHalfDrawsConfig(_Model):
         Returns
         -------
         EmanuelVHalfDraws
-            The hook.
+            The hook. With ``prior.recentre`` set, its
+            ``match_expected_loss`` is True: the pipeline solves the factor
+            before drawing (:meth:`.vulnerability.EmanuelVHalfDraws.matched`).
 
         Raises
         ------
         VulnerabilityError
-            If the prior cannot be loaded or does not fit the impact function,
-            e.g. :class:`.vulnerability.RecentringError` if recentring would
-            put a ``v_half`` at or below ``v_thresh``.
+            If the prior cannot be loaded or does not fit the impact function.
         """
         prior_config = self.prior
         prior: EberenzEdrPrior | UniformPrior
+        match = False
         if isinstance(prior_config, EberenzEdrPriorConfig):
             prior = EberenzEdrPrior.from_climada(
                 prior_config.region,
                 wind_only=prior_config.wind_only,
                 basins=prior_config.basins,
             )
-            if prior_config.recentre == "median":
-                prior = prior.recentred(impact_function.v_half)
+            match = prior_config.recentre is not None
         else:
             prior = UniformPrior(
                 low=prior_config.low,
@@ -434,6 +460,7 @@ class EmanuelVHalfDrawsConfig(_Model):
             v_thresh=impact_function.v_thresh,
             scale=impact_function.scale,
             seed=self.seed if record_seed else None,
+            match_expected_loss=match,
         )
 
 
