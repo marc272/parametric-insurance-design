@@ -4,6 +4,8 @@ A parametric cover pays a function of a hazard index, not the loss itself, so it
 
 This page states the objective as the code implements it, as checked in the [core design review](../reviews/core-design-review.md), and says where that differs from the thesis text. It describes the method only. Whether the tail objective lowers tail basis risk against other objectives out of sample is an open question of this project, and nothing here claims that it does.
 
+How the objective works together with joint calibration, and which view fits which owner: [combining the two ideas](combination.md).
+
 [^thesis]: M. Prinzing, *Tail-Risk-Optimized Payout Design in Parametric Insurance*, master's thesis, Technical University of Munich, 2026. Not public. Equation numbers on this page refer to it.
 
 ## Setting
@@ -41,7 +43,7 @@ This is thesis eq. (2.7) and (3.6), and the `ExpectedUncovered` objective's $U$.
 
 $$F_{\alpha,\beta}(\theta) = \alpha \mathrm{CVaR}_\beta(U) + (1-\alpha) \mathbb{E}[U], \qquad \alpha\in[0,1],\ \beta\in(0,1).$$
 
-**α weights the CVaR term**, as in `objectives.WeightedCVaR`, thesis eq. (2.4) and (3.9), and SPEC §6.7.
+**α weights the CVaR term**, as in `pid.WeightedCVaR`, thesis eq. (2.4) and (3.9), and SPEC §6.7.
 
 - α = 0 is E[U] exactly: the code builds `ExpectedUncovered`'s term and creates no CVaR variables.
 - α = 1 is the CVaR of U alone.
@@ -106,7 +108,7 @@ The builder checks that the assembled problem is convex under cvxpy's rules (DCP
 
 $$\mathrm{Premium}(\pi) \le \kappa \mathbb{E}[L].$$
 
-$\mathbb{E}[L]$ is taken on the same outcome measure as the premium and the objective. κ is the budget loading (`constraints.Budget(loading)`, the thesis's `budget_loading`). The premium is a separate component (`pricing.py`; [pricing](../methodology/pricing.md)):
+$\mathbb{E}[L]$ is taken on the same outcome measure as the premium and the objective. κ is the budget loading (`pid.Budget(loading)`, the thesis's `budget_loading`). The premium is a separate component (`pricing.py`; [pricing](../methodology/pricing.md)):
 
 - `PurePremium`: $\mathrm{Premium} = \mathbb{E}[\pi] = \sum_o p_o \pi_o$.
 - `CostOfCapitalLoad(rate=r, q=q)`: $\mathrm{Premium} = (1-r) \mathbb{E}[\pi] + r \mathrm{CVaR}_q(\pi)$ with $r\in[0,1]$. It is convex in the payout, so the problem stays an LP. In the problem it reads $(1-r)\sum_o p_o \pi_o + r\big(\eta + \tfrac{1}{1-q}\sum_o p_o s_o\big)$, with $s_o \ge \pi_o - \eta$ and $s_o \ge 0$.

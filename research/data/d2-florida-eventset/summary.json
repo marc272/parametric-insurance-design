@@ -1,0 +1,217 @@
+{
+  "issue": "MAR-145 (P-05): index (b) at 75 km (MAR-118 Q6), prior recentred (MAR-118 Q5 = b, MAR-160)",
+  "status": "observations, not conclusions",
+  "conventions": "EAL rate-weighted over all rows (draw rows carry rate / n_draws), rates @ loss summed over locations; annual losses per (year, draw_id) outcome, n_years x n_draws outcomes including zero years (the base: n_years outcomes); numpy linear quantiles; tail dependence P(A_i > q_i, A_j > q_j) / 0.01 on annual location losses, q = 0.99, off-diagonal; category shares rate-weighted over (row, county) pairs; matrix hashes as in MAR-133 (sha256 over '<rows>x<cols>\\n' and the C-order little-endian float64 bytes); the index of draw 0 is one row per storm",
+  "florida_index_b_75km": {
+    "eventset": "data/eventsets/florida-counties-iris-cat-in-circle-75km-vulnerability (index (b), 75 km; index (a) has the same loss matrix)",
+    "content_hash": "sha256:70af1fed283d9e800574c01181ff4e3ee40dee7ab227a890145d7744e8328a60",
+    "base": "the no-draws loss matrix of configs/florida_counties_no_draws.yaml (MAR-32, sha256:07eb5c9a...), captured in a scratch run of the first MAR-160 build; the same loss matrix as the match's own base (recentre.base_content_hash) and as MAR-133's no-draws builds (base_loss_matrix_hash)",
+    "base_content_hash": "sha256:07eb5c9a808af45f7d05932b5d78f0cc9b1142f37aef8c9749138dc8c1f379e5",
+    "n_rows": 139020,
+    "n_locations": 67,
+    "n_draws": 10,
+    "n_outcomes": 100000,
+    "total_value": 4893413434485.621,
+    "eal": 7615672695.46927,
+    "base_eal": 7615672695.469273,
+    "eal_ratio": 0.9999999999999997,
+    "eal_over_value": 0.001556310905961659,
+    "eal_ratio_per_location": {
+      "min": 0.9760483728145982,
+      "min_at": "Flagler",
+      "median": 1.016539683956171,
+      "max": 1.0525251920007699,
+      "max_at": "Liberty"
+    },
+    "eal_over_value_per_location": {
+      "min": 0.001100664694315288,
+      "min_at": "Nassau",
+      "max": 0.0048662284064248384,
+      "max_at": "Escambia"
+    },
+    "annual_loss_quantiles": {
+      "0.9": 6194702802.69348,
+      "0.99": 187041212095.49692,
+      "0.996": 375431208562.7939,
+      "0.999": 697285289799.6774
+    },
+    "base_annual_loss_quantiles": {
+      "0.9": 9361099518.725035,
+      "0.99": 180528850912.84982,
+      "0.996": 318783279056.55853,
+      "0.999": 460019033794.98096
+    },
+    "largest_annual_losses": [
+      {
+        "year": 1611,
+        "draw_id": 9,
+        "loss": 1648347342429.87,
+        "share_of_value": 0.33685020987872827,
+        "storms_share_of_value": {
+          "NA_1611_5": 0.30616807150887565,
+          "NA_1611_1": 0.030682138369852657
+        }
+      },
+      {
+        "year": 4001,
+        "draw_id": 6,
+        "loss": 1605436133324.0752,
+        "share_of_value": 0.32808103276334616,
+        "storms_share_of_value": {
+          "NA_4001_4": 0.32807575255417987,
+          "NA_4001_0": 5.28020916630547e-06
+        }
+      },
+      {
+        "year": 4001,
+        "draw_id": 9,
+        "loss": 1558597753723.7664,
+        "share_of_value": 0.3185093135069632,
+        "storms_share_of_value": {
+          "NA_4001_4": 0.3185074604699515,
+          "NA_4001_0": 1.8530370117108658e-06
+        }
+      },
+      {
+        "year": 2444,
+        "draw_id": 4,
+        "loss": 1528756152634.7053,
+        "share_of_value": 0.3124109934919903,
+        "storms_share_of_value": {
+          "NA_2444_3": 0.3116550175549806,
+          "NA_2444_0": 0.0005574674384592885,
+          "NA_2444_1": 0.00019850849855041972
+        }
+      },
+      {
+        "year": 2444,
+        "draw_id": 7,
+        "loss": 1517864990520.3237,
+        "share_of_value": 0.31018531559655077,
+        "storms_share_of_value": {
+          "NA_2444_3": 0.31005655896250056,
+          "NA_2444_0": 8.55261984710182e-05,
+          "NA_2444_1": 4.323043557918122e-05
+        }
+      }
+    ],
+    "base_largest_annual_loss_share": 0.1513804444381556,
+    "eal_per_draw": {
+      "min": 7179276632.912765,
+      "max": 8784231219.030838
+    },
+    "median_cv_across_draws": 0.9860003193139028,
+    "rows_with_positive_loss": 49250,
+    "positive_row_location_pairs": 659190,
+    "tail_dependence_offdiag": {
+      "min": 0.0,
+      "median": 0.084,
+      "max": 0.888
+    },
+    "monroe": {
+      "eal": 871634.0037913584,
+      "eal_over_value": 0.0011399806786865044,
+      "eal_ratio": 1.0152302629249035
+    },
+    "cat0_loss_share": 0.1708643267655021,
+    "recentre": {
+      "kind": "excess",
+      "factor": 0.6901304479036513,
+      "median_v_half": 86.29345332594143,
+      "calibrated_median": 113.50000000000124,
+      "support": [
+        48.40529173603045,
+        168.34996358168672
+      ],
+      "quantiles": {
+        "0.05": 56.30038406004833,
+        "0.25": 70.21341388978614,
+        "0.5": 86.29345332594143,
+        "0.75": 118.5915582878328,
+        "0.95": 161.89034258930855
+      },
+      "target_expected_loss": 7615672695.469273,
+      "expected_loss": 7615672695.4692745,
+      "relative_tolerance": 1e-06,
+      "bracket": [
+        0.01,
+        100.0
+      ],
+      "base_content_hash": "sha256:d62faf2ef7a9ba3575da005432be7d8122f3c728e12e34994a331f9b2b531e4c"
+    },
+    "eal_over_target": 0.9999999999999997,
+    "base_eal_over_target": 1.0,
+    "first_location": {
+      "name": "Alachua",
+      "aal_per_draw": [
+        89929004.34560528,
+        81864007.44628341,
+        79401807.1989894,
+        75706054.74281289,
+        84345232.28781283,
+        81947709.60620867,
+        87438525.80566224,
+        81710668.02057406,
+        80089578.68285634,
+        98066499.2108456
+      ],
+      "base_aal": 83904346.53020641
+    },
+    "median_cv_per_location": {
+      "min": 0.978951902268715,
+      "max": 1.0109215097522504
+    },
+    "mean_damage_ratio": {
+      "35.0": {
+        "over_prior": 0.008182094071838081,
+        "at_median": 0.0036025030762040834,
+        "base": 0.006790495604105169
+      },
+      "55.0": {
+        "over_prior": 0.1687658624178137,
+        "at_median": 0.10157935922993572,
+        "base": 0.1761433569521351
+      },
+      "75.0": {
+        "over_prior": 0.4064630113821095,
+        "at_median": 0.3500570779411841,
+        "base": 0.5045777092933046
+      }
+    },
+    "loss_equal_to_index_a": true,
+    "loss_equal_to_50km_index_b": true,
+    "index_b_50km_content_hash": "sha256:4d578aef7caed148181699ddfb6d9a9d877127b549d03031fbb18e4c5a26a70f",
+    "base_loss_matrix_hash": "sha256:a417c756df582e02456254bfd65de210f303a66e0d1e72cee0b6ac2fab2a4873",
+    "base_loss_matrix_equals_mar133": true,
+    "index_draw0_hash": "sha256:89d5290cb6d4635b216221e738d9ca6e2c2445e2081a37986150ec0764307a7b",
+    "index_draw0_equals_mar133_75km": true,
+    "index_same_across_draws": true,
+    "categories": {
+      "0": {
+        "pair_share": 0.9689564692721117,
+        "loss_share": 0.1708643267655021
+      },
+      "1": {
+        "pair_share": 0.011458675547596501,
+        "loss_share": 0.05411281802620277
+      },
+      "2": {
+        "pair_share": 0.0063514967244055935,
+        "loss_share": 0.08003780106140604
+      },
+      "3": {
+        "pair_share": 0.0058705179325641964,
+        "loss_share": 0.17376251423571665
+      },
+      "4": {
+        "pair_share": 0.005493679638063459,
+        "loss_share": 0.3383064522372119
+      },
+      "5": {
+        "pair_share": 0.0018691608852586443,
+        "loss_share": 0.18291608767396056
+      }
+    },
+    "storms_with_cat_ge1_somewhere": 3411
+  }
+}

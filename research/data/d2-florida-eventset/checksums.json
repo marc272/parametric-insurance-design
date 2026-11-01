@@ -1,5 +1,5 @@
 {
-  "issue": "MAR-114 (P-05b, part of MAR-31); rebuilt in MAR-132 (basin filter)",
+  "issue": "MAR-114 (P-05b, part of MAR-31); rebuilt in MAR-132 (basin filter) and MAR-160 (recentred prior); index (b) rebuilt at 75 km in MAR-145 (MAR-118 Q6)",
   "licence": "CC-BY-4.0",
   "inputs": {
     "catalogue": {
@@ -18,10 +18,10 @@
   "builds": [
     {
       "eventset_dir": "data/eventsets/florida-counties-iris-vulnerability",
-      "content_hash": "sha256:cad398875afb467f5d1475e6a47952116391be18f249cc484990436f46a6cbe6",
+      "content_hash": "sha256:30b1723182e5bb3eef8abae0d0edcc605918aaf90e03b24bb09037a4c6416472",
       "config": {
         "file": "packages/climada/configs/florida_counties.yaml",
-        "sha256": "09ae66710528a14af95e198e3a82ef91912c7cf59fc5f38481a0f2556c2ed379"
+        "sha256": "67ab561757e1cfc5c0ae84de8fb39b49d68412b9b870640865ccf91de5f547da"
       },
       "files": {
         "events.parquet": {
@@ -33,12 +33,12 @@
           "sha256": "48c1b93451afa16bf3687eeba0374d5e84e15a636fd9f45c993c0792684eb832"
         },
         "metadata.json": {
-          "bytes": 10603,
-          "sha256": "108033a3b60e632673f92283e1caf3b039ee366849d161a3ab4120e259e40863"
+          "bytes": 12874,
+          "sha256": "beaa49967c2641a079104eaae22193718cf3ec1c6572fac075b444947ec4d6ef"
         },
         "values.parquet": {
           "bytes": 10596423,
-          "sha256": "b1548c9d1b288eb7c122114149668ed512624b223ad7367f9e423fd16d23296b"
+          "sha256": "0a6a377ce840d2c4390d034bb24585d87885f561e74a3567d31db01c42956a3b"
         }
       },
       "n_rows": 139020,
@@ -48,29 +48,53 @@
       "values_rows": 9314340,
       "licence": "CC-BY-4.0",
       "loss_unit": "USD (LitPop reference_year 2018)",
+      "index_definition": "Maximum 1-minute sustained wind speed at 10 m above ground at the asset over the storm's lifetime: CLIMADA 6.1.0 TropCyclone.from_tracks intensity (wind model H08, intensity threshold 17.5 m/s, max 300 km from the eye, max latitude 61, no distance-to-coast cut-off), at a centroid placed on the asset; winds below the intensity threshold are stored as 0",
       "rate_sum": 1.3902,
-      "portfolio_expected_annual_loss": 3040588695.544668,
+      "portfolio_expected_annual_loss": 7615672695.469276,
       "rows_with_nonzero_index": 58900,
       "rows_with_nonzero_loss": 49250,
       "nonzero_loss_cells": 659190,
       "index_max": 74.02956783904268,
       "index_unique_values_if_few": null,
+      "prior_recentre": {
+        "kind": "excess",
+        "factor": 0.6901304479036513,
+        "median_v_half": 86.29345332594143,
+        "calibrated_median": 113.50000000000124,
+        "statistic": "expected_loss",
+        "target_expected_loss": 7615672695.469273,
+        "expected_loss": 7615672695.4692745,
+        "relative_tolerance": 1e-06,
+        "bracket": [
+          0.01,
+          100.0
+        ],
+        "base_content_hash": "sha256:373e11a62ba098dfb513526edd589354fc488c10a9484d0e799e1adf672e690a"
+      },
+      "prior_support": [
+        48.40529173603045,
+        168.34996358168672
+      ],
       "build": {
         "command": "pixi run --locked build-eventset --config configs/florida_counties.yaml",
-        "pipeline_runtime_s": 2779.4,
-        "wall_time_s": 2808.47,
-        "max_resident_set_size_bytes": 1555283968,
-        "measured_with": "/usr/bin/time -l around pixi run (includes the python child); both builds ran at the same time on a machine with load average about 40-50 from other jobs, so the times are not comparable with MAR-114's",
-        "machine": "osx-arm64 (owner's Apple-silicon Mac), CLIMADA 6.1.0, Python 3.12, pixi 0.83.0",
-        "date": "2026-10-27"
+        "code_commit": "c3a18935420622a01be4bcc2e330f017fab2a93a",
+        "pipeline_runtime_s": 1784.0,
+        "base_pass_and_match_s": 566,
+        "match_after_last_base_batch_s": 2,
+        "wall_time_s": 1800.81,
+        "max_resident_set_size_bytes": 1513324544,
+        "measured_with": "/usr/bin/time -l around pixi run; the two Florida builds ran at the same time, next to the two thesis builds (one after the other) and scratch thesis builds; timestamps of the log lines (1 s resolution) for the base pass and the match",
+        "machine": "osx-arm64 (owner's Apple-silicon Mac), CLIMADA 6.1.0, Python 3.12",
+        "date": "2026-11-01",
+        "note": "MAR-160 build (config unchanged in MAR-145); record copied from research/data/f12-recentred-prior/checksums.json"
       }
     },
     {
-      "eventset_dir": "data/eventsets/florida-counties-iris-cat-in-circle-50km-vulnerability",
-      "content_hash": "sha256:c7d6b76519d88bba4143d999bed81c78a0ff213777528aed3d7cea5ff2dfa67f",
+      "eventset_dir": "data/eventsets/florida-counties-iris-cat-in-circle-75km-vulnerability",
+      "content_hash": "sha256:70af1fed283d9e800574c01181ff4e3ee40dee7ab227a890145d7744e8328a60",
       "config": {
         "file": "packages/climada/configs/florida_counties_cat_in_circle.yaml",
-        "sha256": "4d6323d1613b92747357548c126947263cce3a06a4eed00a6391a093b0fbe1c0"
+        "sha256": "fd8ab002ad284b080cf9caf6c83675f0170be2e01121f6f3b936a9f87da7e4de"
       },
       "files": {
         "events.parquet": {
@@ -82,12 +106,12 @@
           "sha256": "48c1b93451afa16bf3687eeba0374d5e84e15a636fd9f45c993c0792684eb832"
         },
         "metadata.json": {
-          "bytes": 11289,
-          "sha256": "ba0a17e840b13066e89f703685719b03ea2a1aa06bd188e51e5a232d89d6b0f3"
+          "bytes": 13560,
+          "sha256": "c561b2c8423d38779af9a9efbea717010ff93f87c54f4e504eb998de7015034d"
         },
         "values.parquet": {
-          "bytes": 8635897,
-          "sha256": "3a2ecee6b82d644d14d742b870fce02afcf02bb209f4861598b3f4d224a041c0"
+          "bytes": 8684032,
+          "sha256": "7245bb07744724292f00c53de81acccb5ab11ba496231fb98fea789bc8f55692"
         }
       },
       "n_rows": 139020,
@@ -97,9 +121,10 @@
       "values_rows": 9314340,
       "licence": "CC-BY-4.0",
       "loss_unit": "USD (LitPop reference_year 2018)",
+      "index_definition": "cat_in_circle(r=75 km, metric=category): from the storm's track points within 75 km of the asset (haversine, sphere of 6371 km; track interpolated linearly to 0.5 h steps), the number of Saffir-Simpson breakpoints [64, 83, 96, 113, 137] kn (NHC) that the highest maximum 1-minute sustained surface wind of the track (IRIS vmax; 1.9438444924406 kn per m/s) reaches; 0 below the first breakpoint or when no track point lies within the circle",
       "rate_sum": 1.3902,
-      "portfolio_expected_annual_loss": 3040588695.544668,
-      "rows_with_nonzero_index": 30570,
+      "portfolio_expected_annual_loss": 7615672695.469276,
+      "rows_with_nonzero_index": 34110,
       "rows_with_nonzero_loss": 49250,
       "nonzero_loss_cells": 659190,
       "index_max": 5.0,
@@ -111,14 +136,36 @@
         4.0,
         5.0
       ],
+      "prior_recentre": {
+        "kind": "excess",
+        "factor": 0.6901304479036513,
+        "median_v_half": 86.29345332594143,
+        "calibrated_median": 113.50000000000124,
+        "statistic": "expected_loss",
+        "target_expected_loss": 7615672695.469273,
+        "expected_loss": 7615672695.4692745,
+        "relative_tolerance": 1e-06,
+        "bracket": [
+          0.01,
+          100.0
+        ],
+        "base_content_hash": "sha256:d62faf2ef7a9ba3575da005432be7d8122f3c728e12e34994a331f9b2b531e4c"
+      },
+      "prior_support": [
+        48.40529173603045,
+        168.34996358168672
+      ],
       "build": {
         "command": "pixi run --locked build-eventset --config configs/florida_counties_cat_in_circle.yaml",
-        "pipeline_runtime_s": 2811.9,
-        "wall_time_s": 2833.08,
-        "max_resident_set_size_bytes": 1381351424,
-        "measured_with": "/usr/bin/time -l around pixi run (includes the python child); both builds ran at the same time on a machine with load average about 40-50 from other jobs, so the times are not comparable with MAR-114's",
-        "machine": "osx-arm64 (owner's Apple-silicon Mac), CLIMADA 6.1.0, Python 3.12, pixi 0.83.0",
-        "date": "2026-10-27"
+        "code_commit": "c9cfe05f7fa45786d839192dbc39898ad30ac8d5",
+        "pipeline_runtime_s": 678.0,
+        "base_pass_and_match_s": 329,
+        "match_after_last_base_batch_s": 1,
+        "wall_time_s": 684.25,
+        "max_resident_set_size_bytes": 1933049856,
+        "measured_with": "/usr/bin/time -l around pixi run (includes the python child); built alone (no other EventSet build running), load average about 2-7; timestamps of the log lines (1 s resolution) for the base pass and the match",
+        "machine": "osx-arm64 (owner's Apple-silicon Mac), CLIMADA 6.1.0, Python 3.12",
+        "date": "2026-11-01"
       }
     }
   ]

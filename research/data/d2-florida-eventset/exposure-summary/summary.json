@@ -1,15 +1,15 @@
 {
-  "eventset_content_hash": "sha256:cad398875afb467f5d1475e6a47952116391be18f249cc484990436f46a6cbe6",
+  "eventset_content_hash": "sha256:30b1723182e5bb3eef8abae0d0edcc605918aaf90e03b24bb09037a4c6416472",
   "q": 0.99,
   "n_outcomes": 100000,
   "n_draws": 10,
   "tail_dependence_offdiagonal": {
     "min": 0.0,
     "median": 0.08399999999999992,
-    "max": 0.8899999999999992
+    "max": 0.8879999999999992
   },
   "counties_with_zero_quantile": [],
-  "portfolio_expected_annual_loss": 3040588695.544668,
+  "portfolio_expected_annual_loss": 7615672695.46927,
   "monroe": {
     "value": 764604190.3058065,
     "value_rank": 54,
@@ -23,6 +23,6 @@
       24.60416667,
       25.77083333
     ],
-    "expected_annual_loss": 338901.92691495124
+    "expected_annual_loss": 871634.0037913586
   }
 }

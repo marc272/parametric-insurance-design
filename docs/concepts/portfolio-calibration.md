@@ -4,6 +4,8 @@ The second idea of the thesis this library comes from[^thesis]: when one owner h
 
 This page describes the method and the code (`scopes.py`, `problem.py`, `clustering.py`), as checked in the [core design review](../reviews/core-design-review.md). It makes no claim that joint calibration outperforms individual calibration. In sample, the joint problem does at least as well on its own objective, which is a property of the optimisation ([below](#joint-versus-individual-calibration-at-the-same-budget)). Out of sample, whether it lowers the owner's shortfall is an open question of this project.
 
+How joint calibration works together with the tail objective, and which view fits which owner: [combining the two ideas](combination.md).
+
 [^thesis]: M. Prinzing, *Tail-Risk-Optimized Payout Design in Parametric Insurance*, master's thesis, Technical University of Munich, 2026. Not public. Equation numbers on this page refer to it.
 
 ## The use case: one risk owner
@@ -111,7 +113,7 @@ $$\xi_{e,c} = \sum_{i\in c} w_i x_{e,i}, \qquad w_i = \frac{v_i}{\sum_{k\in c} v
 
 with $x_{e,i}$ the index at asset i and $v_i$ its value (`locations.value`). A cluster's loss is the sum of its assets' losses. Like the portfolio scope, the cluster scope is one joint design problem, with the objective and the budget on the whole portfolio.
 
-**The clustering** (`clustering.ThesisWardClustering`, a port of the thesis code) computes five features per asset on the calibration rows:
+**The clustering** (`pid.ThesisWardClustering`, a port of the thesis code) computes five features per asset on the calibration rows:
 
 - the log of its value;
 - its mean share of the portfolio loss in the portfolio's loss tail;
@@ -122,7 +124,7 @@ with $x_{e,i}$ the index at asset i and $v_i$ its value (`locations.value`). A c
 It z-scores the features and cuts a Ward-linkage tree into `n_clusters` clusters. Two caveats (review F9):
 
 - The features weight rows by `rate / Σ rate`, the `event_conditional` measure, whatever the run's basis.
-- The tail is the rows whose portfolio loss is at or above its `beta_tail` quantile. If at least `beta_tail` of the row probability has no portfolio loss, that quantile is 0, and the "tail" is every row. The code doesn't flag this yet; a check is planned ([review finding F9](../reviews/core-design-review.md#f9-clustering-features-ignore-the-basis-and-their-tail-can-silently-be-the-whole-sample-clarity)).
+- The tail is the rows whose portfolio loss is at or above its `beta_tail` quantile. If at least `beta_tail` of the row probability has no portfolio loss, that quantile is 0, and the "tail" would be every row. The clustering then raises `clustering.DegenerateTailError` instead of using whole-sample features ([review finding F9](../reviews/core-design-review.md#f9-clustering-features-ignore-the-basis-and-their-tail-can-silently-be-the-whole-sample-clarity)).
 
 **It changes the index, not only the granularity** (review F7). The thesis describes the cluster scope as changing only the granularity at which cover is allocated (§2.3.3). In the code, it also changes the trigger: a cluster pays on the mean index of its assets, not on each asset's own index. So the cluster scope is neither a restriction nor a relaxation of the portfolio scope:
 
