@@ -1,0 +1,11 @@
+---
+description: "The weighted-CVaR objective α·CVaR_β(U) + (1 − α)·E[U] on the uncovered loss, as the library implements it."
+---
+
+{{< include ../../docs/concepts/tail-risk-objective.md >}}
+
+---
+
+::: {.source-note}
+This page is the repository's [`docs/concepts/tail-risk-objective.md`](https://github.com/marc272/parametric-insurance-design/blob/main/docs/concepts/tail-risk-objective.md), rendered for the site.
+:::

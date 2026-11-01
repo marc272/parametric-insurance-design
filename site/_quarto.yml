@@ -11,8 +11,10 @@ project:
   # docs, not site pages.
   render:
     - index.qmd
+    - method/*.qmd
     - explorers/*.qmd
     - blog/index.qmd
+    - about.qmd
   # The bundles the pages read with FileAttachment, copied as they are.
   resources:
     - fixtures/thesis-explorer/*.json
@@ -31,12 +33,24 @@ website:
     left:
       - href: index.qmd
         text: Home
+      - text: Method
+        menu:
+          - href: method/index.qmd
+            text: Overview and glossary
+          - href: method/tail-risk-objective.qmd
+            text: The tail-risk objective
+          - href: method/portfolio-calibration.qmd
+            text: Portfolio calibration
+          - href: method/combination.qmd
+            text: Combining the two ideas
       - text: Explorers
         menu:
           - href: explorers/alpha-beta.qmd
             text: "α/β payout explorer (placeholder)"
       - href: blog/index.qmd
         text: Posts
+      - href: about.qmd
+        text: About
     tools:
       - icon: github
         href: https://github.com/marc272/parametric-insurance-design

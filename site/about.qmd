@@ -1,0 +1,23 @@
+---
+title: "About"
+description: "The thesis behind the library, how the site's numbers are reported, and the licences."
+---
+
+## The project
+
+This project turns a master's thesis on parametric insurance into open outputs: the Python library [`parametric_insurance_design`](https://github.com/marc272/parametric-insurance-design), this site with its explorers and posts, and a paper. They present the thesis's two ideas, the [tail-risk objective](method/tail-risk-objective.qmd) and [portfolio (joint) calibration](method/portfolio-calibration.qmd), each on its own and [in combination](method/combination.qmd).
+
+## The thesis
+
+*Tail-Risk-Optimized Payout Design in Parametric Insurance*, a master's thesis by Marc Prinzing at the Technical University of Munich. The thesis isn't public. Its code is, at [marc272/parametric-insurance-framework](https://github.com/marc272/parametric-insurance-framework), and the library is checked against it.
+
+## How to read the numbers
+
+The site never runs an optimisation. It reads results that the library computed and exported, and every number it shows comes with its setup: the portfolio, the basis (what an outcome is), the basis-risk model, the pricing, and the split between calibration and test years. Placeholder pages are labelled as such.
+
+The site describes the method and the tool. It makes no general claim that either idea, or their combination, outperforms the alternatives.
+
+## Licences
+
+- The library and this site's code: BSD-3-Clause ([LICENSE](https://github.com/marc272/parametric-insurance-design/blob/main/LICENSE)). Each package keeps its own licence, listed in the repository's [README](https://github.com/marc272/parametric-insurance-design#licences).
+- Data derived from the IRIS hurricane event set: CC-BY-4.0.
