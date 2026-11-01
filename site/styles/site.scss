@@ -1,0 +1,50 @@
+/*-- scss:rules --*/
+
+// Observable Plot draws text halos and tips on --plot-background, white by
+// default. Use the page background, so charts read in light and dark mode.
+.plot,
+.cell-output-display svg {
+  --plot-background: #{$body-bg};
+  background: transparent;
+}
+
+// Charts and inputs never overflow a phone-width column.
+.cell-output-display svg,
+.cell-output-display figure {
+  max-width: 100%;
+  height: auto;
+}
+
+// Observable Inputs: let labels wrap above the control on narrow screens.
+@media (max-width: 575.98px) {
+  form[class^="inputs-"] {
+    flex-wrap: wrap;
+    --label-width: 100%;
+  }
+  form[class^="inputs-"] > label {
+    width: 100%;
+    margin-bottom: 0.25rem;
+  }
+}
+
+// The setup table: label and value side by side, stacked on phones.
+.setup-table th {
+  white-space: nowrap;
+}
+.setup-table td,
+.setup-table th {
+  vertical-align: top;
+  padding: 0.2rem 0.75rem 0.2rem 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 575.98px) {
+  .setup-table tr,
+  .setup-table th,
+  .setup-table td {
+    display: block;
+    padding-right: 0;
+  }
+  .setup-table th {
+    padding-top: 0.5rem;
+  }
+}
