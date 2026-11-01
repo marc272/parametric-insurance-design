@@ -831,6 +831,57 @@ def range_worker(group: Group, store_root: str | None) -> dict[str, Any]:
             del cand[name]
             statuses[name] = statuses.get(name, "") + " outside_set"
 
+    return _finish(
+        group,
+        prepared,
+        train,
+        test,
+        built,
+        sd,
+        cand,
+        statuses,
+        steps,
+        low,
+        checks,
+        asset_rows,
+        meta,
+        store,
+        t0,
+        RANGE_REL_TOL,
+    )
+
+
+def _finish(
+    group: Group,
+    prepared: EventSet,
+    train: Sample,
+    test: Sample,
+    built: Sequence[BuiltProblem],
+    sd: dict[str, SplitData],
+    cand: dict[str, list[np.ndarray]],
+    statuses: dict[str, str],
+    steps: dict[str, int],
+    low: list[np.ndarray] | None,
+    checks: dict[str, dict[str, float]],
+    asset_rows: list[dict[str, Any]],
+    meta: dict[str, Any],
+    store: ResultStore | None,
+    t0: float,
+    rel_tol: float,
+) -> dict[str, Any]:
+    """Evaluate, bootstrap and tabulate a group's candidate designs.
+
+    Shared by :func:`range_worker` (near-optimal set at ``RANGE_REL_TOL``)
+    and :func:`free_bin_worker` (the exact optimal set's free bins,
+    ``rel_tol`` 0). ``low`` is the outer-bound point (None: no outer bound).
+
+    Returns
+    -------
+    dict
+        The worker result (see :func:`range_worker`).
+    """
+    cfg = group.config
+    comps = cfg.to_components()
     # evaluate every candidate with the library (portfolio level)
     price = comps.pricing
     scope = comps.scopes[0]
@@ -885,11 +936,13 @@ def range_worker(group: Group, store_root: str | None) -> dict[str, Any]:
                     "split": split,
                     "kpi": lab,
                     "stored": values[("stored", split, lab)],
-                    "resolved": values[("resolved", split, lab)],
-                    "alt_solver": values[("alt_solver", split, lab)],
+                    "resolved": values.get(("resolved", split, lab), math.nan),
+                    "alt_solver": values.get(("alt_solver", split, lab), math.nan),
                     "min": values.get((f"min|{key}", split, lab), math.nan),
                     "max_found": values.get((f"max|{key}", split, lab), math.nan),
-                    "outer_bound_max": sd[split].value(low, kpi, beta),
+                    "outer_bound_max": math.nan
+                    if low is None
+                    else sd[split].value(low, kpi, beta),
                     "status_min": statuses[f"min|{key}"],
                     "status_max": statuses[f"max|{key}"],
                     "max_steps": steps[f"max|{key}"],
@@ -899,8 +952,11 @@ def range_worker(group: Group, store_root: str | None) -> dict[str, Any]:
                     "objective_excess_max": checks.get(f"max|{key}", {}).get(
                         "objective_excess", math.nan
                     ),
-                    "alt_objective_excess": checks["alt_solver"]["objective_excess"],
-                    "rel_tol": RANGE_REL_TOL,
+                    "alt_objective_excess": checks.get("alt_solver", {}).get(
+                        "objective_excess", math.nan
+                    ),
+                    "rel_tol": rel_tol,
+                    "method": "free_bins" if rel_tol == 0 else "near_optimal_set",
                     "config_hash": config_hash(cfg),
                     "run_id": group.run_id or "",
                 }
@@ -914,15 +970,17 @@ def range_worker(group: Group, store_root: str | None) -> dict[str, Any]:
             for name, th in cand.items()
             if np.all(np.isfinite(th[i]))
         )
-        row["alt_param_change_to_cap"] = float(
-            np.max(np.abs(cand["alt_solver"][i] - base)) / cap
+        row["alt_param_change_to_cap"] = (
+            float(np.max(np.abs(cand["alt_solver"][i] - base)) / cap)
+            if "alt_solver" in cand
+            else math.nan
         )
         row.update(
             setup=group.setup,
             pricing=group.pricing,
             kappa=1.0,
             design=group.design,
-            rel_tol=RANGE_REL_TOL,
+            rel_tol=rel_tol,
             config_hash=config_hash(cfg),
         )
 
@@ -1010,6 +1068,157 @@ def range_worker(group: Group, store_root: str | None) -> dict[str, Any]:
         "meta": {**meta, "checks": checks},
         "thetas": {name: [t.tolist() for t in th] for name, th in cand.items()},
     }
+
+
+def free_bins(counts: np.ndarray) -> list[int]:
+    """Bins without a train row (their parameter moves no train quantity)."""
+    return [int(k) for k in np.flatnonzero(np.asarray(counts) == 0)]
+
+
+def free_bin_bounds(
+    theta: np.ndarray, free: Sequence[int], cap: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return the design with every free bin at its lowest and highest value.
+
+    A free bin's parameter can take any value between the nearest used
+    bins' parameters below and above it (0 and the cap at the ends), by
+    monotonicity: every such design pays the same on every train row, so it
+    has the same objective, premium and budget use, and is optimal.
+
+    Returns
+    -------
+    lo, hi : numpy.ndarray
+        ``theta`` with every free parameter at its lowest (highest) value.
+    """
+    lo, hi = theta.copy(), theta.copy()
+    used = [k for k in range(len(theta)) if k not in set(free)]
+    for k in free:
+        below = [theta[j] for j in used if j < k]
+        above = [theta[j] for j in used if j > k]
+        lo[k] = max(below) if below else 0.0
+        hi[k] = min(above) if above else cap
+    return lo, hi
+
+
+def free_bin_worker(group: Group, store_root: str | None) -> dict[str, Any]:
+    """Measure the ranges over the exact optimal set's free bins (tolerance 0).
+
+    Every design that changes only the parameters of bins without a train
+    row (within monotonicity and the cap) pays the same on every train row
+    as the C1 design, so it is optimal too, for every objective and pricing
+    (all of them see the train rows only). The portfolio KPIs are
+    non-increasing in every parameter, so the design with every free
+    parameter at its highest value has the smallest KPI of this family and
+    the one with every free parameter at its lowest the largest, on every
+    split and KPI. On train the two equal the C1 design's (to rounding). This
+    is a subset of the optimal set, so its range is an inner bound of the
+    optimal set's (for MSE, the whole set when the Hessian restricted to the
+    used bins is positive definite: ``asset_ranges.csv``).
+
+    Parameters
+    ----------
+    group : Group
+        The design.
+    store_root : str or None
+        The C1 result store (None: validation group, solved here).
+
+    Returns
+    -------
+    dict
+        As :func:`range_worker`.
+    """
+    t0 = time.perf_counter()
+    cfg = group.config
+    comps = cfg.to_components()
+    prepared = c1._prepared(cfg)
+    train, test = splits.holdout(prepared, train_fraction=0.7)
+    store = ResultStore(Path(store_root)) if store_root else None
+    specs = list(comps.scopes[0].partition(train.select(prepared)))
+    built = build_problems(
+        prepared,
+        comps.scopes[0],
+        comps.payout,
+        comps.objectives[0],
+        comps.pricing,
+        comps.constraints,
+        basis=comps.basis,
+        sample=train,
+        specs=specs,
+    )
+    if group.run_id is not None:
+        assert store is not None
+        stored_results = rq2._stored(cfg, group.run_id, store).results
+    else:
+        stored_results = [
+            solve(b, DEFAULT_POLICY, pricing=comps.pricing) for b in built
+        ]
+    sd = {
+        "train": split_data(prepared, train, cfg, built),
+        "test": split_data(prepared, test, cfg, built),
+    }
+    stored = [np.asarray(r.theta)[0] for r in stored_results]
+    lo_all: list[np.ndarray] = []
+    hi_all: list[np.ndarray] = []
+    asset_rows: list[dict[str, Any]] = []
+    for i, b in enumerate(built):
+        counts = np.asarray(sd["train"].basis[i]).sum(axis=0)
+        free = free_bins(counts)
+        cap = float(b.context.cap[0] * b.context.scale)
+        lo, hi = free_bin_bounds(stored[i], free, cap)
+        for t in (lo, hi):
+            tr = sd["train"].basis[i]
+            if not np.allclose(tr @ t, tr @ stored[i], rtol=0, atol=1e-9 * cap):
+                raise RuntimeError(f"{b.spec.problem_id}: a free bin has train rows")
+        lo_all.append(lo)
+        hi_all.append(hi)
+        test_counts = np.asarray(sd["test"].basis[i]).sum(axis=0)
+        asset_rows.append(
+            {
+                "entity_id": b.spec.problem_id,
+                "free_bins": " ".join(str(k) for k in free),
+                "free_bins_test_rows": int(sum(test_counts[k] for k in free)),
+                "free_param_width_to_cap": float(np.max(hi - lo, initial=0.0)) / cap
+                if cap > 0
+                else math.nan,
+                "cap": cap,
+                "mse_hessian_min_eig_rel_used_bins": hessian_min_eig_rel(
+                    sd["train"],
+                    np.asarray(sd["train"].basis[i])[
+                        :, [k for k in range(len(counts)) if k not in free]
+                    ],
+                ),
+            }
+        )
+    cand: dict[str, list[np.ndarray]] = {"stored": stored}
+    statuses: dict[str, str] = {}
+    steps: dict[str, int] = {}
+    for split in SPLITS:
+        for kpi, beta in KPIS:
+            lab = f"{split}|{kpi_label(kpi, beta)}"
+            cand[f"min|{lab}"] = hi_all
+            cand[f"max|{lab}"] = lo_all
+            statuses[f"min|{lab}"] = "exact (free bins at their highest)"
+            statuses[f"max|{lab}"] = "exact (free bins at their lowest)"
+            steps[f"max|{lab}"] = 0
+    meta: dict[str, Any] = {"method": "free_bins"}
+    return _finish(
+        group,
+        prepared,
+        train,
+        test,
+        built,
+        sd,
+        cand,
+        statuses,
+        steps,
+        None,
+        {},
+        asset_rows,
+        meta,
+        store,
+        t0,
+        0.0,
+    )
 
 
 # --------------------------------------------------------------------------
@@ -1348,6 +1557,12 @@ def main(argv: list[str] | None = None) -> int:
         "--only", nargs="*", default=None, help="setup|pricing|design keys to run"
     )
     parser.add_argument(
+        "--method",
+        choices=["near_optimal_set", "free_bins"],
+        default="near_optimal_set",
+        help="near-optimal set at RANGE_REL_TOL, or the exact free-bin family",
+    )
+    parser.add_argument(
         "--compare-only",
         action="store_true",
         help="skip the solves: reload the saved worker results from --full",
@@ -1366,10 +1581,11 @@ def main(argv: list[str] | None = None) -> int:
                 raise RuntimeError(f"C1 run {rid} is not in {args.c1_store}")
     args.full.mkdir(parents=True, exist_ok=True)
     out: dict[tuple[str, str, str], dict[str, Any]] = {}
+    worker = free_bin_worker if args.method == "free_bins" else range_worker
     ctx = get_context("spawn")
     with ProcessPoolExecutor(max_workers=args.jobs, mp_context=ctx) as pool:
         futs = {
-            pool.submit(range_worker, g, str(args.c1_store) if g.run_id else None): g
+            pool.submit(worker, g, str(args.c1_store) if g.run_id else None): g
             for g in groups
         }
         failed: dict[str, str] = {}
