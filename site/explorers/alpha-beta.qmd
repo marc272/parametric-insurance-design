@@ -568,7 +568,7 @@ setupNote = (kind) => {
     `${run.scope} scope`,
     designLine,
     ...(kind === "relative" ? [`benchmark: the MSE design at κ = ${benchmarkRun.parameters.budget_loading} with the same ${benchmarkRun.parameters.n_bins} bins`] : []),
-    `${run.parameters.n_bins} equal bins from ${attachment} to ${limit} ${indexUnit}`,
+    `bins of equal width from ${attachment} to ${limit} ${indexUnit}`,
     `${manifest.setup.basis} basis`,
     `basis-risk model: the thesis noise layer (${noise.kind}, level ${noise.level}, ${noise.n_copies} copies)`,
     `${manifest.setup.pricing.kind} pricing, κ = ${kappa}`,
