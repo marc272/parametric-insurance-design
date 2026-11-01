@@ -281,7 +281,7 @@ Classes, as the issue defines them: **P** = robust design of index payouts (prio
 
 The OpenAlex query with catalogue terms (O4) could not be run, so this observation rests on O5, O8, W3 and the citation chains.
 
-**O10. R2 sits closer to existing parametric work than R1 does.** Sadefo Kamdem includes Wasserstein sensitivity bounds for parametric payouts. A DRO variant (R2: a TV or χ² ball over year weights) would therefore be closer to existing parametric work than R1 over explicit hazard, vulnerability and climate event sets. Together with O2, this bears on D6 (MAR-29).
+**O10. R2 sits closer to existing parametric work than R1 does.** Sadefo Kamdem includes Wasserstein sensitivity bounds for parametric payouts. A DRO variant (R2: a TV or χ² ball over year weights) would therefore be closer to existing parametric work than R1 over explicit vulnerability and climate event sets ("hazard" dropped from R1's event sets: D7 was revisited on 2026-10-31, MAR-62, and there is no second hazard catalogue). Together with O2, this bears on D6 (MAR-29), decided at C1: R2 is included, conditionally (SPEC §11).
 
 **O11. Robust assessment of basis risk exists; robust minimisation of basis risk for index contracts was found only in Sadefo Kamdem.** Lefèvre, Loisel & Montesinos (2021) bound the basis risk of index contracts under worst-case scenarios within a distribution class. They assess basis risk; they do not design payouts.
 
