@@ -1,13 +1,13 @@
-r"""Run the thesis parity runs and write the parity reports (MAR-68 to MAR-70).
+r"""Run the thesis parity runs and write the parity reports.
 
 The thesis baseline (golden ``Source`` ``single_run``) is the thesis config's
 default parameters for 3 scopes x 3 objectives: noise seed 42, eta = 0.3,
 13 copies, alpha 0.9, beta 0.95, budget loading 1, 15 bins, 3 clusters
 (``parity/configs/thesis.yaml``). The optimisation-parameter sweeps (golden
-``Source`` ``<param>_sweep``, MAR-69) vary one of ``alpha``, ``beta``,
+``Source`` ``<param>_sweep``) vary one of ``alpha``, ``beta``,
 ``budget_loading``, ``n_bins`` and ``n_clusters`` at a time
-(:data:`OPTIMISATION_SWEEPS`). The simulation sweeps (MAR-70,
-:data:`SIMULATION_SWEEPS`) vary the noise level and the asset subset; their
+(:data:`OPTIMISATION_SWEEPS`). The simulation sweeps
+(:data:`SIMULATION_SWEEPS`) vary the noise level and the asset subset; their
 golden tables are regenerated from the thesis code
 (``golden/simulation_sweeps/``, ``derive_simulation_sweeps.py``), and each
 gets a report of its own, ``reports/<source>.md``, which ``REPORT.md``
@@ -33,10 +33,10 @@ This script
 4. writes ``REPORT.md`` with ``report.write_report``: golden objectives
    from ``golden/golden_objectives.csv``, explanations from
    ``explanations.yaml``, the analysis as an appendix, and the run setup in
-   the setup section. The adapter section ``analysis/adapter.md`` (MAR-20),
+   the setup section. The adapter section ``analysis/adapter.md``,
    written in the CLIMADA pixi env, follows as a second appendix. The
    analysis ends with the informational MSE comparison under the accurate
-   policy (:func:`accurate_mse`, owner's MAR-18 answer 5).
+   policy (:func:`accurate_mse`, informational and not gated).
 
 Run from the repository root::
 
@@ -46,8 +46,8 @@ Run from the repository root::
 :data:`ALL_SWEEPS`) and ``--no-sweeps`` runs the baseline only; each report
 compares the golden records of its sources on the runs of its points.
 ``--jobs N`` (default 1) solves the sweep points in ``N`` worker processes
-(``sweeps.run_sweeps(jobs=N)``, MAR-105, MAR-125), and then the accurate MSE
-reference runs of every report (:class:`ReferenceRuns`, MAR-129), with the
+(``sweeps.run_sweeps(jobs=N)``), and then the accurate MSE
+reference runs of every report (:class:`ReferenceRuns`), with the
 same store contents and so the same reports. The reports' comparisons and
 thesis-payout checks run first (:func:`compare_group`), so that every
 reference run is known before any report is written; the 9 single runs, the
@@ -132,7 +132,7 @@ from parametric_insurance_design.solve import (  # noqa: E402
 PARITY_POLICY: SolverPolicy = THESIS_POLICY
 """Solver policy of the parity runs: ``solve.THESIS_POLICY``.
 
-By owner decision (MAR-98, 2026-10-25) the parity gate compares with the
+By owner decision (2026-10-25) the parity gate compares with the
 thesis under the policy that reproduces the thesis solves: Clarabel first for
 the LPs, OSQP at cvxpy's default accuracy for the MSE QPs, as the thesis ran
 them. The default policy runs OSQP at 1e-8 instead; its MSE results differ
@@ -143,7 +143,7 @@ OBJECTIVES: Final[Path] = harness.GOLDEN_DIR / harness.OBJECTIVES_FILE
 EXPLANATIONS: Final[Path] = PARITY_DIR / "explanations.yaml"
 ANALYSIS: Final[Path] = PARITY_DIR / "analysis" / "thesis_payouts.md"
 ADAPTER: Final[Path] = PARITY_DIR / "analysis" / "adapter.md"
-"""The adapter section (MAR-20), written in the CLIMADA pixi env by
+"""The adapter section, written in the CLIMADA pixi env by
 ``packages/climada/scripts/thesis_adapter_parity.py`` and appended as is."""
 REPORT: Final[Path] = PARITY_DIR / "REPORT.md"
 SOURCE: Final[str] = "single_run"
@@ -154,9 +154,9 @@ OPTIMISATION_SWEEPS: Final[tuple[str, ...]] = (
     "n_bins",
     "n_clusters",
 )
-"""The optimisation-parameter sweeps (MAR-69), compared in ``REPORT.md``."""
+"""The optimisation-parameter sweeps, compared in ``REPORT.md``."""
 SIMULATION_SWEEPS: Final[tuple[str, ...]] = ("noise_level", "n_assets")
-"""The simulation sweeps (MAR-70), each compared in its own report under
+"""The simulation sweeps, each compared in its own report under
 :data:`REPORTS_DIR`, so that no file exceeds the repository's 500 kB limit."""
 ALL_SWEEPS: Final[tuple[str, ...]] = (*OPTIMISATION_SWEEPS, *SIMULATION_SWEEPS)
 """The default of ``--sweep``: every sweep of the thesis config."""
@@ -172,7 +172,7 @@ DETAIL_RUNS: Final[frozenset[tuple[str, str]]] = frozenset(
 """Runs whose analysis lists every entity (the ones with KPI findings)."""
 
 SETUP_NOTE_POLICY: Final[str] = (
-    "Solver policy: by owner decision (MAR-98), the parity gate runs with "
+    "Solver policy: by owner decision, the parity gate runs with "
     "`solve.THESIS_POLICY` (`PARITY_POLICY` in "
     "`parity/scripts/run_default_parity.py`), which reproduces the thesis "
     "solves: OSQP at cvxpy's default accuracy for the MSE problems, as in the "
@@ -186,7 +186,7 @@ SETUP_NOTE_MSE: Final[str] = (
     "payouts of A2 to A4 exceed the budget by about 1e-4 relative (the appendix "
     "shows the same for ours under this policy). The MSE rows below therefore "
     "compare like with like, solver error included; `parity/BENCHMARK.md` "
-    "(MAR-98) gives the measurements."
+    "gives the measurements."
 )
 
 
@@ -282,7 +282,7 @@ def sweep_sources(parameters: Sequence[str]) -> tuple[str, ...]:
 
 @dataclass(frozen=True)
 class NoiseCheck:
-    """The runner's noise draws against the thesis digest (MAR-10)."""
+    """The runner's noise draws against the thesis digest."""
 
     kind: str
     digest: str
@@ -318,7 +318,7 @@ class NoiseCheck:
         return (
             "Noise draws: the runner's data preparation (`prepare_eventset` "
             f"with the config's noise, {self.kind}, before the threshold filter) "
-            f"against `golden/noise_digests.json` (MAR-10): {verdict}."
+            f"against `golden/noise_digests.json`: {verdict}."
         )
 
 
@@ -492,7 +492,7 @@ GAP_TOL: Final[float] = 1e-7
 """Largest |gap| (relative objective difference) of an alternative optimum.
 
 Clarabel's default accuracy and the golden payouts' 8-digit print each move
-an LP objective by about 1e-9 to 1e-8 relative (MAR-68 appendix). A gap
+an LP objective by about 1e-9 to 1e-8 relative (the report's appendix). A gap
 above this is not explained by solver tolerance."""
 
 GAP_ATOL: Final[float] = 1e-8
@@ -518,7 +518,7 @@ MSE_REF_TOL: Final[float] = 1e-4
 """Tolerance (relative, SPEC F-06) of an MSE payout against an accurate optimum.
 
 Under ``THESIS_POLICY`` the MSE problems are solved by OSQP at cvxpy's
-default accuracy, as in the thesis (MAR-98); the thesis's solutions and ours
+default accuracy, as in the thesis; the thesis's solutions and ours
 alike can overspend the budget and violate the payout bounds, so neither the
 gap between them nor their feasibility is a sign of a porting bug. Instead
 each such MSE payout is compared with the accurate optimum (``DEFAULT_POLICY``)
@@ -626,7 +626,7 @@ class PayoutCheck:
 
         For the LPs within :data:`LP_BOUND_TOL` and :data:`LP_BUDGET_TOL`.
         For MSE, where OSQP at cvxpy's default accuracy leaves violations in
-        the thesis's and our solutions alike (MAR-98), within the larger of
+        the thesis's and our solutions alike, within the larger of
         those tolerances and our own solution's violation.
         """
         bound, budget = LP_BOUND_TOL, LP_BUDGET_TOL
@@ -724,7 +724,7 @@ class _Builder:
 
     The caches keep the most recent ``size`` prepared EventSets and built
     runs: the simulation sweeps have about 1,700 configs on 180 prepared
-    EventSets (MAR-70), too many to keep every built problem in memory.
+    EventSets, too many to keep every built problem in memory.
     """
 
     def __init__(self, data: RunInput, size: int = 16) -> None:
@@ -858,7 +858,7 @@ def mse_references(
     sweeps : sequence of str, default ()
         As for :func:`thesis_payout_checks`.
     policy : SolverPolicy, default DEFAULT_POLICY
-        The accurate policy (OSQP at 1e-8, MAR-98).
+        The accurate policy (OSQP at 1e-8).
 
     Returns
     -------
@@ -971,7 +971,7 @@ def thesis_payout_checks(
         config of a matched run).
     result : harness.ParityResult, optional
         The comparison whose matched runs are checked (e.g. restricted to
-        some runs, MAR-70). Default: ``harness.compare`` of ``golden`` and
+        some runs). Default: ``harness.compare`` of ``golden`` and
         ``store`` over ``sources``.
 
     Returns
@@ -1067,8 +1067,8 @@ def thesis_payout_checks(
 class ExtraRun:
     """Design problems we solved that have no golden counterpart.
 
-    The thesis dropped the results of its failed solves without a trace
-    (MAR-65): a whole run (no golden record) or some entities of one.
+    The thesis dropped the results of its failed solves without a trace:
+    a whole run (no golden record) or some entities of one.
     """
 
     source: str
@@ -1461,7 +1461,7 @@ def render_analysis(
     lines = [
         "## Appendix: the thesis payouts under our design problems",
         "",
-        "Generated by `parity/scripts/run_default_parity.py` (MAR-68, MAR-69). "
+        "Generated by `parity/scripts/run_default_parity.py`. "
         "Each golden thesis payout of the records compared "
         f"({', '.join(sources)}) is evaluated under **our** objective and "
         "constraints on the same prepared EventSet, with numpy (not the "
@@ -1474,7 +1474,7 @@ def render_analysis(
         "every convex combination (the problem is convex), checked at the "
         "midpoint. The bound and budget violations of the MSE solutions, ours "
         "and the thesis's alike, come from OSQP at cvxpy's default accuracy, "
-        "which `THESIS_POLICY` keeps (MAR-98).",
+        "which `THESIS_POLICY` keeps.",
         "",
         "*Verdict*: **alternative optimum** if the thesis payout's objective "
         "and the midpoint's differ from ours by at most "
@@ -1569,7 +1569,7 @@ def render_analysis(
             "",
             "MSE design problems whose thesis payout is not an alternative "
             "optimum by the strict test. Under `THESIS_POLICY` both the thesis "
-            "and we solve them with OSQP at cvxpy's default accuracy (MAR-98), "
+            "and we solve them with OSQP at cvxpy's default accuracy, "
             "whose solutions can overspend the budget and break the payout "
             "bounds, so their gap says little. Each payout is compared instead "
             "with the accurate optimum of **our** problem (`DEFAULT_POLICY`, "
@@ -1703,8 +1703,8 @@ def render_analysis(
             "Design problems of our runs for which the golden tables hold "
             "neither a payout nor an objective, because the thesis has no "
             "result there: its solve or build failed and the thesis dropped it "
-            "without a record (MAR-65). By the owner's MAR-18 criteria "
-            "(2026-10-27, answer 8) they are accepted as **not compared**, "
+            "without a record. By the owner's gate criteria "
+            "(2026-10-27) they are accepted as **not compared**, "
             "listed here with their cause, and are not findings. *Whole run*: "
             "no golden record at these parameters (the run is also counted under "
             "*Store runs without a golden record*); otherwise the golden record "
@@ -1762,7 +1762,7 @@ def render_analysis(
 
 
 # --------------------------------------------------------------------------
-# MSE under the default policy (informational, MAR-70)
+# MSE under the default policy (informational)
 # --------------------------------------------------------------------------
 
 
@@ -1825,8 +1825,8 @@ def accurate_mse(
     Each MSE record's run config is solved again with ``policy`` into
     ``reference_store`` (cached; it is the at-loading reference run of
     :func:`mse_references` where that one exists). Not gated: the gate runs
-    ``THESIS_POLICY`` (MAR-98); this shows how far its MSE results, and the
-    thesis's, are from accurate optima (owner's MAR-18 answer 5).
+    ``THESIS_POLICY``; this shows how far its MSE results, and the
+    thesis's, are from accurate optima (informational, not gated).
 
     Parameters
     ----------
@@ -1932,7 +1932,7 @@ def reference_configs(
     *,
     sweeps: Sequence[str] = (),
 ) -> list[ExperimentConfig]:
-    """Return the reference runs that one report's checks need (MAR-129).
+    """Return the reference runs that one report's checks need.
 
     The runs that :func:`mse_references` and then :func:`accurate_mse` solve
     for ``checks``, in that order, duplicates included. Solving them first
@@ -1963,7 +1963,7 @@ def reference_configs(
 
 
 class ReferenceRuns:
-    """Solve the accurate MSE reference runs on worker processes (MAR-129).
+    """Solve the accurate MSE reference runs on worker processes.
 
     :meth:`submit` queues single-run configs and :meth:`wait` writes their
     runs into ``store``. The store ends up as :func:`runner.run_single` per
@@ -2119,9 +2119,9 @@ def render_accurate(rows: Sequence[AccurateMse]) -> str:
     lines = [
         "### MSE under the default policy (informational, not gated)",
         "",
-        "Owner's MAR-18 answer 5 (2026-10-27): the gate compares with the thesis "
-        "under `THESIS_POLICY` (OSQP at cvxpy's default accuracy for MSE, "
-        "MAR-98); this section shows the accurate optimum of the same design "
+        "By the owner's gate criteria (2026-10-27), the gate compares with the "
+        "thesis under `THESIS_POLICY` (OSQP at cvxpy's default accuracy for "
+        "MSE); this section shows the accurate optimum of the same design "
         "problems (`DEFAULT_POLICY`, OSQP at 1e-8; runs in the reference store, "
         "the at-loading reference runs above where those exist) next to it. "
         "*Objective*: summed over the record's checked design problems; thesis "
@@ -2248,32 +2248,32 @@ def _sweep_note(config: ExperimentConfig, sweep: SweepResult) -> str:
     return (
         f"Sweep `{sweep.parameter}` (`{sweep.source}`, values {values}): "
         f"{len(sweep.points)} points, {len(sweep.failed)} with a failed design "
-        f"problem; sweep manifest `{sweep.sweep_id}` (MAR-65)."
+        f"problem; sweep manifest `{sweep.sweep_id}`."
     )
 
 
 NOTES: Final[str] = (
-    "This report covers the thesis baseline, the golden `single_run` records "
-    "(MAR-68). It is written by `uv run python "
+    "This report covers the thesis baseline, the golden `single_run` records. "
+    "It is written by `uv run python "
     "parity/scripts/run_default_parity.py`, which runs the 9 default runs, "
     "checks the noise draws and the thesis payouts (appendix), and calls "
     "`report.py` with the golden objective table "
     "(`golden/golden_objectives.csv`) and `explanations.yaml`. The last "
     "section checks that the CLIMADA adapter regenerates the thesis event-loss "
-    "table (MAR-20)."
+    "table."
 )
 
 NOTES_SWEEPS: Final[str] = (
-    "This report covers the thesis baseline, the golden `single_run` records "
-    "(MAR-68), and the optimisation-parameter sweeps over alpha, beta, "
-    "budget loading, n_bins and n_clusters (MAR-69). It is written by `uv run "
+    "This report covers the thesis baseline, the golden `single_run` records, "
+    "and the optimisation-parameter sweeps over alpha, beta, "
+    "budget loading, n_bins and n_clusters. It is written by `uv run "
     "python parity/scripts/run_default_parity.py`, which runs the 9 default "
     "runs and every sweep point, checks the noise draws and the thesis "
     "payouts (appendix), and calls `report.py` with the golden objective "
     "table (`golden/golden_objectives.csv`) and `explanations.yaml`. A sweep "
     "point equal to the baseline is the baseline run (a cache hit), so its "
     "*Run source* is `single_run`. The last section checks that the CLIMADA "
-    "adapter regenerates the thesis event-loss table (MAR-20)."
+    "adapter regenerates the thesis event-loss table."
 )
 
 WHAT_PARITY_REPRODUCES: Final[str] = (
@@ -2282,7 +2282,7 @@ WHAT_PARITY_REPRODUCES: Final[str] = (
     "Parity here means parity with the thesis **code**, the code that produced "
     "the thesis result tables, not with the thesis text. Where the two differ, "
     "the parity runs follow the code. They differ in four places (design review "
-    "finding F5, `docs/reviews/core-design-review.md`, MAR-175). This section "
+    "finding F5, `docs/reviews/core-design-review.md`). This section "
     "changes no number or finding of the report.\n"
     "\n"
     "1. **Probabilities.** Thesis eq. (3.3) gives each event the probability "
@@ -2312,13 +2312,13 @@ WHAT_PARITY_REPRODUCES: Final[str] = (
     "default)."
 )
 """The section under the notes of ``REPORT.md`` that says the parity source is
-the thesis code, not the thesis text (design review F5, MAR-175)."""
+the thesis code, not the thesis text (design review F5)."""
 
 
 NOTES_SIMULATION: Final[Mapping[str, str]] = {
     "noise_value_sweep": (
         "This report covers the thesis noise-level sweep (golden `Source` "
-        "`noise_value_sweep`, MAR-70): eta from 0 to 1 at the thesis "
+        "`noise_value_sweep`): eta from 0 to 1 at the thesis "
         "defaults otherwise, every scope x objective. The thesis kept these "
         "results in memory only, so the golden tables are regenerated by "
         "running the thesis code on its event-loss table "
@@ -2331,7 +2331,7 @@ NOTES_SIMULATION: Final[Mapping[str, str]] = {
     ),
     "n_assets_sweep": (
         "This report covers the thesis asset-count sweep (golden `Source` "
-        "`n_assets_sweep`, MAR-70): 1 to 9 assets, at most 25 subsets per "
+        "`n_assets_sweep`): 1 to 9 assets, at most 25 subsets per "
         "size drawn as the thesis' `_build_kpi_df_n_assets` draws them, every "
         "scope x objective. The thesis figure shows averages over the subsets; "
         "the golden tables hold each subset's results, regenerated by running "
@@ -2433,7 +2433,7 @@ def report_groups(
     reports_dir: Path,
     analysis_dir: Path,
 ) -> list[ReportGroup]:
-    """Split the parity runs into reports (MAR-70).
+    """Split the parity runs into reports.
 
     ``REPORT.md`` (:data:`MAIN_GROUP`) compares the baseline and the
     optimisation sweeps on their runs; each simulation sweep gets
@@ -2556,7 +2556,7 @@ def compare_group(
 
     The part of :func:`write_group` that needs no reference run, so that
     :func:`main` can collect every report's reference runs
-    (:func:`reference_configs`) and solve them in parallel first (MAR-129).
+    (:func:`reference_configs`) and solve them in parallel first.
 
     Parameters
     ----------
@@ -2718,7 +2718,7 @@ def write_group(
 def render_index(summaries: Sequence[GroupSummary], main_out: Path) -> str:
     """Render the section of ``REPORT.md`` that indexes the simulation reports."""
     lines = [
-        "## Simulation sweeps (MAR-70)",
+        "## Simulation sweeps",
         "",
         "The noise-level and asset-count sweeps are compared in reports of "
         "their own, with the same rules, explanations file and evidence check, "
@@ -2810,7 +2810,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--adapter",
         default=str(ADAPTER),
-        help="adapter section appended after the analysis (MAR-20); '' to omit",
+        help="adapter section appended after the analysis; '' to omit",
     )
     parser.add_argument("--explanations", default=str(EXPLANATIONS))
     parser.add_argument("--objectives", default=str(OBJECTIVES))
@@ -2834,7 +2834,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--simulation-golden",
         default=str(harness.SIMULATION_DIR),
-        help="the regenerated thesis simulation-sweep tables (MAR-70)",
+        help="the regenerated thesis simulation-sweep tables",
     )
     parser.add_argument(
         "--sweep",
@@ -2896,7 +2896,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     # The simulation sweeps first: the main report indexes them.
     ordered = sorted(groups, key=lambda g: g.name == MAIN_GROUP)
     # Every report's comparison and checks first, then its reference runs on
-    # the workers while the next report is compared (MAR-129); the reports
+    # the workers while the next report is compared; the reports
     # are written once the reference store holds every run they read.
     compared: list[tuple[harness.ParityResult, list[PayoutCheck]]] = []
     with ReferenceRuns(data, reference_store, jobs=args.jobs) as references:

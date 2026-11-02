@@ -1,4 +1,4 @@
-# Thesis experiment configuration (MAR-63). GENERATED, do not edit:
+# Thesis experiment configuration. GENERATED, do not edit:
 #   uv run python parity/scripts/migrate_thesis_config.py \
 #       --thesis-repo ../parametric-insurance-framework --overwrite
 #
@@ -44,9 +44,9 @@
 #   experiment_config.ASSETS.*.value -> locations.value
 #   experiment_config.ASSETS.*.impf_TC -> locations.impf_TC
 #   global_settings.N_YEARS -> metadata.n_years
-#   global_settings.DATA_PATH -> the EventSet itself (convert_thesis_eventset.py, MAR-9); config eventset.path and eventset.checksum
+#   global_settings.DATA_PATH -> the EventSet itself (convert_thesis_eventset.py); config eventset.path and eventset.checksum
 # Dropped thesis keys:
-#   experiment_config.EXPERIMENT_INPUTS.risk_loading: unused by the thesis code (SPEC §3.1 C8); loaded pricing is pricing.kind: cost_of_capital (MAR-27)
+#   experiment_config.EXPERIMENT_INPUTS.risk_loading: unused by the thesis code (SPEC §3.1 C8); loaded pricing is pricing.kind: cost_of_capital
 #   global_settings.OPTIMIZATION_RESULT_DIR: replaced by output.directory: one result store for all tables (C4, C5)
 #   global_settings.BENCHMARKING_RESULT_DIR: replaced by output.directory: one result store for all tables (C4, C5)
 #   global_settings.VISUALIZATION_DIR: figures are the viz layer's output, which reads the result store (C6)
@@ -56,7 +56,7 @@
 # Fixed in the thesis code, not in its YAML files:
 #   schema_version: 1
 #   name: thesis
-#   eventset.path: ../tests/data/thesis_eventset (the MAR-9 fixture of DATA_PATH)
+#   eventset.path: ../tests/data/thesis_eventset (the parity fixture of DATA_PATH)
 #   eventset.checksum: content_hash() of that fixture
 #   threshold.column: index: delete_events_below_threshold on Sub_Portfolio_Max_Wind
 #   basis: event_conditional: probabilities rescaled after the filter (SPEC §6.2)
@@ -70,7 +70,7 @@
 schema_version: 1
 name: thesis
 description: The thesis experiment (parametric-insurance-framework, configs/*.yaml and notebook
-  globals), migrated by parity/scripts/migrate_thesis_config.py for the parity runs (MAR-68).
+  globals), migrated by parity/scripts/migrate_thesis_config.py for the parity runs.
 eventset:
   path: ../tests/data/thesis_eventset
   checksum: sha256:404b0c3a3aefa38965ad3ace2747d308685a67e3b218cb835d45a9ab375294df

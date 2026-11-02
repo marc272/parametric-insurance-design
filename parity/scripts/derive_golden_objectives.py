@@ -1,4 +1,4 @@
-r"""Build the golden objective table from the thesis outputs (MAR-68).
+r"""Build the golden objective table from the thesis outputs.
 
 The thesis wrote no objective values: ``full_optimization_results.csv`` holds
 payouts and ``benchmarking_kpis.csv`` KPIs. SPEC §7 F-06 asks for objective
@@ -23,7 +23,7 @@ rescaled to sum to one, CVaR in the Rockafellar-Uryasev sense)
     * ``weighted_cvar_minimization``:
       ``Alpha * CVaR_Beta(U) + (1 - Alpha) * E[U]``.
 
-How each golden value is obtained (orchestrator decision on MAR-68)
+How each golden value is obtained
     ``a_golden_kpis``
         From the committed golden KPI row of the problem's subject. For the
         weighted CVaR this needs the record's ``Beta`` to equal the KPI
@@ -872,8 +872,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     rows = derive_from_kpis(kpis, decided.from_kpis)
     not_compared = dict(decided.not_compared)
     provenance: dict[str, Any] = {
-        "description": "Golden objective values of the thesis design problems "
-        "(MAR-68). Written by parity/scripts/derive_golden_objectives.py; "
+        "description": "Golden objective values of the thesis design problems. "
+        "Written by parity/scripts/derive_golden_objectives.py; "
         "the thesis wrote none, so each is derived (module docstring).",
         "inputs": {
             Path(args.results).name: sha256_file(args.results),

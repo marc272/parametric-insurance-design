@@ -1,4 +1,4 @@
-# Explanations of the parity findings (MAR-68, MAR-69), merged into
+# Explanations of the parity findings, merged into
 # parity/REPORT.md by parity/report.py. Keys are finding ids (P-...) or globs
 # over the finding path kind/approach/method/source/parameters/subject/item;
 # an id wins, otherwise the first matching glob in file order. Observations,
@@ -14,7 +14,7 @@
 # record the thesis-payout check does not support.
 
 # Thesis baseline, integrated portfolio, weighted CVaR (config_hash
-# sha256:1a84fd742e94b86d3b30e98cf3cf8e2c8e12a770693bf1f694ef81a4718cf24d, MAR-117):
+# sha256:1a84fd742e94b86d3b30e98cf3cf8e2c8e12a770693bf1f694ef81a4718cf24d):
 # asset-level KPIs of A1, A2, A4 and A6 only. The glob names asset subjects
 # (A<k>), so a portfolio-level finding of this record stays unexplained.
 ? "kpi/integrated_portfolio_optimization/weighted_cvar_minimization/single_run/alpha=0.9, beta=0.95, budget_loading=1, n_bins=15/A?/*"
@@ -31,7 +31,7 @@
   relative), which moves these asset-level KPIs by 1.4e-4 to 7.3e-4. This is
   what degeneracy predicts, not a porting bug.
 
-# Sweeps (MAR-69), LP objectives (E[U], weighted CVaR), joint scopes: KPIs of
+# Optimisation sweeps, LP objectives (E[U], weighted CVaR), joint scopes: KPIs of
 # an asset (portfolio scope, subjects A<k>) or a cluster (cluster scope, C<k>).
 # Portfolio-level findings of these records are matched further down or stay
 # unexplained.
@@ -116,13 +116,13 @@ P-94e0b4437b: >-
 ? "kpi/individual_optimization/pure_uncovered_loss_minimization/budget_loading_sweep/*"
 : *individual
 
-# Simulation sweeps (MAR-70), MSE: the numbers are those of the two reports
-# under parity/reports/ and their appendices (the MAR-69 text below cites the
-# budget-loading sweep). Only KPIs have findings there; every objective is
+# Simulation sweeps, MSE: the numbers are those of the two reports
+# under parity/reports/ and their appendices (the optimisation-sweep text
+# below cites the budget-loading sweep). Only KPIs have findings there; every objective is
 # within tolerance.
 ? "kpi/*/pure_basis_risk_minimization/noise_value_sweep/*"
 : >-
-  OSQP accuracy (MSE), noise-level sweep. By owner decision (MAR-98) the gate
+  OSQP accuracy (MSE), noise-level sweep. By owner decision the gate
   solves the MSE problems as the thesis did, with OSQP at cvxpy's default
   accuracy, and the thesis rerun did the same. These findings are all in
   the cluster scope at eta 0.4 to 1. There the objectives of the thesis
@@ -137,7 +137,7 @@ P-94e0b4437b: >-
   for our problem up to the solver's accuracy (verdict "OSQP accuracy").
 ? "kpi/*/pure_basis_risk_minimization/n_assets_sweep/*"
 : >-
-  OSQP accuracy (MSE), asset-count sweep. By owner decision (MAR-98) the gate
+  OSQP accuracy (MSE), asset-count sweep. By owner decision the gate
   solves the MSE problems as the thesis did, with OSQP at cvxpy's default
   accuracy, and the thesis rerun did the same. These findings are in the
   cluster and portfolio scopes. There the objectives of the thesis payout
@@ -155,7 +155,7 @@ P-94e0b4437b: >-
 # MSE (pure basis risk) in the sweeps: OSQP at cvxpy's default accuracy.
 ? "kpi/*/pure_basis_risk_minimization/*_sweep/*"
 : &osqp >-
-  OSQP accuracy (MSE). By owner decision (MAR-98) the gate solves the MSE
+  OSQP accuracy (MSE). By owner decision the gate solves the MSE
   problems as the thesis did, with OSQP at cvxpy's default accuracy. At this
   point the thesis's solution and ours are both inaccurate, in different
   ways: they overspend the budget or break the payout bounds by different
