@@ -69,6 +69,14 @@ Default phases:
     exceeds the re-solve's by more than 0.1 % is reported, and the tables
     mark every number that uses it. The store is not changed.
 
+Phase ``t14`` (MAR-203, not default): every k-fold run that failed the solver
+check is run again through the runner with :data:`T14_POLICY` (CLARABEL
+first for the QPs), under its own run id (the policy is part of the run id),
+next to the stored run. ``t14_replacements.csv`` maps the stored run to the
+re-solved one, with its solver, status and objective; the ``kfold`` phase
+then pools the re-solved run in its place (and records it in
+``kfold_runs.csv``). Without that file the ``kfold`` phase is unchanged.
+
 Cross-check phases (not default): ``rq1``, ``rq2``, ``combination`` and
 ``premium`` run the C1 workers one by one (:func:`c1_checkpoint.group_worker`,
 :func:`c1_rq2.holdout_worker`, :func:`c1_combination.holdout_worker`,
@@ -143,6 +151,7 @@ from parametric_insurance_design.experiment.config import (
 from parametric_insurance_design.experiment.runner import (
     RunOutcome,
     _tail_record,
+    execute,
     package_versions,
     run_key,
 )
@@ -150,7 +159,7 @@ from parametric_insurance_design.experiment.store import ResultStore
 from parametric_insurance_design.interfaces import Sample
 from parametric_insurance_design.problem import build_problems
 from parametric_insurance_design.scopes import Cluster
-from parametric_insurance_design.solve import DEFAULT_POLICY, solve
+from parametric_insurance_design.solve import DEFAULT_POLICY, SolverPolicy, solve
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 PLAN: Final[Path] = REPO_ROOT / "research" / "configs" / "florida" / "plan.yaml"
@@ -914,6 +923,7 @@ def run_kfold(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any]:
     t0 = time.perf_counter()
     configs = kfold_configs(plan)
     store = ResultStore(args.store)
+    replace = _t14_replacements(args.full)
     grid: list[dict[str, Any]] = []
     rows: list[dict[str, Any]] = []
     run_rows: list[dict[str, Any]] = []
@@ -932,7 +942,15 @@ def run_kfold(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any]:
         for pricing in plan["kfold"]["pricings"]:
             for kappa in plan["kfold"]["kappas"]:
                 new, native, runs_, folds_ = _kfold_variant(
-                    configs, store, prepared, measure, row_years, index, pricing, kappa
+                    configs,
+                    store,
+                    prepared,
+                    measure,
+                    row_years,
+                    index,
+                    pricing,
+                    kappa,
+                    replace,
                 )
                 grid += new["grid"]
                 rows += new["contrasts"]
@@ -959,6 +977,7 @@ def run_kfold(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any]:
         "kfold_runs": len(run_rows),
         "kfold_checked_against_pooled_difference": n_native,
         "kfold_decompositions_checked": n_dec,
+        "kfold_replaced_runs": replace,
         "kfold_seconds": round(time.perf_counter() - t0, 1),
     }
 
@@ -972,13 +991,19 @@ def _kfold_variant(
     index: str,
     pricing: str,
     kappa: float,
+    replace: dict[str, str] | None = None,
 ) -> tuple[
     dict[str, list[dict[str, Any]]],
     list[tuple[kfold.PooledKpis, dict[comb.Design, tuple[int, str]]]],
     list[dict[str, Any]],
     list[pd.DataFrame],
 ]:
-    """Pool one (index, pricing, kappa) and contrast its designs."""
+    """Pool one (index, pricing, kappa) and contrast its designs.
+
+    ``replace`` maps a stored run id to the run that takes its place (phase
+    ``t14``: the same config re-solved under :data:`T14_POLICY`).
+    """
+    replace = replace or {}
     boots: dict[float, dict[comb.Design, KpiBootstrap]] = {b: {} for b in EVAL_BETAS}
     hashes: dict[comb.Design, str] = {}
     native: list[tuple[kfold.PooledKpis, dict[comb.Design, tuple[int, str]]]] = []
@@ -992,7 +1017,8 @@ def _kfold_variant(
         exp_hash = config_hash(cfg)
         run_ids: list[str] = []
         for s in cfg.single_runs():
-            rid = rid_of(s)
+            stored_rid = rid_of(s)
+            rid = replace.get(stored_rid, stored_rid)
             if not store.has_run(rid):
                 raise RuntimeError(f"k-fold run {rid} missing: run the solve phase")
             run_ids.append(rid)
@@ -1014,6 +1040,9 @@ def _kfold_variant(
                     "config_hash": config_hash(s),
                     "run_id": rid,
                     "experiment_config_hash": exp_hash,
+                    **(
+                        {"replaces_run_id": stored_rid} if stored_rid in replace else {}
+                    ),
                 }
             )
             kp = store.read("kpis", run_ids=[rid])
@@ -2246,6 +2275,103 @@ def run_solvercheck(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str,
 
 
 # --------------------------------------------------------------------------
+# Phase t14: the k-fold designs that failed the solver check, re-solved
+# --------------------------------------------------------------------------
+
+T14_POLICY: Final[SolverPolicy] = SolverPolicy(qp_solvers=("CLARABEL", "OSQP"))
+"""CLARABEL first for the QPs (``c1_rq2.ALT_POLICY``'s QP order); the LP
+order is the default's. The policy is part of the run id."""
+T14_FILE: Final[str] = "t14_replacements.csv"
+
+
+def _t14_replacements(full: Path) -> dict[str, str]:
+    """Return each stored run id's re-solved run id (empty without ``t14``)."""
+    path = full / T14_FILE
+    if not path.is_file():
+        return {}
+    t = pd.read_csv(path)
+    return dict(zip(t["run_id"], t["replacement_run_id"], strict=True))
+
+
+def run_t14(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any]:
+    """Phase t14: re-solve the k-fold runs that failed the solver check.
+
+    Each k-fold run in ``solver_check.csv`` with a relative gap above
+    :data:`SOLVER_GAP` is run again through the runner with
+    :data:`T14_POLICY` and written to the store under its own run id (the
+    stored run stays). The re-solved run must end ``optimal`` with an
+    objective within :data:`SOLVER_GAP` of the solver check's re-solve.
+    Writes :data:`T14_FILE` to ``args.full``.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Command-line arguments.
+    plan : dict
+        The plan.
+
+    Returns
+    -------
+    dict
+        Summary entries.
+
+    Raises
+    ------
+    RuntimeError
+        If a re-solved run is not optimal or does not match the check.
+    """
+    store = ResultStore(args.store)
+    sc = pd.read_csv(args.full / "solver_check.csv")
+    bad = sc.loc[(sc["rel_gap"] > SOLVER_GAP) & (sc["split"] == "kfold")]
+    singles = {
+        rid_of(s): s for c in kfold_configs(plan).values() for s in c.single_runs()
+    }
+    rows: list[dict[str, Any]] = []
+    for r in bad.itertuples():
+        cfg = singles[str(r.run_id)]
+        new = run_key(config_hash(cfg), checksum_of(cfg), policy=T14_POLICY)
+        t = time.perf_counter()
+        if not store.has_run(new):
+            tables, manifest = execute(cfg, c1._input(cfg), policy=T14_POLICY)
+            if manifest["run_id"] != new:
+                raise RuntimeError(f"run id mismatch: {manifest['run_id']} != {new}")
+            store.write_run(tables, manifest)
+        seconds = time.perf_counter() - t
+        check_ok(store, [new])
+        runs = store.read("runs", run_ids=[new])
+        statuses = ",".join(sorted(set(runs["status"].astype(str))))
+        objective = float(runs["objective_value"].sum())
+        gap = (objective - float(r.alt_objective)) / abs(float(r.alt_objective))
+        if statuses != "optimal" or abs(gap) > SOLVER_GAP:
+            raise RuntimeError(f"{new}: {statuses}, gap {gap} to the solver check")
+        rows.append(
+            {
+                "run_id": r.run_id,
+                "config_hash": r.config_hash,
+                "fold": r.fold,
+                "replacement_run_id": new,
+                "solvers": ",".join(sorted(set(runs["solver"].astype(str)))),
+                "statuses": statuses,
+                "objective": objective,
+                "stored_objective": float(r.stored_objective),
+                "solvercheck_objective": float(r.alt_objective),
+                "rel_gap_to_solvercheck": gap,
+                "seconds": round(seconds, 1),
+            }
+        )
+        print(f"[t14] {str(r.run_id)[7:19]} -> {new[7:19]} {statuses}", flush=True)
+    args.full.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_csv(args.full / T14_FILE, index=False, float_format="%.10g")
+    return {
+        "t14_policy": {
+            "lp_solvers": list(T14_POLICY.lp_solvers),
+            "qp_solvers": list(T14_POLICY.qp_solvers),
+        },
+        "t14_replaced": {r["run_id"]: r["replacement_run_id"] for r in rows},
+    }
+
+
+# --------------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------------
 
@@ -2256,6 +2382,7 @@ PHASES: Final[tuple[str, ...]] = (
     "kfold",
     "guard",
     "solvercheck",
+    "t14",
     "rq1",
     "rq2",
     "combination",
@@ -2333,6 +2460,7 @@ def main(argv: list[str] | None = None) -> int:
         "premium": run_premium,
         "guard": run_guard,
         "solvercheck": run_solvercheck,
+        "t14": run_t14,
     }
     for name in PHASES:
         if name not in args.phases:
