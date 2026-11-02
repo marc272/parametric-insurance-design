@@ -81,6 +81,22 @@ The figures draw it where it exists:
 * :func:`exceedance_curves` draws no intervals: the ``exceedance`` table
   has no interval columns (``records.EXCEEDANCE``).
 
+Degenerate tail objectives
+--------------------------
+A weighted-CVaR run whose manifest flags a design problem
+(:mod:`~parametric_insurance_design_viz.degenerate_tail`: ``beta <=
+P(L_o = 0)`` on the calibration years, so the objective equals E[U]; or a
+CVaR tail of at most one outcome) is marked with the flag's symbol
+(``degenerate_tail.DEGENERATE_TAIL_SYMBOLS``, a dagger for
+``expected_uncovered``): next to the value in its heatmap cell, above its
+bar in the overview, after its legend label in the exceedance figure. A
+note under the figure states the mechanism
+(``degenerate_tail.degenerate_tail_notes``), the main table gains a
+``degenerate_tail`` column (the flag of each row's run, or empty) and the
+figure data the ``degenerate_tail`` table, one row per flagged design
+problem. A pooled k-fold design is marked if a fold run is flagged. Figures
+without a flagged run are unchanged.
+
 Scope labels: rows and legends are labelled by the scope name,
 ``style.run_scope_name`` of the runs (or ``style.config_scope_name`` of the
 configured scope for the pooled k-fold table). A cluster scope calibrated
@@ -139,7 +155,7 @@ from parametric_insurance_design.records import (
     KpiName,
     Split,
 )
-from parametric_insurance_design_viz import style
+from parametric_insurance_design_viz import degenerate_tail, style
 from parametric_insurance_design_viz.errors import (
     FigureDataError,
     InconsistentRunsError,
@@ -183,6 +199,11 @@ __all__ = [
 
 ScopeGrid = Mapping[str, Sequence[RunResult]]
 """Runs per scope key (e.g. ``"individual"``, ``"cluster_2"``), in order."""
+
+Degenerate = Mapping[tuple[str, str], Sequence[RunResult]]
+"""The runs behind each (scope key, objective) of a KPI figure: one run, or
+the fold runs of a pooled k-fold design. Read for the degenerate-tail marks
+(module docstring, "Degenerate tail objectives")."""
 
 SPLIT_PREFERENCE: Final[tuple[str, ...]] = (
     Split.TEST.value,
@@ -879,6 +900,40 @@ class Baseline:
         )
 
 
+def _degenerate(scopes: ScopeGrid) -> dict[tuple[str, str], list[RunResult]]:
+    """Return the runs of each (scope key, objective) of a grid (:data:`Degenerate`)."""
+    groups: dict[tuple[str, str], list[RunResult]] = {}
+    for key, runs in scopes.items():
+        for run in runs:
+            groups.setdefault((key, run.objective), []).append(run)
+    return groups
+
+
+def _flags(
+    degenerate: Degenerate | None, keys: Sequence[tuple[str, str]]
+) -> tuple[list[str | None], dict[str, str]]:
+    """Return the flag per (scope key, objective) of ``keys`` and their notes."""
+    if degenerate is None:
+        return [None] * len(keys), {}
+    groups = [degenerate.get(k, ()) for k in keys]
+    flags = [degenerate_tail.group_flag(g) for g in groups]
+    notes = degenerate_tail.degenerate_tail_notes(
+        g for g, f in zip(groups, flags, strict=True) if f
+    )
+    return flags, notes
+
+
+def _with_degenerate(
+    data: dict[str, pd.DataFrame], degenerate: Degenerate | None
+) -> dict[str, pd.DataFrame]:
+    """Add the ``degenerate_tail`` table of the figure's runs, if one is flagged."""
+    if degenerate is None:
+        return data
+    return degenerate_tail.with_degenerate_tail(
+        data, (r for runs in degenerate.values() for r in runs)
+    )
+
+
 def _scope_text(key: str, scopes: ScopeGrid) -> str:
     """Label of a scope key; repeated kinds keep their key, e.g. "(cluster_2)"."""
     return _scope_label(key, style.run_scope_name(scopes[key][0]))
@@ -1118,6 +1173,7 @@ def kpi_heatmap(
         title=title,
         subtitle=subtitle,
         name=name,
+        degenerate=_degenerate(scopes),
     )
 
 
@@ -1133,11 +1189,14 @@ def _draw_heatmap(
     title: str | None = _HEATMAP_TITLE,
     subtitle: str | None = None,
     name: str | None = None,
+    degenerate: Degenerate | None = None,
 ) -> FigureOutput:
     """Draw :func:`kpi_heatmap` from a KPI table and its layout.
 
     ``kpi_rows`` has the :data:`KPI_COLUMNS` (more columns are kept in the
     figure data), from :func:`kpi_table` or :func:`pooled_kpi_table`.
+    ``degenerate`` gives the runs behind each cell, for the degenerate-tail
+    marks; None draws none.
     """
     if n_legend_bins < 1:
         raise FigureDataError(f"n_legend_bins must be >= 1, got {n_legend_bins}")
@@ -1149,6 +1208,10 @@ def _draw_heatmap(
         ci_drawn=_has_interval(table),
     )
     note = interval_note(table)
+    flags, tail_notes = _flags(
+        degenerate, list(zip(table["scope_key"], table["objective"], strict=True))
+    )
+    table = table.assign(degenerate_tail=flags) if tail_notes else table
     pct = table["pct_vs_baseline"].to_numpy(dtype=np.float64)
     finite = pct[np.isfinite(pct)]
     max_abs = float(np.max(np.abs(finite))) if finite.size else 1.0
@@ -1200,10 +1263,16 @@ def _draw_heatmap(
             r, g, b, _ = color
             luminance = 0.299 * r + 0.587 * g + 0.114 * b
             text_color = "white" if luminance < 0.55 else _DARK_TEXT
+            flag = record.get("degenerate_tail")
+            symbol = (
+                degenerate_tail.DEGENERATE_TAIL_SYMBOLS[flag]
+                if isinstance(flag, str)
+                else ""
+            )
             ax.text(
                 cx,
                 cy + 0.10,
-                _fmt_sci(value),
+                _fmt_sci(value) + symbol,
                 ha="center",
                 va="center",
                 fontsize=_HEATMAP_FONT + 6,
@@ -1318,11 +1387,16 @@ def _draw_heatmap(
             loc="left",
             pad=8,
         )
-        if note:
+        footnotes = [f"In brackets: {note}"] if note else []
+        footnotes += [
+            f"{degenerate_tail.DEGENERATE_TAIL_SYMBOLS[f]} {text}"
+            for f, text in tail_notes.items()
+        ]
+        if footnotes:
             fig.text(
                 0.5,
                 up(0.015),
-                f"In brackets: {note}",
+                "\n".join(footnotes),
                 ha="center",
                 va="bottom",
                 fontsize=_HEATMAP_FONT - 1,
@@ -1340,7 +1414,7 @@ def _draw_heatmap(
     return FigureOutput(
         name=name or f"kpi_heatmap_{kpi}",
         figure=fig,
-        data={MAIN_TABLE: table, "legend": legend},
+        data=_with_degenerate({MAIN_TABLE: table, "legend": legend}, degenerate),
     )
 
 
@@ -1406,6 +1480,7 @@ def performance_overview(
         figsize=figsize,
         name=name,
         subtitle=_split_subtitle("Portfolio KPIs", table),
+        degenerate=_degenerate(scopes),
     )
 
 
@@ -1419,11 +1494,14 @@ def _draw_overview(
     figsize: tuple[float, float] | None = (6.0, 8.0),
     name: str = "performance_overview",
     subtitle: str | None = None,
+    degenerate: Degenerate | None = None,
 ) -> FigureOutput:
     """Draw :func:`performance_overview` from a KPI table and its layout.
 
     ``table`` has the :data:`KPI_COLUMNS` (from :func:`kpi_table` or
     :func:`pooled_kpi_table`). A ``subtitle`` is drawn above the panels.
+    ``degenerate`` gives the runs behind each bar, for the degenerate-tail
+    marks; None draws none.
     """
     keys, objectives = list(layout.keys), list(layout.objectives)
     labels = labels or AxisLabels()
@@ -1434,6 +1512,7 @@ def _draw_overview(
     offsets = (np.arange(len(objectives)) - (len(objectives) - 1) / 2) * _BAR_SPACING
     size = figsize or (max(6.0, 2.0 * len(keys) + 2.0), 3.0 * len(kpis))
     panels: list[pd.DataFrame] = []
+    all_notes: dict[str, str] = {}
 
     with style.style():
         fig, axes = plt.subplots(nrows=len(kpis), ncols=1, figsize=size, squeeze=False)
@@ -1445,6 +1524,13 @@ def _draw_overview(
                 for k, o in zip(rows["scope_key"], rows["objective"], strict=True)
             ]
             rows = rows.assign(bar_x=x, ci_drawn=_has_interval(rows))
+            flags, notes = _flags(
+                degenerate,
+                list(zip(rows["scope_key"], rows["objective"], strict=True)),
+            )
+            if notes:
+                rows = rows.assign(degenerate_tail=flags)
+                all_notes.update(notes)
             panels.append(rows)
             ax.bar(
                 rows["bar_x"],
@@ -1456,6 +1542,7 @@ def _draw_overview(
             with_ci = _where(rows, rows["ci_drawn"])
             if not with_ci.empty:
                 interval_handle = _interval_bars(ax, with_ci)
+            _bar_symbols(ax, rows, flags)
             if np.isfinite(ref):
                 ax.axhline(y=ref, color="black", linestyle=":", linewidth=1.0, zorder=0)
             ax.set_xticks(centres)
@@ -1494,7 +1581,7 @@ def _draw_overview(
         if interval_handle is not None and note is not None:
             reference_handles.append(interval_handle)
             reference_labels.append(note)
-        fig.legend(
+        reference = fig.legend(
             reference_handles,
             reference_labels,
             loc="upper center",
@@ -1503,9 +1590,37 @@ def _draw_overview(
             frameon=False,
             fontsize=style.FONT.legend_size,
         )
+        degenerate_tail.note_legend(
+            fig,
+            {
+                f: all_notes[f]
+                for f in degenerate_tail.DEGENERATE_TAILS
+                if f in all_notes
+            },
+            symbols=True,
+            below=reference,
+        )
 
     main = pd.concat(panels, ignore_index=True)
-    return FigureOutput(name=name, figure=fig, data={MAIN_TABLE: main})
+    return FigureOutput(
+        name=name, figure=fig, data=_with_degenerate({MAIN_TABLE: main}, degenerate)
+    )
+
+
+def _bar_symbols(ax: Axes, rows: pd.DataFrame, flags: Sequence[str | None]) -> None:
+    """Write each flagged bar's degenerate-tail symbol above it."""
+    for x, value, flag in zip(rows["bar_x"], rows["value"], flags, strict=True):
+        if flag is None or not np.isfinite(float(value)):
+            continue
+        ax.annotate(
+            degenerate_tail.DEGENERATE_TAIL_SYMBOLS[flag],
+            xy=(float(x), max(float(value), 0.0)),
+            xytext=(0.0, 2.0),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=style.FONT.tick_size,
+        )
 
 
 def _interval_bars(ax: Axes, rows: pd.DataFrame) -> Any:  # noqa: ANN401
@@ -1734,6 +1849,10 @@ def exceedance_curves(
     lo, hi = float(all_periods[0]), float(all_periods[-1])
     scope = style.run_scope_name(runs[0])
     linestyle = style.SCOPE_STYLES.get(scope, style.ScopeStyle("-", "o"))
+    flags = [degenerate_tail.run_degenerate_tail(r) for r in runs]
+    tail_notes = degenerate_tail.degenerate_tail_notes(
+        [r] for r, f in zip(runs, flags, strict=True) if f
+    )
 
     with style.style():
         fig, ax = plt.subplots(figsize=figsize)
@@ -1794,15 +1913,20 @@ def exceedance_curves(
             )
             for o in objectives
         ]
-        fig.legend(
+        legend = fig.legend(
             handles,
-            [style.objective_label(o) for o in objectives],
+            [
+                style.objective_label(o)
+                + (degenerate_tail.DEGENERATE_TAIL_SYMBOLS[f] if f else "")
+                for o, f in zip(objectives, flags, strict=True)
+            ],
             loc="upper center",
             bbox_to_anchor=(0.5, 0.0),
             ncol=len(handles),
             frameon=False,
             fontsize=style.FONT.legend_size,
         )
+        degenerate_tail.note_legend(fig, tail_notes, symbols=True, below=legend)
 
     markers = pd.DataFrame(
         [
@@ -1818,7 +1942,9 @@ def exceedance_curves(
     return FigureOutput(
         name=name or f"exceedance_{key}",
         figure=fig,
-        data={MAIN_TABLE: table, "markers": markers},
+        data=degenerate_tail.with_degenerate_tail(
+            {MAIN_TABLE: table, "markers": markers}, runs
+        ),
     )
 
 
@@ -1946,6 +2072,7 @@ def _pooled_figures(
             )
         setup = f"pooled out of sample over k = {k} folds"
         baseline = layout.default_baseline()
+        degenerate = _degenerate({s.key: s.runs for s in context.scopes})
         for kpi in HEATMAP_KPIS:
             out.append(
                 _draw_heatmap(
@@ -1955,6 +2082,7 @@ def _pooled_figures(
                     baseline=baseline,
                     subtitle=f"{kpi_label(kpi)}, {setup}",
                     name=f"kpi_heatmap_{kpi}",
+                    degenerate=degenerate,
                 )
             )
         out.append(
@@ -1965,6 +2093,7 @@ def _pooled_figures(
                 baseline=baseline,
                 labels=context.labels,
                 subtitle=f"Portfolio KPIs, {setup}",
+                degenerate=degenerate,
             )
         )
     for scope in context.scopes:

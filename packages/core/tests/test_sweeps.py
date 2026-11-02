@@ -32,8 +32,14 @@ from parametric_insurance_design.experiment.runner import (
     run_config,
     run_key,
 )
-from parametric_insurance_design.experiment.store import ResultStore, StoreError
+from parametric_insurance_design.experiment.store import (
+    MANIFESTS_DIR,
+    ResultStore,
+    StoreError,
+    run_file_stem,
+)
 from parametric_insurance_design.experiment.sweeps import (
+    DEGENERATE_TAIL_NOT_RECORDED,
     MEMBERSHIP_COLUMNS,
     SWEEP_MANIFEST_FORMAT,
     SWEEP_SOURCES,
@@ -605,6 +611,92 @@ def test_membership_reads_manifests_without_the_fold(
     assert len(membership) == 6
     assert membership["fold"].dtype == "Int64"
     assert bool(membership["fold"].isna().all())
+
+
+# -- degenerate tail objectives (MAR-207) --------------------------------------
+
+# On the toy EventSet, event_conditional basis: P(L_o = 0) is 1/3 for A (ev1
+# has no loss at A) and 0 for B; each event has probability 1/3, so the CVaR
+# tail holds (1 - beta) * 3 outcomes.
+INDIVIDUAL_WCVAR: dict[str, Any] = {
+    "scopes": [{"kind": "individual"}],
+    "objectives": [{"kind": "weighted_cvar", "alpha": 0.5, "beta": 0.5}],
+}
+
+
+def test_the_sweep_manifest_summarises_degenerate_tails(
+    toy_dir: Path, tmp_path: Path
+) -> None:
+    config = toy_config(
+        toy_dir,
+        tmp_path / "store",
+        **INDIVIDUAL_WCVAR,
+        sweeps=[{"parameter": "beta", "values": [0.3, 0.5, 0.8]}],
+    )
+    store = ResultStore(tmp_path / "store")
+    result = run_sweep(config, "beta", load_input(config), store)
+    assert result.ok
+    manifest = json.loads(result.manifest_path.read_text())
+    entries = manifest["points"]
+    assert [e["value"] for e in entries] == [0.3, 0.5, 0.8]
+    # beta 0.3 <= P(L_o = 0) = 1/3 at A only: weighted CVaR is E[U] there.
+    assert entries[0]["degenerate_tail"] == {"A": "expected_uncovered"}
+    # beta 0.5: above both P(L_o = 0), a tail of 1.5 outcomes; not flagged.
+    assert entries[1]["degenerate_tail"] == {}
+    # beta 0.8: a tail of 0.6 outcomes, the worst outcome, at A and B.
+    assert entries[2]["degenerate_tail"] == {
+        "A": "single_outcome",
+        "B": "single_outcome",
+    }
+    assert manifest["degenerate_tail"] == {
+        "expected_uncovered": [0],
+        "single_outcome": [2],
+        DEGENERATE_TAIL_NOT_RECORDED: [],
+    }
+    # Read from the run manifests, never recomputed.
+    for entry in entries:
+        problems = store.manifest(entry["run_id"])["problems"]
+        flagged = {
+            p["problem_id"]: p["degenerate_tail"]
+            for p in problems
+            if p["degenerate_tail"] is not None
+        }
+        assert entry["degenerate_tail"] == flagged
+    # The summary is not part of the sweep's identity.
+    assert result.sweep_id == sweep_id(
+        "beta", [(p.point, p.outcome.run_id) for p in result.points]
+    )
+
+
+def test_a_run_manifest_without_the_record_is_not_recorded(
+    toy_dir: Path, tmp_path: Path
+) -> None:
+    """A run solved before the runner recorded the flags is listed as such."""
+    config = toy_config(
+        toy_dir,
+        tmp_path / "store",
+        **INDIVIDUAL_WCVAR,
+        sweeps=[{"parameter": "beta", "values": [0.3, 0.5]}],
+    )
+    store = ResultStore(tmp_path / "store")
+    data = load_input(config)
+    first = run_sweep(config, "beta", data, store)
+    old = first.points[0].outcome.run_id
+    path = store.root / MANIFESTS_DIR / f"{run_file_stem(old)}.json"
+    run_manifest = json.loads(path.read_text())
+    for problem in run_manifest["problems"]:
+        for key in ("p_zero_loss", "tail_outcomes", "degenerate_tail"):
+            del problem[key]
+    path.write_text(json.dumps(run_manifest))
+
+    again = run_sweep(config, "beta", data, store)  # cache hits
+    manifest = json.loads(again.manifest_path.read_text())
+    assert [e["degenerate_tail"] for e in manifest["points"]] == [None, {}]
+    assert manifest["degenerate_tail"] == {
+        "expected_uncovered": [],
+        "single_outcome": [],
+        DEGENERATE_TAIL_NOT_RECORDED: [0],
+    }
 
 
 # -- acceptance: the thesis grid ------------------------------------------------
