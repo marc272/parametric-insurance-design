@@ -1,0 +1,8 @@
+# The API reference pages, written by `quartodoc build` (site/_quarto.yml,
+# section quartodoc; build.py). Only this file, build.py, reference.lua,
+# reference.css and .gitignore are committed here.
+filters:
+  - reference.lua
+css: reference.css
+toc: true
+toc-depth: 2

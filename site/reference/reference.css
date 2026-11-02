@@ -1,0 +1,23 @@
+/* The API reference pages at phone width: no horizontal page scroll. Wide
+   parameter tables and code blocks scroll on their own, and long dotted names
+   (headings, signatures, inline code) wrap. */
+main table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+main pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+main h1,
+main h2,
+main h3,
+main h4,
+main p code,
+main li code,
+main td code {
+  overflow-wrap: anywhere;
+}
