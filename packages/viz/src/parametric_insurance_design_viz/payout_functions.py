@@ -1,6 +1,6 @@
 """Payout-function figures: the per-entity grid and the normalised view.
 
-Owner: MAR-110. Ports two figures of the thesis ``plotting.py``
+Ports two figures of the thesis ``plotting.py``
 (parametric-insurance-framework):
 
 * :func:`payout_grid` (thesis ``plot_payout_functions_grid``, view
@@ -34,20 +34,21 @@ Differences from the thesis code, all deliberate:
   speed".
 * The payout axis of :func:`payout_grid` labels its ticks in the money style
   of the other figures (:class:`~.style.MoneyFormatter`: ``0.5M``, ``200k``,
-  ``50``; MAR-232). The thesis wrote scientific ticks with an offset text
+  ``50``). The thesis wrote scientific ticks with an offset text
   such as ``1e7``.
 
-Below the attachment (MAR-178)
-------------------------------
+Below the attachment
+--------------------
 :func:`payout_grid` draws each run's payout below the attachment ``b_0`` as
 the run's :class:`~parametric_insurance_design.payout.StepPayout` pays it
 (:func:`below_attachment_mode`):
 
 * ``"first_bin"`` (the default and the thesis code): the first bin's level,
   so the step extends to the left edge of the axis, as in the thesis. Runs
-  whose ``runs.parameters`` have no ``below_attachment`` key, every run
-  written before MAR-178 among them, are drawn this way.
-* ``"zero"`` (MAR-170, recorded in ``runs.parameters`` since MAR-178): 0, with
+  whose ``runs.parameters`` have no ``below_attachment`` key are drawn
+  this way.
+* ``"zero"`` (recorded in ``runs.parameters``;
+  ``docs/concepts/tail-risk-objective.md``, "Below the attachment"): 0, with
   a step up to the first level at ``b_0``. The figure data show it as one
   more row per entity, before its bins: ``param_index`` is
   :data:`~parametric_insurance_design.payout.NO_BIN` (-1), ``lower`` is
@@ -57,13 +58,13 @@ the run's :class:`~parametric_insurance_design.payout.StepPayout` pays it
 as in the thesis; under ``"zero"`` both payouts are 0 there, so their ratio
 is undefined anyway.
 
-Joint designs (MAR-218, design review F8)
------------------------------------------
+Joint designs
+-------------
 A run is a joint design (:func:`is_joint_design`) when one of its design
 problems calibrates more than one payout entity: the portfolio scope, and
 the joint cluster scope with more than one cluster. The decision is made per
 design problem, not per scope kind: a cluster scope calibrated cluster by
-cluster (``Cluster(joint=False)``, MAR-180) has one entity per problem, so
+cluster (``Cluster(joint=False)``) has one entity per problem, so
 it is not joint. Such a problem is identified
 only through the sum over its entities, so its per-entity payout functions
 are one of several optimal designs, the one the solver returned (see
@@ -82,8 +83,8 @@ Figures of runs without a joint problem (the individual scope) are unchanged
 in both modes. External outputs (website, posts, examples) show per-entity
 payout functions of a joint design only with the caption.
 
-Shared helpers (MAR-193, MAR-232)
----------------------------------
+Shared helpers
+--------------
 :func:`step_points`, :func:`bin_breakpoints`, :func:`with_zero_rows`,
 :func:`shared_attachment_limit`, :func:`default_xlim`, :func:`joint_caption`
 and :func:`wrap_joint_caption` are public, so the payout sweep
@@ -187,7 +188,7 @@ JOINT_CAPTION: Final[str] = (
     "per-entity payout functions are one of several optimal designs, chosen "
     "by the solver; read the portfolio level."
 )
-"""Caption of the per-entity payout panels of a joint design (MAR-218)."""
+"""Caption of the per-entity payout panels of a joint design."""
 
 CAPTION_COLUMNS: Final[tuple[str, ...]] = (
     "scope",
@@ -259,7 +260,7 @@ def _scope_runs(runs: Sequence[RunResult]) -> tuple[RunResult, ...]:
     """Check that runs are complete, share one scope and differ in objective.
 
     One scope by :func:`~.style.run_scope_name`, so the joint and the
-    separately calibrated cluster scope are not mixed (MAR-225).
+    separately calibrated cluster scope are not mixed.
     """
     runs = tuple(runs)
     if not runs:
@@ -333,11 +334,12 @@ def below_attachment_mode(run: RunResult) -> BelowAttachment:
     """Return what a run's step payout pays below the attachment.
 
     Read from ``runs.parameters``: the runner records ``below_attachment``
-    only when it is not the default ``"first_bin"`` (MAR-178), so a run
-    without the key pays the first bin's level there. The run's manifest
-    config must agree. A ``"zero"`` run written before MAR-178 has the mode
-    in its config but not in its parameters; its run id did not change, so
-    re-running it is a cache hit and keeps the old parameters. Drawing it as
+    only when it is not the default ``"first_bin"``, so a run without the
+    key pays the first bin's level there. The run's manifest config must
+    agree. A ``"zero"`` run written by an older runner, which did not record
+    the mode, has it in its config but not in its parameters; its run id is
+    the same, so re-running it is a cache hit and keeps the old parameters.
+    Drawing it as
     ``"first_bin"`` would be wrong, so it raises instead.
 
     Parameters
@@ -357,7 +359,7 @@ def below_attachment_mode(run: RunResult) -> BelowAttachment:
         If the recorded value is not a mode.
     InconsistentRunsError
         If ``runs.parameters`` and the payout of the manifest's config
-        disagree, e.g. a ``"zero"`` run written before MAR-178.
+        disagree, e.g. a ``"zero"`` run written by an older runner.
     """
     recorded = run.parameters.get("below_attachment", "first_bin")
     if recorded not in BELOW_ATTACHMENT_MODES:
@@ -373,7 +375,7 @@ def below_attachment_mode(run: RunResult) -> BelowAttachment:
             raise InconsistentRunsError(
                 f"run {run.run_id}: its config pays {configured!r} below the "
                 f"attachment, but runs.parameters says {recorded!r}. A run "
-                "written before MAR-178 does not record 'zero' in its "
+                "written by an older runner does not record 'zero' in its "
                 "parameters; recompute it (`parametric-insurance-design run "
                 "--force`, or a new result store) to draw it"
             )
@@ -384,7 +386,7 @@ def is_joint_design(run: RunResult) -> bool:
     """Return whether a run has a design problem with several payout entities.
 
     The per-entity payout functions of such a problem are one of several
-    optimal designs (design review F8; module docstring, "Joint designs").
+    optimal designs (module docstring, "Joint designs").
     The answer comes from the run's design problems, not its scope kind.
 
     Parameters
@@ -397,8 +399,8 @@ def is_joint_design(run: RunResult) -> bool:
     bool
         True for the portfolio scope and a joint cluster scope with more
         than one cluster. False for the individual scope and for a cluster
-        scope calibrated cluster by cluster (``Cluster(joint=False)``,
-        MAR-180), whose problems have one entity each; also False for a
+        scope calibrated cluster by cluster (``Cluster(joint=False)``),
+        whose problems have one entity each; also False for a
         joint cluster scope with one cluster.
     """
     return any(len(spec.entities) > 1 for spec in run.problem_specs())
@@ -537,8 +539,8 @@ def with_zero_rows(
 ) -> pd.DataFrame:
     """Return step figure data with the zero rows below the attachment.
 
-    The figure data of the payout grid and the payout sweep (MAR-178,
-    MAR-192; module docstring, "Below the attachment"). Each entity of a run
+    The figure data of the payout grid and the payout sweep (module
+    docstring, "Below the attachment"). Each entity of a run
     whose mode is ``"zero"`` gets one row before its bins, a copy of its
     first bin with ``param_index = NO_BIN``, ``lower = -inf``,
     ``upper = b_0`` and ``value = 0``.
@@ -867,7 +869,7 @@ def payout_grid(
     name : str, optional
         Figure name. Default ``"payout_grid_<scope>"``, with the scope name
         of :func:`~.style.run_scope_name` (``cluster_separate`` for a cluster
-        scope calibrated cluster by cluster; MAR-225).
+        scope calibrated cluster by cluster).
     joint_entities : {"caption", "refuse"}, default "caption"
         Panels of a joint design's entities (:func:`is_joint_design`):
         draw them under :data:`JOINT_CAPTION`, or refuse them (module

@@ -281,7 +281,7 @@ def test_a_kfold_config_without_pooled_kpis_is_refused_before_any_figure_set(
             )
         message = str(info.value)
         assert "config 'viz-toy' has a k-fold sample (k=2)" in message
-        assert "pooled out-of-sample KPIs (MAR-151)" in message
+        assert "pooled out-of-sample KPIs, which were not given" in message
         assert "experiment.kfold.pooled_kpis" in message
     assert called == []  # no figure set ran
     assert not out_dir.exists()  # nothing written

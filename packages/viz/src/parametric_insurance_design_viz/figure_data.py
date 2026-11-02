@@ -1,6 +1,6 @@
 """Write a figure together with its figure-data CSV (SPEC §7 F-08).
 
-Owner: MAR-110. Every figure of this package is returned as a
+Every figure of this package is returned as a
 :class:`FigureOutput`: the matplotlib figure plus the tables it was drawn
 from. :func:`write_figure` saves the image and, next to it, one CSV per
 table, so every plotted number can be checked and re-plotted without the

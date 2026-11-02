@@ -315,14 +315,14 @@ def test_a_stale_zero_run_is_refused(zero_swept: Swept) -> None:
     series, benchmark = zero_swept.series("individual", "alpha")
     (point, run), *rest = series.points
     stale = with_parameters(run, below_attachment=None)
-    with pytest.raises(InconsistentRunsError, match="before MAR-178"):
+    with pytest.raises(InconsistentRunsError, match="written by an older runner"):
         below_attachment_mode(stale)
     stale_series = dataclasses.replace(series, points=((point, stale), *rest))
-    with pytest.raises(InconsistentRunsError, match="before MAR-178"):
+    with pytest.raises(InconsistentRunsError, match="written by an older runner"):
         payout_sweep(stale_series, "A1", benchmark=benchmark)
     # A stale baseline is refused too.
     stale_benchmark = with_parameters(benchmark, below_attachment=None)
-    with pytest.raises(InconsistentRunsError, match="before MAR-178"):
+    with pytest.raises(InconsistentRunsError, match="written by an older runner"):
         payout_sweep(series, "A1", benchmark=stale_benchmark)
 
 

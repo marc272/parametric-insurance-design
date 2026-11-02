@@ -110,9 +110,9 @@ def test_a_zero_run_without_the_key_is_refused(zero: Fixture, toy: Fixture) -> N
     # A "zero" run written before MAR-178: its config says "zero", but its
     # parameters have no key. Its run id is unchanged, so it is a cache hit.
     stale = with_parameters(scope_runs(zero, "individual")[0], below_attachment=None)
-    with pytest.raises(InconsistentRunsError, match="before MAR-178"):
+    with pytest.raises(InconsistentRunsError, match="written by an older runner"):
         below_attachment_mode(stale)
-    with pytest.raises(InconsistentRunsError, match="before MAR-178"):
+    with pytest.raises(InconsistentRunsError, match="written by an older runner"):
         payout_grid((stale,))
     # The other way round: parameters say "zero", the config does not.
     wrong = with_parameters(scope_runs(toy, "individual")[0], below_attachment="zero")

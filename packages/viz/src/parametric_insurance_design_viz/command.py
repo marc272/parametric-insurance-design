@@ -1,21 +1,22 @@
 """The figure set of a config: what ``parametric-insurance-design figures`` draws.
 
-Owner: MAR-110. The core command ``parametric-insurance-design figures
-CONFIG`` (``parametric_insurance_design.cli``) imports this module lazily,
-works out the ``run_id`` of every single run of the config, of every point
-of its sweeps (:class:`SweepRun`, MAR-112) and its prepared EventSet, and
+The core command ``parametric-insurance-design figures CONFIG``
+(``parametric_insurance_design.cli``) imports this module lazily, works out
+the ``run_id`` of every single run of the config, of every point of its
+sweeps (:class:`SweepRun`) and its prepared EventSet, and
 calls :func:`write_figures`. Everything here reads the result store; nothing
 solves.
 
 Figure sets
 -----------
 :data:`FIGURE_SETS` lists the figure builders, in order. Each takes the
-:class:`FigureContext` and returns figures and skipped figures. MAR-110
-registers the payout figures; MAR-21's later sub-issues (MAR-111, MAR-112)
-append their builders to the tuple (append-only, ADR 0002 §10). MAR-112
-appends :func:`~parametric_insurance_design_viz.sweep_figures.sweep_figures`
+:class:`FigureContext` and returns figures and skipped figures: the
+payout figures, the KPI figures
+(:func:`~parametric_insurance_design_viz.kpi_figures.kpi_figures`) and
+:func:`~parametric_insurance_design_viz.sweep_figures.sweep_figures`
 (sweep plots, premium reallocation, tail-vs-total trade-off, cluster net
-advantage and break-even; see that module for its figure names).
+advantage and break-even; see that module for its figure names). New
+builders are appended to the tuple (append-only, ADR 0002 §10).
 
 =======================================  ====================================
 Figure                                   Thesis
@@ -24,9 +25,9 @@ Figure                                   Thesis
                                          (portfolio), 5.4 (cluster)
 ``normalised_payout_<scope>_<entity>``   Figure 5.2 (individual, A1), A.1
                                          (portfolio, A1), A.2 (cluster, C1)
-``kpi_heatmap_<kpi>``                    Notebook heatmaps (MAR-111)
-``performance_overview``                 Figure 5.5 (MAR-111)
-``exceedance_<scope>``                   Figure 5.6 (portfolio; MAR-111)
+``kpi_heatmap_<kpi>``                    Notebook heatmaps
+``performance_overview``                 Figure 5.5
+``exceedance_<scope>``                   Figure 5.6 (portfolio)
 =======================================  ====================================
 
 ``<scope>`` is the scope name, with ``_2``, ``_3``, ... appended when a
@@ -36,14 +37,14 @@ objective (``mse``).
 
 No silent failures
 ------------------
-* A config with a ``kfold`` sample (MAR-151) has a run per scope x
-  objective x fold (MAR-22). Its KPI figures show the **pooled**
-  out-of-sample KPIs (``pooled_kpis``, from the core's
+* A config with a ``kfold`` sample has a run per scope x objective x
+  fold (``docs/methodology/out-of-sample.md``). Its KPI figures show the
+  **pooled** out-of-sample KPIs (``pooled_kpis``, from the core's
   ``experiment.kfold.pooled_kpis``; the ``figures`` command computes them),
   one row per scope x objective. Without ``pooled_kpis`` it is refused up
   front with
   :class:`~parametric_insurance_design_viz.kpi_figures.KFoldRunsError`
-  (MAR-142), before the store is read or any figure set runs; so is a config
+  before the store is read or any figure set runs; so is a config
   that fixes one fold. Only the figure sets in :data:`KFOLD_FIGURE_SETS` run
   for it: the payout figures and the exceedance figures are each reported as
   a :class:`SkippedFigure` with the reason (``failed=False``), and every
@@ -54,7 +55,7 @@ No silent failures
   :class:`~parametric_insurance_design_viz.errors.MissingRunError` before
   anything is drawn. That includes every sweep point passed in ``sweeps``:
   the message names the missing points.
-* With ``skip_missing_sweeps=True`` (MAR-120; the command's
+* With ``skip_missing_sweeps=True`` (the command's
   ``--skip-missing-sweeps``) missing sweep points are not an error: the
   sweep figures that need them are each reported as a :class:`SkippedFigure`
   with ``missing=True`` (and the command exits with status 1), and
@@ -144,7 +145,7 @@ class SkippedFigure:
         ``missing``, is not drawn because runs it needs are missing.
     missing : bool, default False
         True if sweep points it needs are not in the store and
-        :func:`write_figures` was asked to skip them (MAR-120).
+        :func:`write_figures` was asked to skip them.
     """
 
     name: str
@@ -164,7 +165,7 @@ class ScopeRuns:
         ``"cluster_2"``.
     runs : tuple of RunResult
         One per configured objective, in config order. For a k-fold config
-        (MAR-151) one per objective and fold, fold-minor (the order of
+        one per objective and fold, fold-minor (the order of
         ``config.single_runs()``).
     events : pandas.DataFrame or None
         :func:`~parametric_insurance_design_viz.reader.entity_events` of the
@@ -192,7 +193,7 @@ class ScopeRuns:
 
 @dataclass(frozen=True)
 class SweepRun:
-    """One point of a configured sweep: which run holds it (MAR-112).
+    """One point of a configured sweep: which run holds it.
 
     The ``figures`` command computes these from the config's sweeps
     (``experiment.sweeps.sweep_points`` and ``runner.run_key``, as the dry
@@ -239,22 +240,22 @@ class FigureContext:
     labels : AxisLabels
         Axis labels with the EventSet's units.
     sweeps : tuple of SweepRun, default ()
-        Every point of the config's sweeps, in config order (MAR-112). The
+        Every point of the config's sweeps, in config order. The
         runs are in the store (checked by :func:`write_figures`) but not
         read yet; figure sets read the ones they draw.
     eventset : EventSet or None, default None
-        The runs' prepared EventSet, e.g. for location values (MAR-112).
+        The runs' prepared EventSet, e.g. for location values.
     missing_sweeps : tuple of SweepRun, default ()
-        The points of ``sweeps`` that are not in the store (MAR-120); only
+        The points of ``sweeps`` that are not in the store; only
         non-empty when :func:`write_figures` skips missing sweep points.
         Figure sets skip the figures that need them (``SkippedFigure`` with
         ``missing=True``).
     transaction_costs : tuple of float, default the thesis values
         Transaction costs per contract, loss units, of the cluster
-        net-advantage figure (MAR-120;
-        :data:`~parametric_insurance_design_viz.sweep_figures.THESIS_TRANSACTION_COSTS`).
+        net-advantage figure
+        (:data:`~parametric_insurance_design_viz.sweep_figures.THESIS_TRANSACTION_COSTS`).
     pooled_kpis : pandas.DataFrame or None, default None
-        k-fold configs only (MAR-151): the pooled out-of-sample KPIs, the
+        k-fold configs only: the pooled out-of-sample KPIs, the
         table of the core's ``experiment.kfold.pooled_kpis`` (columns
         ``experiment.kfold.POOLED_COLUMNS``). The KPI figures draw them; the
         viz never re-evaluates payouts.
@@ -301,7 +302,7 @@ class FigureContext:
 FigureSet = Callable[[FigureContext], Iterable[FigureOutput | SkippedFigure]]
 """A figure builder: the figures (or skipped figures) of a context.
 
-A list, or a generator that draws one figure at a time (MAR-112), so each
+A list, or a generator that draws one figure at a time, so each
 is written and closed before the next is drawn."""
 
 
@@ -318,7 +319,7 @@ class FigureReport:
     skipped : tuple of SkippedFigure
         Figures not drawn, in order.
     missing_sweeps : tuple of SweepRun, default ()
-        Sweep points not in the store, skipped (MAR-120).
+        Sweep points not in the store, skipped.
     """
 
     out_dir: Path
@@ -345,8 +346,7 @@ def payout_figures(context: FigureContext) -> list[FigureOutput | SkippedFigure]
     list
         Per scope: ``payout_grid_<key>``, then
         ``normalised_payout_<key>_<first entity>`` (or skipped figures). For
-        a k-fold config both are skipped with :data:`KFOLD_PAYOUT_REASON`
-        (MAR-151).
+        a k-fold config both are skipped with :data:`KFOLD_PAYOUT_REASON`.
     """
     out: list[FigureOutput | SkippedFigure] = []
     benchmark = style.BENCHMARK_OBJECTIVE
@@ -398,21 +398,21 @@ FIGURE_SETS: Final[tuple[FigureSet, ...]] = (
 """Figure builders of the ``figures`` command, in order (append-only)."""
 
 KFOLD_FIGURE_SETS: Final[tuple[FigureSet, ...]] = (payout_figures, kpi_figures)
-"""Figure builders that handle a k-fold config (MAR-151): its scopes hold a
+"""Figure builders that handle a k-fold config: its scopes hold a
 run per objective and fold, and :attr:`FigureContext.pooled_kpis` the pooled
 KPIs. :func:`write_figures` reports any other set as one skipped figure."""
 
 KFOLD_PAYOUT_REASON: Final[str] = (
     "k-fold config: each scope x objective has a design per fold, and the "
-    "payout figures show one design per scope x objective (MAR-151 pools the "
-    "portfolio KPIs only)"
+    "payout figures show one design per scope x objective (only the portfolio "
+    "KPIs are pooled; see docs/methodology/out-of-sample.md)"
 )
 """Why the payout figures of a k-fold config are skipped."""
 
 KFOLD_SET_REASON: Final[str] = (
     "k-fold config: this figure set shows one run per scope x objective, and a "
-    "k-fold config has a run per fold (MAR-151 pools the portfolio KPIs only, "
-    "in the KPI figures)"
+    "k-fold config has a run per fold (only the portfolio KPIs are pooled, in "
+    "the KPI figures; see docs/methodology/out-of-sample.md)"
 )
 """Why a figure set that is not in :data:`KFOLD_FIGURE_SETS` is skipped."""
 
@@ -506,8 +506,8 @@ def _check_kfold(config: ExperimentConfig, pooled_kpis: pd.DataFrame | None) -> 
     Raises
     ------
     KFoldRunsError
-        If ``config.sample`` is ``kfold`` and ``pooled_kpis`` is None
-        (MAR-142, MAR-151), or the sample fixes one fold.
+        If ``config.sample`` is ``kfold`` and ``pooled_kpis`` is None, or the
+        sample fixes one fold.
     """
     sample = config.sample
     if sample.kind != "kfold":  # KFOLD_SAMPLE, as a literal for narrowing
@@ -515,17 +515,18 @@ def _check_kfold(config: ExperimentConfig, pooled_kpis: pd.DataFrame | None) -> 
     if sample.fold is not None:
         raise KFoldRunsError(
             f"config {config.name!r} fixes fold {sample.fold} of its k-fold "
-            "sample; the figures of a k-fold config pool every fold (MAR-151), "
+            "sample; the figures of a k-fold config pool every fold, "
             "so leave sample.fold unset"
         )
     if pooled_kpis is None:
         raise KFoldRunsError(
             f"config {config.name!r} has a k-fold sample (k={sample.k}): a "
-            "k-fold experiment has a run per scope x objective x fold (MAR-22), "
-            "and its figures show the pooled out-of-sample KPIs (MAR-151), "
+            "k-fold experiment has a run per scope x objective x fold, and its "
+            "figures show the pooled out-of-sample KPIs, "
             "which were not given. Compute them with the core's "
             "experiment.kfold.pooled_kpis and pass pooled_kpis=...table; the "
-            "figures command does this"
+            "figures command does this (docs/methodology/out-of-sample.md, "
+            "'Pooled k-fold KPIs')"
         )
 
 
@@ -560,7 +561,7 @@ def write_figures(
         threshold applied), for the event overlays. It must match every
         run's manifest. Without it the figures show no event data.
     sweeps : sequence of SweepRun, default ()
-        Every point of the config's sweeps (MAR-112), for the sweep figures.
+        Every point of the config's sweeps, for the sweep figures.
         Each must be in the store, unless ``skip_missing_sweeps``.
     figure_sets : sequence of FigureSet, default :data:`FIGURE_SETS`
         Figure builders to run.
@@ -568,15 +569,15 @@ def write_figures(
         Image resolution.
     skip_missing_sweeps : bool, default False
         If True, sweep points that are not in the store are not an error:
-        the figures that need them are skipped with ``missing=True``
-        (MAR-120), so the rest can be drawn before every sweep has run.
+        the figures that need them are skipped with ``missing=True``, so
+        the rest can be drawn before every sweep has run.
     transaction_costs : sequence of float, default the thesis values
         Transaction costs per contract, loss units, of the cluster
-        net-advantage figure (MAR-120). Default
+        net-advantage figure. Default
         :data:`~parametric_insurance_design_viz.sweep_figures.THESIS_TRANSACTION_COSTS`,
         the thesis' 25k to 125k.
     pooled_kpis : pandas.DataFrame, optional
-        Required for a k-fold config, ignored otherwise (MAR-151): the
+        Required for a k-fold config, ignored otherwise: the
         pooled out-of-sample KPIs, ``experiment.kfold.pooled_kpis(...).table``.
         The KPI figures draw one pooled row per scope x objective; the module
         docstring says which figures are skipped. ``sweeps`` are not read.
@@ -590,7 +591,7 @@ def write_figures(
     ------
     KFoldRunsError
         If the config's sample is ``kfold`` and ``pooled_kpis`` is not given,
-        or the sample fixes one fold (MAR-142, MAR-151). Raised before the
+        or the sample fixes one fold. Raised before the
         store is read; nothing is drawn.
     InconsistentRunsError
         If ``run_ids`` does not match the config's single runs, or a sweep
@@ -620,7 +621,7 @@ def write_figures(
     if kfold and sweeps:
         _log.warning(
             "k-fold config: its %d sweep points are not read; the sweep figures "
-            "are skipped (MAR-151)",
+            "are skipped (a k-fold config has a run per fold)",
             len(sweeps),
         )
     missing = _check_sweeps(config, reader, points, skip_missing=skip_missing_sweeps)

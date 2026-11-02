@@ -1,6 +1,6 @@
 """Errors of the viz package.
 
-Owner: MAR-110. Every error derives from the core's
+Every error derives from the core's
 :class:`~parametric_insurance_design.errors.ParametricInsuranceDesignError`
 (ADR 0002 §6: new subclasses live in the owning module), so callers, and the
 ``parametric-insurance-design`` command, can catch the whole library with one

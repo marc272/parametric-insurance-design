@@ -36,7 +36,7 @@ parametric-insurance-design = { workspace = true }
 # This [tool.ruff] table makes ruff use this file, which extends the root
 # config, for every file under packages/viz/ (src and tests). TID251 bans any
 # static import, at any scope, of the packages below.
-# scripts/check_import_boundaries.sh proves the bans fire (MAR-76).
+# scripts/check_import_boundaries.sh (CI, job lint) proves the bans fire.
 [tool.ruff]
 extend = "../../pyproject.toml"
 
@@ -44,8 +44,8 @@ extend = "../../pyproject.toml"
 extend-select = ["TID251"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
-"parametric_insurance_design_crc".msg = "viz never imports the AGPL CRC adapter (ADR 0001, MAR-76)"
-"parametric_insurance_design_climada".msg = "viz never imports the GPL CLIMADA adapter (ADR 0001, MAR-76)"
+"parametric_insurance_design_crc".msg = "viz never imports the AGPL CRC adapter (ADR 0001; AGENTS.md \"Hard boundaries\")"
+"parametric_insurance_design_climada".msg = "viz never imports the GPL CLIMADA adapter (ADR 0001; AGENTS.md \"Hard boundaries\")"
 
 [build-system]
 requires = ["uv_build>=0.13.5,<0.14"]
