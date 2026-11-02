@@ -109,7 +109,10 @@ def test_help_and_version(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["sweep", "--help"]) == ExitCode.OK
     out = capsys.readouterr().out
     assert "--dry-run" in out
-    assert "parity gate only" in out
+    assert (
+        "'thesis' reproduces the thesis solves and is only for the parity check "
+        "against the thesis code" in " ".join(out.split())
+    )
 
 
 @pytest.mark.parametrize(

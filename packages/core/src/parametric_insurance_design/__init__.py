@@ -18,8 +18,7 @@ distributions. By convention it is imported as ``pid``::
         sample=train,
     )
 
-The top level is a curated list (ADR 0004, Q2; ADR 0002 §1), built around
-the library's two stories:
+The top level is a curated list, built around the library's two stories:
 
 * **Tail-risk objective:** the objectives ``WeightedCVaR``,
   ``ExpectedUncovered`` and ``MSE``.
@@ -43,8 +42,8 @@ then ``pid.solve.solve`` for each problem) and the extension points
 
 Two library modules are not imported here, so they are off the top level and
 are imported by their full names: ``parametric_insurance_design.noise``, the
-thesis noise layer (the SPEC §6.3 baseline), and
-``parametric_insurance_design.robust``, the robust designs of SPEC §6.5,
+thesis noise layer (the basis-risk baseline kept for comparison with the
+thesis), and ``parametric_insurance_design.robust``, the robust designs,
 which aren't implemented yet. The command line (``cli``) and the experiment
 layer (``parametric_insurance_design.experiment``) aren't imported here
 either.

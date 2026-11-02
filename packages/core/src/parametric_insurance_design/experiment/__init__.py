@@ -1,7 +1,6 @@
-"""Experiment runner: config, executor, result store and sweeps (SPEC §4.2).
+"""Experiment runner: config, executor, result store and sweeps.
 
-ADR 0002 splits SPEC §4.2's ``experiment.py`` into this subpackage, one
-module per part:
+The experiment layer, one module per part:
 
 ========================  ==============================================
 Module                    Responsibility

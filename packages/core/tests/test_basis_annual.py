@@ -9,6 +9,7 @@ these bases are in ``test_engine_properties_bases.py``.
 from __future__ import annotations
 
 import dataclasses
+import re
 
 import cvxpy as cp
 import numpy as np
@@ -167,7 +168,14 @@ def test_annual_outcomes_are_per_year_and_draw(toy_eventset: EventSet) -> None:
 def test_annual_needs_the_draw_rate_convention(toy_eventset: EventSet) -> None:
     data = clustered(toy_eventset)
     unequal = data.events.assign(rate=[0.2, 0.2, 0.1, 0.2])
-    with pytest.raises(InputMismatchError, match=r"1 / \(n_years \* n_draws\)"):
+    with pytest.raises(
+        InputMismatchError,
+        match=re.escape(
+            "the annual basis needs every row's rate to be 1 / (n_years * n_draws) "
+            "(an event's draw rows split its annual rate equally) with n_years = 5; "
+            "the rates imply between "
+        ),
+    ):
         outcome_measure(dataclasses.replace(data, events=unequal), Basis.ANNUAL)
     # Rates 1/Y but a draw_id of 1: the draws' rates were not divided.
     drawn = data.events.assign(draw_id=[0, 1, 0, 0])

@@ -1,12 +1,12 @@
-"""Robust design under uncertainty (SPEC §6.5). Not implemented yet.
+"""Robust design under uncertainty. Not implemented yet.
 
 **Not implemented.** Both entry points are stubs that raise
 ``NotImplementedError``. So this module is off the public API: the package's
-``__init__`` doesn't import it, and it isn't in ``pid.__all__`` (ADR 0004,
-Q2). It comes back to the top level once R1 is implemented. Until then,
-import it by its full name, ``parametric_insurance_design.robust``.
+``__init__`` doesn't import it, and it isn't in ``pid.__all__``. It comes
+back to the top level once R1 is implemented. Until then, import it by its
+full name, ``parametric_insurance_design.robust``.
 
-The planned design (SPEC §6.5): R1, :func:`build_scenario_robust`, is the
+The planned design: R1, :func:`build_scenario_robust`, is the
 primary method; R2, :class:`DistributionallyRobust`, is secondary.
 
 R1, scenario-robust: ``min_theta max_k F_k(theta)`` in epigraph form. One
@@ -85,8 +85,9 @@ def build_scenario_robust(
         scenario the solution equals the nominal one.
     """
     raise NotImplementedError(  # pragma: no cover
-        "build_scenario_robust (R1, scenario-robust design) is not implemented "
-        "yet; see docs/SPEC.md §6.5 for the planned method"
+        "build_scenario_robust (scenario-robust design) is not implemented yet; "
+        "the planned method is described in the docstring of "
+        "parametric_insurance_design.robust"
     )
 
 
@@ -113,6 +114,7 @@ class DistributionallyRobust(Objective):
     def build(self, ctx: ProblemContext) -> ObjectiveTerm:
         """See ``Objective.build``."""
         raise NotImplementedError(  # pragma: no cover
-            "DistributionallyRobust (R2, distributionally robust design) is not "
-            "implemented yet; see docs/SPEC.md §6.5 for the planned method"
+            "DistributionallyRobust (distributionally robust design) is not "
+            "implemented yet; the planned method is described in the docstring "
+            "of parametric_insurance_design.robust"
         )
