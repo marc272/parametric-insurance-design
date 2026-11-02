@@ -211,6 +211,8 @@ So the cluster scope is neither a restriction nor a relaxation of the portfolio 
 
 *Follow-up note (2026-11-01).* Per-asset KPIs: MAR-100 (PR #129, `8e221ca`, covering MAR-91) reports per-location KPI rows only under an explicit allocation rule (`allocation="value"` or `"loss"`; levels `location_by_value`, `location_by_loss`), see [allocating a joint payout to assets](../methodology/payout-allocation.md). The `entity` rows and the stored per-entity θ are unchanged. Payout functions: MAR-218 makes `payout_grid` and `normalised_payout` caption every per-entity panel of a joint design as one of several optimal designs, or refuse it (`joint_entities="refuse"`).
 
+*Follow-up note (2026-11-02).* MAR-222 (PR #149, `738eeda`) covers the rest of the payout outputs: `sweep_figures.payout_sweep` captions a joint design's per-entity payout sweep the same way, or refuses it (`joint_entities="refuse"`), and every `payouts` table of a site bundle carries a `joint` column, with a manifest `joint` section (the rule, the caption to show, the joint runs).
+
 ### F9. Clustering features ignore the basis, and their tail can silently be the whole sample (clarity)
 
 **Where.** `clustering.py:164-175`.

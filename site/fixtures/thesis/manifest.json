@@ -133,7 +133,7 @@
   "budget": {
     "max_file_bytes": 2000000,
     "max_bundle_bytes": 10000000,
-    "bundle_bytes": 204695
+    "bundle_bytes": 204951
   },
   "files": [
     {
@@ -160,8 +160,8 @@
       "slice": "payouts",
       "group": "baseline",
       "parameter": null,
-      "bytes": 39546,
-      "sha256": "sha256:cb6934e9b8a1984395c9b9e2c9ce0044a0f08584e9aeb22042a4dea7ece585b4",
+      "bytes": 39802,
+      "sha256": "sha256:453c9f612bf60a6604c8294029424823ff8e080e1d0413c3603016d19aa52191",
       "rows": 945,
       "columns": [
         {
@@ -233,6 +233,12 @@
         {
           "name": "value",
           "type": "double",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "joint",
+          "type": "bool",
           "nulls": 0,
           "null_means": null
         }
@@ -632,6 +638,18 @@
         "kpi_level": null,
         "allocation": null
       }
+    ]
+  },
+  "joint": {
+    "rule": "Per-entity payout functions of a joint design are not unique. A payouts row has joint true when its design problem calibrates more than one payout entity jointly (the portfolio scope; a cluster scope calibrated jointly, with more than one cluster): such a problem is identified only through the sum over its entities, so the split of its payout across them is one of several optimal designs, the one the solver returned. A page that shows these rows per entity shows caption with them. runs lists the exported runs with such a problem. The individual scope and a cluster scope calibrated cluster by cluster (scope_key cluster_separate) have one entity per problem: their rows have joint false.",
+    "caption": "Joint design: the payout split across entities is not unique. These per-entity payout functions are one of several optimal designs, chosen by the solver; read the portfolio level.",
+    "runs": [
+      "sha256:16347073c212eb47c25d26c676a280b17411fe9d9091bc4eeac9e6e89ade4a49",
+      "sha256:eae5d0d52243aac6376dfd99036658d87a5f0b1df544e6ebf9290eb73648a81e",
+      "sha256:9afd80c75627bce01ba4694543503b3f2ab9c812b9258468b87fefdbaa46c9af",
+      "sha256:59257aad484c914ad4ebfe35acc88caef4586ffd4f040ea24f11323deb9e42e2",
+      "sha256:fac6002c56c0cd861f5e3d0bdd2f2696644722c2da565074ca79451b49305974",
+      "sha256:a390bfc8c506ae1540c421ea5e32fac2e0689b6ce2be8633b9b79deadf6fdefb"
     ]
   }
 }
