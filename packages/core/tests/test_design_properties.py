@@ -56,7 +56,8 @@ public engine API (``problem.build_problems``, ``solve.solve``,
 Owner of the two MAR-199 sections: MAR-199.
 
 Every objective is recomputed in numpy with an outcome measure written out
-here independently of ``basis.py`` (per row on ``event_conditional``; per
+independently of ``basis.py`` (``_properties.numpy_measure``, shared with the
+engine property tests since MAR-177: per row on ``event_conditional``; per
 row plus "no event" on ``event``; every (year, draw) slot on ``annual``, no
 pooling). Determinism: hypothesis runs with ``derandomize=True`` and no
 example database, as in ``test_engine_properties.py``.
@@ -66,28 +67,19 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import cast
 
 import cvxpy as cp
 import numpy as np
-import pandas as pd
 import pytest
-from hypothesis import HealthCheck, assume, given, settings
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 from numpy.typing import NDArray
 
 from parametric_insurance_design.basis import Basis
 from parametric_insurance_design.constraints import Budget
 from parametric_insurance_design.evaluate import kpis
-from parametric_insurance_design.eventset import (
-    EventSet,
-    EventSetMetadata,
-    HazardSource,
-    IndexDefinition,
-    LossDefinition,
-    Provenance,
-)
+from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.interfaces import (
     Constraint,
     Objective,
@@ -107,90 +99,25 @@ from parametric_insurance_design.riskmeasures import var_cvar
 from parametric_insurance_design.scopes import Cluster, Individual, Portfolio
 from parametric_insurance_design.solve import solve
 
-ATTACHMENT = 20.0
-LIMIT = 70.0
-BASES = (Basis.EVENT_CONDITIONAL, Basis.EVENT, Basis.ANNUAL)
-TOL_INTERIOR_POINT = 1e-6
-"""Tolerance in scaled units for Clarabel, HiGHS and OSQP at the default
-policy's accuracy, as in ``test_engine_properties.py``."""
-TOL_FIRST_ORDER = 1e-4
-"""Tolerance in scaled units for SCS at its default accuracy."""
-FIRST_ORDER_SOLVERS = frozenset({"SCS"})
-
-PROPERTY_SETTINGS = settings(
-    derandomize=True,
-    database=None,
-    deadline=None,
-    print_blob=True,
-    suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
+from ._properties import (
+    ATTACHMENT,
+    LIMIT,
+    PROPERTY_SETTINGS,
+    Layout,
+    budgets,
+    homogeneity,
+    layout_eventset,
+    numpy_measure,
+    objective_value,
+    solver_tol,
 )
-"""Reproducible hypothesis profile: fixed examples, no example database."""
+from ._properties import objectives as weighted_cvar_objectives
+from ._properties import step_payouts as uniform_step_payouts
 
-
-def solver_tol(results: Sequence[SolveResult]) -> float:
-    """Tolerance in scaled units for the least accurate solver used."""
-    if any(r.solver in FIRST_ORDER_SOLVERS for r in results):
-        return TOL_FIRST_ORDER
-    return TOL_INTERIOR_POINT
+BASES = (Basis.EVENT_CONDITIONAL, Basis.EVENT, Basis.ANNUAL)
 
 
 # --- EventSets ---------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Layout:
-    """Event years, draws and data of a random EventSet, before expansion."""
-
-    n_years: int
-    years: list[int]
-    n_draws: int
-    index: NDArray[np.float64]  # (n_events, n_locations)
-    loss: NDArray[np.float64]  # (n_events * n_draws, n_locations), event-major
-    values: NDArray[np.float64]  # (n_locations,)
-
-
-def make_eventset(layout: Layout) -> EventSet:
-    """Event-major rows (event 0 draws 0..D-1, ...) with rate ``1 / (Y D)``."""
-    n_events, n_locations = layout.index.shape
-    d = layout.n_draws
-    events = pd.DataFrame(
-        {
-            "event_id": np.repeat([f"e{i}" for i in range(n_events)], d),
-            "year": np.repeat(layout.years, d),
-            "rate": np.full(n_events * d, 1.0 / (layout.n_years * d)),
-            "draw_id": np.tile(np.arange(d), n_events),
-            "scenario_id": ["design-review"] * (n_events * d),
-        }
-    )
-    locations = pd.DataFrame(
-        {
-            "location_id": [f"L{j}" for j in range(n_locations)],
-            "lat": np.full(n_locations, 25.0),
-            "lon": np.linspace(-81.0, -80.0, n_locations),
-            "value": layout.values,
-            "name": [f"Asset {j}" for j in range(n_locations)],
-        }
-    )
-    metadata = EventSetMetadata(
-        hazard=HazardSource(name="synthetic", release="1"),
-        index=IndexDefinition(definition="wind at the asset", unit="m/s"),
-        loss=LossDefinition(unit="USD", currency="USD"),
-        n_years=layout.n_years,
-        scenario="design review properties",
-        provenance=Provenance(
-            producer="tests",
-            producer_version="0",
-            created_at=datetime(2026, 10, 31, tzinfo=UTC),
-        ),
-        licence="CC0-1.0",
-    )
-    return EventSet(
-        events=events,
-        locations=locations,
-        index=np.repeat(layout.index, d, axis=0),
-        loss=layout.loss,
-        metadata=metadata,
-    )
 
 
 @st.composite
@@ -221,7 +148,7 @@ def layouts(
     values = draw(
         st.lists(st.integers(1, 5), min_size=n_locations, max_size=n_locations)
     )
-    return make_eventset(
+    return layout_eventset(
         Layout(
             n_years=n_years,
             years=years,
@@ -235,12 +162,7 @@ def layouts(
 
 def step_payouts() -> st.SearchStrategy[StepPayout]:
     """Uniform step payouts on ``[ATTACHMENT, LIMIT]`` with 1-5 bins."""
-    return st.integers(1, 5).map(lambda n: StepPayout(ATTACHMENT, LIMIT, n))
-
-
-def budgets() -> st.SearchStrategy[Budget | None]:
-    """No budget, a zero, a binding and a slack budget."""
-    return st.sampled_from([None, Budget(0.0), Budget(0.3), Budget(1.0), Budget(5.0)])
+    return uniform_step_payouts(max_bins=5)
 
 
 def pricings() -> st.SearchStrategy[Pricing]:
@@ -255,45 +177,11 @@ def pricings() -> st.SearchStrategy[Pricing]:
 
 
 def objectives() -> st.SearchStrategy[Objective]:
-    """MSE, E[U] and weighted CVaR."""
-    return st.one_of(
-        st.just(MSE()),
-        st.just(ExpectedUncovered()),
-        st.builds(
-            WeightedCVaR,
-            alpha=st.sampled_from([0.3, 0.9, 1.0]),
-            beta=st.sampled_from([0.5, 0.8, 0.95]),
-        ),
-    )
+    """MSE, E[U] and weighted CVaR with alpha 0.3, 0.9 or 1."""
+    return weighted_cvar_objectives(alphas=(0.3, 0.9, 1.0))
 
 
 # --- Independent numpy measure and objectives --------------------------------
-
-
-def numpy_measure(
-    eventset: EventSet, basis: Basis
-) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    """``(G, p)``: a dense outcome-by-row 0/1 matrix and outcome probabilities.
-
-    Written from SPEC §6.2 without ``basis.py``: ``event_conditional`` one
-    outcome per row with ``rate / sum(rate)``; ``event`` every row with its
-    rate, then "no event"; ``annual`` every (year, draw) slot of every year.
-    """
-    n_rows = eventset.n_rows
-    rates = eventset.rates
-    if basis is Basis.EVENT_CONDITIONAL:
-        return np.eye(n_rows), rates / rates.sum()
-    if basis is Basis.EVENT:
-        grouping = np.vstack([np.eye(n_rows), np.zeros((1, n_rows))])
-        return grouping, np.append(rates, 1.0 - rates.sum())
-    n_years = eventset.metadata.n_years
-    n_draws = round(1.0 / (rates[0] * n_years))
-    years = eventset.events["year"].to_numpy()
-    draws = eventset.events["draw_id"].to_numpy()
-    grouping = np.zeros((n_years * n_draws, n_rows))
-    for row in range(n_rows):
-        grouping[years[row] * n_draws + draws[row], row] = 1.0
-    return grouping, np.full(n_years * n_draws, 1.0 / (n_years * n_draws))
 
 
 @dataclass(frozen=True)
@@ -334,22 +222,7 @@ class Measure:
         payout: NDArray[np.float64],
     ) -> float:
         """SPEC §6 objective over outcomes, in numpy, loss units."""
-        if isinstance(objective, MSE):
-            residual = self.grouping @ (loss - payout)
-            return float(self.probability @ residual**2)
-        uncovered = self.grouping @ np.maximum(loss - payout, 0.0)
-        expected = float(self.probability @ uncovered)
-        if isinstance(objective, ExpectedUncovered):
-            return expected
-        if isinstance(objective, WeightedCVaR):
-            _, cvar = var_cvar(uncovered, self.probability, objective.beta)
-            return objective.alpha * cvar + (1.0 - objective.alpha) * expected
-        raise AssertionError(f"no numpy evaluation for {objective!r}")
-
-
-def homogeneity(objective: Objective) -> int:
-    """Degree of the objective in the losses: 2 for MSE, else 1."""
-    return 2 if isinstance(objective, MSE) else 1
+        return objective_value(objective, loss, payout, self.probability, self.grouping)
 
 
 def tail_factor(objective: Objective) -> float:
@@ -556,7 +429,7 @@ def _two_location_eventset(
 ) -> EventSet:
     """One event per year, two locations of equal value."""
     n = len(index)
-    return make_eventset(
+    return layout_eventset(
         Layout(
             n_years=n,
             years=list(range(n)),
@@ -736,7 +609,7 @@ def _counterexample_eventset() -> EventSet:
     """
     index = [30.0] * 50 + [60.0] * 10
     loss = [1.0] * 50 + [10.0] * 9 + [0.0]
-    return make_eventset(
+    return layout_eventset(
         Layout(
             n_years=100,
             years=list(range(60)),
@@ -861,7 +734,7 @@ def _combination_toy() -> EventSet:
     """20 equally likely years with one event each, assets A (L0) and B (L1)."""
     index = [idx for count, idx, _ in TOY_YEARS for _ in range(count)]
     loss = [lo for count, _, lo in TOY_YEARS for _ in range(count)]
-    return make_eventset(
+    return layout_eventset(
         Layout(
             n_years=20,
             years=list(range(20)),

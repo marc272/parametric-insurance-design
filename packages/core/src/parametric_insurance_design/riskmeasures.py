@@ -31,15 +31,14 @@ atom when it checks its point values against ``evaluate.kpis``.
 
 from __future__ import annotations
 
-import math
-from numbers import Real
 from typing import Final
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from parametric_insurance_design._validation import check_real
 from parametric_insurance_design.basis import PROBABILITY_ATOL
-from parametric_insurance_design.errors import ComponentConfigError, InputMismatchError
+from parametric_insurance_design.errors import InputMismatchError
 
 __all__ = [
     "CDF_ATOL",
@@ -80,12 +79,9 @@ def check_beta(beta: object) -> float:
     ComponentConfigError
         If ``beta`` is not a real number strictly between 0 and 1.
     """
-    if isinstance(beta, bool) or not isinstance(beta, Real):
-        raise ComponentConfigError(f"beta must be a real number, got {beta!r}")
-    level = float(beta)
-    if not (math.isfinite(level) and 0.0 < level < 1.0):
-        raise ComponentConfigError(f"beta must lie in (0, 1), got {beta!r}")
-    return level
+    return check_real(
+        "beta", beta, low=0.0, high=1.0, include_low=False, include_high=False
+    )
 
 
 def discrete_distribution(

@@ -51,15 +51,14 @@ Bin semantics (thesis ``OptimizationConstructor._mapping`` and
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
-from numbers import Real
 from typing import ClassVar, Final, Literal, get_args
 
 import cvxpy as cp
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from parametric_insurance_design._validation import check_real
 from parametric_insurance_design.errors import (
     ComponentConfigError,
     InputMismatchError,
@@ -107,14 +106,7 @@ def _check_range(attachment: object, limit: object, n_bins: object) -> None:
         raise ComponentConfigError(f"n_bins must be an int, got {n_bins!r}")
     if n_bins < 1:
         raise ComponentConfigError(f"n_bins must be >= 1, got {n_bins}")
-    bounds: list[float] = []
-    for name, value in (("attachment", attachment), ("limit", limit)):
-        if isinstance(value, bool) or not isinstance(value, Real):
-            raise ComponentConfigError(f"{name} must be a real number, got {value!r}")
-        if not math.isfinite(float(value)):
-            raise ComponentConfigError(f"{name} must be finite, got {value!r}")
-        bounds.append(float(value))
-    if not bounds[0] < bounds[1]:
+    if not check_real("attachment", attachment) < check_real("limit", limit):
         raise ComponentConfigError(
             f"attachment must be < limit, got attachment={attachment}, limit={limit}"
         )

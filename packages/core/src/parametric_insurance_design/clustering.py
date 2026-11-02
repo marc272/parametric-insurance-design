@@ -64,8 +64,10 @@ from numpy.typing import NDArray
 from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.spatial.distance import pdist
 
+from parametric_insurance_design._validation import check_n_clusters, check_real
 from parametric_insurance_design.errors import ComponentConfigError, InputMismatchError
 from parametric_insurance_design.eventset import EventSet
+from parametric_insurance_design.riskmeasures import lower_quantile, sorted_cdf
 
 __all__ = [
     "FEATURE_NAMES",
@@ -160,12 +162,15 @@ class ThesisWardClustering:
 
     def __post_init__(self) -> None:
         """Validate the parameters."""
-        beta = self.beta_tail
-        if isinstance(beta, bool) or not isinstance(beta, int | float | np.number):
-            raise ComponentConfigError(f"beta_tail must be a number, got {beta!r}")
-        if not 0.0 < float(beta) < 1.0:
-            raise ComponentConfigError(f"beta_tail must be in (0, 1), got {beta!r}")
-        object.__setattr__(self, "beta_tail", float(beta))
+        beta = check_real(
+            "beta_tail",
+            self.beta_tail,
+            low=0.0,
+            high=1.0,
+            include_low=False,
+            include_high=False,
+        )
+        object.__setattr__(self, "beta_tail", beta)
         if self.linkage not in LINKAGE_METHODS:
             raise ComponentConfigError(
                 f"linkage must be one of {sorted(LINKAGE_METHODS)}, "
@@ -293,7 +298,7 @@ class ThesisWardClustering:
             :meth:`features`). Not checked for a single location, which needs
             no features.
         """
-        _check_n_clusters(n_clusters, eventset.n_locations)
+        check_n_clusters(n_clusters, eventset.n_locations)
         ids = eventset.location_ids
         if eventset.n_locations == 1:
             # scipy needs two observations; one location is one cluster.
@@ -315,22 +320,6 @@ class ThesisWardClustering:
                 " or scipy < 1.15, whose maxclust cut returns too few clusters"
             )
         return {loc: int(label) for loc, label in zip(ids, labels, strict=True)}
-
-
-def _check_n_clusters(n_clusters: object, n_locations: int) -> None:
-    """Validate a cluster count against the number of locations."""
-    if (
-        isinstance(n_clusters, bool)
-        or not isinstance(n_clusters, int | np.integer)
-        or n_clusters < 1
-    ):
-        raise ComponentConfigError(
-            f"n_clusters must be an integer >= 1, got {n_clusters!r}"
-        )
-    if n_clusters > n_locations:
-        raise InputMismatchError(
-            f"n_clusters={n_clusters} exceeds the {n_locations} locations"
-        )
 
 
 # --------------------------------------------------------------------------
@@ -379,12 +368,20 @@ def _weighted_corr_matrix(
 def _weighted_quantile(
     x: NDArray[np.float64], w: NDArray[np.float64], q: float
 ) -> float:
-    """Probability-weighted quantile: smallest ``x`` with ``CDF(x) >= q``."""
-    order = np.argsort(x)
-    xs = x[order]
-    cdf = np.cumsum(w[order])
-    cdf = cdf / cdf[-1]
-    return float(xs[np.searchsorted(cdf, q, side="left")])
+    """Probability-weighted quantile: smallest ``x`` with ``CDF(x) >= q``.
+
+    :func:`~parametric_insurance_design.riskmeasures.lower_quantile` on the
+    thesis' CDF: the cumulative weights divided by their total **after**
+    summing, as the thesis ``_weighted_quantile``. ``var_cvar`` divides the
+    weights before summing (``discrete_distribution``). On an exact step of
+    the distribution (equally likely rows) the two orders round differently
+    and can pick adjacent atoms: on the thesis fixture's asset subsets (noise
+    0.3, threshold 20 m/s) 285 of 3,060 quantiles at levels 0.8 to 0.99
+    differ, so the tail features would change. The thesis order is kept so
+    that the features, and every assignment, stay as they are.
+    """
+    sorted_x, _, cdf = sorted_cdf(x, w)
+    return lower_quantile(sorted_x, cdf / cdf[-1], q)
 
 
 def _zscore(x: NDArray[np.float64]) -> NDArray[np.float64]:

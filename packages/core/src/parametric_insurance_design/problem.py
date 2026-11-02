@@ -42,6 +42,7 @@ import cvxpy as cp
 import numpy as np
 import scipy.sparse as sp
 
+from parametric_insurance_design._validation import check_real
 from parametric_insurance_design.basis import Basis, OutcomeMeasure, outcome_measure
 from parametric_insurance_design.errors import (
     ComponentConfigError,
@@ -135,12 +136,9 @@ def _check_scale(scale: object) -> float:
     InputMismatchError
         If ``scale`` is not a finite real number > 0.
     """
-    if isinstance(scale, bool) or not isinstance(scale, int | float | np.number):
-        raise InputMismatchError(f"scale must be a real number, got {scale!r}")
-    value = float(scale)
-    if not (np.isfinite(value) and value > 0):
-        raise InputMismatchError(f"scale must be finite and > 0, got {scale!r}")
-    return value
+    return check_real(
+        "scale", scale, low=0.0, include_low=False, error=InputMismatchError
+    )
 
 
 def build_context(

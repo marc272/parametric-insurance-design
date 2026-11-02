@@ -39,6 +39,7 @@ from typing import ClassVar, Final
 import numpy as np
 from numpy.typing import NDArray
 
+from parametric_insurance_design._validation import check_n_clusters
 from parametric_insurance_design.clustering import ClusteringStrategy
 from parametric_insurance_design.errors import (
     ComponentConfigError,
@@ -272,10 +273,7 @@ class Cluster(Scope):
             raise ComponentConfigError(
                 f"strategy must be a ClusteringStrategy, got {self.strategy!r}"
             )
-        n = self.n_clusters
-        if isinstance(n, bool) or not isinstance(n, int | np.integer) or n < 1:
-            raise ComponentConfigError(f"n_clusters must be an integer >= 1, got {n!r}")
-        object.__setattr__(self, "n_clusters", int(n))
+        object.__setattr__(self, "n_clusters", check_n_clusters(self.n_clusters))
         _check_index(self.index)
         if not isinstance(self.joint, bool):
             raise ComponentConfigError(f"joint must be a bool, got {self.joint!r}")

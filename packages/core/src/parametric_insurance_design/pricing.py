@@ -27,17 +27,16 @@ class here.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
-from numbers import Real
 from typing import ClassVar, cast
 
 import cvxpy as cp
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from parametric_insurance_design._validation import check_real
 from parametric_insurance_design.basis import OutcomeMeasure
-from parametric_insurance_design.errors import ComponentConfigError, InputMismatchError
+from parametric_insurance_design.errors import InputMismatchError
 from parametric_insurance_design.interfaces import Pricing, ProblemContext, Term
 from parametric_insurance_design.objectives import rockafellar_uryasev
 from parametric_insurance_design.riskmeasures import var_cvar
@@ -178,12 +177,10 @@ class CostOfCapitalLoad(Pricing):
 
     def __post_init__(self) -> None:
         """Validate ``rate`` and ``q`` (also outside the config path)."""
-        rate = _real("rate", self.rate)
-        if not 0.0 <= rate <= 1.0:
-            raise ComponentConfigError(f"rate must lie in [0, 1], got {self.rate!r}")
-        q = _real("q", self.q)
-        if not 0.0 < q < 1.0:
-            raise ComponentConfigError(f"q must lie in (0, 1), got {self.q!r}")
+        rate = check_real("rate", self.rate, low=0.0, high=1.0)
+        q = check_real(
+            "q", self.q, low=0.0, high=1.0, include_low=False, include_high=False
+        )
         object.__setattr__(self, "rate", rate)
         object.__setattr__(self, "q", q)
 
@@ -244,19 +241,3 @@ class CostOfCapitalLoad(Pricing):
             return expected
         _, cvar = var_cvar(measure.aggregate(values), measure.probability, self.q)
         return (1.0 - self.rate) * expected + self.rate * cvar
-
-
-def _real(name: str, value: object) -> float:
-    """Return ``value`` as a float if it is a finite real number.
-
-    Raises
-    ------
-    ComponentConfigError
-        If ``value`` is a bool, not a real number, or not finite.
-    """
-    if isinstance(value, bool) or not isinstance(value, Real):
-        raise ComponentConfigError(f"{name} must be a real number, got {value!r}")
-    out = float(value)
-    if not math.isfinite(out):
-        raise ComponentConfigError(f"{name} must be finite, got {value!r}")
-    return out
