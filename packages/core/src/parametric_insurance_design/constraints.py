@@ -1,7 +1,7 @@
 """Extra design-problem constraints (SPEC §6.4).
 
-The interface is
-:class:`~parametric_insurance_design.interfaces.Constraint` (ADR 0002).
+The interface is :class:`~parametric_insurance_design.interfaces.Constraint`
+(ADR 0002).
 Payout-family constraints (non-negative, monotone, cap) are not here: they
 come from ``PayoutStructure.constraints``.
 

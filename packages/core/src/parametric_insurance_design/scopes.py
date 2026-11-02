@@ -1,10 +1,10 @@
 """Scopes: individual, portfolio and cluster (SPEC §4.2, §6).
 
-The interface is
-:class:`~parametric_insurance_design.interfaces.Scope` (ADR 0002). A scope
-maps locations to payout entities and design problems; the objective of a
-design problem is on the sum over its entities (``L_e = sum_j L_{e,j}``,
-``pi_e = sum_j pi_{e,j}``), and every design problem has one budget.
+The interface is :class:`~parametric_insurance_design.interfaces.Scope`
+(ADR 0002). A scope maps locations to payout entities and design problems;
+the objective of a design problem is on the sum over its entities
+(``L_e = sum_j L_{e,j}``, ``pi_e = sum_j pi_{e,j}``), and every design
+problem has one budget.
 
 * :class:`Individual`: one design problem per location (``problem_id`` =
   ``location_id``), one entity each (``entity_id`` = ``location_id``).

@@ -1,7 +1,7 @@
 """Objectives (SPEC §4.2, §6).
 
-The interface is
-:class:`~parametric_insurance_design.interfaces.Objective` (ADR 0002).
+The interface is :class:`~parametric_insurance_design.interfaces.Objective`
+(ADR 0002).
 
 Every objective works on ``ctx.loss`` and ``ctx.payout`` (scaled, per row),
 aggregates per-row quantities into outcomes with
