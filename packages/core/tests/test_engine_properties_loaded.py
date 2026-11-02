@@ -1,8 +1,8 @@
 """Engine property tests under cost-of-capital pricing (MAR-27, from MAR-15).
 
-Sibling of ``test_engine_properties.py`` (MAR-15), whose EventSet strategy,
-components and tolerances it reuses through the public engine API
-(``problem.build_problems`` and ``solve.solve``):
+Sibling of ``test_engine_properties.py`` (MAR-15), with the same EventSet
+strategy, components and tolerances (shared in ``_properties.py``), through
+the public engine API (``problem.build_problems`` and ``solve.solve``):
 
 * ``rate = 0``: ``CostOfCapitalLoad`` gives the same problem as
   ``PurePremium``, so the same ``theta`` and premium, bit for bit.
@@ -19,7 +19,8 @@ components and tolerances it reuses through the public engine API
 
 These use the ``event_conditional`` basis, as the MAR-15 tests do. On the
 ``annual`` and ``event`` bases (MAR-24), with the EventSets and the
-independent numpy outcome measure of ``test_engine_properties_bases.py``:
+independent numpy outcome measure of ``test_engine_properties_bases.py``
+(shared in ``_properties.py``):
 ``r = 0`` equals ``PurePremium`` again, and the loaded premium is priced over
 the basis's outcomes (years on ``annual``): ``SolveResult.premium`` equals
 the numpy premium, the budget holds under it, and the optimum is no worse
@@ -48,16 +49,21 @@ from parametric_insurance_design.interfaces import (
     Scope,
     SolveResult,
 )
-from parametric_insurance_design.objectives import MSE
 from parametric_insurance_design.payout import StepPayout
 from parametric_insurance_design.pricing import CostOfCapitalLoad, PurePremium
 from parametric_insurance_design.problem import build_problems
 from parametric_insurance_design.riskmeasures import var_cvar
 from parametric_insurance_design.solve import solve
 
-from .test_engine_properties import (
+from ._properties import (
     PROPERTY_SETTINGS,
+    Layout,
+    budgets,
     eventsets,
+    homogeneity,
+    layout_eventset,
+    layouts,
+    numpy_measure,
     objective_value,
     objectives,
     scopes,
@@ -65,9 +71,6 @@ from .test_engine_properties import (
     step_payouts,
     with_scaled_losses,
 )
-from .test_engine_properties_bases import Layout, layouts, numpy_measure
-from .test_engine_properties_bases import make_eventset as make_layout_eventset
-from .test_engine_properties_bases import objective_value as basis_objective_value
 
 
 def loaded_pricings() -> st.SearchStrategy[CostOfCapitalLoad]:
@@ -77,11 +80,6 @@ def loaded_pricings() -> st.SearchStrategy[CostOfCapitalLoad]:
         rate=st.sampled_from([0.06, 0.1, 0.5, 1.0]),
         q=st.sampled_from([0.5, 0.9, 0.99, 0.995]),
     )
-
-
-def budgets() -> st.SearchStrategy[Budget | None]:
-    """No budget, a zero, a binding or a slack budget."""
-    return st.sampled_from([None, Budget(0.0), Budget(0.3), Budget(1.0), Budget(5.0)])
 
 
 @dataclass(frozen=True)
@@ -119,8 +117,8 @@ class Solved:
         return solver_tol(self.result.solver) * self.result.scale
 
     def objective_tol(self, objective: Objective) -> float:
-        homogeneity = 2 if isinstance(objective, MSE) else 1
-        return solver_tol(self.result.solver) * self.result.scale**homogeneity
+        degree = homogeneity(objective)
+        return solver_tol(self.result.solver) * self.result.scale**degree
 
 
 def design(
@@ -373,7 +371,7 @@ def test_rate_zero_equals_pure_premium_on_annual_and_event_bases(
     q: float,
 ) -> None:
     """r = 0: the same theta and premium as PurePremium on every basis."""
-    eventset = make_layout_eventset(layout)
+    eventset = layout_eventset(layout)
     constraints = () if budget is None else (budget,)
     zero = design_on_basis(
         eventset,
@@ -415,7 +413,7 @@ def test_loaded_premium_on_annual_and_event_bases(
     ``annual``): ``SolveResult.premium`` equals the numpy premium over
     outcomes, it is at least the pure premium, the budget holds under it,
     and the objective is no worse than without cover."""
-    eventset = make_layout_eventset(layout)
+    eventset = layout_eventset(layout)
     constraints = () if budget is None else (budget,)
     for s in design_on_basis(
         eventset, basis, scope, payout, objective, pricing, constraints
@@ -429,13 +427,11 @@ def test_loaded_premium_on_annual_and_event_bases(
         if budget is not None:
             assert premium <= budget.loading * expected_loss + tol
         loss = s.problem.loss
-        value = basis_objective_value(
-            objective, loss, s.payout, s.grouping, s.probability
+        value = objective_value(objective, loss, s.payout, s.probability, s.grouping)
+        no_cover = objective_value(
+            objective, loss, np.zeros_like(loss), s.probability, s.grouping
         )
-        no_cover = basis_objective_value(
-            objective, loss, np.zeros_like(loss), s.grouping, s.probability
-        )
-        homogeneity = 2 if isinstance(objective, MSE) else 1
-        objective_tol = solver_tol(s.result.solver) * s.result.scale**homogeneity
+        degree = homogeneity(objective)
+        objective_tol = solver_tol(s.result.solver) * s.result.scale**degree
         assert s.result.objective_value == pytest.approx(value, abs=objective_tol)
         assert value <= no_cover + objective_tol
