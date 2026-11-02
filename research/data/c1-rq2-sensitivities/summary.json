@@ -1,0 +1,119 @@
+{
+  "summary_inaccurate": {
+    "issue": "MAR-206",
+    "phase": "inaccurate",
+    "package_versions": {
+      "parametric-insurance-design": "0.1.0.dev0",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.0",
+      "pyarrow": "26.0.0",
+      "pydantic": "2.14.1",
+      "pyyaml": "6.0.3",
+      "cvxpy": "1.9.3",
+      "clarabel": "0.11.1",
+      "osqp": "1.1.3",
+      "scs": "3.3.1",
+      "highspy": "1.15.1"
+    },
+    "inaccurate_entities": 6,
+    "inaccurate_programs": 44,
+    "inaccurate_seconds": 2473.5
+  },
+  "summary_joint_ranges": {
+    "issue": "MAR-206",
+    "phase": "joint_ranges",
+    "package_versions": {
+      "parametric-insurance-design": "0.1.0.dev0",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.0",
+      "pyarrow": "26.0.0",
+      "pydantic": "2.14.1",
+      "pyyaml": "6.0.3",
+      "cvxpy": "1.9.3",
+      "clarabel": "0.11.1",
+      "osqp": "1.1.3",
+      "scs": "3.3.1",
+      "highspy": "1.15.1"
+    },
+    "joint_ranges_designs": 8,
+    "joint_ranges_seconds": 1007.1
+  },
+  "summary_nclusters": {
+    "issue": "MAR-206",
+    "phase": "nclusters",
+    "package_versions": {
+      "parametric-insurance-design": "0.1.0.dev0",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.0",
+      "pyarrow": "26.0.0",
+      "pydantic": "2.14.1",
+      "pyyaml": "6.0.3",
+      "cvxpy": "1.9.3",
+      "clarabel": "0.11.1",
+      "osqp": "1.1.3",
+      "scs": "3.3.1",
+      "highspy": "1.15.1"
+    },
+    "nclusters_runs": 144,
+    "nclusters_groups": 8,
+    "nclusters_solve_seconds": 2845.1,
+    "nclusters_seconds": 3767.1
+  },
+  "summary_noise": {
+    "issue": "MAR-206",
+    "phase": "noise",
+    "package_versions": {
+      "parametric-insurance-design": "0.1.0.dev0",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.0",
+      "pyarrow": "26.0.0",
+      "pydantic": "2.14.1",
+      "pyyaml": "6.0.3",
+      "cvxpy": "1.9.3",
+      "clarabel": "0.11.1",
+      "osqp": "1.1.3",
+      "scs": "3.3.1",
+      "highspy": "1.15.1"
+    },
+    "noise_runs": 64,
+    "noise_groups": 16,
+    "noise_solve_seconds": 914.1,
+    "noise_seconds": 1181.4
+  },
+  "summary_nonunique": {
+    "issue": "MAR-206",
+    "phase": "nonunique",
+    "package_versions": {
+      "parametric-insurance-design": "0.1.0.dev0",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.0",
+      "pyarrow": "26.0.0",
+      "pydantic": "2.14.1",
+      "pyyaml": "6.0.3",
+      "cvxpy": "1.9.3",
+      "clarabel": "0.11.1",
+      "osqp": "1.1.3",
+      "scs": "3.3.1",
+      "highspy": "1.15.1"
+    },
+    "nonunique_groups": 24,
+    "nonunique_rows_checked_against_c1": 1896,
+    "nonunique_seconds": 2356.0,
+    "alt_policy": {
+      "lp_solvers": [
+        "HIGHS",
+        "CLARABEL",
+        "SCS"
+      ],
+      "qp_solvers": [
+        "CLARABEL",
+        "OSQP"
+      ]
+    }
+  }
+}
