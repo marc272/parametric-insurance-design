@@ -51,13 +51,14 @@ design's bootstrap is cut to its portfolio-level rows
 run with several design problems, here the individual scope; the problem's
 id for a run with one, here ``"portfolio"`` for the C1 cluster and portfolio
 scopes), with the same resample check. MAR-182 relabelled ``problem_id`` to a
-common value instead (``c1_rq2.portfolio_rows``); the two give the same
-contrasts bit for bit (MAR-212). The interaction is ``paired_difference`` of
-two difference bootstraps (:func:`difference_bootstrap`: point values and
-replicates of two designs of one scope subtracted row by row, after the same
-check). The k-fold contrasts use ``kpi_replicates`` of
-``kfold.pooled_designs`` on the one shared resample, and are checked against
-``kfold.pooled_difference`` wherever both designs are in one k-fold config.
+common value instead (a ``c1_rq2.portfolio_rows`` helper, removed in
+MAR-228); the two give the same contrasts bit for bit (MAR-212). The
+interaction is ``paired_difference`` of two difference bootstraps
+(:func:`difference_bootstrap`: point values and replicates of two designs of
+one scope subtracted row by row, after the same check). The k-fold contrasts
+use ``kpi_replicates`` of ``kfold.pooled_designs`` on the one shared
+resample, and are checked against ``kfold.pooled_difference`` wherever both
+designs are in one k-fold config.
 
 **Checks** (raise on failure): the recomputed test KPIs equal C1's
 (``research/data/c1/kpis_<family>.csv``); the two-term contrasts that C1 or
@@ -121,7 +122,7 @@ from parametric_insurance_design.experiment.config import (
 from parametric_insurance_design.experiment.runner import package_versions, run_key
 from parametric_insurance_design.experiment.store import ResultStore
 from parametric_insurance_design.interfaces import Sample
-from parametric_insurance_design.records import ALL_PROBLEMS, KpiName
+from parametric_insurance_design.records import KpiName
 from parametric_insurance_design.solve import DEFAULT_POLICY
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
@@ -880,12 +881,18 @@ def _pooled_bootstrap(
     resample: YearResample,
     level: float,
     run_id: str,
+    problem_id: str,
 ) -> KpiBootstrap:
-    """Wrap a pooled design's replicates as a portfolio-level KpiBootstrap."""
+    """Wrap a pooled design's replicates as a portfolio-level KpiBootstrap.
+
+    ``problem_id`` is the folds' own (``PooledDesign.problem_id``: ``"*"``
+    for the individual scope, ``"portfolio"`` for the joint scopes), as in a
+    holdout run's rows (MAR-228).
+    """
     names = list(reps)
     table = pd.DataFrame(
         {
-            "problem_id": ALL_PROBLEMS,
+            "problem_id": problem_id,
             "eval_split": "pooled",
             "fold": POOLED_FOLD,
             "basis": Basis.ANNUAL.value,
@@ -991,7 +998,13 @@ def run_kfold(args: argparse.Namespace) -> dict[str, Any]:
                         d.loss, d.payout, measure, row_years, ones, beta=beta
                     )
                     boots[beta][key] = _pooled_bootstrap(
-                        reps, point, beta, pooled.resample, pooled.level, exp_hash
+                        reps,
+                        point,
+                        beta,
+                        pooled.resample,
+                        pooled.level,
+                        exp_hash,
+                        d.problem_id,
                     )
             native.append((pooled, positions))
         # grid rows: pooled KPIs (and the pooled_kpis cross-check at 0.99)

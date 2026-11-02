@@ -47,8 +47,8 @@ not committed) and solves nothing it can reuse. Two phases:
     keeps each
     design's own ``problem_id`` (``problem_id_a``, ``problem_id_b`` in the
     full ``paired`` tables). MAR-158 relabelled ``problem_id`` here instead
-    (:func:`portfolio_rows`); the two give the same differences and
-    intervals bit for bit (MAR-212).
+    (a ``portfolio_rows`` helper in this script, removed in MAR-228); the
+    two give the same differences and intervals bit for bit (MAR-212).
 
 ``kfold``
     Year-block 5-fold runs (MAR-22) of the same design problems at kappa 1,
@@ -148,7 +148,7 @@ from parametric_insurance_design.interfaces import (
     SolveResult,
 )
 from parametric_insurance_design.problem import build_problems
-from parametric_insurance_design.records import ALL_PROBLEMS, KpiName
+from parametric_insurance_design.records import KpiName
 from parametric_insurance_design.scopes import Cluster
 from parametric_insurance_design.solve import DEFAULT_POLICY, SolverPolicy, solve
 
@@ -319,44 +319,6 @@ def derived_hash(base_hash: str, derivation: str) -> str:
         {"base_config_hash": base_hash, "derivation": derivation}, sort_keys=True
     )
     return "derived:" + hashlib.sha256(payload.encode()).hexdigest()
-
-
-# --------------------------------------------------------------------------
-# Pairing across scopes
-# --------------------------------------------------------------------------
-
-
-def portfolio_rows(boot: KpiBootstrap) -> KpiBootstrap:
-    """Keep a bootstrap's portfolio-level rows, with a common ``problem_id``.
-
-    MAR-158's relabelling for pairing across scopes. This script no longer
-    pairs with it: it calls ``paired_difference(..., across_scopes=True)``
-    on :meth:`KpiBootstrap.portfolio_rows` (MAR-212). It is kept because
-    ``individual_nonuniqueness.py`` imports it. ``problem_id`` is ``"*"``
-    for a run with several design problems (the individual scope) and the
-    problem's id for a run with one (``"portfolio"`` for the C1 cluster and
-    portfolio scopes); here every row gets :data:`ALL_PROBLEMS`. The
-    replicates and the resample are unchanged.
-
-    Parameters
-    ----------
-    boot : KpiBootstrap
-        A run's bootstrap.
-
-    Returns
-    -------
-    KpiBootstrap
-        Its portfolio-level rows only.
-    """
-    mask = (boot.table["level"] == "portfolio").to_numpy()
-    table = boot.table.loc[mask].copy().reset_index(drop=True)
-    table["problem_id"] = ALL_PROBLEMS
-    return KpiBootstrap(
-        table=table,
-        replicates=boot.replicates[mask],
-        resample=boot.resample,
-        level=boot.level,
-    )
 
 
 # --------------------------------------------------------------------------

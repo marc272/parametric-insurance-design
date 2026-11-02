@@ -1018,20 +1018,18 @@ def _finish(
         for name, (sc, res) in designs.items():
             reps[name], point[name] = {}, {}
             for beta in EVAL_BETAS:
-                boot = rq2.portfolio_rows(
-                    bootstrap_kpis(
-                        prepared,
-                        sc,
-                        res,
-                        basis=comps.basis,
-                        beta=beta,
-                        run_id=name,
-                        resample=resample,
-                        sample=test,
-                        pricing=price,
-                        level=level,
-                    )
-                )
+                boot = bootstrap_kpis(
+                    prepared,
+                    sc,
+                    res,
+                    basis=comps.basis,
+                    beta=beta,
+                    run_id=name,
+                    resample=resample,
+                    sample=test,
+                    pricing=price,
+                    level=level,
+                ).portfolio_rows()
                 tab = boot.table.reset_index(drop=True)
                 for kpi_name, lab in (
                     ("cvar_uncovered", f"cvar@{beta:g}"),
