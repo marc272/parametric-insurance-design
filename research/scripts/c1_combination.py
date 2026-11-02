@@ -2002,15 +2002,17 @@ def run_sites(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _check_sites_sum(grid: pd.DataFrame, args: argparse.Namespace) -> int:
-    """Raise unless the sites' E[L], E[payout] and E[U] add up to the portfolio's."""
+    """Raise unless the sites' E[L] and E[payout] add up to the portfolio's.
+
+    E[U] does not add up: the portfolio's uncovered loss nets one site's
+    excess payout against another's shortfall in the same event.
+    """
     full = pd.read_csv(args.full / "holdout_main_grid.csv")
     port = full.loc[
         (full["scope"] == INDIVIDUAL)
-        & full["kpi"].isin(["expected_loss", "expected_payout", "expected_uncovered"])
+        & full["kpi"].isin(["expected_loss", "expected_payout"])
     ]
-    s = grid.loc[
-        grid["kpi"].isin(["expected_loss", "expected_payout", "expected_uncovered"])
-    ]
+    s = grid.loc[grid["kpi"].isin(["expected_loss", "expected_payout"])]
     s = s.groupby(["pricing", "kappa", "split", "design", "kpi"], as_index=False)[
         "value"
     ].sum()
