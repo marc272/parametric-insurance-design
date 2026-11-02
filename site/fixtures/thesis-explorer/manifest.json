@@ -4,7 +4,7 @@
   "label": "thesis-fixture data: a reduced thesis experiment (site/fixtures/thesis_explorer.yaml: location A1 only, individual scope, weighted CVaR, alpha and beta sweeps) on the thesis parity event set, in-sample, event-conditional basis. A test fixture of the site bundle export with sweeps, not a result to publish.",
   "config": {
     "name": "thesis-explorer",
-    "description": "Reduced thesis experiment for the site's explorer check (MAR-201) - location A1 only, individual scope, weighted CVaR, alpha and beta sweeps - on the thesis parity event set.",
+    "description": "Reduced thesis experiment for the site's explorer check - location A1 only, individual scope, weighted CVaR, alpha and beta sweeps - on the thesis parity event set.",
     "hash": "sha256:19d35dcb12b0fb20cb17d0ddca87a9a98981019990966cdb7304f0994a802a38"
   },
   "versions": {
@@ -1289,7 +1289,7 @@
     "checksums": "Every data file is listed under files with its size in bytes and the SHA-256 of its bytes; the manifest itself is not."
   },
   "map": {
-    "rule": "Per run, evaluation and location: the location's expected loss, payout and uncovered loss. They come from the run's per-location KPI rows under an allocation rule, which splits each design problem's payout across its locations (kpi_level 'location_by_value', allocation 'value': pro rata to insured value; kpi_level 'location_by_loss', allocation 'loss': pro rata to loss; evaluate, MAR-100). Without them, a run of the individual scope takes each location's entity rows (kpi_level 'entity', allocation 'none': one location per design problem, so the payout is the location's own). A joint design (cluster or portfolio scope) without them has no per-location numbers (null): its entity rows are one of several optimal splits of the design problem's payout, the one the solver returned, and are never shown as per-location cover. runs gives the source of each run's numbers, allocations the rules in the bundle.",
+    "rule": "Per run, evaluation and location: the location's expected loss, payout and uncovered loss. They come from the run's per-location KPI rows under an allocation rule, which splits each design problem's payout across its locations (kpi_level 'location_by_value', allocation 'value': pro rata to insured value; kpi_level 'location_by_loss', allocation 'loss': pro rata to loss; evaluate). Without them, a run of the individual scope takes each location's entity rows (kpi_level 'entity', allocation 'none': one location per design problem, so the payout is the location's own). A joint design (cluster or portfolio scope) without them has no per-location numbers (null): its entity rows are one of several optimal splits of the design problem's payout, the one the solver returned, and are never shown as per-location cover. runs gives the source of each run's numbers, allocations the rules in the bundle.",
     "allocations": [],
     "runs": [
       {
