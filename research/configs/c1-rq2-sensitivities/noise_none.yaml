@@ -1,0 +1,64 @@
+# MAR-206 (C1 RQ2 sensitivities, family (c)): the C1 main line
+# (research/configs/c1/c1_main.yaml) WITHOUT the thesis noise layer. Each
+# asset's loss is then the base loss of its event row, and the index is the
+# wind at the asset: no per-asset noise between index and loss.
+#
+# research/scripts/c1_rq2_sensitivities.py --phase noise derives the single
+# runs from this file (one scope x one objective each) and varies only: the
+# pricing (pure; cost of capital r 0.06, q 0.99), the scope (individual,
+# cluster, cluster with joint: false, portfolio) and the objective (MSE,
+# E[U], weighted CVaR alpha 0.9 at beta 0.99 and 0.995). Budget loading 1.
+# Everything else is C1's main line. Each run's config hash is in
+# research/data/c1-rq2-sensitivities/.
+#
+# Paths are relative to this file.
+schema_version: 1
+name: c1-rq2-noise-none
+description: C1 main line without the thesis noise layer (MAR-206 family c).
+eventset:
+  path: ../../../parity/tests/data/thesis_eventset
+  checksum: sha256:404b0c3a3aefa38965ad3ace2747d308685a67e3b218cb835d45a9ab375294df
+portfolio:
+  location_ids: [A1, A2, A3, A4, A5, A6, A7, A8, A9]
+noise: null
+threshold:
+  value: 20.0
+  column: index
+basis: annual
+sample:
+  kind: holdout
+  train_fraction: 0.7
+payout:
+  kind: step
+  attachment: 20.0
+  limit: 70.0
+  n_bins: 15
+scopes:
+- kind: individual
+- kind: cluster
+  n_clusters: 3
+  strategy:
+    kind: thesis_ward
+    beta_tail: 0.9
+    linkage: ward
+- kind: portfolio
+objectives:
+- kind: mse
+- kind: expected_uncovered
+- kind: weighted_cvar
+  alpha: 0.9
+  beta: 0.99
+pricing:
+  kind: pure
+constraints:
+- kind: budget
+  loading: 1.0
+evaluation:
+  beta: 0.99
+bootstrap:
+  seed: 0
+  n_bootstrap: 1000
+  level: 0.9
+sweeps: []
+output:
+  directory: ../../../results/c1-rq2-sensitivities/store
