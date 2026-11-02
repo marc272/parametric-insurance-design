@@ -35,7 +35,7 @@ from parametric_insurance_design.experiment.runner import (
     run_key,
 )
 from parametric_insurance_design.experiment.store import ResultStore
-from parametric_insurance_design_viz import command
+from parametric_insurance_design_viz import command, style
 from parametric_insurance_design_viz.command import (
     FIGURE_SETS,
     FigureContext,
@@ -1247,8 +1247,6 @@ def test_repeated_scope_kinds_keep_their_key(toy: Fixture, tmp_path: Path) -> No
 
 
 def test_repeated_scope_labels() -> None:
-    from parametric_insurance_design_viz.kpi_figures import _scope_text
-
     class Run:
         # a joint cluster run, as style.run_scope_name reads it (MAR-225)
         scope = "cluster"
@@ -1257,5 +1255,9 @@ def test_repeated_scope_labels() -> None:
         manifest: dict[str, Any] = {}  # noqa: RUF012
 
     scopes: Any = {"cluster": [Run()], "cluster_2": [Run()]}
-    assert _scope_text("cluster", scopes) == "Cluster scope"
-    assert _scope_text("cluster_2", scopes) == "Cluster scope (cluster_2)"
+    objective = style.objective_label("mse").lower()
+    assert Baseline("cluster", "mse").label(scopes) == f"cluster scope & {objective}"
+    assert (
+        Baseline("cluster_2", "mse").label(scopes)
+        == f"cluster scope (cluster_2) & {objective}"
+    )

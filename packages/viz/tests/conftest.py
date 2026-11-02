@@ -46,7 +46,6 @@ from parametric_insurance_design.experiment.runner import (
 )
 from parametric_insurance_design.experiment.store import ResultStore
 from parametric_insurance_design.solve import DEFAULT_POLICY
-from parametric_insurance_design_viz import command
 from parametric_insurance_design_viz.command import SweepRun
 
 N_EVENTS = 60
@@ -168,16 +167,12 @@ def build_fixture(directory: Path, **changes: Any) -> Fixture:  # noqa: ANN401
 def command_sweep_runs(config: ExperimentConfig) -> tuple[SweepRun, ...]:
     """The sweep points as the ``figures`` and ``export-site`` commands pass them.
 
-    This is the one place the viz tests use a private core name,
-    ``cli._sweep_runs`` (MAR-232): the core has no public function that lists
-    a config's sweep points as viz :class:`SweepRun` objects (the CLI builds
-    them), and the tests must pass the figures and bundles exactly what the
-    commands pass. Rebuilding the list from the public ``sweep_points`` and
-    ``run_key`` would test a copy of the CLI code instead.
+    The core's public ``cli.sweep_runs`` builds them, so the tests pass the
+    figures and bundles exactly what the commands pass. The core types the
+    list as ``object`` (it never imports viz types); this checks that each
+    point is the viz :class:`SweepRun`.
     """
-    runs = cli._sweep_runs(  # pyright: ignore[reportPrivateUsage]
-        command, config, load_input(config), DEFAULT_POLICY
-    )
+    runs = cli.sweep_runs(config, policy=DEFAULT_POLICY)
     sweeps = tuple(r for r in runs if isinstance(r, SweepRun))
     assert len(sweeps) == len(runs)
     return sweeps

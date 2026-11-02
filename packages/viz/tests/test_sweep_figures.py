@@ -20,7 +20,7 @@ import pytest
 from matplotlib.figure import Figure
 
 from parametric_insurance_design.experiment.sweeps import run_sweeps
-from parametric_insurance_design_viz import command, sweep_figures
+from parametric_insurance_design_viz import command, style, sweep_figures
 from parametric_insurance_design_viz.command import (
     FigureReport,
     SkippedFigure,
@@ -659,3 +659,33 @@ def test_money_tick_labels_are_distinct(
             assert len(set(ticks)) == len(ticks), (name, label, ticks)
     colorbar = [t for label, t in saved["net_advantage_cluster"] if "cost" in label]
     assert colorbar == [["0.0", "0.5", "2.0"]]  # was "0", "0", "2"
+
+
+def test_payout_sweeps_label_payouts_in_the_money_style(
+    swept: SweepFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The payout axis reads as the payout grid's (0.5M, 200k, 50), not in
+    # scientific notation with an offset text.
+    saved: dict[str, tuple[bool, str, list[str]]] = {}
+    savefig = Figure.savefig
+
+    def spy(fig: Figure, fname: Any, *args: Any, **kwargs: Any) -> None:  # noqa: ANN401
+        fig.canvas.draw()
+        axis = fig.axes[0].yaxis
+        # written to ".<name>.png.tmp" first
+        saved[Path(str(fname)).name.split(".")[1]] = (
+            isinstance(axis.get_major_formatter(), style.MoneyFormatter),
+            axis.get_offset_text().get_text(),
+            [t.get_text() for t in axis.get_ticklabels() if t.get_text()],
+        )
+        savefig(fig, fname, *args, **kwargs)
+
+    monkeypatch.setattr(Figure, "savefig", spy)
+    draw(swept, tmp_path, sweeps=swept.sweeps)
+    names = [n for n in saved if n.startswith("payout_sweep_")]
+    assert len(names) == 3  # the alpha sweep of each scope
+    for name in names:
+        money, offset, ticks = saved[name]
+        assert money, name
+        assert offset == "", name
+        assert len(ticks) == len(set(ticks)) > 1, (name, ticks)

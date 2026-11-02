@@ -6,12 +6,18 @@ independently of :func:`~parametric_insurance_design_viz.site_export.read_bundle
 The committed thesis-fixture bundles under ``site/fixtures/thesis`` and
 ``site/fixtures/thesis-explorer`` are checked against their manifests and
 against the configs they came from.
+
+The tests use public names only, except the cell encoder of the infinity, NaN
+and integer rules (``site_export._Col``, ``_encode``, ``_column_info`` and
+``_json_bytes``): most values those rules refuse cannot reach a result store,
+so the rules are tested on the encoder itself.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -83,6 +89,8 @@ SWEEPS = [
     {"parameter": "alpha", "values": [0.5, 0.9]},
     {"parameter": "n_clusters", "values": [1, 2]},
 ]
+MAP_KPIS = ("expected_loss", "expected_payout", "expected_uncovered")
+"""The per-location KPI columns of ``baseline.map.arrow``, in bundle order."""
 EXPECTED_FILES = [
     "runs.json",
     "locations.json",
@@ -305,7 +313,7 @@ def test_map_without_allocation_rows_uses_individual_entity_rows_only(
     individual = map_[map_["scope"] == "individual"]
     assert set(individual["kpi_level"]) == {"entity"}
     assert set(individual["allocation"]) == {"none"}
-    assert individual[list(site_export._MAP_KPIS)].notna().all().all()
+    assert individual[list(MAP_KPIS)].notna().all().all()
     assert sorted(set(individual["location_id"])) == ["A1", "A2", "A3"]
     # Joint designs: every location of every run, and no numbers at all; the
     # portfolio scope's single-location entities are the solver's split (F8).
@@ -314,13 +322,14 @@ def test_map_without_allocation_rows_uses_individual_entity_rows_only(
         assert len(rows) == 3 * len(swept.toy.config.objectives), scope
         assert rows["kpi_level"].isna().all(), scope
         assert rows["allocation"].isna().all(), scope
-        assert rows[list(site_export._MAP_KPIS)].isna().all().all(), scope
-    for name in ("kpi_level", "allocation", *site_export._MAP_KPIS):
-        assert meaning[name] == site_export._NOT_PER_LOCATION
+        assert rows[list(MAP_KPIS)].isna().all().all(), scope
+    not_per_location = {meaning[n] for n in ("kpi_level", "allocation", *MAP_KPIS)}
+    assert len(not_per_location) == 1  # one meaning for every per-location column
     assert meaning["expected_payout"].startswith("not available per location")
+    assert "joint design" in meaning["expected_payout"]
     toy = swept.toy
     run = ResultReader(toy.store).run(toy.run_id("individual", "mse"))
-    for kpi in site_export._MAP_KPIS:
+    for kpi in MAP_KPIS:
         expected = run.kpis[(run.kpis["level"] == "entity") & (run.kpis["kpi"] == kpi)]
         mine = map_[map_["run_id"] == run.run_id].set_index("location_id")[kpi]
         assert {str(k): v for k, v in mine.items()} == expected.set_index("subject_id")[
@@ -330,7 +339,9 @@ def test_map_without_allocation_rows_uses_individual_entity_rows_only(
 
 def test_the_manifest_records_the_source_of_the_map(swept: Swept) -> None:
     section = swept.manifest["map"]
-    assert section["rule"] == site_export._MAP_RULE
+    rule = section["rule"]
+    for phrase in ("allocation rule", "location_by_value", "entity", "joint design"):
+        assert phrase in rule, phrase
     assert section["allocations"] == []
     toy = swept.toy
     assert [r["run_id"] for r in section["runs"]] == list(toy.run_ids)
@@ -417,6 +428,8 @@ def test_read_bundle_detects_changed_and_missing_files(
 
 
 # -- the infinity rule ---------------------------------------------------------
+# Private encoder names (_Col, _encode, _column_info, _json_bytes): the values
+# these rules refuse cannot reach a result store (module docstring).
 
 
 @pytest.fixture(scope="module")
@@ -477,6 +490,8 @@ def test_other_infinities_are_refused() -> None:
 
 
 # -- the NaN rule --------------------------------------------------------------
+# Private encoder names (_Col, _encode, _column_info, _json_bytes): the values
+# these rules refuse cannot reach a result store (module docstring).
 
 
 def test_nan_is_null_where_undefined_values_are_allowed() -> None:
@@ -716,7 +731,9 @@ def test_kfold_bundle_holds_the_pooled_kpis(kfold: Pooled) -> None:
     table = arrow(kfold.out / "baseline.pooled_kpis.arrow").to_pandas()
     expected = kfold.pooled.table
     assert len(table) == len(expected) == 9 * len(POOLED_KPIS)
-    assert list(table.columns) == [c.name for c in site_export._POOLED_KPI_COLUMNS]
+    columns = list(POOLED_COLUMNS)  # with the scope key after the scope
+    columns.insert(columns.index("scope") + 1, "scope_key")
+    assert list(table.columns) == columns
     assert set(POOLED_COLUMNS) <= set(table.columns)
     assert set(table["eval_split"]) == {POOLED_SPLIT}
     assert set(table["level"]) == {"portfolio"}
@@ -908,11 +925,13 @@ def test_events_are_left_out_unless_asked_for(toy: Fixture, tmp_path: Path) -> N
     assert not (tmp_path / "plain" / "baseline.events.arrow").exists()
     assert plain.manifest["events"]["included"] is False
     with_events = export(toy, tmp_path / "events", include_events=True)
-    assert with_events.manifest["events"] == {
+    section = dict(with_events.manifest["events"])
+    note = section.pop("note")
+    assert section == {
         "included": True,
         "scopes": ["individual", "cluster", "portfolio"],
-        "note": site_export._EVENTS_NOTE,
     }
+    assert "export-site --events" in note
     events = arrow(tmp_path / "events" / "baseline.events.arrow").to_pandas()
     reader = ResultReader(toy.store)
     expected = 0
@@ -1109,7 +1128,8 @@ def test_the_manifest_records_the_split_filter(held: Held) -> None:
     section = held.manifest["split_filter"]
     assert section["eval_split"] == "test"
     assert section["slices"] == ["kpis", "exceedance", "map"]
-    assert section["rule"] == site_export._SPLIT_KEPT.format(split="test")
+    assert "eval_split 'test'" in section["rule"]
+    assert "export-site --split test" in section["rule"]
     removed: dict[str, int] = {}
     for name in SPLIT_TABLES:
         plain = arrow(held.plain / name).to_pandas()
@@ -1124,12 +1144,8 @@ def test_the_manifest_records_the_split_filter(held: Held) -> None:
     )
     assert removed["baseline.kpis.arrow"] == train
     plain_section = strict_json(held.plain / MANIFEST)["split_filter"]
-    assert plain_section == {
-        "eval_split": None,
-        "slices": [],
-        "rows_removed": {},
-        "rule": site_export._SPLIT_NONE,
-    }
+    assert plain_section.pop("rule").startswith("No split filter")
+    assert plain_section == {"eval_split": None, "slices": [], "rows_removed": {}}
     assert read_bundle(held.test) == held.manifest
     assert held.manifest["setup"]["split"]["out_of_sample"] is True
 
@@ -1217,7 +1233,7 @@ def allocated(tmp_path_factory: pytest.TempPathFactory) -> Allocated:
 def stored_location_rows(toy: Fixture, run_id: str, level: str) -> pd.DataFrame:
     """The run's map KPIs at ``level``, one row per (eval_split, location)."""
     kpis = ResultReader(toy.store).run(run_id).kpis
-    rows = kpis[(kpis["level"] == level) & kpis["kpi"].isin(site_export._MAP_KPIS)]
+    rows = kpis[(kpis["level"] == level) & kpis["kpi"].isin(MAP_KPIS)]
     wide = rows.pivot_table(
         index=["eval_split", "subject_id"], columns="kpi", values="value"
     )
@@ -1231,7 +1247,7 @@ def assert_map_matches(
     mine = map_[map_["run_id"] == run_id].set_index(["eval_split", "location_id"])
     stored = stored_location_rows(toy, run_id, level)
     assert len(mine) == len(stored) > 0
-    for kpi in site_export._MAP_KPIS:
+    for kpi in MAP_KPIS:
         for key, value in stored[kpi].items():
             assert mine.loc[key, kpi] == value, (run_id, key, kpi)
 
@@ -1297,58 +1313,96 @@ def test_the_loss_rule_is_labelled_as_such(tmp_path: Path) -> None:
     assert report.manifest["map"]["runs"][0]["kpi_level"] == "location_by_loss"
 
 
-def _exported(toy: Fixture, scope: str, kpis: pd.DataFrame) -> site_export._Exported:
-    run = ResultReader(toy.store).run(toy.run_id(scope, "mse"))
-    return site_export._Exported(replace(run, kpis=kpis), scope)
+def export_with_kpis(
+    toy: Fixture,
+    out: Path,
+    scope: str,
+    edit: Callable[[pd.DataFrame], pd.DataFrame],
+    monkeypatch: pytest.MonkeyPatch,
+) -> ExportReport:
+    """Export ``toy`` with the stored KPI rows of its ``scope`` x mse run edited.
+
+    ``ResultReader.runs`` returns the run with ``edit(kpis)``; nothing else
+    changes, so the export sees rows a store could hold but the runner never
+    writes.
+    """
+    target = toy.run_id(scope, "mse")
+    read = ResultReader.runs
+
+    def runs(self: ResultReader, run_ids: Iterable[str]) -> tuple[RunResult, ...]:
+        return tuple(
+            replace(r, kpis=edit(r.kpis)) if r.run_id == target else r
+            for r in read(self, run_ids)
+        )
+
+    monkeypatch.setattr(ResultReader, "runs", runs)
+    return export(toy, out)
 
 
-def _kpis(toy: Fixture, scope: str) -> pd.DataFrame:
-    return ResultReader(toy.store).run(toy.run_id(scope, "mse")).kpis
+def test_rows_at_the_plain_location_level_are_refused(
+    allocated: Allocated, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def plain(kpis: pd.DataFrame) -> pd.DataFrame:
+        return kpis.assign(level=kpis["level"].replace("location_by_value", "location"))
 
-
-def test_rows_at_the_plain_location_level_are_refused(allocated: Allocated) -> None:
-    kpis = _kpis(allocated.toy, "portfolio")
-    plain = kpis.assign(level=kpis["level"].replace("location_by_value", "location"))
     with pytest.raises(BundleError, match="level 'location', which is reserved"):
-        site_export._map([_exported(allocated.toy, "portfolio", plain)])
+        export_with_kpis(allocated.toy, tmp_path, "portfolio", plain, monkeypatch)
 
 
-def test_rows_of_several_rules_are_refused(allocated: Allocated) -> None:
-    kpis = _kpis(allocated.toy, "portfolio")
-    by_value = kpis[kpis["level"] == "location_by_value"]
-    both = pd.concat(
-        [kpis, by_value.assign(level="location_by_loss")], ignore_index=True
-    )
+def test_rows_of_several_rules_are_refused(
+    allocated: Allocated, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def both(kpis: pd.DataFrame) -> pd.DataFrame:
+        by_value = kpis[kpis["level"] == "location_by_value"]
+        return pd.concat(
+            [kpis, by_value.assign(level="location_by_loss")], ignore_index=True
+        )
+
     with pytest.raises(BundleError, match="several allocation rules"):
-        site_export._map([_exported(allocated.toy, "portfolio", both)])
+        export_with_kpis(allocated.toy, tmp_path, "portfolio", both, monkeypatch)
 
 
-def test_allocation_rows_missing_a_location_are_refused(allocated: Allocated) -> None:
-    kpis = _kpis(allocated.toy, "cluster")
-    gap = (kpis["level"] == "location_by_value") & (kpis["subject_id"] == "A2")
-    gap &= kpis["eval_split"] == "test"
+def test_allocation_rows_missing_a_location_are_refused(
+    allocated: Allocated, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def gap(kpis: pd.DataFrame) -> pd.DataFrame:
+        hole = (kpis["level"] == "location_by_value") & (kpis["subject_id"] == "A2")
+        hole &= kpis["eval_split"] == "test"
+        return _where(kpis, ~hole)
+
     with pytest.raises(BundleError, match="rows for 5 of its 6"):
-        site_export._map([_exported(allocated.toy, "cluster", _where(kpis, ~gap))])
+        export_with_kpis(allocated.toy, tmp_path, "cluster", gap, monkeypatch)
 
 
-def test_an_undefined_allocated_number_is_refused(allocated: Allocated) -> None:
-    kpis = _kpis(allocated.toy, "portfolio")
-    hole = (kpis["level"] == "location_by_value") & (kpis["kpi"] == "expected_payout")
-    kpis = kpis.assign(value=kpis["value"].where(~hole))
+def test_an_undefined_allocated_number_is_refused(
+    allocated: Allocated, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def undefined(kpis: pd.DataFrame) -> pd.DataFrame:
+        hole = (kpis["level"] == "location_by_value") & (
+            kpis["kpi"] == "expected_payout"
+        )
+        return kpis.assign(value=kpis["value"].where(~hole))
+
     with pytest.raises(BundleValueError, match="undefined expected loss"):
-        site_export._map([_exported(allocated.toy, "portfolio", kpis)])
+        export_with_kpis(allocated.toy, tmp_path, "portfolio", undefined, monkeypatch)
 
 
-def test_a_joint_scope_never_falls_back_to_its_entity_rows(toy: Fixture) -> None:
+def test_a_joint_scope_never_falls_back_to_its_entity_rows(swept: Swept) -> None:
     # Not even when its entities cover one location each (the portfolio scope).
+    map_ = arrow(swept.out / "baseline.map.arrow").to_pandas()
+    reader = ResultReader(swept.toy.store)
+    sources = {r["run_id"]: r for r in swept.manifest["map"]["runs"]}
     for scope in ("portfolio", "cluster"):
-        run = ResultReader(toy.store).run(toy.run_id(scope, "mse"))
-        assert "entity" in set(run.kpis["level"])
-        rows, sources = site_export._map([site_export._Exported(run, scope)])
+        run_id = swept.toy.run_id(scope, "mse")
+        assert "entity" in set(reader.run(run_id).kpis["level"])
+        rows = map_[map_["run_id"] == run_id]
         assert len(rows) == 3
-        columns = ["kpi_level", "allocation", *site_export._MAP_KPIS]
+        columns = ["kpi_level", "allocation", *MAP_KPIS]
         assert rows.loc[:, columns].isna().to_numpy().all()
-        assert (sources[0]["kpi_level"], sources[0]["allocation"]) == (None, None)
+        assert (sources[run_id]["kpi_level"], sources[run_id]["allocation"]) == (
+            None,
+            None,
+        )
 
 
 # -- joint designs: the payouts' joint flag (MAR-222) ----------------------------
@@ -1383,7 +1437,8 @@ def test_payout_rows_of_joint_designs_are_marked(swept: Swept) -> None:
 
 def test_the_manifest_records_the_joint_designs(swept: Swept) -> None:
     section = swept.manifest["joint"]
-    assert section["rule"] == site_export._JOINT_RULE
+    assert "joint true" in section["rule"]
+    assert "cluster_separate" in section["rule"]
     assert section["caption"] == JOINT_CAPTION
     runs = strict_json(swept.out / "runs.json")["runs"]
     reader = ResultReader(swept.toy.store)

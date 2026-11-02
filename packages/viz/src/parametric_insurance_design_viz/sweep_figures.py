@@ -45,6 +45,8 @@ Figure                                        Thesis
   table: its payout functions are one of several
   optimal designs, chosen by the solver. A cluster scope calibrated cluster
   by cluster (``joint: false``) has one entity per problem, so no caption.
+  The payout axis is in the money style of the payout grid
+  (:class:`~.style.MoneyFormatter`: ``0.5M``, ``200k``, ``50``).
 * ``sensitivity_<param>``: the portfolio tail basis risk (KPI
   ``cvar_uncovered`` at ``level = "portfolio"``, at the evaluation
   ``beta``) against the swept value, one line per scope x objective except
@@ -1218,7 +1220,7 @@ def payout_sweep(
         ax.set_xlim(*xlim)
         ax.set_xlabel(labels.index(aggregate=aggregate))
         ax.set_ylabel(labels.payout())
-        ax.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
+        ax.yaxis.set_major_formatter(style.MoneyFormatter())
         ax.set_title(parameter_label(series.parameter), fontsize=style.FONT.label_size)
         if colorbar:
             bar = fig.colorbar(
