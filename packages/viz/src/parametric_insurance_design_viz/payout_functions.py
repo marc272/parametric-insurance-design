@@ -32,6 +32,10 @@ Differences from the thesis code, all deliberate:
 * Axis labels name the index generically ("Index") with its unit from the
   EventSet metadata, as the core is hazard-agnostic; the thesis wrote "Wind
   speed".
+* The payout axis of :func:`payout_grid` labels its ticks in the money style
+  of the other figures (:class:`~.style.MoneyFormatter`: ``0.5M``, ``200k``,
+  ``50``; MAR-232). The thesis wrote scientific ticks with an offset text
+  such as ``1e7``.
 
 Below the attachment (MAR-178)
 ------------------------------
@@ -86,7 +90,6 @@ as :func:`payout_grid`.
 from __future__ import annotations
 
 import math
-import re
 import textwrap
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -97,7 +100,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
-from matplotlib.ticker import FuncFormatter, ScalarFormatter
+from matplotlib.ticker import FuncFormatter
 from numpy.typing import NDArray
 from scipy.stats import gaussian_kde
 
@@ -194,7 +197,6 @@ _SCATTER_SIZE: Final[float] = 8
 _DENSITY_ALPHA: Final[float] = 0.25
 _PANEL_FONT: Final[float] = 9  # thesis _plot_payout_subfigure axis labels
 _LABEL_Y: Final[float] = 0.05  # height of vertical-line labels, axes fraction
-_SCI_OFFSET: Final[re.Pattern[str]] = re.compile(r"1e([+-]?\d+)")
 _CAPTION_CHAR_WIDTH: Final[float] = 0.55  # mean glyph width, in font sizes
 
 
@@ -708,16 +710,6 @@ def _reference_lines(
         )
 
 
-class _SciOffsetFormatter(ScalarFormatter):
-    """Scientific y ticks with a compact offset text such as ``e+07``."""
-
-    def get_offset(self) -> str:
-        """Return ``e+NN`` instead of matplotlib's ``1eN`` multiplier text."""
-        text = super().get_offset()
-        match = _SCI_OFFSET.fullmatch(text)
-        return f"e{int(match.group(1)):+03d}" if match else text
-
-
 def _figure_legend(fig: Figure, handles: list, labels: list[str], *, ncol: int) -> None:
     """Legend centred below the axes, without a frame (thesis)."""
     if not handles:
@@ -921,11 +913,7 @@ def payout_grid(
             )
             ax.set_xlabel(labels.index(aggregate=aggregate), fontsize=_PANEL_FONT)
             ax.set_ylabel(labels.payout(), fontsize=_PANEL_FONT)
-            formatter = _SciOffsetFormatter(useMathText=False)
-            formatter.set_scientific(True)
-            formatter.set_powerlimits((0, 0))
-            ax.yaxis.set_major_formatter(formatter)
-            ax.yaxis.get_offset_text().set_fontsize(style.FONT.tick_size)
+            ax.yaxis.set_major_formatter(style.MoneyFormatter())
         for j in range(len(entity_ids), nrows * ncols):
             axes[divmod(j, ncols)].set_axis_off()
         if caption is not None:
