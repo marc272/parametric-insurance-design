@@ -1,0 +1,624 @@
+---
+title: "Portfolio explorer"
+subtitle: "One owner, nine sites: a joint design and the sum of individual covers, at the same total budget"
+description: "For one risk owner with nine sites, see a joint design of the whole portfolio next to the sum of the sites' individual covers, at the same total budget: the total payout against the total loss, the premium charged, the exceedance of the owner's total shortfall out of sample, the per-site cover of the individual designs and the clusters."
+echo: false
+page-layout: full
+css: [explorer.css, portfolio.css]
+---
+
+<!--
+The portfolio explorer. It reads the portfolio bundle that the Site
+workflow solves and exports from site/configs/portfolio.yaml and writes
+into the rendered site at bundles/portfolio/, after the render: so every
+bundle file is read here at run time, with a relative URL. Nothing on this
+page filters rows by evaluation split: the bundle holds the out-of-sample
+("test") rows only, and the page states the filter from
+manifest.split_filter.
+
+The page follows the publication rule for joint calibration (AGENTS.md):
+it describes the method and shows the numbers of each design side by
+side, with their setup, and makes no comparative statement. It never shows
+a joint design's per-site split (the payouts table's joint rows), only its
+totals: the per-site numbers are those of the individual designs
+(baseline.map.arrow), and the cluster view shows assignments and the
+cluster index's weights, which are inputs of the design, not its split.
+Runs are labelled by scope_key, never by run.scope (both cluster scopes
+have scope "cluster"). Layout: explorer.css (shared with the payout
+explorer) and portfolio.css.
+-->
+
+A parametric cover pays an amount set by a hazard index, here the wind speed at a site, not by the loss itself. This page is about one **risk owner with several sites**: a company with nine sites in Miami, which bears the losses of all of them and receives every payout. Such an owner can buy cover in two ways, at the same total budget:
+
+- **The sum of individual covers.** Each site's step payout is calibrated on its own, on that site's loss, with its own budget: a premium of at most κ times the site's expected annual loss. The owner holds all nine covers.
+- **One joint design.** The payout functions are calibrated together, on the owner's total loss, with one budget on the total: a premium of at most κ times the owner's expected annual loss. In the **portfolio scope** every site keeps its own payout function of its own index. In the **cluster scope** the sites are grouped into clusters, and each cluster has one payout function of the cluster's index.
+
+The individual budgets add up to the joint budget, so both ways have the same total budget. A third design separates the two changes of the cluster scope: the **clusters, each calibrated on its own**, with the clusters' index but a budget per cluster. Every design is calibrated for one of three objectives (residual loss, MSE; expected uncovered loss, E[U]; weighted CVaR), the same three as in the [payout explorer](alpha-beta.qmd).
+
+::: {.method-note}
+
+**How to read a joint design**
+
+- **Cross-coverage.** A joint design's objective sees only the owner's total, so a payout triggered at one site can cover a shortfall at another site in the same event.
+- **A joint design fixes only the total.** Many splits of the total payout across the sites are equally optimal, and the solver returns one of them. So per-site cover of a joint design isn't defined: this page shows a joint design at the owner's total only, and per-site cover for the individual designs alone.
+- **The owner's shortfall is measured the same way for every design.** In each event it is the owner's total loss over the nine sites minus the total payout, if positive; a year's shortfall adds up its events.
+
+:::
+
+The page shows the designs side by side, out of sample, on years they were not calibrated on. It does not rank them: the numbers hold for the setup stated with each chart, not in general. The [portfolio-calibration page](../method/portfolio-calibration.qmd) describes the method. Every number comes from a precomputed bundle: the page never runs an optimisation.
+
+```{ojs}
+//| output: false
+// Pinned Observable Plot (Quarto's built-in Plot follows the CDN's latest).
+Plot = import("https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6.17/+esm")
+```
+
+```{ojs}
+//| output: false
+// -- The bundle ---------------------------------------------------------------
+// Written by `parametric-insurance-design export-site site/configs/portfolio.yaml
+// --no-sweeps --split test` into the rendered site (site/README.md, "Bundles").
+manifestResult = FileAttachment("../bundles/portfolio/manifest.json").json().then(
+  (m) => ({manifest: m}),
+  (error) => ({error})
+)
+// The files this page reads. The payouts table is not one of them: the page
+// shows no payout function, so no joint design's per-site split.
+fileNames = ["runs.json", "locations.json", "baseline.kpis.arrow", "baseline.exceedance.arrow", "baseline.map.arrow"]
+manifest = {
+  if (manifestResult.error) {
+    throw new Error("The portfolio bundle is not in this build of the site (bundles/portfolio/manifest.json).");
+  }
+  const m = manifestResult.manifest;
+  if (m.format !== "parametric-insurance-design/site-bundle" || m.format_version !== 1) {
+    throw new Error(`unsupported bundle: ${m.format} version ${m.format_version}`);
+  }
+  const listed = new Set(m.files.map((f) => f.path));
+  for (const path of fileNames) {
+    if (!listed.has(path)) throw new Error(`the bundle has no ${path}`);
+  }
+  return m;
+}
+runIndex = { manifest; return FileAttachment("../bundles/portfolio/runs.json").json(); }
+locationIndex = { manifest; return FileAttachment("../bundles/portfolio/locations.json").json(); }
+// Arrow table to plain objects: dictionary columns decode to strings, int32
+// to numbers, and null stays null.
+rows = (table) => table.toArray().map((row) => row.toJSON())
+kpiRows = { manifest; return rows(await FileAttachment("../bundles/portfolio/baseline.kpis.arrow").arrow()); }
+exceedanceRows = { manifest; return rows(await FileAttachment("../bundles/portfolio/baseline.exceedance.arrow").arrow()); }
+mapRows = { manifest; return rows(await FileAttachment("../bundles/portfolio/baseline.map.arrow").arrow()); }
+```
+
+```{ojs}
+//| output: false
+// -- Runs, scopes, labels -------------------------------------------------------
+runs = manifest.runs.baseline.map((id) => runIndex.runs.find((r) => r.run_id === id))
+objectiveOrder = ["mse", "expected_uncovered", "weighted_cvar"]
+objectiveLabel = ({mse: "Residual loss (MSE)", expected_uncovered: "Expected uncovered loss E[U]", weighted_cvar: "Weighted CVaR"})
+objectives = objectiveOrder.filter((o) => runs.some((r) => r.objective === o))
+// Scope keys (never run.scope: both cluster scopes have scope "cluster").
+// Fixed order, and a fixed colour, dash and symbol per scope, whatever is shown.
+scopeOrder = ["individual", "portfolio", "cluster_separate", "cluster"]
+scopeKeys = scopeOrder.filter((s) => runs.some((r) => r.scope_key === s))
+scopeLabel = ({
+  individual: "Sum of individual covers",
+  portfolio: "Joint, per site (portfolio scope)",
+  cluster_separate: "Sum of cluster covers (each cluster on its own)",
+  cluster: "Joint, per cluster (cluster scope)"
+})
+scopeShort = ({individual: "individual covers", portfolio: "portfolio scope (joint)", cluster_separate: "clusters each on their own", cluster: "cluster scope (joint)"})
+scopeHow = ({
+  individual: "each site calibrated on its own, with its own budget; the owner holds all the covers",
+  portfolio: "one payout function per site on its own index, calibrated jointly on the owner's total, one budget",
+  cluster_separate: "one payout function per cluster on the cluster's index, each cluster calibrated on its own, with its own budget",
+  cluster: "one payout function per cluster on the cluster's index, calibrated jointly on the owner's total, one budget"
+})
+scopeDash = ({individual: null, portfolio: "7,3", cluster_separate: "2,3", cluster: "9,3,2,3"})
+scopeSymbol = ({individual: "circle", portfolio: "square", cluster_separate: "triangle", cluster: "diamond"})
+runOf = (scope, objective) => {
+  const r = runs.find((q) => q.scope_key === scope && q.objective === objective);
+  if (!r) throw new Error(`the bundle has no ${scope} run of ${objective}`);
+  return r;
+}
+locations = locationIndex.locations
+siteName = (l) => l.name.replaceAll("_", " ")
+currency = manifest.eventset.loss.currency
+indexUnit = manifest.eventset.index.unit
+nYears = manifest.eventset.n_years
+nTrain = Math.floor(nYears * manifest.setup.split.train_fraction)
+budgetLoading = manifest.setup.constraints.find((c) => c.kind === "budget")?.loading
+evalBeta = manifest.setup.evaluation.beta
+splitFilter = manifest.split_filter?.eval_split
+```
+
+```{ojs}
+//| output: false
+// -- Formats and colours -------------------------------------------------------
+moneyUnit = (max) => max >= 1e9 ? {div: 1e9, short: "bn", long: "billion"}
+  : max >= 1e6 ? {div: 1e6, short: "M", long: "million"}
+  : max >= 1e3 ? {div: 1e3, short: "k", long: "thousand"}
+  : {div: 1, short: "", long: ""}
+fmtMoney = (v) => {
+  if (v == null) return "undefined";
+  const u = moneyUnit(Math.abs(v));
+  return `${d3.format(",.3~r")(v / u.div)}${u.short ? " " + u.short : ""} ${currency}`;
+}
+fmtExact = (v) => v == null ? "undefined" : d3.format(",.0f")(Math.round(v) === 0 ? 0 : v)
+fmtPct = (v) => v == null ? "undefined" : `${d3.format(".1f")(v)} %`
+fmtYears = d3.format(",")
+fmtShare = d3.format(".1%")
+// The site's light theme (flatly) or dark theme (darkly): Quarto sets the
+// body class. Scope colours: the first four slots of the categorical palette
+// of the payout explorer, in a fixed order, each with its own dash and
+// symbol, so identity never relies on colour alone. The cover ratio is
+// diverging around 100 %, with a grey midpoint.
+dark = Generators.observe((notify) => {
+  const check = () => notify(document.body.classList.contains("quarto-dark"));
+  check();
+  const observer = new MutationObserver(check);
+  observer.observe(document.body, {attributes: true, attributeFilter: ["class"]});
+  return () => observer.disconnect();
+})
+palette = dark
+  ? {scopes: ["#3987e5", "#d95926", "#199e70", "#c98500"], loss: "#a3a19a", under: "#e66767", even: "#5a5a56", over: "#3987e5", graticule: "#383835"}
+  : {scopes: ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"], loss: "#6f6d67", under: "#e34948", even: "#d8d7d2", over: "#2a78d6", graticule: "#e1e0d9"}
+scopeColour = Object.fromEntries(scopeOrder.map((s, i) => [s, palette.scopes[i]]))
+clusterColours = palette.scopes.slice(0, 3)
+chartWidth = Generators.observe((notify) => {
+  const el = document.getElementById("portfolio-charts");
+  const observer = new ResizeObserver(([entry]) => notify(Math.max(280, Math.floor(entry.contentRect.width))));
+  observer.observe(el);
+  notify(Math.max(280, el.clientWidth));
+  return () => observer.disconnect();
+})
+chartHeight = Math.round(Math.min(360, Math.max(240, chartWidth * 0.6)))
+// A scope's swatch for legends and tables: its colour, dash and symbol.
+swatch = (scope) => {
+  const c = scopeColour[scope];
+  const symbol = d3.symbol(d3[`symbol${scopeSymbol[scope][0].toUpperCase()}${scopeSymbol[scope].slice(1)}`], 40)();
+  return html`<svg class="scope-swatch" width="34" height="12" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" x2="33" y1="6" y2="6" stroke="${c}" stroke-width="2.5" stroke-dasharray="${scopeDash[scope] ?? ""}"/><path d="${symbol}" transform="translate(17,6)" fill="${c}"/></svg>`;
+}
+```
+
+```{ojs}
+manifestResult.error
+  ? html`<div class="callout callout-style-default callout-warning callout-titled"><div class="callout-body-container callout-body"><p><strong>The portfolio bundle is not in this build.</strong> The Site workflow writes it into the site. To build it locally, run the three commands at the top of <code>site/configs/portfolio.yaml</code> (see <code>site/README.md</code>).</p></div></div>`
+  : html``
+```
+
+:::: {.grid .explorer}
+
+::: {#explorer-controls .g-col-12 .g-col-lg-4 .explorer-controls}
+
+```{ojs}
+viewof objective = Inputs.radio(
+  new Map(objectives.map((o) => [objectiveLabel[o], o])),
+  {label: "Objective", value: objectives.includes("weighted_cvar") ? "weighted_cvar" : objectives[0]}
+)
+```
+
+```{ojs}
+viewof shownScopes = Inputs.checkbox(
+  new Map(scopeKeys.map((s) => [scopeLabel[s], s])),
+  {label: "Designs", value: scopeKeys}
+)
+```
+
+```{ojs}
+viewof curveKind = Inputs.radio(
+  new Map([["Annual total (AEP)", "aep"], ["Largest event of the year (OEP)", "oep"]]),
+  {label: "Exceedance of", value: "aep"}
+)
+```
+
+```{ojs}
+//| output: false
+// The designs shown, in the fixed scope order.
+shown = scopeKeys.filter((s) => shownScopes.includes(s))
+designLine = objective === "weighted_cvar"
+  ? `${objectiveLabel[objective]} (α = ${runOf("individual", objective).parameters.alpha}, β = ${runOf("individual", objective).parameters.beta}), κ = ${budgetLoading}`
+  : `${objectiveLabel[objective]}, κ = ${budgetLoading}`
+```
+
+```{ojs}
+html`<div class="explorer-selection">
+  <p><strong>Shown:</strong> the designs of the ${designLine}, out of sample on the test years ${fmtYears(nTrain)}–${fmtYears(nYears - 1)}.</p>
+  ${shown.length === 0 ? html`<p class="explorer-note">No design selected: tick at least one under "Designs".</p>` : ""}
+</div>`
+```
+
+:::
+
+::: {#portfolio-charts .g-col-12 .g-col-lg-8}
+
+### The owner's totals
+
+```{ojs}
+//| output: false
+// -- Totals: the portfolio-level KPIs of each run (level "portfolio"), and the
+// premium charged: each design problem's premium, priced on the calibration
+// years (runs.json), summed over the problems the owner buys.
+kpi = (run, name) => {
+  const r = kpiRows.filter((d) => d.run_id === run.run_id && d.level === "portfolio" && d.kpi === name);
+  if (r.length !== 1) throw new Error(`run ${run.run_id}: ${r.length} portfolio rows of ${name}`);
+  return r[0];
+}
+premiumCharged = (run) => d3.sum(run.problems, (p) => p.premium)
+totals = shown.map((s) => {
+  const run = runOf(s, objective);
+  return {
+    scope: s, run,
+    nProblems: run.problems.length,
+    premium: premiumCharged(run),
+    loss: kpi(run, "expected_loss"),
+    payout: kpi(run, "expected_payout"),
+    ratio: kpi(run, "payout_to_loss_ratio"),
+    uncovered: kpi(run, "expected_uncovered"),
+    var: kpi(run, "var_uncovered"),
+    cvar: kpi(run, "cvar_uncovered")
+  };
+})
+ciLevel = manifest.setup.bootstrap?.level
+withCi = (row) => row.ci_low == null || row.ci_high == null
+  ? fmtExact(row.value)
+  : html`${fmtExact(row.value)}<br><span class="ci">${fmtExact(row.ci_low)}–${fmtExact(row.ci_high)}</span>`
+```
+
+```{ojs}
+html`<div class="table-scroll"><table class="table table-sm explorer-table totals-table">
+  <caption>Per year, in ${currency}, rounded to the unit. Under each test-year value, its block-bootstrap interval${ciLevel ? ` (level ${ciLevel})` : ""}.</caption>
+  <thead><tr>
+    <th scope="col">Design</th>
+    <th scope="col" class="num">Premium charged<br><span class="unit">calibration years</span></th>
+    <th scope="col" class="num">Expected loss<br><span class="unit">test years</span></th>
+    <th scope="col" class="num">Expected payout<br><span class="unit">test years</span></th>
+    <th scope="col" class="num">Expected shortfall E[U]<br><span class="unit">test years</span></th>
+    <th scope="col" class="num">VaR<sub>${evalBeta}</sub>(U)<br><span class="unit">test years</span></th>
+    <th scope="col" class="num">CVaR<sub>${evalBeta}</sub>(U)<br><span class="unit">test years</span></th>
+  </tr></thead>
+  <tbody>${totals.map((t) => html`<tr>
+    <th scope="row">${swatch(t.scope)} ${scopeLabel[t.scope]}</th>
+    <td class="num">${fmtExact(t.premium)}<br><span class="ci">${t.nProblems} ${t.nProblems === 1 ? "design problem" : "design problems"}</span></td>
+    <td class="num">${withCi(t.loss)}</td>
+    <td class="num">${withCi(t.payout)}</td>
+    <td class="num">${withCi(t.uncovered)}</td>
+    <td class="num">${withCi(t.var)}</td>
+    <td class="num">${withCi(t.cvar)}</td>
+  </tr>`)}</tbody>
+</table></div>`
+```
+
+```{ojs}
+html`<p class="chart-caption"><strong>Premium charged:</strong> the premium of each design problem the owner buys (one per site for the individual covers, one per cluster for the clusters each on its own, one for a joint design), priced on the calibration years and added up. Under ${manifest.setup.pricing.kind} pricing it is the expected annual payout over the calibration years, and the budget caps it at κ = ${budgetLoading} times the owner's expected annual loss over those years, the same total for every design. <strong>Test years:</strong> the expected annual loss and payout of the whole portfolio, and the owner's annual shortfall U: its mean, its ${evalBeta} quantile (VaR) and the mean of the worst ${d3.format(".0%")(1 - evalBeta)} of years (CVaR).</p>`
+```
+
+```{ojs}
+setupNote("totals")
+```
+
+### Total payout against total loss
+
+```{ojs}
+//| output: false
+// -- Exceedance curves, portfolio level ------------------------------------------
+curveOf = (run, quantity) => exceedanceRows
+  .filter((d) => d.run_id === run.run_id && d.level === "portfolio" && d.curve === curveKind && d.quantity === quantity)
+  .sort((a, b) => d3.ascending(a.return_period, b.return_period))
+  .map((d) => ({...d, scope: run.scope_key}))
+payoutCurves = shown.flatMap((s) => curveOf(runOf(s, objective), "payout"))
+uncoveredCurves = shown.flatMap((s) => curveOf(runOf(s, objective), "uncovered"))
+// The owner's total loss is the same for every design (the same sites and
+// test years): take it from the individual run, and check the others agree.
+lossCurve = {
+  const base = curveOf(runOf(scopeKeys[0], objective), "loss");
+  for (const s of scopeKeys) {
+    const other = curveOf(runOf(s, objective), "loss");
+    const same = other.length === base.length && other.every((d, i) => d.return_period === base[i].return_period && Math.abs(d.value - base[i].value) <= 1e-6 * Math.max(1, Math.abs(base[i].value)));
+    if (!same) throw new Error(`the loss curve of ${s} differs from that of ${scopeKeys[0]}`);
+  }
+  return base;
+}
+returnPeriods = [...new Set(lossCurve.map((d) => d.return_period))].sort(d3.ascending)
+curveLabel = curveKind === "aep" ? "Annual total" : "Largest event of the year"
+exceedanceChart = (data, {withLoss, yLabel}) => {
+  const max = d3.max([...data, ...(withLoss ? lossCurve : [])], (d) => d.value) || 1;
+  const u = moneyUnit(max);
+  return Plot.plot({
+    width: chartWidth,
+    height: chartHeight,
+    marginLeft: 52,
+    marginBottom: 40,
+    style: {background: "transparent"},
+    x: {type: "log", domain: d3.extent(returnPeriods), label: null},
+    y: {domain: [0, (max / u.div) * 1.05], grid: true, label: `↑ ${yLabel} (${currency} ${u.long})`},
+    marks: [
+      Plot.axisX(returnPeriods, {tickFormat: () => "", label: "Return period (years) →", labelOffset: 34}),
+      Plot.text(returnPeriods, {x: (d) => d, text: (d) => String(d), frameAnchor: "bottom", lineAnchor: "top", dy: 9}),
+      Plot.ruleY([0]),
+      ...scopeLinesIn(data, u),
+      // The loss last, so it stays visible where the payouts follow it.
+      ...(withLoss ? [Plot.line(lossCurve, {x: "return_period", y: (d) => d.value / u.div, stroke: palette.loss, strokeWidth: 1.5, strokeDasharray: "5,3"})] : []),
+      Plot.tip([...data, ...(withLoss ? lossCurve.map((d) => ({...d, scope: "loss"})) : [])], Plot.pointer({
+        x: "return_period",
+        y: (d) => d.value / u.div,
+        title: (d) => `${d.scope === "loss" ? "Owner's total loss" : scopeLabel[d.scope]}\n${d.return_period}-year return period: ${fmtMoney(d.value)}`
+      }))
+    ]
+  });
+}
+// One line and dot layer per scope (dashes are not a Plot scale).
+scopeLinesIn = (data, u) => shown.flatMap((s) => {
+  const d = data.filter((r) => r.scope === s);
+  return [
+    Plot.line(d, {x: "return_period", y: (r) => r.value / u.div, stroke: scopeColour[s], strokeWidth: 2, strokeDasharray: scopeDash[s] ?? undefined}),
+    Plot.dot(d, {x: "return_period", y: (r) => r.value / u.div, fill: scopeColour[s], symbol: scopeSymbol[s], r: 4})
+  ];
+})
+legend = (withLoss) => html`<ul class="scope-legend">${shown.map((s) => html`<li>${swatch(s)} ${scopeLabel[s]}</li>`)}${withLoss ? html`<li><svg class="scope-swatch" width="34" height="12" viewBox="0 0 34 12" aria-hidden="true"><line x1="1" x2="33" y1="6" y2="6" stroke="${palette.loss}" stroke-width="1.5" stroke-dasharray="5,3"/></svg> Owner's total loss</li>` : ""}</ul>`
+```
+
+```{ojs}
+legend(true)
+```
+
+```{ojs}
+shown.length ? exceedanceChart(payoutCurves, {withLoss: true, yLabel: `${curveLabel}`}) : html``
+```
+
+```{ojs}
+html`<p class="chart-caption">The value exceeded on average once in each return period, over the test years: the owner's total loss over the ${locations.length} sites (dashed grey), and the total payout of each design (coloured). ${curveKind === "aep" ? "AEP: each year's total over its events, the quantity the objectives are calibrated on." : "OEP: each year's largest event."}</p>`
+```
+
+```{ojs}
+setupNote("exceedance")
+```
+
+### Exceedance of the owner's total shortfall
+
+```{ojs}
+legend(false)
+```
+
+```{ojs}
+shown.length ? exceedanceChart(uncoveredCurves, {withLoss: false, yLabel: `${curveLabel} of the shortfall`}) : html``
+```
+
+```{ojs}
+html`<p class="chart-caption">The owner's shortfall U exceeded on average once in each return period, over the test years, for each design: in each event the owner's total loss minus the total payout, if positive; ${curveKind === "aep" ? "AEP: each year's shortfall, the sum over its events." : "OEP: each year's largest event shortfall."}</p>`
+```
+
+```{ojs}
+setupNote("exceedance")
+```
+
+:::
+
+::::
+
+## Cover per site: the individual designs {#per-site}
+
+Each individual design covers one site, so its cover of that site is defined: its expected annual payout over the site's expected annual loss, E[π<sub>i</sub>]/E[L<sub>i</sub>], on the test years. A joint design has no such number: it fixes only the owner's total.
+
+```{ojs}
+//| output: false
+// -- Per-site cover: the map rows of the individual run of the objective. The
+// bundle's map rule gives the individual scope its entity rows (one site per
+// design problem); joint runs have null numbers there and are not read.
+individualRun = runOf("individual", objective)
+mapSource = manifest.map.runs.find((r) => r.run_id === individualRun.run_id)
+siteCover = {
+  const rowsOf = mapRows.filter((d) => d.run_id === individualRun.run_id);
+  return locations.map((l) => {
+    const r = rowsOf.filter((d) => d.location_id === l.location_id);
+    if (r.length !== 1) throw new Error(`site ${l.location_id}: ${r.length} map rows in run ${individualRun.run_id}`);
+    const row = r[0];
+    const ratio = row.expected_loss > 0 ? (row.expected_payout / row.expected_loss) * 100 : null;
+    return {...l, loss: row.expected_loss, payout: row.expected_payout, uncovered: row.expected_uncovered, ratio};
+  });
+}
+coverSpread = Math.max(5, d3.max(siteCover, (d) => d.ratio == null ? 0 : Math.abs(d.ratio - 100)) ?? 5)
+// The map: Plot's Mercator projection, fitted to the sites, with a 0.1°
+// graticule for orientation (no basemap).
+mapDomain = ({type: "MultiPoint", coordinates: locations.map((l) => [l.lon, l.lat])})
+graticule = d3.geoGraticule().step([0.1, 0.1]).extent([[d3.min(locations, (l) => l.lon) - 0.3, d3.min(locations, (l) => l.lat) - 0.3], [d3.max(locations, (l) => l.lon) + 0.3, d3.max(locations, (l) => l.lat) + 0.3]])()
+// Plot sets the height from the projection's aspect ratio over the domain.
+mapWidth = Math.min(chartWidthFull, 560)
+chartWidthFull = Generators.observe((notify) => {
+  const el = document.getElementById("per-site-map");
+  const observer = new ResizeObserver(([entry]) => notify(Math.max(280, Math.floor(entry.contentRect.width))));
+  observer.observe(el);
+  notify(Math.max(280, el.clientWidth));
+  return () => observer.disconnect();
+})
+// Dot radius in pixels: Plot's sqrt r scale with this domain and range.
+radiusRange = [5, 24]
+maxValue = d3.max(locations, (l) => l.value)
+radiusOf = (d) => radiusRange[0] + (radiusRange[1] - radiusRange[0]) * Math.sqrt(d.value / maxValue)
+siteMap = ({fill, label, tip, legendOptions, symbolOf}) => Plot.plot({
+  width: mapWidth,
+  style: {background: "transparent"},
+  projection: {type: "mercator", domain: mapDomain, inset: 46},
+  r: {type: "sqrt", range: radiusRange, domain: [0, maxValue]},
+  ...legendOptions,
+  marks: [
+    Plot.geo(graticule, {stroke: palette.graticule, strokeWidth: 0.75}),
+    Plot.dot(siteCover, {x: "lon", y: "lat", r: "value", fill, symbol: symbolOf, stroke: "currentColor", strokeOpacity: 0.6, strokeWidth: 0.75}),
+    // One label per site, just above its dot (dy is a constant per mark).
+    ...siteCover.map((d) => Plot.text([d], {x: "lon", y: "lat", text: label, dy: -(radiusOf(d) + 3), lineAnchor: "bottom", fill: "currentColor", fontSize: 11, stroke: "var(--plot-background)", strokeWidth: 3})),
+    Plot.tip(siteCover, Plot.pointer({x: "lon", y: "lat", title: tip}))
+  ]
+})
+```
+
+::: {#per-site-map}
+
+```{ojs}
+siteMap({
+  fill: (d) => d.ratio,
+  label: (d) => `${d.location_id} ${d.ratio == null ? "" : d3.format(".0f")(d.ratio) + " %"}`,
+  tip: (d) => `${d.location_id} · ${siteName(d)}\nInsured value: ${fmtMoney(d.value)}\nExpected loss: ${fmtMoney(d.loss)} a year\nExpected payout: ${fmtMoney(d.payout)} a year\nCover E[π]/E[L]: ${fmtPct(d.ratio)}`,
+  legendOptions: {color: {type: "linear", domain: [100 - coverSpread, 100, 100 + coverSpread], range: [palette.under, palette.even, palette.over], clamp: true, legend: true, label: "Cover E[π]/E[L] (%)", tickFormat: (v) => `${v}`}}
+})
+```
+
+:::
+
+```{ojs}
+html`<p class="chart-caption">Each site at its location (Mercator projection; grid lines every 0.1°, no basemap), sized by its insured value, labelled and coloured by the cover of its individual design (${objectiveLabel[objective]}): its expected annual payout over its expected annual loss on the test years, in percent. Grey is 100 %: an expected payout equal to the expected loss.</p>`
+```
+
+```{ojs}
+setupNote("site")
+```
+
+<details class="explorer-numbers">
+<summary>Numbers per site</summary>
+
+```{ojs}
+html`<div class="table-scroll"><table class="table table-sm explorer-table">
+  <caption>Individual designs (${objectiveLabel[objective]}), test years, ${currency} a year, rounded to the unit. From <code>baseline.map.arrow</code>, run <code>${individualRun.run_id}</code> (KPI level ${mapSource?.kpi_level}, allocation ${mapSource?.allocation}).</caption>
+  <thead><tr><th scope="col">Site</th><th scope="col" class="num">Insured value</th><th scope="col" class="num">Expected loss</th><th scope="col" class="num">Expected payout</th><th scope="col" class="num">Cover</th><th scope="col" class="num">E[U]</th></tr></thead>
+  <tbody>${siteCover.map((d) => html`<tr><td>${d.location_id} ${siteName(d)}</td><td class="num">${fmtExact(d.value)}</td><td class="num">${fmtExact(d.loss)}</td><td class="num">${fmtExact(d.payout)}</td><td class="num">${fmtPct(d.ratio)}</td><td class="num">${fmtExact(d.uncovered)}</td></tr>`)}</tbody>
+</table></div>`
+```
+
+</details>
+
+## The clusters {#clusters}
+
+```{ojs}
+//| output: false
+// -- Clusters: each site's cluster, from the map rows' entity_id of every
+// cluster run (joint and each cluster on its own). The clustering doesn't
+// depend on the objective or the calibration, so all of them must agree.
+clusterRuns = runs.filter((r) => r.scope_key === "cluster" || r.scope_key === "cluster_separate")
+assignment = {
+  const out = new Map();
+  for (const run of clusterRuns) {
+    for (const l of locations) {
+      const r = mapRows.filter((d) => d.run_id === run.run_id && d.location_id === l.location_id);
+      const ids = [...new Set(r.map((d) => d.entity_id))];
+      if (ids.length !== 1) throw new Error(`site ${l.location_id}: ${ids.length} clusters in run ${run.run_id}`);
+      if (out.has(l.location_id) && out.get(l.location_id) !== ids[0]) {
+        throw new Error(`site ${l.location_id} is in ${out.get(l.location_id)} and ${ids[0]} in different cluster runs`);
+      }
+      out.set(l.location_id, ids[0]);
+    }
+  }
+  return out;
+}
+clusterIds = [...new Set(assignment.values())].sort(d3.ascending)
+// The cluster index weights: each site's share of its cluster's insured value.
+clusters = clusterIds.map((c) => {
+  const members = locations.filter((l) => assignment.get(l.location_id) === c);
+  const total = d3.sum(members, (l) => l.value);
+  return {id: c, total, members: members.map((l) => ({...l, weight: l.value / total}))};
+})
+clusterSymbols = ["circle", "square", "triangle", "diamond", "star", "cross"]
+clusterParams = clusterRuns[0]?.parameters ?? {}
+```
+
+```{ojs}
+clusterRuns.length === 0
+  ? html`<p>The bundle has no cluster design.</p>`
+  : html`<p>Both cluster designs group the ${locations.length} sites into the same ${clusters.length} clusters. The clustering runs on the calibration years: it describes each site by five features (its value, its share of the portfolio's loss in the loss tail, its tail beta to the portfolio loss, and the spread of its loss and index correlations with the other sites) and cuts a Ward-linkage tree into ${clusterParams.n_clusters} clusters (tail level ${clusterParams.beta_tail}). Each cluster has one payout function of its <strong>cluster index</strong>, the value-weighted mean of its sites' wind speeds in the event:</p>`
+```
+
+$$\xi_{c} = \sum_{i \in c} w_i\, x_i, \qquad w_i = \frac{v_i}{\sum_{k \in c} v_k},$$
+
+with $x_i$ the wind speed at site $i$ and $v_i$ its insured value. The weights are inputs of the design, set by the insured values; they are not a split of the payout.
+
+```{ojs}
+clusterRuns.length === 0 ? html`` : siteMap({
+  fill: (d) => assignment.get(d.location_id),
+  symbolOf: (d) => assignment.get(d.location_id),
+  label: (d) => `${d.location_id} · ${assignment.get(d.location_id)}`,
+  tip: (d) => `${d.location_id} · ${siteName(d)}\nCluster ${assignment.get(d.location_id)}\nInsured value: ${fmtMoney(d.value)}\nWeight in the cluster index: ${fmtShare(clusters.find((c) => c.id === assignment.get(d.location_id)).members.find((m) => m.location_id === d.location_id).weight)}`,
+  legendOptions: {
+    // One legend for both channels: Plot combines them, as both encode the cluster.
+    color: {type: "ordinal", domain: clusterIds, range: clusterColours},
+    symbol: {domain: clusterIds, range: clusterSymbols.slice(0, clusterIds.length), legend: true}
+  }
+})
+```
+
+```{ojs}
+clusterRuns.length === 0 ? html`` : html`<p class="chart-caption">Each site at its location, sized by its insured value, labelled with its cluster and marked by the cluster's colour and symbol.</p>`
+```
+
+```{ojs}
+clusterRuns.length === 0 ? html`` : html`<div class="table-scroll"><table class="table table-sm explorer-table">
+  <caption>The clusters and the weights w<sub>i</sub> of their index</caption>
+  <thead><tr><th scope="col">Cluster</th><th scope="col">Site</th><th scope="col" class="num">Insured value (${currency})</th><th scope="col" class="num">Weight w<sub>i</sub></th></tr></thead>
+  <tbody>${clusters.flatMap((c) => c.members.map((m, j) => html`<tr class=${j === 0 ? "cluster-first" : ""}><td>${j === 0 ? c.id : ""}</td><td>${m.location_id} ${siteName(m)}</td><td class="num">${fmtExact(m.value)}</td><td class="num">${fmtShare(m.weight)}</td></tr>`))}</tbody>
+</table></div>`
+```
+
+```{ojs}
+setupNote("clusters")
+```
+
+## Setup {#setup}
+
+```{ojs}
+//| output: false
+noise = manifest.setup.basis_risk.noise
+threshold = manifest.setup.basis_risk.threshold
+portfolioText = `the thesis portfolio, ${locations.length} sites in Miami (${locations.map((l) => l.location_id).join(", ")}), one owner`
+basisRiskText = `the thesis noise layer: ${noise.kind} noise on the index, level ${noise.level}, ${noise.n_copies} noisy copies of each event (seed ${noise.seed}), bounded to ${noise.bounds.join("–")} ${indexUnit}; events with ${threshold.column} below ${threshold.value} ${indexUnit} dropped`
+pricingText = `${manifest.setup.pricing.kind} pricing (premium = expected annual payout over the calibration years); budget: the premium of each design problem at most κ = ${budgetLoading} times the expected annual loss of its sites, so the same total, κ times the owner's expected annual loss, for every design`
+splitText = `${manifest.setup.split.kind}: designs calibrated on years ${fmtYears(0)}–${fmtYears(nTrain - 1)}, evaluated out of sample on years ${fmtYears(nTrain)}–${fmtYears(nYears - 1)}`
+payoutText = `${manifest.setup.payout.kind} payout per payout function, ${manifest.setup.payout.n_bins} equal bins from ${manifest.setup.payout.attachment} to ${manifest.setup.payout.limit} ${indexUnit}`
+// The setup line under each chart: everything a number on it depends on.
+setupNote = (kind) => {
+  const parts = [
+    `the thesis portfolio (${locations.length} sites in Miami, one owner)`,
+    kind === "site" ? "the individual designs only" : kind === "clusters" ? `the cluster designs (${clusters.length} clusters)` : `designs: ${shown.map((s) => scopeShort[s]).join(", ") || "none"}`,
+    ...(kind === "clusters" ? [] : [designLine]),
+    `${manifest.setup.payout.n_bins} bins of equal width from ${manifest.setup.payout.attachment} to ${manifest.setup.payout.limit} ${indexUnit}`,
+    `${manifest.setup.basis} basis`,
+    `basis-risk model: the thesis noise layer (${noise.kind}, level ${noise.level}, ${noise.n_copies} copies)`,
+    `${manifest.setup.pricing.kind} pricing, κ = ${budgetLoading}`,
+    kind === "clusters"
+      ? `${manifest.setup.split.kind} split, clusters found on the calibration years ${fmtYears(0)}–${fmtYears(nTrain - 1)}`
+      : kind === "totals"
+        ? `${manifest.setup.split.kind} split, premium priced on the calibration years ${fmtYears(0)}–${fmtYears(nTrain - 1)}, everything else out of sample on the test years ${fmtYears(nTrain)}–${fmtYears(nYears - 1)} (eval_split = "${splitFilter}")`
+        : `${manifest.setup.split.kind} split, evaluated out of sample on the test years ${fmtYears(nTrain)}–${fmtYears(nYears - 1)} (eval_split = "${splitFilter}")`,
+    `config hash ${manifest.config.hash.slice(0, 19)}…`
+  ];
+  return html`<p class="setup-note"><strong>Setup:</strong> ${parts.join("; ")}. <a href="#setup">Full setup</a>.</p>`;
+}
+setupRows = {
+  const s = manifest.setup;
+  const e = manifest.eventset;
+  return [
+    ["Portfolio", html`${portfolioText}. ${locations.map((l, i) => html`${i ? "; " : ""}${l.location_id} ${siteName(l)} (${fmtMoney(l.value)})`)}`],
+    ["Event set", `${e.hazard.name}: ${e.hazard.release}. ${fmtYears(e.n_years)} simulated years; licence ${e.licence}`],
+    ["Index", `${e.index.definition} (${e.index.unit})`],
+    ["Loss", `${e.scenario}`],
+    ["Designs", html`${scopeKeys.map((sk, i) => html`${i ? html`<br>` : ""}${scopeLabel[sk]}: ${scopeHow[sk]}`)}`],
+    ["Objectives", objectives.map((o) => o === "weighted_cvar" ? `${objectiveLabel[o]} (α = ${runOf("individual", o).parameters.alpha}, β = ${runOf("individual", o).parameters.beta})` : objectiveLabel[o]).join("; ")],
+    ["Clusters", clusterRuns.length ? `${clusterParams.n_clusters} clusters, thesis Ward clustering (linkage ${clusterParams.linkage}, tail level ${clusterParams.beta_tail}), on the calibration years; index: the value-weighted mean wind speed of the cluster's sites` : "none"],
+    ["Payout", payoutText],
+    ["Basis", `${s.basis}: an outcome is a simulated year, its shortfall the sum over its events`],
+    ["Basis-risk model", basisRiskText],
+    ["Pricing", pricingText],
+    ["Split", splitText],
+    ["Rows in the bundle", splitFilter ? `eval_split = "${splitFilter}" only: the KPIs, curves and per-site numbers are out of sample` : "no split filter"],
+    ["Evaluation", `VaR and CVaR of the shortfall at level ${s.evaluation.beta}; return periods ${returnPeriods.join(", ")} years`],
+    ["Intervals", s.bootstrap ? `block bootstrap over years, ${s.bootstrap.n_bootstrap} replicates, level ${s.bootstrap.level} (seed ${s.bootstrap.seed})` : "none"],
+    ["Bundle", manifest.label],
+    ["Config", `${manifest.config.name}, ${manifest.config.hash}`],
+    ["Runs", html`${scopeKeys.map((sk, i) => {
+      const r = runOf(sk, objective);
+      return html`${i ? html`<br>` : ""}${scopeShort[sk]}, ${objectiveLabel[objective]}: <code>${r.run_id}</code> (${r.problems.length} ${r.problems.length === 1 ? "problem" : "problems"}, ${[...new Set(r.problems.map((p) => p.status))].join(", ")})`;
+    })}`]
+  ];
+}
+```
+
+```{ojs}
+html`<table class="setup-table"><tbody>${setupRows.map(([k, v]) => html`<tr><th scope="row">${k}</th><td>${v}</td></tr>`)}</tbody></table>`
+```
+
+The bundle is written by `parametric-insurance-design export-site site/configs/portfolio.yaml --no-sweeps --split test`, from the config [`site/configs/portfolio.yaml`](https://github.com/marc272/parametric-insurance-design/blob/main/site/configs/portfolio.yaml) in the [repository](https://github.com/marc272/parametric-insurance-design). Its files and their SHA-256 are listed in [`bundles/portfolio/manifest.json`](../bundles/portfolio/manifest.json).
