@@ -3,7 +3,8 @@
 - Issue: MAR-205 (split from MAR-152 items 1, 2, 3 and 5). An addendum to checkpoint C1 (`research/checkpoints/C1.md`, MAR-29).
 - **Observations only.** No interpretation and no recommendation: that belongs to the owner. RQ1 statements here hold for the stated setup only (publication rule, AGENTS.md).
 - Script: `research/scripts/c1_followups.py` (one `--family` per run family). Grid: `research/configs/c1-followups/followups.yaml`. Data: `research/data/c1-followups/`. Hashes in this note are the first 12 hex digits of the `sha256:` config hash; the `*_runs.csv` tables have the full config hash and run id of every run.
-- Status: family 3 (budget use) below. Families 1, 2 and 4 are added as they finish.
+- Status: families 3 (budget use) and 1 (CoC q) below. Families 2 and 4 are added as they finish.
+- Per run family, `research/data/c1-followups/` holds `<family>_runs.csv` (every run: config hash, run id, solver status, budget use, train E[π]), `<family>_kpis.csv` (portfolio KPIs: test with 90 % intervals, train point values, at every KPI β), `<family>_paired.csv` (paired differences on the test years), `<family>_summary.json` and `tables_<family>.md` (generated: every run's train and test CVaR, every paired difference with its interval and both hashes).
 
 ## Setup common to every family
 
@@ -75,3 +76,60 @@ F3.2. **Pure pricing, κ 1.5:** the MSE design uses 0.667–0.669 of its budget 
 F3.3. **Cost of capital (q 0.99), every κ:** every design uses its whole budget (1.000; portfolio premium 0.998–1.000). The MSE, weighted-CVaR β 0.99 and β 0.995 designs have the same payout ratio in every scope: 0.072, 0.144, 0.216 at r 0.06 (= κ / 6.94) and 0.046, 0.092, 0.138 at r 0.10 (= κ / 10.9). 6.94 and 10.9 are (1 − r) + r / 0.01, the premium per unit of E[π] when all payout falls in at most 1 % of slots (C1 observation 4). The E[U] design pays out 1.8–2.7 times as much (0.123–0.403) and has the higher test CVaR₀.₉₉(U) in every row (by 1.4–15.5 %).
 
 F3.4. **Test premium against the train budget.** On the test years (E[L] 7.5 % above train) the designs' premium is 0.72 (pure κ 1.5 MSE) to 1.24 times the budget (`test_premium_to_budget` in the CSV).
+
+## Family 1: cost of capital with q ≠ the KPI β (MAR-152 item 1)
+
+**Question tested.** C1 observation 4: under cost of capital with q 0.99, the MSE and weighted-CVaR designs tie in sample at KPI β 0.99, because the binding budget fixes E[π] when all payout falls in at most 1 % of slots, and CVaR₀.₉₉(U) then follows from E[π]. Does the tie hold when q differs from the KPI β?
+
+**Setup.** As above, κ 1, cost of capital r ∈ {0.06, 0.10} with **q ∈ {0.95, 0.995}** (premium = (1 − r)·E[π] + r·CVaR_q(π)); every scope; MSE, E[U], weighted CVaR β 0.99 and 0.995. 48 new runs, all `optimal` (CLARABEL, OSQP). Test CVaR(U) at KPI β 0.95, 0.99 and 0.995, bootstrapped as above; train values in-sample at the same β. C1's q 0.99 rows are in C1 section 3.2 and family 3. Wall time 1,360 s at `--jobs 2` (shared machine). Every run, interval and paired difference: `tables_coc_q.md`.
+
+The premium per unit of E[π] when all payout falls in at most (1 − q) of slots is (1 − r) + r / (1 − q): 2.14 (r 0.06) and 2.9 (r 0.10) at q 0.95; 12.94 and 20.9 at q 0.995. At κ 1 the budget then fixes E[π] / E[L] at 0.467, 0.345, 0.077 and 0.048.
+
+**Train (in sample):** payout ratio E[π] / E[L] and CVaR₀.₉₉(U) in thousands, for MSE / E[U] / wCVaR β 0.99 / wCVaR β 0.995.
+
+| r | q | Scope | E[π] / E[L] | Train CVaR₀.₉₉(U) | Hash MSE / E[U] / 0.99 / 0.995 |
+|---|---|---|---|---|---|
+| 0.06 | 0.95 | individual | 0.467 / 0.467 / 0.467 / 0.467 | 7,335 / 9,170 / 7,336 / 7,324 | `d2d83d43a0cc` / `e8411b2ef99a` / `a94aca0ff3e0` / `06b57c7a8251` |
+| 0.06 | 0.95 | cluster | 0.467 / 0.467 / 0.467 / 0.467 | 7,328 / 9,387 / 7,230 / 7,304 | `649858106720` / `98ddcaa00abc` / `04c272bbb89f` / `f941cd2fef03` |
+| 0.06 | 0.95 | portfolio | 0.467 / 0.468 / 0.467 / 0.467 | 7,317 / 9,325 / 7,194 / 7,288 | `cba3ec36a713` / `a5352a7813db` / `86f102ba17ea` / `b6d2794197da` |
+| 0.06 | 0.995 | individual | 0.082 / 0.283 / 0.178 / 0.077 | 15,324 / 14,547 / 14,189 / 15,377 | `fce71e2e206c` / `7c042c910de9` / `304973f2ab5c` / `7adbd3edeb7d` |
+| 0.06 | 0.995 | cluster | 0.089 / 0.284 / 0.175 / 0.077 | 15,292 / 14,544 / 14,154 / 15,376 | `c7000e028b4e` / `666b3022ec6b` / `c82828f476d2` / `c1ee56723de1` |
+| 0.06 | 0.995 | portfolio | 0.089 / 0.280 / 0.179 / 0.077 | 15,290 / 14,527 / 14,146 / 15,376 | `031eebc8a82b` / `9818d77f2d3a` / `8ca54dacb805` / `ff23cd7078d6` |
+| 0.10 | 0.95 | individual | 0.345 / 0.345 / 0.345 / 0.345 | 9,684 / 11,650 / 9,690 / 9,652 | `e7fd53f802fc` / `51eb6a758f73` / `1fd5a8cb657d` / `e48c7e134b61` |
+| 0.10 | 0.95 | cluster | 0.345 / 0.345 / 0.345 / 0.345 | 9,679 / 11,739 / 9,619 / 9,655 | `44c5528ad8fa` / `ae9f5dffda5f` / `d26372aab39b` / `b225c62dd30c` |
+| 0.10 | 0.95 | portfolio | 0.345 / 0.345 / 0.345 / 0.345 | 9,684 / 11,762 / 9,611 / 9,651 | `c8de107cdbff` / `15f2c5de3064` / `52cea29e6abe` / `bc88f6450daa` |
+| 0.10 | 0.995 | individual | 0.049 / 0.214 / 0.115 / 0.048 | 16,006 / 15,405 / 15,198 / 16,011 | `105e56def14b` / `2a5acadcfc85` / `fc1778b0a30b` / `e206b6fbf9e6` |
+| 0.10 | 0.995 | cluster | 0.048 / 0.217 / 0.113 / 0.048 | 16,011 / 15,404 / 15,167 / 16,011 | `4f9ad2ecac4f` / `31086c7f2bb8` / `dc4755423aae` / `6eab1c15e9f6` |
+| 0.10 | 0.995 | portfolio | 0.048 / 0.211 / 0.116 / 0.048 | 16,011 / 15,394 / 15,164 / 16,011 | `5cfe75c568cd` / `3d9141ca63dd` / `7e32d4caba35` / `c025526edcad` |
+
+Every run uses its whole budget (budget use 1.000).
+
+**Test (out of sample):** relative paired difference in test CVaR(U) at KPI β 0.95 / 0.99 / 0.995 (`*`: the 90 % interval excludes zero; intervals in `tables_coc_q.md`).
+
+| r | q | Scope | wCVaR 0.99 − MSE | wCVaR 0.995 − MSE | wCVaR 0.99 − E[U] | wCVaR 0.995 − E[U] |
+|---|---|---|---|---|---|---|
+| 0.06 | 0.95 | individual | +1.0 % / +2.6 % / +11.5 % | +0.1 % / +0.2 % / +0.6 % | −2.9 % / −24.6 %* / −37.5 %* | −3.8 % / −26.4 %* / −43.6 %* |
+| 0.06 | 0.95 | cluster | +0.8 % / +0.6 % / +4.7 % | −0.5 % / −0.7 % / −0.7 % | −2.2 % / −26.2 %* / −42.6 %* | −3.4 % / −27.2 %* / −45.6 %* |
+| 0.06 | 0.95 | portfolio | −0.7 % / −1.7 % / +2.4 % | −1.0 % / −1.1 % / −0.9 % | −3.9 % / −28.2 %* / −41.9 %* | −4.1 % / −27.7 %* / −43.8 %* |
+| 0.06 | 0.995 | individual | −7.8 % / −4.7 % / +4.5 % | +0.7 % / +0.6 % / +0.1 % | +14.1 %* / −2.5 %* / −1.9 %* | +24.7 %* / +2.9 % / −6.0 % |
+| 0.06 | 0.995 | cluster | −7.9 % / −6.3 % / +1.6 % | +0.5 % / −0.7 % / −1.9 % | +15.1 %* / −2.4 %* / −1.9 %* | +25.6 %* / +3.5 % / −5.3 % |
+| 0.06 | 0.995 | portfolio | −6.8 % / −5.5 % / +3.3 % | +0.7 % / −0.6 % / −1.8 % | +15.1 %* / −2.6 %* / −1.8 %* | +24.4 %* / +2.5 % / −6.7 % |
+| 0.10 | 0.95 | individual | +0.5 % / +1.2 % / +10.2 % | −0.0 % / −0.1 % / +0.9 % | −3.5 % / −21.4 %* / −34.7 %* | −3.9 % / −22.4 %* / −40.2 %* |
+| 0.10 | 0.95 | cluster | +0.7 % / +1.0 % / +4.2 % | −0.7 % / −1.0 % / −1.2 % | −2.2 % / −21.0 %* / −37.0 %* | −3.5 % / −22.6 % / −40.3 %* |
+| 0.10 | 0.95 | portfolio | −1.3 % / −1.1 % / +2.7 % | −0.9 % / −1.2 % / −1.6 % | −4.4 % / −23.4 %* / −38.2 %* | −4.0 % / −23.5 %* / −40.7 %* |
+| 0.10 | 0.995 | individual | −5.1 % / −3.1 % / +2.9 % | +0.3 % / +0.3 % / +0.4 % | +11.5 %* / −1.4 %* / −1.1 %* | +17.9 %* / +2.1 % / −3.4 % |
+| 0.10 | 0.995 | cluster | −5.5 % / −4.0 % / +1.6 % | +0.1 % / +0.2 % / +0.3 % | +12.1 %* / −1.4 %* / −1.1 %* | +18.8 %* / +2.9 % / −2.4 % |
+| 0.10 | 0.995 | portfolio | −4.9 % / −3.4 % / +2.6 % | −0.0 % / −0.0 % / −0.1 % | +12.1 %* / −1.5 %* / −1.1 %* | +17.8 %* / +2.0 % / −3.6 % |
+
+Observations:
+
+F1.1. **q 0.95: every design has the same E[π].** All four designs, in every scope and at both r, pay out the E[π] the budget fixes when all payout falls in at most 5 % of slots (0.467 and 0.345 of E[L]; E[U] portfolio r 0.06: 0.468). The E[U] design is no longer the one with the larger payout (it is under q 0.99, family 3).
+
+F1.2. **q 0.95, KPI β 0.99 and 0.995.** In sample the MSE and weighted-CVaR designs are within 1.7 % of each other at KPI β 0.99 (wCVaR β 0.99 minus MSE: −1.7 to +0.1 %); the E[U] design's train CVaR₀.₉₉(U) is 20–28 % above MSE's. Out of sample, weighted CVaR (β 0.99 or 0.995) minus MSE is −1.7 to +2.6 % at KPI 0.99 and −1.6 to +11.5 % at KPI 0.995, every interval containing zero; weighted CVaR minus E[U] is −21.0 to −28.2 % at KPI 0.99 and −34.7 to −45.6 % at KPI 0.995, intervals excluding zero in 23 of these 24 cells (not cluster, r 0.10, β 0.995 design at KPI 0.99: upper bound +0.0 %). At KPI 0.95 the weighted-CVaR designs are within 4.4 % of MSE and of E[U], intervals containing zero.
+
+F1.3. **q 0.995 read at KPI 0.99 (the case MAR-152 names).** The design with all payout in at most 0.5 % of slots is the weighted-CVaR β 0.995 design (ratio 0.077 / 0.048). The MSE design comes close (0.082–0.089 at r 0.06; 0.048–0.049 at r 0.10). The weighted-CVaR β 0.99 design pays out about twice as much (0.175–0.179; 0.113–0.116) and the E[U] design more again (0.280–0.284; 0.211–0.217).
+- In sample at KPI 0.99, the β 0.99 design is 7.4–7.5 % (r 0.06) and 5.0–5.3 % (r 0.10) below MSE. The β 0.995 design and MSE are within 0.6 % at r 0.06 and equal to the reported precision in the cluster and portfolio scopes at r 0.10 (16,010.8 thousand both, every KPI β: `tables_coc_q.md`).
+- Out of sample, weighted CVaR β 0.99 minus MSE is −3.1 to −6.3 % at KPI 0.99 and −4.9 to −7.9 % at KPI 0.95, every interval containing zero (upper bounds +2.2 to +4.5 % at KPI 0.95, +6.6 to +9.6 % at KPI 0.99); at KPI 0.995 it is +1.6 to +4.5 %, intervals containing zero. Weighted CVaR β 0.995 minus MSE is within ±1.9 % at every KPI β, intervals containing zero.
+- Against E[U], the β 0.99 design is 1.4–2.6 % lower at KPI 0.99 and 1.1–1.9 % lower at KPI 0.995 (intervals excluding zero, narrow: e.g. −1.9 % [−1.9, −1.8] at r 0.06, portfolio), and 11.5–15.1 % higher at KPI 0.95 (intervals excluding zero). The β 0.995 design is 17.8–25.6 % above E[U] at KPI 0.95 (intervals excluding zero) and −6.7 to +3.5 % at KPI 0.99 and 0.995 (intervals containing zero).
+
+F1.4. **Comparison with q 0.99 (C1).** At q 0.99 and KPI 0.99, C1 found weighted CVaR β 0.99 minus MSE at +0.2 to +1.3 % (r 0.06 and 0.10) and minus E[U] at −3.1 to −6.7 %, every interval containing zero (C1 section 3.2). In this family, the design that ties with MSE in sample is the one whose β equals q (β 0.995 at q 0.995; at q 0.95 every design but E[U] is within 1.7 %), not the one whose β equals the KPI β.
