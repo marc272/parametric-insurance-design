@@ -8,15 +8,15 @@
     "hash": "sha256:155d5f8978a1e03056d4e15c8bdf495e0091f25fb4b678275a87a9221a8b280e"
   },
   "versions": {
-    "parametric-insurance-design": "0.1.0.dev0",
-    "parametric-insurance-design-viz": "0.1.0.dev0",
+    "parametric-insurance-design": "0.1.0",
+    "parametric-insurance-design-viz": "0.1.0",
     "pyarrow": "26.0.0"
   },
   "eventset": {
     "input_checksums": [
       "sha256:404b0c3a3aefa38965ad3ace2747d308685a67e3b218cb835d45a9ab375294df"
     ],
-    "prepared_content_hash": "sha256:008057c84ba2541847f1c447c19a201c3d4951320610625e246a7a4bbd5eafdf",
+    "prepared_content_hash": "sha256:8251e2a4b87992df000eac72b102179937c38bd53fae9772b9efcc04445ba7ce",
     "hazard": {
       "name": "IRIS",
       "release": "Sparks & Toumi (2024) 10,000-year event set, figshare collection 10.6084/m9.figshare.c.6724251.v1 (Main dataset 10.6084/m9.figshare.24894186.v1), North Atlantic basin"
@@ -103,15 +103,15 @@
   },
   "runs": {
     "baseline": [
-      "sha256:c0b631f88a110307b432e4ecf33176164fb181a5d2e9304b3611f914906d6929",
-      "sha256:d87af0b4875d917f9516bcdb014aa265ea4857cb4559ca1f88b914b0d938dcfd",
-      "sha256:ae9b78f07457da9aceb0800816472962f1de914900870c2821efc5d807f7a9c8",
-      "sha256:16347073c212eb47c25d26c676a280b17411fe9d9091bc4eeac9e6e89ade4a49",
-      "sha256:eae5d0d52243aac6376dfd99036658d87a5f0b1df544e6ebf9290eb73648a81e",
-      "sha256:9afd80c75627bce01ba4694543503b3f2ab9c812b9258468b87fefdbaa46c9af",
-      "sha256:59257aad484c914ad4ebfe35acc88caef4586ffd4f040ea24f11323deb9e42e2",
-      "sha256:fac6002c56c0cd861f5e3d0bdd2f2696644722c2da565074ca79451b49305974",
-      "sha256:a390bfc8c506ae1540c421ea5e32fac2e0689b6ce2be8633b9b79deadf6fdefb"
+      "sha256:e0b38178bd2d2488b4893b6f2b3daf18c24c64b1a6677e58553641c0163e5536",
+      "sha256:113040769d27a493aba8b7967294417cb6bac8d28b09ec508bff4eb0ed2a3fb4",
+      "sha256:9935e3d07e4c63d32d5528cc099daf63e13e51fde32216b726d524549c2819ce",
+      "sha256:0597df6d6a966dc3512d8541ce1ad371f5dd951c3a00ab12d9764fbcb69d1ffa",
+      "sha256:71f06fa5c70a99e773811e404817142e0eeefeb5724775e89f621b10305dc7f4",
+      "sha256:8d6e272b7527365444e46f191f23ed6f5c83e3d7af7b80dc83e4af2483c73e4c",
+      "sha256:fd7e9a58ee05313e8538bbdee0d1314f300a05816ebdac3b303fb4c4b300dbae",
+      "sha256:9b045f0f4e0235e134da519d6b3199bd1870751f1b96684d1f6edfb3b5114894",
+      "sha256:5cb14e50aafd7a69941e433ab288540950c7c012e66755991bc8bdb25b06b1ea"
     ],
     "sweeps": {},
     "skipped": []
@@ -133,7 +133,7 @@
   "budget": {
     "max_file_bytes": 2000000,
     "max_bundle_bytes": 10000000,
-    "bundle_bytes": 204951
+    "bundle_bytes": 216411
   },
   "files": [
     {
@@ -142,8 +142,8 @@
       "slice": "runs",
       "group": null,
       "parameter": null,
-      "bytes": 10911,
-      "sha256": "sha256:3f6d4aa651c88137d90c42629c50661cf15e58731e5071f4002476baaf6b869d"
+      "bytes": 13619,
+      "sha256": "sha256:32d0fd08035aff501ad1a34b9700925485b2f5778e914609f4f5eaf9b89a4cb5"
     },
     {
       "path": "locations.json",
@@ -161,7 +161,7 @@
       "group": "baseline",
       "parameter": null,
       "bytes": 39802,
-      "sha256": "sha256:453c9f612bf60a6604c8294029424823ff8e080e1d0413c3603016d19aa52191",
+      "sha256": "sha256:e9c64919cd4b5449b4f8e74e0a7d9bd992e8672dbbcb260acd3f14c802aea4d2",
       "rows": 945,
       "columns": [
         {
@@ -250,8 +250,8 @@
       "slice": "kpis",
       "group": "baseline",
       "parameter": null,
-      "bytes": 58618,
-      "sha256": "sha256:fd190374c8a84523ebd50e98f6a5352b35cf9e31f8633adbc1a8c822640cc547",
+      "bytes": 67370,
+      "sha256": "sha256:fb2251618c13a552470fef4e8d45edf4ec13334a7e7c98d5dd45cdb4bc4bbbaf",
       "rows": 882,
       "columns": [
         {
@@ -355,6 +355,18 @@
           "type": "int32",
           "nulls": 882,
           "null_means": "no confidence bounds (the config has no bootstrap section)"
+        },
+        {
+          "name": "p_zero_loss",
+          "type": "double",
+          "nulls": 27,
+          "null_means": "not recorded: a row of several design problems (problem_id '*'; each problem's value is in runs.json), or a run whose manifest predates the record (listed under the manifest's degenerate_tail.not_recorded)"
+        },
+        {
+          "name": "degenerate_tail",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 882,
+          "null_means": "no flag: the row's design problem (on a problem_id '*' row, every design problem of the run) is not flagged, its objective is not weighted CVaR, or its run's manifest predates the record (listed under the manifest's degenerate_tail.not_recorded)"
         }
       ]
     },
@@ -365,7 +377,7 @@
       "group": "baseline",
       "parameter": null,
       "bytes": 84698,
-      "sha256": "sha256:784c262f6dc0555715a02d0e3ed8bb001df4c9c6b77ab6ab5cd16b7931ef5027",
+      "sha256": "sha256:98b3b95f9a8bad60b3af96fc547c03e2183954364f6b5ce283795c7226eb70ed",
       "rows": 2520,
       "columns": [
         {
@@ -461,7 +473,7 @@
       "group": "baseline",
       "parameter": null,
       "bytes": 10090,
-      "sha256": "sha256:ba2ab0ce75da2eb5c656ba6cc9d81d714a8d115d51373f5724ceb8195962093b",
+      "sha256": "sha256:8a2d327975088404294eb39d540d426436cb2c0238cedab9c6fff0f6f019d6c7",
       "rows": 81,
       "columns": [
         {
@@ -576,63 +588,63 @@
     "allocations": [],
     "runs": [
       {
-        "run_id": "sha256:c0b631f88a110307b432e4ecf33176164fb181a5d2e9304b3611f914906d6929",
+        "run_id": "sha256:e0b38178bd2d2488b4893b6f2b3daf18c24c64b1a6677e58553641c0163e5536",
         "scope_key": "individual",
         "objective": "mse",
         "kpi_level": "entity",
         "allocation": "none"
       },
       {
-        "run_id": "sha256:d87af0b4875d917f9516bcdb014aa265ea4857cb4559ca1f88b914b0d938dcfd",
+        "run_id": "sha256:113040769d27a493aba8b7967294417cb6bac8d28b09ec508bff4eb0ed2a3fb4",
         "scope_key": "individual",
         "objective": "expected_uncovered",
         "kpi_level": "entity",
         "allocation": "none"
       },
       {
-        "run_id": "sha256:ae9b78f07457da9aceb0800816472962f1de914900870c2821efc5d807f7a9c8",
+        "run_id": "sha256:9935e3d07e4c63d32d5528cc099daf63e13e51fde32216b726d524549c2819ce",
         "scope_key": "individual",
         "objective": "weighted_cvar",
         "kpi_level": "entity",
         "allocation": "none"
       },
       {
-        "run_id": "sha256:16347073c212eb47c25d26c676a280b17411fe9d9091bc4eeac9e6e89ade4a49",
+        "run_id": "sha256:0597df6d6a966dc3512d8541ce1ad371f5dd951c3a00ab12d9764fbcb69d1ffa",
         "scope_key": "cluster",
         "objective": "mse",
         "kpi_level": null,
         "allocation": null
       },
       {
-        "run_id": "sha256:eae5d0d52243aac6376dfd99036658d87a5f0b1df544e6ebf9290eb73648a81e",
+        "run_id": "sha256:71f06fa5c70a99e773811e404817142e0eeefeb5724775e89f621b10305dc7f4",
         "scope_key": "cluster",
         "objective": "expected_uncovered",
         "kpi_level": null,
         "allocation": null
       },
       {
-        "run_id": "sha256:9afd80c75627bce01ba4694543503b3f2ab9c812b9258468b87fefdbaa46c9af",
+        "run_id": "sha256:8d6e272b7527365444e46f191f23ed6f5c83e3d7af7b80dc83e4af2483c73e4c",
         "scope_key": "cluster",
         "objective": "weighted_cvar",
         "kpi_level": null,
         "allocation": null
       },
       {
-        "run_id": "sha256:59257aad484c914ad4ebfe35acc88caef4586ffd4f040ea24f11323deb9e42e2",
+        "run_id": "sha256:fd7e9a58ee05313e8538bbdee0d1314f300a05816ebdac3b303fb4c4b300dbae",
         "scope_key": "portfolio",
         "objective": "mse",
         "kpi_level": null,
         "allocation": null
       },
       {
-        "run_id": "sha256:fac6002c56c0cd861f5e3d0bdd2f2696644722c2da565074ca79451b49305974",
+        "run_id": "sha256:9b045f0f4e0235e134da519d6b3199bd1870751f1b96684d1f6edfb3b5114894",
         "scope_key": "portfolio",
         "objective": "expected_uncovered",
         "kpi_level": null,
         "allocation": null
       },
       {
-        "run_id": "sha256:a390bfc8c506ae1540c421ea5e32fac2e0689b6ce2be8633b9b79deadf6fdefb",
+        "run_id": "sha256:5cb14e50aafd7a69941e433ab288540950c7c012e66755991bc8bdb25b06b1ea",
         "scope_key": "portfolio",
         "objective": "weighted_cvar",
         "kpi_level": null,
@@ -640,16 +652,25 @@
       }
     ]
   },
+  "degenerate_tail": {
+    "rule": "The runner records, per design problem on its calibration sample, p_zero_loss = P(L_o = 0), the probability of the outcomes without loss, and flags a weighted-CVaR problem: expected_uncovered when beta <= P(L_o = 0), single_outcome when its CVaR tail holds at most one outcome (notes states each). The kpis tables carry p_zero_loss and the flag of each row's design problem; a problem_id '*' row has the run's flag (that of any of its problems, expected_uncovered first). runs lists the flagged runs with their flagged problems, not_recorded the runs whose manifest predates the record.",
+    "notes": {
+      "expected_uncovered": "Weighted CVaR equals E[U] at the design's β, because β ≤ P(L_o = 0) on the calibration years: VaR_β of the uncovered loss is 0 for every design, so the objective is a positive multiple of E[U], with the same minimisers.",
+      "single_outcome": "Weighted CVaR is the worst outcome at the design's β: 1 - β is at most the probability of every outcome of the calibration years, so the CVaR tail holds at most one outcome and the objective is a minimax over outcomes."
+    },
+    "runs": [],
+    "not_recorded": []
+  },
   "joint": {
     "rule": "Per-entity payout functions of a joint design are not unique. A payouts row has joint true when its design problem calibrates more than one payout entity jointly (the portfolio scope; a cluster scope calibrated jointly, with more than one cluster): such a problem is identified only through the sum over its entities, so the split of its payout across them is one of several optimal designs, the one the solver returned. A page that shows these rows per entity shows caption with them. runs lists the exported runs with such a problem. The individual scope and a cluster scope calibrated cluster by cluster (scope_key cluster_separate) have one entity per problem: their rows have joint false.",
     "caption": "Joint design: the payout split across entities is not unique. These per-entity payout functions are one of several optimal designs, chosen by the solver; read the portfolio level.",
     "runs": [
-      "sha256:16347073c212eb47c25d26c676a280b17411fe9d9091bc4eeac9e6e89ade4a49",
-      "sha256:eae5d0d52243aac6376dfd99036658d87a5f0b1df544e6ebf9290eb73648a81e",
-      "sha256:9afd80c75627bce01ba4694543503b3f2ab9c812b9258468b87fefdbaa46c9af",
-      "sha256:59257aad484c914ad4ebfe35acc88caef4586ffd4f040ea24f11323deb9e42e2",
-      "sha256:fac6002c56c0cd861f5e3d0bdd2f2696644722c2da565074ca79451b49305974",
-      "sha256:a390bfc8c506ae1540c421ea5e32fac2e0689b6ce2be8633b9b79deadf6fdefb"
+      "sha256:0597df6d6a966dc3512d8541ce1ad371f5dd951c3a00ab12d9764fbcb69d1ffa",
+      "sha256:71f06fa5c70a99e773811e404817142e0eeefeb5724775e89f621b10305dc7f4",
+      "sha256:8d6e272b7527365444e46f191f23ed6f5c83e3d7af7b80dc83e4af2483c73e4c",
+      "sha256:fd7e9a58ee05313e8538bbdee0d1314f300a05816ebdac3b303fb4c4b300dbae",
+      "sha256:9b045f0f4e0235e134da519d6b3199bd1870751f1b96684d1f6edfb3b5114894",
+      "sha256:5cb14e50aafd7a69941e433ab288540950c7c012e66755991bc8bdb25b06b1ea"
     ]
   }
 }
