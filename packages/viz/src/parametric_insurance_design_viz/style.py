@@ -1,6 +1,6 @@
 """Shared figure style: fonts, palette and labels (thesis ``global_settings``).
 
-Owner: MAR-110. Every figure of this package draws inside :func:`style` and
+Every figure of this package draws inside :func:`style` and
 takes its colours, line styles and labels from here, so the figure set reads
 as one system. The values port ``COLOR_PALETTE`` of the thesis
 ``configs/global_settings.yaml`` (parametric-insurance-framework), keyed by
@@ -18,17 +18,18 @@ Thesis key                                 Result-store name
 ``integrated_portfolio_optimization``      ``portfolio``
 =========================================  ======================
 
-A cluster scope calibrated cluster by cluster (``Cluster(joint=False)``,
-MAR-180) has ``runs.scope = "cluster"`` like the joint cluster scope, because
+A cluster scope calibrated cluster by cluster (``Cluster(joint=False)``;
+``docs/concepts/portfolio-calibration.md``) has ``runs.scope = "cluster"``
+like the joint cluster scope, because
 ``Cluster.name`` is a class constant. Figures and site bundles key and label
 it as its own scope, :data:`SEPARATE_CLUSTER_SCOPE` (``"cluster_separate"``,
-"Cluster scope, calibrated per cluster"; MAR-225): :func:`config_scope_name`
+"Cluster scope, calibrated per cluster"): :func:`config_scope_name`
 names a configured scope, :func:`run_scope_name` a stored run (from the
 ``cluster_joint`` run parameter, the problem ids and the manifest's config),
 and :data:`SCOPE_LABELS` and :data:`SCOPE_STYLES` hold its label and style.
 The thesis had no such scope; its style is new. :func:`config_scope_keys`
 numbers repeated names, so each configured scope has its own key in the
-figure names and the site bundles (MAR-232).
+figure names and the site bundles.
 
 The thesis font is Times New Roman. Where it is not installed (e.g. on Linux
 CI), :func:`font_family` falls back along :data:`SERIF_FALLBACK` to STIX,
@@ -38,7 +39,7 @@ when a figure is saved, which may be after the style block has ended; so
 there are no font warnings and saved figures use the font they were drawn
 with.
 
-Money axes label their ticks with :class:`MoneyFormatter` (MAR-197): the
+Money axes label their ticks with :class:`MoneyFormatter`: the
 thesis formats ``1.5M``, ``200k``, ``50``, with as many decimals as the ticks
 need, so neighbouring ticks never share a label.
 """
@@ -180,7 +181,7 @@ SCOPE_STYLES: Final[dict[str, ScopeStyle]] = {
     "cluster_separate": ScopeStyle(linestyle="-.", marker="D"),
 }
 """Line style and marker per scope (thesis ``COLOR_PALETTE.Approaches``), and
-of :data:`SEPARATE_CLUSTER_SCOPE`, which the thesis did not have (MAR-225)."""
+of :data:`SEPARATE_CLUSTER_SCOPE`, which the thesis did not have."""
 
 SCOPE_LABELS: Final[dict[str, str]] = {
     "individual": "Individual scope",
@@ -189,17 +190,17 @@ SCOPE_LABELS: Final[dict[str, str]] = {
     "cluster_separate": "Cluster scope, calibrated per cluster",
 }
 """Label per scope (thesis ``prettify_scope_label``), and of
-:data:`SEPARATE_CLUSTER_SCOPE` (MAR-225)."""
+:data:`SEPARATE_CLUSTER_SCOPE`."""
 
 SEPARATE_CLUSTER_SCOPE: Final[str] = "cluster_separate"
 """Scope name of a cluster scope calibrated cluster by cluster
-(``Cluster(joint=False)``, MAR-180): its scope key and label stem in figures
-and site bundles (MAR-225). The result store records ``runs.scope =
+(``Cluster(joint=False)``): its scope key and label stem in figures and
+site bundles. The result store records ``runs.scope =
 "cluster"`` for it, as for the joint cluster scope."""
 
 CLUSTER_JOINT_PARAMETER: Final[str] = "cluster_joint"
 """The ``runs.parameters`` key the runner records, as ``false``, for a
-cluster scope with ``joint: false`` (MAR-225); absent otherwise."""
+cluster scope with ``joint: false``; absent otherwise."""
 
 BENCHMARK_OBJECTIVE: Final[str] = "mse"
 """The benchmark of normalised figures: the residual loss (MSE) objective."""
@@ -265,7 +266,7 @@ class MoneyFormatter(Formatter):
 
     Each label has the fewest decimals, at least
     :data:`MONEY_MIN_DECIMALS` of its prefix, that write every tick of its
-    prefix exactly, so neighbouring ticks never share a label (MAR-197).
+    prefix exactly, so neighbouring ticks never share a label.
     Ticks that one decimal writes exactly keep the thesis labels: ``0.0M``,
     ``0.5M``, ``2.0M``; ``-200k``, ``0``, ``200k``. A tick in millions on
     a 0.25M step gets two decimals (``0.25M``, ``0.50M``) where the thesis
@@ -377,7 +378,7 @@ def scope_label(scope: str) -> str:
 
 
 def config_scope_name(scope: ScopeConfig) -> str:
-    """Return the scope name of a configured scope (MAR-225).
+    """Return the scope name of a configured scope.
 
     Parameters
     ----------
@@ -399,7 +400,7 @@ def config_scope_keys(config: ExperimentConfig) -> list[str]:
     """Return the key of every configured scope: its name, numbered on repeats.
 
     The one rule of the figure-name stems (``command``) and the site bundles'
-    ``scope_key`` (``site_export``; MAR-232). The name is
+    ``scope_key`` (``site_export``). The name is
     :func:`config_scope_name`, so the joint and the separately calibrated
     cluster scope never share a key. A name that occurs more than once keeps
     it on its first occurrence and gets ``_2``, ``_3``, ... on later ones.
@@ -446,18 +447,18 @@ def _configured_joint(run: RunResult) -> bool | None:
 
 
 def run_scope_name(run: RunResult) -> str:
-    """Return the scope name of a stored run (MAR-225).
+    """Return the scope name of a stored run.
 
     ``runs.scope`` is ``"cluster"`` for both cluster settings, so a cluster
     run's setting is read from three sources, each where present:
 
     * ``runs.parameters["cluster_joint"]`` (:data:`CLUSTER_JOINT_PARAMETER`),
-      which the runner records as ``false`` for ``joint: false`` since
-      MAR-225;
+      which the runner records as ``false`` for ``joint: false``;
     * the problem ids: ``"cluster:C<k>"`` (``scopes.CLUSTER_PROBLEM_PREFIX``)
       per cluster for ``joint: false``, ``"portfolio"`` for the joint scope.
-      They tell apart a run written before MAR-225: its run id did not
-      change, so re-running it is a cache hit that keeps its parameters;
+      They tell apart a run written by an older runner, which did not
+      record the parameter: its run id is the same, so re-running it is a
+      cache hit that keeps its parameters;
     * the cluster scope of the manifest's config (``joint``, default true).
 
     A failed build has only the run-level problem id ``"*"``, which is no

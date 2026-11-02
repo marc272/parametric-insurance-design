@@ -1,6 +1,6 @@
 """Site bundles: what ``parametric-insurance-design export-site`` writes.
 
-Owner: MAR-200 (W-01a). The website (``site/``, Quarto + OJS, ADR 0003)
+The website (``site/``, Quarto + OJS, ADR 0003)
 never solves and never reads the result store: it reads one **bundle** per
 config, a directory of small files that this module exports from the store.
 The core command ``parametric-insurance-design export-site CONFIG``
@@ -44,25 +44,26 @@ File                            Content
 Every exported row and run carries ``scope`` (``runs.scope``) and
 ``scope_key``, the figures' key of its configured scope: the scope's name,
 numbered on repeats (``cluster``, ``cluster_2``). A cluster scope calibrated
-cluster by cluster (``joint: false``, MAR-180) is named
+cluster by cluster (``joint: false``) is named
 ``style.SEPARATE_CLUSTER_SCOPE`` (``cluster_separate``), so its rows never
 share a key with the joint cluster scope's, although both have ``scope =
-"cluster"``; its runs written since MAR-225 record ``cluster_joint: false``
+"cluster"``; its runs record ``cluster_joint: false``
 in their ``parameters``.
 
 Only the sweeps of :data:`SITE_SWEEP_PARAMETERS` (the explorers' alpha, beta,
 budget loading kappa and bin count) are exported. The manifest lists the
 config's other sweeps under ``sweeps_not_exported``.
 
-k-fold configs (MAR-208)
-------------------------
-A k-fold config stores a run per scope x objective x fold (MAR-22), so each
+k-fold configs
+--------------
+A k-fold config stores a run per scope x objective x fold, so each
 scope x objective has ``k`` out-of-sample values, each over ``1/k`` of the
 years. Its bundle shows the **pooled** out-of-sample portfolio KPIs that the
 core computes on demand (``experiment.kfold.pooled_kpis``, every year
-evaluated by the design calibrated without it; MAR-151), as the ``figures``
-command does. The ``export-site`` command computes them and passes their
-table as ``pooled_kpis=``; :func:`export_site` checks it against the runs.
+evaluated by the design calibrated without it;
+``docs/methodology/out-of-sample.md``), as the ``figures`` command does.
+The ``export-site`` command computes them and passes their table as
+``pooled_kpis=``; :func:`export_site` checks it against the runs.
 A k-fold bundle holds:
 
 ==============================  ==============================================
@@ -85,11 +86,12 @@ reason: the per-fold ``kpis``, ``exceedance`` and ``map`` rows (each over
 sweeps (the pooled rule covers the single runs). Non-k-fold manifests have
 no ``kfold`` key.
 
-Map (MAR-216)
--------------
+Map
+---
 ``evaluate`` writes per-location KPI rows only under an explicit allocation
 rule, which splits each design problem's payout across its locations, at
-``level = "location_by_value"`` or ``"location_by_loss"`` (MAR-100); it
+``level = "location_by_value"`` or ``"location_by_loss"``
+(``docs/methodology/payout-allocation.md``); it
 never writes the reserved plain ``location`` level. A location's numbers in
 ``baseline.map.arrow`` come from
 
@@ -101,8 +103,8 @@ never writes the reserved plain ``location`` level. A location's numbers in
 * else nothing: a joint design (cluster or portfolio scope) without
   allocation rows has null numbers, ``kpi_level`` and ``allocation`` for
   every location. Its entity rows are one of several optimal splits of the
-  design problem's payout, the one the solver returned (MAR-100), and are
-  never shown as per-location cover (review finding F8). Its portfolio and
+  design problem's payout, the one the solver returned, and are never
+  shown as per-location cover. Its portfolio and
   problem KPIs are in ``baseline.kpis.arrow`` as for every run.
 
 The manifest records the source of every run's numbers under ``map``:
@@ -116,13 +118,13 @@ rows miss a location in one of its evaluations is refused
 (:class:`BundleError`). The split filter applies to the map rows as to the
 other split slices; the ``map`` section is per run, so it is unaffected.
 
-Joint designs (MAR-222)
------------------------
+Joint designs
+-------------
 A design problem that calibrates more than one payout entity (the portfolio
 scope; a cluster scope calibrated jointly, with more than one cluster) is
 identified only through the sum over its entities, so its per-entity payout
 functions are one of several optimal designs, the one the solver returned
-(review finding F8; ``payout_functions``, "Joint designs"). Every payout row
+(``payout_functions``, "Joint designs"). Every payout row
 says whether it belongs to such a problem: the ``joint`` column (Arrow
 ``bool``, never null) is true for the rows of a problem with more than one
 entity and false otherwise, in every ``payouts`` table (baseline, sweeps,
@@ -141,7 +143,7 @@ Rules (stated in the manifest, under ``rules``)
 * **Infinity.** Strict JSON has no infinities, and Arrow JS hands them to
   the page as ``-Infinity``, which charts cannot place. The one infinite
   value the export knows is the lower edge ``-inf`` of the zero row of a
-  ``below_attachment = "zero"`` run (``param_index = -1``, MAR-178): it is
+  ``below_attachment = "zero"`` run (``param_index = -1``): it is
   written as **null**, in both formats, and the column's entry in the
   manifest says that its nulls mean ``-inf``. Any other infinite value is
   refused (:class:`BundleValueError`).
@@ -153,15 +155,15 @@ Rules (stated in the manifest, under ``rules``)
 * **Integers** are 32-bit (Arrow JS reads 64-bit integers as ``BigInt``,
   which charts do not accept); a value out of range is refused. Strings are
   dictionary-encoded UTF-8, with the narrowest index type.
-* **Events** (about 6 MB per grid on the thesis set, MAR-110) are left out
+* **Events** (about 6 MB per grid on the thesis set) are left out
   unless ``include_events``.
 * **Size budget** (:class:`SizeBudget`): every file, the manifest included,
   must fit ``max_file_bytes`` and the data files together
   ``max_bundle_bytes``. Over budget is a :class:`BundleBudgetError` raised
   before anything is written, never a truncation.
 
-Split filter (MAR-213)
-----------------------
+Split filter
+------------
 A holdout run stores its KPIs and exceedance curves on the train years
 (``eval_split = "train"``, in sample) and on the test years (``"test"``, out
 of sample). ``eval_split="test"`` (``export-site --split test``) keeps only
@@ -375,7 +377,7 @@ _MAP_RULE: Final[str] = (
     "an allocation rule, which splits each design problem's payout across its "
     "locations (kpi_level 'location_by_value', allocation 'value': pro rata "
     "to insured value; kpi_level 'location_by_loss', allocation 'loss': pro "
-    "rata to loss; evaluate, MAR-100). Without them, a run of the individual "
+    "rata to loss; evaluate). Without them, a run of the individual "
     "scope takes each location's entity rows (kpi_level 'entity', allocation "
     "'none': one location per design problem, so the payout is the "
     "location's own). A joint design (cluster or portfolio scope) without "
@@ -407,7 +409,7 @@ _POOLED_RULE: Final[str] = (
     "The k test blocks partition the years, so every year is evaluated by "
     "exactly one design, the one calibrated on the other k - 1 blocks. The "
     "pooled KPIs are the portfolio KPIs of that one out-of-sample sample over "
-    "all years (experiment.kfold.pooled_kpis, MAR-151), not the mean of the "
+    "all years (experiment.kfold.pooled_kpis), not the mean of the "
     "per-fold KPIs. Only the portfolio level is pooled."
 )
 _KFOLD_NOT_EXPORTED: Final[Mapping[str, str]] = {
@@ -1092,7 +1094,7 @@ def _labelled(frame: pd.DataFrame, run: _Exported) -> pd.DataFrame:
 
 
 def _payouts(runs: Sequence[_Exported]) -> pd.DataFrame:
-    """Payout grids, with the zero row of each ``"zero"`` entity (MAR-178).
+    """Payout grids, with the zero row of each ``"zero"`` entity.
 
     ``joint`` marks the rows of a design problem with more than one entity
     (module docstring, "Joint designs").
@@ -1151,12 +1153,12 @@ def _map(runs: Sequence[_Exported]) -> tuple[pd.DataFrame, list[dict[str, Any]]]
     """Per (run, evaluation, location): its entity and its KPIs, where defined.
 
     A location's numbers come from the run's per-location rows under an
-    allocation rule (``location_by_value`` or ``location_by_loss``, MAR-100)
+    allocation rule (``location_by_value`` or ``location_by_loss``)
     if the run has them; else, in the individual scope only, from its
     entity's rows (one location per design problem); else they are null
     (``kpi_level`` and ``allocation`` null too). The entity rows of a joint
     design (cluster or portfolio scope) are the solver's split of its design
-    problem's payout and are never used (review finding F8). See
+    problem's payout and are never used. See
     :data:`_MAP_RULE`.
 
     Returns
@@ -1265,7 +1267,8 @@ def _map_source(item: _Exported, kpis: pd.DataFrame) -> tuple[str | None, str | 
             f"baseline.map.arrow: run {run.run_id} ({item.scope_key} x "
             f"{run.objective}) has KPI rows at level 'location', which is "
             "reserved: the payout a location receives from a joint design is "
-            "not identified (MAR-100). Re-run it: evaluate writes per-location "
+            "not identified (docs/methodology/payout-allocation.md). Re-run it: "
+            "evaluate writes per-location "
             "rows only under an allocation rule ('location_by_value' or "
             "'location_by_loss')"
         )
@@ -1506,7 +1509,7 @@ def export_site(
         ``export-site`` command computes it. Written to
         ``baseline.pooled_kpis.arrow``.
     eval_split : {"full", "train", "test"}, optional
-        The split filter (MAR-213): keep only the rows of this evaluation
+        The split filter: keep only the rows of this evaluation
         split in the ``kpis``, ``exceedance`` and ``map`` slices, e.g.
         ``"test"`` for a published bundle (out of sample only). Default: no
         filter, every split the runs stored. Recorded in the manifest
@@ -1893,7 +1896,7 @@ def _check_kfold(
         raise KFoldRunsError(
             f"config {config.name!r} has a k-fold sample (k={k}): its runs "
             "are per fold, and its site bundle shows the pooled out-of-sample "
-            "KPIs (MAR-151), of which none were given. Compute them with "
+            "KPIs, of which none were given. Compute them with "
             "experiment.kfold.pooled_kpis and pass pooled_kpis=...table (the "
             "export-site command does this)"
         )

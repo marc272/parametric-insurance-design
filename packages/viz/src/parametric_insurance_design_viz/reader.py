@@ -1,15 +1,15 @@
 """Result-store reader: what figures read (SPEC §3.1 C6).
 
-Owner: MAR-110. Figures are drawn from the runner's result store
-(:class:`~parametric_insurance_design.experiment.store.ResultStore`, MAR-64)
+Figures are drawn from the runner's result store
+(:class:`~parametric_insurance_design.experiment.store.ResultStore`)
 and never re-run an optimisation: computation, then the store, then plotting,
 as strictly separate layers. This module is the only place where viz touches
 the store.
 
 * :class:`ResultReader` opens a store and returns :class:`RunResult` objects:
   the validated record tables of one committed run, plus its manifest.
-  :meth:`ResultReader.runs` reads many runs in bulk, one store read per table
-  (MAR-120), and :meth:`ResultReader.kpis` the ``kpis`` table of many runs.
+  :meth:`ResultReader.runs` reads many runs in bulk, one store read per
+  table, and :meth:`ResultReader.kpis` the ``kpis`` table of many runs.
 * :meth:`RunResult.problem_specs` rebuilds the run's design problems
   (entity membership) from the ``entities`` table.
 * :func:`entity_events` gives the event data under a run's entities (the
@@ -245,7 +245,7 @@ class ResultReader:
     def runs(self, run_ids: Iterable[str]) -> tuple[RunResult, ...]:
         """Read several committed runs, in the given order.
 
-        Bulk read (MAR-120): each record table is read once for all the runs
+        Bulk read: each record table is read once for all the runs
         (one ``ResultStore.read`` per table) and split by ``run_id``, so
         reading many runs costs about as much as their files. The results
         equal those of :meth:`run`, one run at a time.
@@ -272,7 +272,7 @@ class ResultReader:
         return self._read(ids)
 
     def kpis(self, run_ids: Iterable[str]) -> pd.DataFrame:
-        """Read the ``kpis`` table of several committed runs at once (MAR-120).
+        """Read the ``kpis`` table of several committed runs at once.
 
         Parameters
         ----------

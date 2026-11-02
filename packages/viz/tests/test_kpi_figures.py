@@ -1022,7 +1022,7 @@ def test_a_kfold_store_without_pooled_kpis_is_refused(
             out_dir=tmp_path,
             figure_sets=(kpi_figures,),
         )
-    assert "pooled out-of-sample KPIs (MAR-151)" in str(info.value)
+    assert "pooled out-of-sample KPIs, which were not given" in str(info.value)
     assert not list(tmp_path.iterdir())  # nothing is drawn
 
 

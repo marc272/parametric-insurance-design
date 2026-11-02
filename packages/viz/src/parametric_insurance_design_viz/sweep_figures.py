@@ -1,6 +1,6 @@
 """Sweep figures, premium reallocation and the cluster trade-off (thesis ch. 5).
 
-Owner: MAR-112. Ports the remaining results-chapter figures of the thesis
+Ports the remaining results-chapter figures of the thesis
 ``plotting.py`` and ``sensitivity_analysis.py``
 (parametric-insurance-framework). Every figure reads committed runs from the
 result store (:class:`~parametric_insurance_design_viz.reader.ResultReader`)
@@ -13,7 +13,7 @@ Figures
 :func:`sweep_figures` is the builder the ``figures`` command registers
 (``command.FIGURE_SETS``). For each configured sweep it reads the sweep
 points the command passes in (:class:`~.command.SweepRun`, computed from the
-config's sweeps, MAR-65) and draws, in config order:
+config's sweeps) and draws, in config order:
 
 ============================================  ================================
 Figure                                        Thesis
@@ -37,12 +37,12 @@ Figure                                        Thesis
   weighted-CVaR run, coloured by value, over the baseline run's event data
   and the scope's residual-loss (``mse``) baseline. Below the attachment
   each run pays as its ``below_attachment`` mode says, drawn and tabulated
-  as in the payout grid (MAR-192; ``payout_functions``, "Below the
+  as in the payout grid (``payout_functions``, "Below the
   attachment"). If the entity belongs to a joint design problem (the
   portfolio scope, a joint cluster scope with more than one cluster;
   ``payout_functions``, "Joint designs"), the figure carries
   :data:`~.payout_functions.JOINT_CAPTION` above its title and a ``caption``
-  table (MAR-222, design review F8): its payout functions are one of several
+  table: its payout functions are one of several
   optimal designs, chosen by the solver. A cluster scope calibrated cluster
   by cluster (``joint: false``) has one entity per problem, so no caption.
 * ``sensitivity_<param>``: the portfolio tail basis risk (KPI
@@ -63,27 +63,26 @@ Figure                                        Thesis
   cost ``tau`` per contract, and the break-even cost
   ``tau*(C) = Pi(C) / (K - C)`` for ``C < K``. The costs are a figure option,
   not part of the config (as in the thesis): ``FigureContext.transaction_costs``,
-  the ``figures`` command's ``--transaction-costs`` (MAR-120), by default
+  the ``figures`` command's ``--transaction-costs``, by default
   :data:`THESIS_TRANSACTION_COSTS`. They measure what the joint cluster
   calibration gains, so a cluster scope calibrated cluster by cluster
   (``joint: false``, ``style.SEPARATE_CLUSTER_SCOPE``) does not get them
-  (:data:`SEPARATE_CLUSTER_REASON`, MAR-222).
+  (:data:`SEPARATE_CLUSTER_REASON`).
 
 The thesis notebook's figure arguments that are not in the config (the
 weighted-CVaR objective as the focus, the excluded combinations, the default
 transaction costs) are the module constants below.
 
 The runs of a sweep are read in bulk, one store read per table for all its
-points (:meth:`~parametric_insurance_design_viz.reader.ResultReader.runs`,
-MAR-120).
+points (:meth:`~parametric_insurance_design_viz.reader.ResultReader.runs`).
 
 Evaluation split
 ----------------
 The figures that read KPIs (the premium reallocation, the sensitivity,
 trade-off, net-advantage and break-even figures) read every KPI of one
-figure on one split (:func:`figure_split`, MAR-229; since MAR-232 the KPI
-figures' own function, :func:`~.kpi_figures.figure_split`, re-exported
-here with :class:`MissingKpiError`): the first of
+figure on one split (:func:`figure_split`, the KPI figures' own function
+:func:`~.kpi_figures.figure_split`, re-exported here with
+:class:`MissingKpiError`): the first of
 :data:`~.kpi_figures.SPLIT_PREFERENCE` that every complete run of the figure
 has, as the KPI figures choose. A holdout run stores KPI rows on its train
 years (``eval_split = "train"``, in sample) and its test years (``"test"``,
@@ -93,8 +92,7 @@ out of sample), so its figures show ``test``; a full-sample run has
 figure data gain the :data:`SPLIT_TABLE` table (``<name>.split.csv``). On
 ``full`` neither, so the thesis figures are unchanged byte for byte. The
 payout-sweep figures read no KPI: they show designs, which have no
-evaluation split. Before MAR-229 every KPI was read on ``full``, so the
-``figures`` command failed on a holdout store with :class:`MissingKpiError`.
+evaluation split.
 
 No silent failures
 ------------------
@@ -112,7 +110,7 @@ No silent failures
   ``SkippedFigure`` with ``failed=False``. Without sweeps there are no sweep figures.
 * A figure that needs sweep points missing from the store
   (``FigureContext.missing_sweeps``, when the command skips missing points,
-  MAR-120) is not drawn: a ``SkippedFigure`` with ``missing=True`` counts the
+  is not drawn: a ``SkippedFigure`` with ``missing=True`` counts the
   missing points and names the first few. Figures whose points are all in
   the store are drawn as usual.
 * A run that lacks a KPI row the figure needs raises
@@ -403,7 +401,7 @@ BREAKEVEN_COLUMNS: Final[tuple[str, ...]] = (
 """Main table of :func:`breakeven_cost`: the penalty rows with ``C < K``."""
 
 SPLIT_TABLE: Final[str] = "split"
-"""Key of the table that states a figure's evaluation split (MAR-229).
+"""Key of the table that states a figure's evaluation split.
 
 Written as ``<name>.split.csv`` by the figures that read KPIs, when they
 read the ``test`` or ``train`` rows of holdout runs; see the module
@@ -567,7 +565,7 @@ def _scope_style(scope: str) -> style.ScopeStyle:
 
 
 def _baseline_scope_label(run: RunResult) -> str:
-    """Lower-case scope label of a run, by its scope name (MAR-225)."""
+    """Lower-case scope label of a run, by its scope name."""
     return style.scope_label(style.run_scope_name(run)).lower()
 
 
@@ -609,7 +607,7 @@ def _split_heading(split: str) -> str | None:
 
 
 def _split_title(split: str, title: str) -> str:
-    """Return ``title`` with the split note on a second line (MAR-229).
+    """Return ``title`` with the split note on a second line.
 
     ``title`` alone on ``full``.
     """
@@ -651,7 +649,7 @@ def kpi_value(
     eval_split : str, optional
         ``kpis.eval_split``. Default: the run's preferred split
         (:func:`figure_split` of the run): ``test`` for a holdout run,
-        ``full`` for a full-sample run (MAR-229; before, always ``full``).
+        ``full`` for a full-sample run.
 
     Returns
     -------
@@ -709,7 +707,7 @@ class SweepSeries:
         The sweep points of this scope x objective with their runs, in sweep
         order; empty if the parameter does not apply to it.
     missing : tuple of SweepRun, default ()
-        Its sweep points that are not in the store (MAR-120), in sweep order;
+        Its sweep points that are not in the store, in sweep order;
         not in ``points``.
     """
 
@@ -735,7 +733,7 @@ class SweepSeries:
 
     @property
     def scope_name(self) -> str:
-        """The scope name that labels and styles the series (MAR-225).
+        """The scope name that labels and styles the series.
 
         ``style.run_scope_name`` of the baseline run: :attr:`scope_kind`, or
         ``"cluster_separate"`` for a cluster scope calibrated cluster by
@@ -803,7 +801,7 @@ def premium_reallocation(
         Figure name.
     eval_split : str, optional
         Evaluation split of the premiums; default :func:`figure_split` of
-        the two runs (MAR-229).
+        the two runs.
 
     Returns
     -------
@@ -1068,7 +1066,7 @@ def payout_sweep(
     baseline (red, dashed).
 
     Below the attachment ``b_0`` each run is drawn as its step payout pays
-    there (:func:`~.payout_functions.below_attachment_mode`, MAR-192), as in
+    there (:func:`~.payout_functions.below_attachment_mode`), as in
     :func:`~.payout_functions.payout_grid`: the first bin's level under
     ``"first_bin"`` (the default and the thesis), 0 under ``"zero"``, with a
     step up to the first level at ``b_0``.
@@ -1076,8 +1074,9 @@ def payout_sweep(
     If the entity belongs to a joint design problem (more than one entity:
     the portfolio scope, a joint cluster scope with more than one cluster;
     :func:`~.payout_functions.is_joint_design`), its payout functions are
-    one of several optimal designs, chosen by the solver (design review F8,
-    MAR-222). As in :func:`~.payout_functions.payout_grid`, the figure then
+    one of several optimal designs, chosen by the solver
+    (``docs/methodology/payout-allocation.md``). As in
+    :func:`~.payout_functions.payout_grid`, the figure then
     carries :data:`~.payout_functions.JOINT_CAPTION` above its title, or is
     refused. Figures of other entities are unchanged.
 
@@ -1119,7 +1118,7 @@ def payout_sweep(
         If no point succeeded, the entity is missing from a drawn run, or the
         runs differ in attachment and limit; or a drawn run's parameters and
         config disagree on what it pays below the attachment, e.g. a
-        ``"zero"`` run written before MAR-178
+        ``"zero"`` run written by an older runner
         (:func:`~.payout_functions.below_attachment_mode`).
     FigureDataError
         If a drawn run records an unknown ``below_attachment`` mode, or
@@ -1342,7 +1341,7 @@ def sensitivity(
         Default ``"sensitivity_<parameter>"``.
     eval_split : str, optional
         Evaluation split of the KPI; default :func:`figure_split` of the
-        runs read (MAR-229).
+        runs read.
 
     Returns
     -------
@@ -1496,7 +1495,7 @@ def tradeoff(
         Default ``"tradeoff_<scope>_<parameter>"``.
     eval_split : str, optional
         Evaluation split of the KPIs; default :func:`figure_split` of the
-        sweep runs (MAR-229).
+        sweep runs.
 
     Returns
     -------
@@ -1632,7 +1631,7 @@ def cluster_penalty(
         The portfolio scope's baseline run of the same objective.
     eval_split : str, optional
         Evaluation split of the CVaRs; default :func:`figure_split` of the
-        benchmark and the sweep runs (MAR-229).
+        benchmark and the sweep runs.
 
     Returns
     -------
@@ -1690,7 +1689,7 @@ def cluster_penalty(
 def _cluster_split(
     series: SweepSeries, benchmark: RunResult, eval_split: str | None
 ) -> str:
-    """:func:`figure_split` of the benchmark and the sweep runs (MAR-229)."""
+    """:func:`figure_split` of the benchmark and the sweep runs."""
     return figure_split([benchmark, *(r for _, r in series.points)], eval_split)
 
 
@@ -1720,7 +1719,7 @@ def net_advantage(
         The portfolio scope's baseline run of the same objective.
     transaction_costs : sequence of float, default :data:`THESIS_TRANSACTION_COSTS`
         Costs per contract, loss units; the ``figures`` command passes
-        ``FigureContext.transaction_costs`` (MAR-120).
+        ``FigureContext.transaction_costs``.
     labels : AxisLabels, optional
         Units.
     figsize : (float, float), default (8, 8)
@@ -1942,7 +1941,7 @@ def _series(
     """Every single run of the config with its points of one sweep.
 
     The runs of the sweep's points are read in bulk, one store read per
-    table (MAR-120). Points in ``context.missing_sweeps`` are not read; each
+    table. Points in ``context.missing_sweeps`` are not read; each
     series lists them as ``missing``.
     """
     absent = {p.run_id for p in context.missing_sweeps}
@@ -1976,7 +1975,7 @@ def _series(
 
 
 def _missing_points(name: str, series: Sequence[SweepSeries]) -> SkippedFigure | None:
-    """Skip a figure whose sweep points are not all in the store (MAR-120)."""
+    """Skip a figure whose sweep points are not all in the store."""
     from parametric_insurance_design_viz.command import SkippedFigure
 
     missing = [(s, p) for s in series for p in s.missing]
@@ -2253,7 +2252,7 @@ def _cluster_figures(
 
 
 def sweep_figures(context: FigureContext) -> Iterator[FigureOutput | SkippedFigure]:
-    """Draw the MAR-112 figure set: reallocation, sweeps, trade-off, clusters.
+    """Draw the sweep figure set: reallocation, sweeps, trade-off, clusters.
 
     Registered in ``command.FIGURE_SETS``. See the module docstring for the
     figures and how failures are reported.
