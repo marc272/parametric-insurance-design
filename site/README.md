@@ -1,6 +1,6 @@
 # site/
 
-The project website: interactive explorers of the payout design, and the posts. Today it has a home page with the two ideas and their combination, the method pages, an about page, the payout and exceedance explorer and an empty post listing with an RSS feed.
+The project website: interactive explorers of the payout design, and the posts. Today it has a home page with the two ideas and their combination, the method pages, an about page, the payout and exceedance explorer, an empty post listing with an RSS feed, and the API reference of the core library.
 
 - The stack is decided: Quarto with Observable JS (OJS), deployed to GitHub Pages ([ADR 0003](../docs/adr/0003-website-stack.md)). The site is https://marc272.github.io/parametric-insurance-design/.
 - The site reads bundles exported from the result store and never runs an optimisation itself ([`docs/SPEC.md`](../docs/SPEC.md) §4). The pages read the explorer bundle, which the Site workflow solves and exports on every build (see "Bundles" below). The committed bundles under [`fixtures/`](fixtures/README.md) are test fixtures and are not part of the site.
@@ -21,6 +21,7 @@ The repository's [README](../README.md) has the project's status.
 | `explorers/alpha-beta.qmd` | The payout and exceedance explorer on the explorer bundle: the objective, and α, β, the budget loading κ or the number of bins → the step payout of one site, the payout relative to the MSE design and the out-of-sample exceedance curves, with the setup of every number read from the bundle's manifest |
 | `explorers/explorer.css` | The explorer's layout: the controls column, captions and setup notes |
 | `blog/index.qmd` | The post listing and its RSS feed (`blog/index.xml`). Posts go under `blog/posts/` |
+| `reference/` | The API reference of the core library's public API ([ADR 0004](../docs/adr/0004-repository-structure.md) Q2, Q4), grouped by story. `build.py` runs quartodoc on the `quartodoc` section of `_quarto.yml`, which writes the pages and their sidebar here; they are generated, not committed ("API reference" below). Committed: `build.py`, `_metadata.yml`, `reference.lua` (a filter that shows the docstrings' Sphinx roles, `:class:` and the like, as plain code, and gives each page its title) and `reference.css` (wide tables and long names at phone width) |
 | `styles/site.scss` | Small additions to both themes: chart backgrounds, phone-width inputs, the setup table, the schematics, and scrolling tables and figures on the method pages |
 | `fixtures/` | Committed test bundles of the site export (`thesis/`, `thesis-explorer/`) and the config of `thesis-explorer/`, checked by `packages/viz/tests/test_site_export.py`; not part of the site ([`fixtures/README.md`](fixtures/README.md)) |
 | `configs/explorer.yaml` | The config of the explorer bundle that the Site workflow solves and exports on every build ("Bundles" below) |
@@ -44,7 +45,7 @@ The explorer bundle is the one the payout explorer reads: the thesis portfolio, 
 
 ## Build
 
-The workflow [`.github/workflows/site.yml`](../.github/workflows/site.yml) builds the site on every pull request that touches `site/`, the workflow, or the code and data of the explorer bundle (above), and builds and deploys it to GitHub Pages on `main`. It checks that the two Quarto pins agree (below), solves the explorer runs, draws the config's figures from the same store as a check only (they are not published; any non-zero `figures` exit fails the build, so a figure regression fails CI), exports the explorer bundle, checks that no fixture bundle is in the site, and checks the explorer bundle.
+The workflow [`.github/workflows/site.yml`](../.github/workflows/site.yml) builds the site on every pull request that touches `site/`, the workflow, or the code and data of the explorer bundle (above), and builds and deploys it to GitHub Pages on `main`. It checks that the two Quarto pins agree (below), solves the explorer runs, draws the config's figures from the same store as a check only (they are not published; any non-zero `figures` exit fails the build, so a figure regression fails CI), builds the API reference (below), exports the explorer bundle, checks that no fixture bundle is in the site, and checks the explorer bundle.
 
 **The Quarto pin.** The Quarto CLI is pinned twice: `QUARTO_VERSION` in the workflow (what `quarto-dev/quarto-actions/setup` installs) and `quarto-required` in `_quarto.yml` (what the render requires). Change both together: the workflow's step "Check the Quarto pin" fails the build, before the solve, when they differ. That step catches drift between the two pins, not a pin that has fallen behind Quarto's releases.
 
@@ -63,8 +64,18 @@ gh release download v$V -R quarto-dev/quarto-cli -D results/quarto-dl \
     -p "quarto-$V-macos.tar.gz" -p "quarto-$V-checksums.txt"
 (cd results/quarto-dl && shasum -a 256 -c --ignore-missing quarto-$V-checksums.txt)
 mkdir -p results/quarto-$V && tar -xzf results/quarto-dl/quarto-$V-macos.tar.gz -C results/quarto-$V
+uv run --locked --group docs python site/reference/build.py   # the API reference
 results/quarto-$V/bin/quarto render site
 python3 -m http.server 8765 --bind 127.0.0.1 -d site/_site   # then open http://127.0.0.1:8765/
 ```
 
 The output goes to `site/_site/`, ignored with Quarto's cache `site/.quarto/` (`site/.gitignore`). For the explorer's data, solve and export its bundle after the render (the commands at the top of [`configs/explorer.yaml`](configs/explorer.yaml)). The pages load the bundles with `fetch`, so open them through a local server, not as `file://` URLs.
+
+## API reference
+
+The reference pages under `reference/` are generated from the docstrings by [quartodoc](https://github.com/machow/quartodoc) ([ADR 0004](../docs/adr/0004-repository-structure.md) Q4, R1), pinned exactly, with its docstring parser griffe, in the root `pyproject.toml`'s `docs` dependency group (never a dependency of a package). griffe stays on 1.x: quartodoc 0.11.1 passes a numpy-parser option (`allow_section_blank_line`) that griffe 2 no longer accepts. The Site workflow's step "Build the API reference" runs [`reference/build.py`](reference/build.py) before the render: `quartodoc build`, then short sidebar labels for the modules, then a check that every name of `pid.__all__` has its page (the build fails otherwise).
+
+- **What it covers.** The public API of ADR 0004 Q2: the curated top level (`pid.__all__`), the modules it imports, `parametric_insurance_design.noise` by its full name, and the experiment layer (`parametric_insurance_design.experiment.*`). `robust` is left out while it isn't implemented. Viz is left out too: ADR 0004 Q2 gives it no public Python API (its `__all__` holds only `__version__`), and it is used through the `figures` and `export-site` commands.
+- **Adding a name.** A name added to `pid.__all__` needs its entry in the `quartodoc` section of `_quarto.yml`, under its story; the workflow fails until it has one. Classes and functions are listed by their top-level names (`StepPayout`, page `StepPayout.qmd`); modules by their full names with `package: null` (`parametric_insurance_design.evaluate`), so no module page shares a file name with the landing page (`index.qmd`) or, on a case-insensitive file system, with a class page (`eventset` and `EventSet`).
+- **The publication rule** applies to the docstrings, since they are published here: no issue IDs or Linear links, and no comparative claim about joint calibration.
+- **Fallback.** If the pinned quartodoc breaks with the pinned Quarto, the fallback is pdoc (ADR 0004, R2).

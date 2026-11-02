@@ -1,4 +1,4 @@
-"""Entity index definitions (SPEC §4.2, §6.3).
+"""Entity index definitions.
 
 Scopes use an :class:`EntityIndex` to turn the EventSet's
 per-location ``index`` matrix into the entity index ``xi`` of a design

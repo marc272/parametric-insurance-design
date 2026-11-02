@@ -1,0 +1,48 @@
+{
+  "issue": "MAR-224",
+  "package_versions": {
+    "parametric-insurance-design": "0.1.0.dev0",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1",
+    "pandas": "3.1.0",
+    "pyarrow": "26.0.0",
+    "pydantic": "2.14.1",
+    "pyyaml": "6.0.3",
+    "cvxpy": "1.9.3",
+    "clarabel": "0.11.1",
+    "osqp": "1.1.3",
+    "scs": "3.3.1",
+    "highspy": "1.15.1"
+  },
+  "stores": {
+    "c1": {
+      "runs": 312,
+      "recorded": 312,
+      "osqp_problems": 71,
+      "zero_payout": 0
+    },
+    "c1-rq2": {
+      "runs": 120,
+      "recorded": 120,
+      "osqp_problems": 48,
+      "zero_payout": 0
+    },
+    "c1-rq2-sensitivities": {
+      "runs": 208,
+      "recorded": 208,
+      "osqp_problems": 70,
+      "zero_payout": 0
+    },
+    "florida": {
+      "runs": 288,
+      "recorded": 288,
+      "osqp_problems": 754,
+      "zero_payout": 2
+    }
+  },
+  "zero_payout_runs": [
+    "florida:5318734bca7e",
+    "florida:8dd6c28a7ed9"
+  ],
+  "phase_seconds": 6.7
+}

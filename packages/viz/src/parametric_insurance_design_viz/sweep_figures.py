@@ -142,6 +142,7 @@ from matplotlib.axes import Axes
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import LinearSegmentedColormap, Normalize
 from matplotlib.figure import Figure
+from matplotlib.legend import Legend
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from matplotlib.ticker import FuncFormatter
@@ -149,7 +150,7 @@ from numpy.typing import NDArray
 
 from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.payout import BelowAttachment
-from parametric_insurance_design_viz import style
+from parametric_insurance_design_viz import degenerate_tail, style
 from parametric_insurance_design_viz.errors import (
     InconsistentRunsError,
 )
@@ -524,7 +525,7 @@ def _frame(ax: Axes) -> None:
 
 def _scope_objective_legend(
     fig: Figure, pairs: Sequence[tuple[str, str]], *, y: float = 0.0
-) -> None:
+) -> Legend:
     """Two legend rows: scopes (grey, line style) and objectives (colour)."""
     scopes = list(dict.fromkeys(s for s, _ in pairs))
     objectives = list(dict.fromkeys(o for _, o in pairs))
@@ -551,7 +552,7 @@ def _scope_objective_legend(
         )
         for o in objectives
     ]
-    fig.legend(
+    return fig.legend(
         scope_handles + objective_handles,
         [str(h.get_label()) for h in scope_handles + objective_handles],
         loc="upper center",
@@ -756,6 +757,10 @@ class SweepSeries:
     def sorted_points(self) -> list[tuple[SweepRun, RunResult]]:
         """Points by value (stable, so subsets keep their order)."""
         return sorted(self.points, key=lambda pr: float(pr[0].value))
+
+    def points_by_run(self) -> dict[str, RunResult]:
+        """Return the points' runs by ``run_id``."""
+        return {r.run_id: r for _, r in self.points}
 
 
 def _subset_text(point: SweepRun) -> str | None:
@@ -1424,6 +1429,7 @@ def sensitivity(
             )
     table = pd.DataFrame(lines, columns=list(SENSITIVITY_COLUMNS))
 
+    marked: list[Sequence[RunResult]] = []
     with style.style():
         fig, ax = plt.subplots(figsize=figsize)
         for s in series:
@@ -1432,15 +1438,21 @@ def sensitivity(
             )
             line = line.dropna(subset=["kpi_value"])
             scope_style = _scope_style(s.scope_name)
+            xs = line["parameter_value"].astype(float).tolist()
+            ys = line["kpi_value"].astype(float).tolist()
             ax.plot(
-                line["parameter_value"].astype(float),
-                line["kpi_value"].astype(float),
+                xs,
+                ys,
                 color=style.objective_color(s.objective),
                 linestyle=scope_style.linestyle,
                 marker=scope_style.marker,
                 linewidth=1.5,
                 markersize=5,
             )
+            groups = [_runs_at(s, x) for x in xs]
+            flags = [degenerate_tail.group_flag(g) for g in groups]
+            degenerate_tail.mark_points(ax, xs, ys, flags)
+            marked.extend(g for g, f in zip(groups, flags, strict=True) if f)
         ax.set_xlabel(parameter_symbol(parameter))
         ax.set_ylabel(
             _tail_label(labels)
@@ -1454,12 +1466,30 @@ def sensitivity(
         )
         _frame(ax)
         fig.tight_layout()
-        _scope_objective_legend(fig, [(s.scope_name, s.objective) for s in series])
+        legend = _scope_objective_legend(
+            fig, [(s.scope_name, s.objective) for s in series]
+        )
+        degenerate_tail.note_legend(
+            fig, degenerate_tail.degenerate_tail_notes(marked), below=legend
+        )
     return FigureOutput(
         name=name or f"sensitivity_{parameter}",
         figure=fig,
-        data=_with_split({MAIN_TABLE: table, "points": points}, split),
+        data=degenerate_tail.with_degenerate_tail(
+            _with_split({MAIN_TABLE: table, "points": points}, split), read
+        ),
     )
+
+
+def _runs_at(series: SweepSeries, value: float) -> list[RunResult]:
+    """Return the complete runs behind a plotted point of a series.
+
+    The baseline run for a flat line; else the series' complete runs at
+    ``value`` (several for ``n_assets``).
+    """
+    if not series.points:
+        return [series.baseline]
+    return [r for p, r in series.points if float(p.value) == value and r.complete]
 
 
 # --------------------------------------------------------------------------
@@ -1556,6 +1586,10 @@ def tradeoff(
             linewidth=1.5,
             zorder=2,
         )
+        runs = dict(series.points_by_run())
+        groups = [[runs[str(r)]] for r in drawn["run_id"]]
+        flags = [degenerate_tail.group_flag(g) for g in groups]
+        degenerate_tail.mark_points(ax, xs.tolist(), ys.tolist(), flags)
         ax.set_xlabel(_total_label(labels))
         ax.set_ylabel(_tail_label(labels))
         ax.ticklabel_format(axis="both", style="sci", scilimits=(0, 0))
@@ -1569,11 +1603,21 @@ def tradeoff(
             _annotate_curve(
                 ax, xs, ys, drawn["parameter_value"].tolist(), annotate_every
             )
-        _scope_objective_legend(fig, [(series.scope_name, series.objective)])
+        legend = _scope_objective_legend(fig, [(series.scope_name, series.objective)])
+        degenerate_tail.note_legend(
+            fig,
+            degenerate_tail.degenerate_tail_notes(
+                g for g, f in zip(groups, flags, strict=True) if f
+            ),
+            below=legend,
+        )
     return FigureOutput(
         name=name or f"tradeoff_{series.scope}_{series.parameter}",
         figure=fig,
-        data=_with_split({MAIN_TABLE: table}, split),
+        data=degenerate_tail.with_degenerate_tail(
+            _with_split({MAIN_TABLE: table}, split),
+            (r for _, r in series.points if r.complete),
+        ),
     )
 
 

@@ -1,4 +1,4 @@
-"""One-factor-at-a-time sweeps (SPEC §4.2).
+"""One-factor-at-a-time sweeps.
 
 Reproduces the thesis sensitivity design on top of the run
 executor (:mod:`~parametric_insurance_design.experiment.runner`): vary one
@@ -58,7 +58,7 @@ Other sweeps never cap: an ``n_clusters`` sweep value is the count asked for.
 
 Folds of a k-fold experiment
 ----------------------------
-A k-fold experiment runs **one run per fold** (ADR 0002 §7):
+A k-fold experiment runs **one run per fold**:
 ``single_runs()`` sets :attr:`~.config.KFoldSampleConfig.fold`, so the fold
 is part of each point's config, config hash and ``run_id``, and a sweep of a
 k-fold experiment has ``k`` points per value and scope x objective (folds
@@ -104,6 +104,28 @@ the ``run_id``), and re-running an unchanged sweep rewrites the same file.
 So that baseline runs carry ``"single_run"`` whatever the order,
 :func:`run_sweeps` runs the experiment's single runs first (``baseline=True``,
 as the thesis' ``get_full_results`` did) and then its sweeps.
+
+Degenerate tail objectives
+--------------------------
+Every run manifest records, per design problem, ``p_zero_loss`` and
+``degenerate_tail`` (:mod:`~.runner`, "Degenerate tail objectives"): a
+weighted-CVaR problem with ``beta <= P(L_o = 0)`` on its calibration sample
+is ``"expected_uncovered"`` (its objective is a positive multiple of E[U],
+with the same minimisers), one whose CVaR tail holds at most one outcome
+``"single_outcome"``. A beta sweep crosses these values, so the sweep
+manifest summarises them, read from the run manifests in the store once
+every point has run:
+
+* each point has ``degenerate_tail``: its flagged design problems, a mapping
+  of ``problem_id`` to flag (``{}`` if none is flagged, as for a run that
+  failed to build), or ``null`` if the run's manifest predates the record;
+* the manifest has ``degenerate_tail``: for each flag of
+  :data:`~.runner.DEGENERATE_TAILS`, the ``point`` numbers of the points with
+  a problem so flagged (a point with problems of both flags is under both),
+  and under ``"not_recorded"`` those whose run manifest has no record.
+
+The summary is read, never computed here, and is not part of the
+``sweep_id``, the ``run_id`` or any config hash.
 
 No silent failures
 ------------------
@@ -200,6 +222,7 @@ from parametric_insurance_design.experiment.config import (
     config_hash,
 )
 from parametric_insurance_design.experiment.runner import (
+    DEGENERATE_TAILS,
     PACKAGE,
     SINGLE_RUN_SOURCE,
     ChecksumMismatchError,
@@ -221,6 +244,7 @@ from parametric_insurance_design.experiment.store import (
 from parametric_insurance_design.solve import DEFAULT_POLICY, SolverPolicy
 
 __all__ = [
+    "DEGENERATE_TAIL_NOT_RECORDED",
     "MEMBERSHIP_COLUMNS",
     "SWEEPS_DIR",
     "SWEEP_ID_DOMAIN",
@@ -250,6 +274,11 @@ SWEEP_ID_DOMAIN: Final[str] = "parametric-insurance-design/sweep-id/v1"
 
 SWEEPS_DIR: Final[str] = "sweeps"
 """Directory of the sweep manifests, under the result-store root."""
+
+DEGENERATE_TAIL_NOT_RECORDED: Final[str] = "not_recorded"
+"""Key of the sweep manifest's ``degenerate_tail`` summary that lists the
+points whose run manifest has no ``degenerate_tail`` record (written before
+the runner recorded it)."""
 
 _THESIS_NAMES: Final[Mapping[str, str]] = {"noise_level": "noise_value"}
 """Sweep parameters whose thesis name differs (``sweeps.yaml``)."""
@@ -1020,7 +1049,8 @@ def _run_sweep(
     path = _manifest_path(store, identity)
     seconds = time.perf_counter() - start
     result = SweepResult(identity, parameter, source, tuple(results), path, seconds)
-    _write_json(path, _manifest(config, spec, data, policy, result))
+    tails = [_degenerate_tail(store, r.outcome.run_id) for r in results]
+    _write_json(path, _manifest(config, spec, data, policy, result, tails))
     _log.info(
         "sweep %s: %d points, %d cached, %d failed, %.1f s; manifest %s",
         parameter,
@@ -1033,14 +1063,54 @@ def _run_sweep(
     return result
 
 
+def _degenerate_tail(store: ResultStore, run_id: str) -> dict[str, str] | None:
+    """Return the flagged design problems of a stored run, from its manifest.
+
+    A mapping of ``problem_id`` to ``degenerate_tail`` for the problems with a
+    flag; ``{}`` if none has one; None if a problem entry of the manifest has
+    no ``degenerate_tail`` key (a manifest written before the runner recorded
+    it). See the module docstring, "Degenerate tail objectives".
+    """
+    problems = store.manifest(run_id)["problems"]
+    if any("degenerate_tail" not in p for p in problems):
+        return None
+    return {
+        str(p["problem_id"]): str(p["degenerate_tail"])
+        for p in problems
+        if p["degenerate_tail"] is not None
+    }
+
+
+def _degenerate_tail_summary(
+    tails: Sequence[Mapping[str, str] | None],
+) -> dict[str, list[int]]:
+    """Return the sweep manifest's ``degenerate_tail``: point numbers per flag."""
+    summary: dict[str, list[int]] = {
+        flag: [] for flag in (*DEGENERATE_TAILS, DEGENERATE_TAIL_NOT_RECORDED)
+    }
+    for number, tail in enumerate(tails):
+        if tail is None:
+            summary[DEGENERATE_TAIL_NOT_RECORDED].append(number)
+            continue
+        for flag in DEGENERATE_TAILS:
+            if flag in tail.values():
+                summary[flag].append(number)
+    return summary
+
+
 def _manifest(
     config: ExperimentConfig,
     spec: SweepConfig,
     data: RunInput,
     policy: SolverPolicy,
     result: SweepResult,
+    tails: Sequence[Mapping[str, str] | None],
 ) -> dict[str, Any]:
-    """Return the JSON manifest of a finished sweep."""
+    """Return the JSON manifest of a finished sweep.
+
+    ``tails`` holds the flagged design problems of each point's run
+    (:func:`_degenerate_tail`), in point order.
+    """
     return {
         "format": SWEEP_MANIFEST_FORMAT,
         "sweep_id": result.sweep_id,
@@ -1057,6 +1127,7 @@ def _manifest(
         "n_points": len(result.points),
         "n_cached": result.n_cached,
         "n_failed": len(result.failed),
+        "degenerate_tail": _degenerate_tail_summary(tails),
         "points": [
             {
                 "point": number,
@@ -1069,10 +1140,11 @@ def _manifest(
                 "cached": r.outcome.cached,
                 "ok": r.outcome.ok,
                 "failed": list(r.outcome.failed),
+                "degenerate_tail": None if tail is None else dict(tail),
                 **_cap_record(r.point),
                 **_fold_record(r.point),
             }
-            for number, r in enumerate(result.points)
+            for number, (r, tail) in enumerate(zip(result.points, tails, strict=True))
         ],
     }
 

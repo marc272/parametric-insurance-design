@@ -1,0 +1,30 @@
+{
+  "issue": "MAR-224",
+  "package_versions": {
+    "parametric-insurance-design": "0.1.0.dev0",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1",
+    "pandas": "3.1.0",
+    "pyarrow": "26.0.0",
+    "pydantic": "2.14.1",
+    "pyyaml": "6.0.3",
+    "cvxpy": "1.9.3",
+    "clarabel": "0.11.1",
+    "osqp": "1.1.3",
+    "scs": "3.3.1",
+    "highspy": "1.15.1"
+  },
+  "thesis_designs": 736,
+  "thesis_qp_designs": 702,
+  "thesis_skipped": [
+    "c1-f12 f12|vuln_basins_null|annual|pure|k1: EventSet thesis-iris-vulnerability-basins-null not found",
+    "c1-f12 f12|vuln_basins_null|annual|coc_r0.06|k1: EventSet thesis-iris-vulnerability-basins-null not found"
+  ],
+  "thesis_default_max_rel_gap": 4.042092809468246e-05,
+  "thesis_thesis_policy_max_rel_gap": 0.004862026848573278,
+  "thesis_default_not_optimal": 0,
+  "thesis_thesis_policy_not_optimal": 1,
+  "thesis_default_linsys_error": 0,
+  "thesis_thesis_policy_linsys_error": 0,
+  "phase_seconds": 936.7
+}

@@ -1,4 +1,4 @@
-"""Run executor with a content-hashed cache (SPEC §4.2, thesis issues C3, C5).
+"""Run executor with a content-hashed cache.
 
 Executes one configured run end to end and persists it in a
 :class:`~parametric_insurance_design.experiment.store.ResultStore`:

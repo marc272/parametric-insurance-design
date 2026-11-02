@@ -1,12 +1,13 @@
-"""Experiment configuration schema (SPEC §4.2, thesis issues C2, C4, C8).
+"""Experiment configuration schema.
 
 Typed, validated configuration of one experiment: the EventSet, the
 portfolio subset, the noise layer, the threshold filter, the outcome
 basis, the sample, the payout structure, the scopes, the objectives, the
 pricing, the extra constraints, the evaluation, the one-factor-at-a-time
-sweeps and the output location. It replaces the thesis' four YAML files and
-the notebook globals (``parity/configs/thesis.yaml`` is the migrated thesis
-configuration, written by ``parity/scripts/migrate_thesis_config.py``).
+sweeps and the output location. It replaces the thesis' four YAML files,
+the notebook globals and the paths and parameters its code hard-coded
+(``parity/configs/thesis.yaml`` is the migrated thesis configuration, written
+by ``parity/scripts/migrate_thesis_config.py``).
 
 Every model forbids unknown keys, and numbers are strict: booleans and
 strings are not numbers, floats must be finite, and integer fields take
@@ -316,7 +317,7 @@ class NoiseConfig(_Model):
         Seed of the generator, >= 0 (thesis ``RANDOM_SEED``).
     bounds : tuple of float, default (20.0, 70.0)
         Index range of the heteroscedastic ramp, ``low < high``. The thesis
-        hard-coded its attachment and limit (SPEC §3.1, C4).
+        hard-coded it as 20 to 70, its attachment and limit.
     """
 
     kind: NoiseKind
@@ -874,7 +875,7 @@ class EvaluationConfig(_Model):
 
 
 class BootstrapConfig(_Model):
-    """Block-bootstrap confidence intervals of the KPIs (SPEC §6.1).
+    """Block-bootstrap confidence intervals of the KPIs.
 
     The runner resamples the years of every evaluation sample
     (``bootstrap.resample_years``) and fills the ``ci_*`` columns of the

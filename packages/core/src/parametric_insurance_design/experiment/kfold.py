@@ -1,65 +1,68 @@
-"""Pooled out-of-sample KPIs of a k-fold experiment (SPEC §6.1).
+"""Pooled out-of-sample KPIs of a k-fold experiment.
 
-A k-fold experiment stores a run per scope x objective x fold (ADR 0002
-§7), so each scope x objective has ``k`` out-of-sample KPI values, each over
-``1/k`` of the years. This module combines the folds into one out-of-sample
+A k-fold experiment stores a run per scope x objective x fold, so each
+scope x objective has ``k`` out-of-sample KPI values, each over ``1/k`` of the
+years. This module combines the folds into one out-of-sample
 KPI per scope x objective, computed on demand from the result store; nothing
 is written to the store and no record table changes. Method notes:
 ``docs/methodology/out-of-sample.md``.
 
 The pooled rule
-    * The ``k`` test blocks of ``splits.year_block_kfold`` partition the
-      years, so every row (and every year) is evaluated by exactly one
-      design: the one calibrated on the other ``k - 1`` blocks.
-    * The **pooled payout** of a row is that design's portfolio payout. With
-      the row's portfolio loss it forms one out-of-sample sample over **all**
-      years, and the pooled KPIs are the ``evaluate`` KPIs of that sample on
-      the evaluation measure of all years (``Sample.full``).
-    * Only the **portfolio level** is pooled. Entity and design-problem
-      subjects are not comparable across folds: the cluster scope's partition
-      differs per fold, so "cluster C1" of fold 0 is not that of fold 1.
-      Under an allocation rule (``evaluation.allocation``) each
-      fold's run stores per-location rows (``location_by_value`` or
-      ``location_by_loss``) for its ``train`` and ``test`` samples; they stay
-      in the store as written and are not pooled either. The pooled table is
-      the same under every rule, and the drift guard compares the portfolio
-      rows only.
-    * **Paired intervals.** One ``bootstrap.resample_years(all_years, B,
-      default_rng(seed))`` (the config's ``bootstrap`` section) is drawn
-      once and shared by every design, so differences between designs are
-      paired (:func:`pooled_difference`). The replicates are
-      ``bootstrap.kpi_replicates`` of the pooled loss and payout, and, for
-      the premium, ``bootstrap.premium_replicates`` of the pooled payout;
-      the intervals are ``bootstrap.percentile_interval``.
-    * **Rejected: the mean of the per-fold KPIs.** A tail KPI (VaR, CVaR)
-      from ``1/k`` of the years is noisier than one from all years, and the
-      mean of ``k`` CVaRs is not the CVaR of any distribution.
+---------------
+* The ``k`` test blocks of ``splits.year_block_kfold`` partition the
+  years, so every row (and every year) is evaluated by exactly one
+  design: the one calibrated on the other ``k - 1`` blocks.
+* The **pooled payout** of a row is that design's portfolio payout. With
+  the row's portfolio loss it forms one out-of-sample sample over **all**
+  years, and the pooled KPIs are the ``evaluate`` KPIs of that sample on
+  the evaluation measure of all years (``Sample.full``).
+* Only the **portfolio level** is pooled. Entity and design-problem
+  subjects are not comparable across folds: the cluster scope's partition
+  differs per fold, so "cluster C1" of fold 0 is not that of fold 1.
+  Under an allocation rule (``evaluation.allocation``) each
+  fold's run stores per-location rows (``location_by_value`` or
+  ``location_by_loss``) for its ``train`` and ``test`` samples; they stay
+  in the store as written and are not pooled either. The pooled table is
+  the same under every rule, and the drift guard compares the portfolio
+  rows only.
+* **Paired intervals.** One ``bootstrap.resample_years(all_years, B,
+  default_rng(seed))`` (the config's ``bootstrap`` section) is drawn
+  once and shared by every design, so differences between designs are
+  paired (:func:`pooled_difference`). The replicates are
+  ``bootstrap.kpi_replicates`` of the pooled loss and payout, and, for
+  the premium, ``bootstrap.premium_replicates`` of the pooled payout;
+  the intervals are ``bootstrap.percentile_interval``.
+* **Rejected: the mean of the per-fold KPIs.** A tail KPI (VaR, CVaR)
+  from ``1/k`` of the years is noisier than one from all years, and the
+  mean of ``k`` CVaRs is not the CVaR of any distribution.
 
 Without re-solving
-    Each fold's design is read from the store: ``entities`` gives its
-    ``ProblemSpec`` objects, ``payouts`` its levels ``theta``; the payout
-    structure, scope, basis and pricing come from the config. A row's test
-    payout is ``payout.evaluate(scope.materialise(test_data,
-    spec).index, theta)`` on the prepared EventSet split with
-    ``splits.year_block_kfold``. Nothing is solved.
+------------------
+Each fold's design is read from the store: ``entities`` gives its
+``ProblemSpec`` objects, ``payouts`` its levels ``theta``; the payout
+structure, scope, basis and pricing come from the config. A row's test
+payout is ``payout.evaluate(scope.materialise(test_data,
+spec).index, theta)`` on the prepared EventSet split with
+``splits.year_block_kfold``. Nothing is solved.
 
 No silent failures
-    * **Drift guard.** Each fold's portfolio KPIs on its test block are
-      recomputed from those payouts and compared with the ``kpis`` rows the
-      runner stored (``eval_split = "test"``); a mismatch raises
-      :class:`FoldDriftError`. So are stored bin edges that differ from the
-      config's payout structure, and a prepared EventSet whose content hash
-      differs from the runs' manifests.
-    * A run that is not in the store, or a run that is not the expected fold
-      of the expected scope x objective (its config hash, sample, ``k``,
-      fold, scope and objective are checked), raises
-      :class:`PooledKFoldError`.
-    * A scope x objective with a failed fold (a failed design problem, so no
-      KPIs) is not pooled; it is listed in :attr:`PooledKpis.failed` with the
-      reason, never dropped quietly.
-    * A KPI undefined in some replicate gets null bounds, with ``ci_level``
-      and ``n_bootstrap`` set (as in the ``kpis`` table);
-      :attr:`PooledKpis.n_undefined` counts its undefined replicates.
+------------------
+* **Drift guard.** Each fold's portfolio KPIs on its test block are
+  recomputed from those payouts and compared with the ``kpis`` rows the
+  runner stored (``eval_split = "test"``); a mismatch raises
+  :class:`FoldDriftError`. So are stored bin edges that differ from the
+  config's payout structure, and a prepared EventSet whose content hash
+  differs from the runs' manifests.
+* A run that is not in the store, or a run that is not the expected fold
+  of the expected scope x objective (its config hash, sample, ``k``,
+  fold, scope and objective are checked), raises
+  :class:`PooledKFoldError`.
+* A scope x objective with a failed fold (a failed design problem, so no
+  KPIs) is not pooled; it is listed in :attr:`PooledKpis.failed` with the
+  reason, never dropped quietly.
+* A KPI undefined in some replicate gets null bounds, with ``ci_level``
+  and ``n_bootstrap`` set (as in the ``kpis`` table);
+  :attr:`PooledKpis.n_undefined` counts its undefined replicates.
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
-"""Payout structures (SPEC §4.2, §6 notation).
+"""Payout structures.
 
 The interface is
-:class:`~parametric_insurance_design.interfaces.PayoutStructure` (ADR 0002).
+:class:`~parametric_insurance_design.interfaces.PayoutStructure`.
 
 :class:`StepPayout` pays ``theta[j, k]`` when entity ``j``'s index falls in
 bin ``k``: ``pi_{e,j} = sum_k theta_{j,k} * 1[xi_{e,j} in B_k]``, with
@@ -10,7 +10,7 @@ at or above ``breakpoints[-1]`` are clipped into the last bin, as in the
 thesis ``_mapping``. Values below ``breakpoints[0]`` are clipped into the
 first bin (``below_attachment="first_bin"``, the default and the thesis code)
 or pay nothing (``below_attachment="zero"``). Piecewise-linear payouts are
-out of scope (SPEC §9); they would be another subclass.
+not implemented; they would be another subclass.
 
 Bin semantics (thesis ``OptimizationConstructor._mapping`` and
 ``get_payout_for_asset``, reproduced exactly under ``"first_bin"``):
@@ -32,10 +32,10 @@ Bin semantics (thesis ``OptimizationConstructor._mapping`` and
   filter dropped and years without rows are outcomes that pay nothing. Under
   ``"zero"`` a kept row whose index is below the attachment at every entity
   pays nothing too, so dropping such rows with zero loss changes neither the
-  design nor its premium: the filter is then for speed only, as SPEC §5 says.
-  Under ``"first_bin"`` such a kept row pays ``theta[j, 0]`` and a dropped
-  one pays nothing, so the design depends on which rows the EventSet holds
-  (ADR 0002, ``payout.py`` row; ``tests/test_filter_invariance.py``).
+  design nor its premium: the filter is then for speed only, as a threshold
+  filter is meant to be. Under ``"first_bin"`` such a kept row pays
+  ``theta[j, 0]`` and a dropped one pays nothing, so the design depends on
+  which rows the EventSet holds (``tests/test_filter_invariance.py``).
 * Values at or above the limit ``b_n`` fall into the last bin. The thesis
   clips to ``b_n - 1e-12`` before the lookup; this module does the same and
   then clamps the bin number into ``[0, n_bins - 1]``, as
@@ -347,7 +347,7 @@ class StepPayout(PayoutStructure):
             at most one 1: exactly one under ``below_attachment="first_bin"``
             (thesis ``_mapping``); under ``"zero"`` a row whose index is
             below the attachment is all zeros, so it pays nothing for every
-            ``theta`` (ADR 0002, ``payout.py`` row).
+            ``theta``.
 
         Raises
         ------

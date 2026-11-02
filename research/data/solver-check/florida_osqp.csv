@@ -1,0 +1,11 @@
+config_hash,fold,variant,solver,options,cvxpy_status,objective,theta_all_zero,theta_max_scaled,seconds,status_polish,polish,osqp_status,osqp_iter,osqp_obj_val,osqp_x_zero,solver_status,solver_iter,solver_time,rel_gap_vs_clarabel,stored_objective
+5318734bca7e,0,clarabel,CLARABEL,{},optimal,1.372792333e+21,False,0.06218219434,32.9,,,,,,,optimal,17,17.10356688,0,2.279697e+21
+5318734bca7e,0,clarabel_tight,CLARABEL,"{""max_iter"": 500, ""tol_feas"": 1e-10, ""tol_gap_abs"": 1e-10, ""tol_gap_rel"": 1e-10}",optimal,1.372786513e+21,False,0.06218240548,38.3,,,,,,,optimal,20,21.39102337,-4.239660808e-06,2.279697e+21
+5318734bca7e,0,osqp_default,OSQP,"{""eps_abs"": 1e-08, ""eps_rel"": 1e-08, ""max_iter"": 100000}",optimal,2.279696604e+21,True,0,261.1,-2,linsys_error,solved,16600,0.0005326364582,True,,,,0.6606274301,2.279697e+21
+5318734bca7e,0,osqp_no_polish,OSQP,"{""eps_abs"": 1e-08, ""eps_rel"": 1e-08, ""max_iter"": 100000, ""polishing"": false}",optimal,1.372786429e+21,False,0.06218165396,260.5,0,not_performed,solved,16600,0.0005326364582,False,,,,-4.30072332e-06,2.279697e+21
+5318734bca7e,0,osqp_thesis,OSQP,{},optimal,1.372802306e+21,False,0.06216399612,19.6,-1,failed,solved,225,0.0005326426184,False,,,,7.264755026e-06,2.279697e+21
+8dd6c28a7ed9,4,clarabel,CLARABEL,{},optimal,1.48626004e+21,False,0.06156510448,29.4,,,,,,,optimal,17,13.34930121,0,2.480333e+21
+8dd6c28a7ed9,4,clarabel_tight,CLARABEL,"{""max_iter"": 500, ""tol_feas"": 1e-10, ""tol_gap_abs"": 1e-10, ""tol_gap_rel"": 1e-10}",optimal,1.486255555e+21,False,0.06158328748,39.5,,,,,,,optimal,21,22.61116837,-3.017432148e-06,2.480333e+21
+8dd6c28a7ed9,4,osqp_default,OSQP,"{""eps_abs"": 1e-08, ""eps_rel"": 1e-08, ""max_iter"": 100000}",optimal,2.480333433e+21,True,0,455.3,-2,linsys_error,solved,34250,0.0005766620739,True,,,,0.6688421718,2.480333e+21
+8dd6c28a7ed9,4,osqp_no_polish,OSQP,"{""eps_abs"": 1e-08, ""eps_rel"": 1e-08, ""max_iter"": 100000, ""polishing"": false}",optimal,1.486255507e+21,False,0.06158416576,455,0,not_performed,solved,34250,0.0005766620739,False,,,,-3.049937345e-06,2.480333e+21
+8dd6c28a7ed9,4,osqp_thesis,OSQP,{},optimal,1.486282072e+21,False,0.06158317576,21,-1,failed,solved,150,0.0005766723809,False,,,,1.482378548e-05,2.480333e+21

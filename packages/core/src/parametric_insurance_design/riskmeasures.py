@@ -1,32 +1,32 @@
 """Risk measures of discrete distributions: VaR, CVaR, lower quantiles.
 
-Pure numpy, below both the problem components and the evaluation
-(ADR 0002 §10): ``pricing.CostOfCapitalLoad`` prices a realised payout with
+Pure numpy, below both the problem components and the evaluation:
+``pricing.CostOfCapitalLoad`` prices a realised payout with
 :func:`var_cvar`, and ``evaluate`` reports it (KPIs) and uses
 :func:`lower_quantile` for the exceedance curves, so both read one
 definition. ``evaluate`` re-exports :func:`var_cvar`.
 
 Quantiles on a step of the distribution: strict, as in the thesis
-    The VaR is the smallest value whose cumulative probability reaches
-    ``beta``, and :func:`lower_quantile` (so :func:`var_cvar` and the
-    exceedance curves) compares the cumulative probability with the level
-    **exactly**, as the thesis ``calculate_var_cvar`` and
-    ``_weighted_quantile`` do. When the level falls exactly on a step of the
-    distribution (e.g. ``beta = 0.8`` with 40 equally likely years, or
-    ``beta = 0.95`` with a multiple of 20 equally likely events), the summed
-    probabilities land a rounding error above or below it, depending on the
-    summation order of tied rows (``numpy.argsort`` of tied values, which
-    differs between platforms, e.g. Linux and macOS). The result is then
-    either of the two adjacent atoms: the exact-arithmetic lower one or the
-    next one up. Kept strict so that the parity reports stay byte-identical
-    with the thesis golden values (ADR 0002, ``riskmeasures.py`` row; a
-    tolerance moved 162 ``VaR_Uncovered`` values of the asset-count sweep to
-    the lower atom). The quantile is therefore not platform-independent on
-    an exact step.
+-----------------------------------------------------------------
+The VaR is the smallest value whose cumulative probability reaches
+``beta``, and :func:`lower_quantile` (so :func:`var_cvar` and the
+exceedance curves) compares the cumulative probability with the level
+**exactly**, as the thesis ``calculate_var_cvar`` and
+``_weighted_quantile`` do. When the level falls exactly on a step of the
+distribution (e.g. ``beta = 0.8`` with 40 equally likely years, or
+``beta = 0.95`` with a multiple of 20 equally likely events), the summed
+probabilities land a rounding error above or below it, depending on the
+summation order of tied rows (``numpy.argsort`` of tied values, which
+differs between platforms, e.g. Linux and macOS). The result is then
+either of the two adjacent atoms: the exact-arithmetic lower one or the
+next one up. Kept strict so that the parity reports stay byte-identical
+with the thesis golden values (a tolerance moved 162 ``VaR_Uncovered``
+values of the asset-count sweep to the lower atom). The quantile is
+therefore not platform-independent on an exact step.
 
-    The bootstrap (``bootstrap.py``) does use a tolerance,
-    :data:`CDF_ATOL`, in its vectorised VaR, and accepts either adjacent
-    atom when it checks its point values against ``evaluate.kpis``.
+The bootstrap (``bootstrap.py``) does use a tolerance,
+:data:`CDF_ATOL`, in its vectorised VaR, and accepts either adjacent
+atom when it checks its point values against ``evaluate.kpis``.
 """
 
 from __future__ import annotations

@@ -138,6 +138,34 @@ rows) and ``runs`` (the exported runs with a joint problem,
 shows per-entity payouts of a joint design shows the caption with them. The
 key and the column are additive, so the format version stays 1.
 
+Degenerate tail objectives
+--------------------------
+The runner records, per design problem on its calibration sample,
+``p_zero_loss`` (``P(L_o = 0)``), ``tail_outcomes`` and ``degenerate_tail``
+(:mod:`~parametric_insurance_design_viz.degenerate_tail`): a weighted-CVaR
+problem with ``beta <= P(L_o = 0)`` is ``"expected_uncovered"`` (its
+objective equals E[U], with the same minimisers), one whose CVaR tail holds
+at most one outcome ``"single_outcome"``. The bundle carries them:
+
+* every ``kpis`` table (baseline and sweeps) has two more columns,
+  ``p_zero_loss`` (float) and ``degenerate_tail`` (string), the values of the
+  row's design problem. A row of several design problems (``problem_id =
+  "*"``, the portfolio rows of a run with more than one problem) has a null
+  ``p_zero_loss`` and the run's flag: that of any of its problems,
+  ``expected_uncovered`` first. A run whose manifest predates the record has
+  nulls in both; the manifest lists it;
+* every problem of ``runs.json`` has the three values (null if not
+  recorded);
+* the manifest's ``degenerate_tail`` section has the ``rule``, the
+  ``notes`` (one plain-text statement per flag, for a page to show next to a
+  flagged result), the flagged ``runs`` (``run_id``, ``scope_key``,
+  ``objective``, the ``problems`` with their flags; in ``runs.json`` order)
+  and the runs ``not_recorded``.
+
+The columns and the section are additive, so the format version stays 1.
+The pooled k-fold table has no such columns: its fold runs' flags are in
+``runs.json`` and the manifest section.
+
 Rules (stated in the manifest, under ``rules``)
 -----------------------------------------------
 * **Infinity.** Strict JSON has no infinities, and Arrow JS hands them to
@@ -234,6 +262,13 @@ from parametric_insurance_design.records import KpiLevel, Split
 from parametric_insurance_design.scopes import Individual
 from parametric_insurance_design_viz import style
 from parametric_insurance_design_viz.command import SweepRun
+from parametric_insurance_design_viz.degenerate_tail import (
+    DEGENERATE_TAIL_TEXT,
+    DEGENERATE_TAILS,
+    ProblemTail,
+    problem_tails,
+    run_degenerate_tail,
+)
 from parametric_insurance_design_viz.errors import (
     InconsistentRunsError,
     MissingRunError,
@@ -397,6 +432,28 @@ _JOINT_RULE: Final[str] = (
     "lists the exported runs with such a problem. The individual scope and a "
     "cluster scope calibrated cluster by cluster (scope_key cluster_separate) "
     "have one entity per problem: their rows have joint false."
+)
+_NO_P_ZERO: Final[str] = (
+    "not recorded: a row of several design problems (problem_id '*'; each "
+    "problem's value is in runs.json), or a run whose manifest predates the "
+    "record (listed under the manifest's degenerate_tail.not_recorded)"
+)
+_NOT_DEGENERATE: Final[str] = (
+    "no flag: the row's design problem (on a problem_id '*' row, every design "
+    "problem of the run) is not flagged, its objective is not weighted CVaR, "
+    "or its run's manifest predates the record (listed under the manifest's "
+    "degenerate_tail.not_recorded)"
+)
+_DEGENERATE_RULE: Final[str] = (
+    "The runner records, per design problem on its calibration sample, "
+    "p_zero_loss = P(L_o = 0), the probability of the outcomes without loss, "
+    "and flags a weighted-CVaR problem: expected_uncovered when beta <= "
+    "P(L_o = 0), single_outcome when its CVaR tail holds at most one outcome "
+    "(notes states each). The kpis tables carry p_zero_loss and the flag of "
+    "each row's design problem; a problem_id '*' row has the run's flag "
+    "(that of any of its problems, expected_uncovered first). runs lists the "
+    "flagged runs with their flagged problems, not_recorded the runs whose "
+    "manifest predates the record."
 )
 _NO_NAME: Final[str] = "the EventSet gives the location no name"
 _NO_POOLED_CI: Final[str] = (
@@ -866,6 +923,8 @@ _KPI_COLUMNS: Final[tuple[_Col, ...]] = (
     _Col("ci_high", "float", null=_NO_CI),
     _Col("ci_level", "float", null=_NO_CI),
     _Col("n_bootstrap", "int", null=_NO_CI),
+    _Col("p_zero_loss", "float", null=_NO_P_ZERO),
+    _Col("degenerate_tail", "str", null=_NOT_DEGENERATE),
 )
 _EXCEEDANCE_COLUMNS: Final[tuple[_Col, ...]] = (
     *_EVAL_COLUMNS,
@@ -1133,6 +1192,70 @@ def _table(
     return _frame((_labelled(getattr(r.run, name), r) for r in runs), columns)
 
 
+def _kpis(runs: Sequence[_Exported]) -> pd.DataFrame:
+    """Return the ``kpis`` rows of some runs, with their degenerate-tail record.
+
+    ``p_zero_loss`` and ``degenerate_tail`` of the row's design problem; on a
+    ``problem_id = "*"`` row, null and the run's flag; nulls for a run
+    without a record (module docstring, "Degenerate tail objectives").
+    """
+    parts: list[pd.DataFrame] = []
+    for item in runs:
+        kpis = item.run.kpis
+        tails = problem_tails(item.run)
+        by_problem = {t.problem_id: t for t in tails or ()}
+        run_flag = run_degenerate_tail(item.run)
+        p_zero: list[float | None] = []
+        flags: list[str | None] = []
+        for problem_id in kpis["problem_id"].astype(str):
+            tail = by_problem.get(problem_id)
+            if tail is not None:
+                p_zero.append(tail.p_zero_loss)
+                flags.append(tail.degenerate_tail)
+            else:
+                p_zero.append(None)
+                flags.append(run_flag if tails is not None else None)
+        frame = kpis.assign(
+            p_zero_loss=pd.array(p_zero, dtype="Float64"),
+            degenerate_tail=pd.array(flags, dtype=object),
+        )
+        parts.append(_labelled(frame, item))
+    return _frame(parts, _KPI_COLUMNS)
+
+
+def _degenerate_section(
+    runs: Sequence[RunResult], scope_key: Mapping[str, str]
+) -> dict[str, Any]:
+    """Return the manifest's ``degenerate_tail`` section of the exported runs."""
+    flagged: list[dict[str, Any]] = []
+    not_recorded: list[str] = []
+    for run in runs:
+        tails = problem_tails(run)
+        if tails is None:
+            not_recorded.append(run.run_id)
+            continue
+        problems = {
+            t.problem_id: t.degenerate_tail
+            for t in tails
+            if t.degenerate_tail is not None
+        }
+        if problems:
+            flagged.append(
+                {
+                    "run_id": run.run_id,
+                    "scope_key": scope_key[run.run_id],
+                    "objective": run.objective,
+                    "problems": problems,
+                }
+            )
+    return {
+        "rule": _DEGENERATE_RULE,
+        "notes": {flag: DEGENERATE_TAIL_TEXT[flag] for flag in DEGENERATE_TAILS},
+        "runs": flagged,
+        "not_recorded": not_recorded,
+    }
+
+
 def _rows(frame: pd.DataFrame, mask: object) -> pd.DataFrame:
     """Return the rows of ``frame`` where ``mask`` is true."""
     return cast(pd.DataFrame, frame.loc[np.asarray(mask, dtype=bool)])
@@ -1307,6 +1430,7 @@ def _events(
 
 def _run_entry(run: RunResult, scope_key: str) -> dict[str, Any]:
     rows = run.runs
+    tails = {t.problem_id: t for t in problem_tails(run) or ()}
     problems = [
         {
             "problem_id": str(row["problem_id"]),
@@ -1318,6 +1442,7 @@ def _run_entry(run: RunResult, scope_key: str) -> dict[str, Any]:
             "error_message": (
                 None if row["error_message"] is None else str(row["error_message"])
             ),
+            **_tail_entry(tails.get(str(row["problem_id"]))),
         }
         for row in rows.to_dict("records")
     ]
@@ -1336,6 +1461,17 @@ def _run_entry(run: RunResult, scope_key: str) -> dict[str, Any]:
         "parameters": run.parameters,
         "complete": run.complete,
         "problems": problems,
+    }
+
+
+def _tail_entry(tail: ProblemTail | None) -> dict[str, Any]:
+    """``p_zero_loss``, ``tail_outcomes`` and ``degenerate_tail`` of a problem."""
+    if tail is None:
+        return {"p_zero_loss": None, "tail_outcomes": None, "degenerate_tail": None}
+    return {
+        "p_zero_loss": _optional(tail.p_zero_loss),
+        "tail_outcomes": _optional(tail.tail_outcomes),
+        "degenerate_tail": tail.degenerate_tail,
     }
 
 
@@ -1711,6 +1847,9 @@ def export_site(
         manifest["map"] = map_section
     if kfold_section is not None:
         manifest["kfold"] = kfold_section
+    manifest["degenerate_tail"] = _degenerate_section(
+        [results[r] for r in all_ids if r not in skipped], scope_key
+    )
     manifest["joint"] = {
         "rule": _JOINT_RULE,
         "caption": JOINT_CAPTION,
@@ -2068,7 +2207,7 @@ def _add_group(
     labels = _RUN_COLUMNS if parameter is None else (*_RUN_COLUMNS, _SWEEP_VALUE)
     slices: tuple[tuple[str, pd.DataFrame, tuple[_Col, ...]], ...] = (
         ("payouts", _payouts(runs), _PAYOUT_COLUMNS),
-        ("kpis", _table(runs, "kpis", _KPI_COLUMNS), _KPI_COLUMNS),
+        ("kpis", _kpis(runs), _KPI_COLUMNS),
         (
             "exceedance",
             _table(runs, "exceedance", _EXCEEDANCE_COLUMNS),
