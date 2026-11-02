@@ -79,8 +79,10 @@ import c1_rq2 as rq2
 import cvxpy as cp
 import numpy as np
 import pandas as pd
+from individual_nonuniqueness import SplitData
 
 from parametric_insurance_design import splits
+from parametric_insurance_design.basis import outcome_measure
 from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.experiment.config import (
     ExperimentConfig,
@@ -88,6 +90,7 @@ from parametric_insurance_design.experiment.config import (
     load_config,
 )
 from parametric_insurance_design.experiment.runner import package_versions, run_key
+from parametric_insurance_design.interfaces import Sample
 from parametric_insurance_design.problem import BuiltProblem, build_problems
 from parametric_insurance_design.riskmeasures import var_cvar
 from parametric_insurance_design.solve import DEFAULT_POLICY, solve
@@ -1352,6 +1355,394 @@ def run_sens(args: argparse.Namespace, family: str) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------
+# Phase (e): joint - individual over both optimal sets
+# --------------------------------------------------------------------------
+
+MAR198_FULL: Final[Path] = Path(
+    os.environ.get("MAR198_FULL", str(REPO_ROOT / "results" / "mar198"))
+)
+E_KPIS: Final[tuple[tuple[str, str, float | None], ...]] = (
+    ("test", "expected_uncovered", None),
+    ("test", "cvar_uncovered", 0.95),
+    ("test", "cvar_uncovered", 0.99),
+    ("test", "cvar_uncovered", 0.995),
+    ("train", "cvar_uncovered", 0.99),
+)
+"""(split, KPI, KPI beta) whose range over each joint design's near-optimal
+set is measured: every test KPI of C1 6b, and the in-sample tail."""
+ALL_LABELS: Final[tuple[str, ...]] = ("eu", "cvar@0.95", "cvar@0.99", "cvar@0.995")
+PROJECT_MARGIN: Final[float] = 1e-6
+
+
+def klabel(kpi: str, beta: float | None) -> str:
+    """Return MAR-198's KPI label, e.g. ``"cvar@0.99"`` or ``"eu"``."""
+    return "eu" if beta is None else f"cvar@{beta:g}"
+
+
+def _kpi_args(label: str) -> tuple[str, float | None]:
+    if label == "eu":
+        return "expected_uncovered", None
+    return "cvar_uncovered", float(label.split("@")[1])
+
+
+class JointRanger:
+    """Range programs over one joint design's near-optimal set (scaled).
+
+    The set is C1 T11's (:class:`JointSet`), with the MSE objective's
+    quadratic constraint in the exact compact form
+    (:meth:`JointSet.compact_mse_constraint`).
+
+    Parameters
+    ----------
+    js : JointSet
+        The design problem, re-solved.
+    """
+
+    def __init__(self, js: JointSet) -> None:
+        self.js = js
+        ctx = js.ctx
+        if js.objective.name == "mse":
+            objective_cons = [js.compact_mse_constraint()]
+        else:
+            objective_cons = [js.built.objective.expression <= js.bound]
+        self.constraints = [*js.built.problem.constraints, *objective_cons]
+        shape = tuple(ctx.theta.shape)
+        self.cost = cp.Parameter(shape, name="cost")
+        self.lp = cp.Problem(
+            cp.Minimize(cp.sum(cp.multiply(self.cost, ctx.theta))), self.constraints
+        )
+        limit = js.budget.loading * ctx.measure.expectation(ctx.loss)  # type: ignore[attr-defined]
+        self.target = cp.Parameter(shape, name="target")
+        gap = cp.Variable(name="gap")
+        self.projection = cp.Problem(
+            cp.Minimize(gap),
+            [
+                *js.built.problem.constraints,
+                *objective_cons,
+                js.built.premium.expression <= (1.0 - PROJECT_MARGIN) * limit,
+                ctx.theta - self.target <= gap,
+                self.target - ctx.theta <= gap,
+            ],
+        )
+
+    @property
+    def scale(self) -> float:
+        """The problem's loss scale."""
+        return float(self.js.ctx.scale)
+
+    def _theta(self) -> np.ndarray | None:
+        value = self.js.ctx.theta.value
+        return None if value is None else np.asarray(value, dtype=np.float64).copy()
+
+    def admit(self, theta: np.ndarray) -> tuple[np.ndarray | None, str]:
+        """Return ``theta`` (scaled) if in the set, else its projection, else None."""
+        from individual_nonuniqueness import solve_range
+
+        if not np.all(np.isfinite(theta)):
+            return None, "outside_set"
+        if self.js.inside(self.js.check(theta)):
+            return theta, ""
+        self.target.value = theta
+        self.js.ctx.theta.value = None
+        solve_range(self.projection)
+        proj = self._theta()
+        if proj is not None and self.js.inside(self.js.check(proj)):
+            return proj, "projected"
+        return None, "outside_set"
+
+    def minimise_kpi(
+        self, sd: SplitData, beta: float | None, reference: float
+    ) -> tuple[np.ndarray | None, str]:
+        """Smallest portfolio KPI of a split over the set (one convex program)."""
+        from individual_nonuniqueness import solve_range
+
+        from parametric_insurance_design.objectives import rockafellar_uryasev
+
+        ctx = self.js.ctx
+        norm = float(max(sd.loss.max(initial=0.0), 1.0))
+        payout = sum(
+            (b @ ctx.theta[j]) * (self.scale / norm) for j, b in enumerate(sd.basis)
+        )
+        u = sd.measure.aggregate_expression(cp.pos(sd.loss / norm - payout))
+        p = np.asarray(sd.measure.probability, dtype=np.float64)
+        goal = p @ u if beta is None else rockafellar_uryasev(u, p, beta)[0]
+        factor = norm / reference if reference > 0 else 1.0
+        prob = cp.Problem(cp.Minimize(goal * factor), self.constraints)
+        ctx.theta.value = None
+        status = solve_range(prob)
+        raw = self._theta()
+        if raw is None:
+            return None, status
+        theta, note = self.admit(raw)
+        return theta, f"{status} {note}".strip()
+
+    def maximise_kpi(
+        self, sd: SplitData, kpi: str, beta: float | None, start: np.ndarray
+    ) -> tuple[np.ndarray | None, int, str]:
+        """Largest KPI found by successive linearisation from ``start`` (scaled)."""
+        from individual_nonuniqueness import MAX_STEPS, STEP_RTOL, solve_range
+
+        current, note = self.admit(start)
+        if current is None:
+            return None, 0, "start outside_set"
+        notes = {f"start {note}"} if note else set()
+        value = sd.value(list(current * self.scale), kpi, beta)
+        for step in range(1, MAX_STEPS + 1):
+            w = sd.weights(list(current * self.scale), kpi, beta)
+            cost = np.vstack([b.T @ w for b in sd.basis])
+            top = float(np.max(np.abs(cost), initial=0.0))
+            self.cost.value = cost / top if top > 0 else cost
+            self.js.ctx.theta.value = None
+            status = solve_range(self.lp)
+            raw = self._theta()
+            nxt, note = (None, "no iterate") if raw is None else self.admit(raw)
+            if nxt is None:
+                return current, step, ";".join(["stopped " + status, *sorted(notes)])
+            if status != "optimal" or note:
+                notes.add(f"{status} {note}".strip())
+            new = sd.value(list(nxt * self.scale), kpi, beta)
+            if new <= value * (1.0 + STEP_RTOL) + 1e-9:
+                if new > value:
+                    current = nxt
+                return current, step, ";".join(["optimal", *sorted(notes)])
+            current, value = nxt, new
+        return current, MAX_STEPS, ";".join(["step limit", *sorted(notes)])
+
+
+def joint_split(
+    js: JointSet, cfg: ExperimentConfig, prepared: EventSet, sample: Sample
+) -> SplitData:
+    """Return MAR-198's ``SplitData`` for a joint design's entities on a split."""
+    comps = cfg.to_components()
+    data = sample.select(prepared)
+    measure = outcome_measure(data, comps.basis, years=sample.years)
+    problem = comps.scopes[0].materialise(data, js.ctx.problem.spec)
+    basis = [
+        dense(comps.payout.basis_matrix(problem.index[:, j]))
+        for j in range(problem.n_entities)
+    ]
+    loss = np.asarray(data.loss, dtype=np.float64).sum(axis=1)
+    return SplitData(sample, data, measure, loss, basis)
+
+
+def joint_range_worker(
+    pricing: str,
+    design: str,
+    scope: str,
+    member: tuple[ExperimentConfig, str],
+    store_root: str,
+) -> dict[str, Any]:
+    """Range one joint design's portfolio KPIs over its near-optimal set.
+
+    Returns
+    -------
+    dict
+        ``rows`` (per split and KPI: stored, alt, min, max found, statuses),
+        ``reps`` (test replicates of every candidate on the C1 resample),
+        ``point`` (candidate -> split -> label -> value), ``meta``.
+    """
+    from parametric_insurance_design.bootstrap import kpi_replicates, resample_years
+    from parametric_insurance_design.evaluate import kpis
+
+    t0 = time.perf_counter()
+    cfg, rid = member
+    comps = cfg.to_components()
+    js, stored = rebuild_joint(cfg, rid, Path(store_root))
+    ranger = JointRanger(js)
+    prepared = c1._prepared(cfg)
+    train, test = splits.holdout(prepared, train_fraction=0.7)
+    sd = {
+        "train": joint_split(js, cfg, prepared, train),
+        "test": joint_split(js, cfg, prepared, test),
+    }
+    scale = ranger.scale
+    stored_theta = np.vstack([r.theta for r in stored.results])
+    alt = solve(js.built, rq2.ALT_POLICY, pricing=comps.pricing)
+    lo, hi, _ = free_bin_family(js, stored_theta)
+    cand: dict[str, np.ndarray] = {
+        "stored": stored_theta,
+        "alt": np.asarray(alt.theta, dtype=np.float64),
+        "free_lo": lo,
+        "free_hi": hi,
+    }
+    statuses: dict[str, str] = {}
+    steps: dict[str, int] = {}
+    for split, kpi, beta in E_KPIS:
+        lab = f"{split}|{klabel(kpi, beta)}"
+        ref = sd[split].value(list(stored_theta), kpi, beta)
+        th, st = ranger.minimise_kpi(sd[split], beta, ref)
+        statuses[f"min|{lab}"] = st
+        if th is not None:
+            cand[f"min|{lab}"] = th * scale
+        best: tuple[float, np.ndarray | None, int, str] = (-math.inf, None, 0, "")
+        for start_name in ("stored", "alt"):
+            th, n, st = ranger.maximise_kpi(
+                sd[split], kpi, beta, cand[start_name] / scale
+            )
+            if th is None:
+                st = f"{start_name}: {st}"
+                if best[1] is None:
+                    best = (-math.inf, None, n, st)
+                continue
+            v = sd[split].value(list(th * scale), kpi, beta)
+            if v > best[0]:
+                best = (v, th, n, f"{start_name}: {st}")
+        statuses[f"max|{lab}"] = best[3]
+        steps[f"max|{lab}"] = best[2]
+        if best[1] is not None:
+            cand[f"max|{lab}"] = best[1] * scale
+        print(
+            f"[joint_ranges] {pricing} {design} {scope} {lab}: "
+            f"{statuses[f'min|{lab}']} / {statuses[f'max|{lab}']} "
+            f"({time.perf_counter() - t0:.0f}s)",
+            flush=True,
+        )
+    # every candidate: in the set (or the alt/free designs), point values
+    point: dict[str, dict[str, dict[str, float]]] = {}
+    checks: dict[str, dict[str, float]] = {}
+    for name, th in cand.items():
+        checks[name] = js.check(th / scale)
+        point[name] = {
+            split: {
+                lab: sd[split].value(list(th), *_kpi_args(lab)) for lab in ALL_LABELS
+            }
+            for split in ("train", "test")
+        }
+    # numpy KPIs equal the library's for the stored design
+    for split, sample in (("train", train), ("test", test)):
+        for beta in c1.ANNUAL_EVAL_BETAS:
+            k = kpis(
+                prepared,
+                stored.scope,
+                stored.results,
+                basis=comps.basis,
+                beta=beta,
+                run_id=rid,
+                sample=sample,
+                pricing=comps.pricing,
+            )
+            port = k.loc[k["level"] == "portfolio"].set_index("kpi")["value"]
+            for lab, kname in (
+                (f"cvar@{beta:g}", "cvar_uncovered"),
+                ("eu", "expected_uncovered"),
+            ):
+                if not np.isclose(point["stored"][split][lab], port[kname], rtol=1e-8):
+                    raise RuntimeError(f"{split} {lab}: numpy != evaluate.kpis")
+    # test replicates on the C1 resample
+    assert cfg.bootstrap is not None
+    resample = resample_years(
+        test.years, cfg.bootstrap.n_bootstrap, cfg.bootstrap.rng()
+    )
+    tsd = sd["test"]
+    row_years = tsd.eventset.events["year"].to_numpy(dtype=np.int64)
+    reps: dict[str, np.ndarray] = {}
+    for name, th in cand.items():
+        if not (name in ("stored", "alt", "free_lo", "free_hi") or "|test|" in name):
+            continue
+        payout = tsd.payout(list(th))
+        for beta in c1.ANNUAL_EVAL_BETAS:
+            r = kpi_replicates(
+                tsd.loss, payout, tsd.measure, row_years, resample, beta=beta
+            )
+            reps[f"{name}||cvar@{beta:g}"] = np.asarray(r["cvar_uncovered"])
+            reps[f"{name}||eu"] = np.asarray(r["expected_uncovered"])
+    rows = []
+    for split, kpi, beta in E_KPIS:
+        lab = klabel(kpi, beta)
+        key = f"{split}|{lab}"
+        rows.append(
+            {
+                "pricing": pricing,
+                "kappa": 1.0,
+                "design": design,
+                "scope": scope,
+                "split": split,
+                "kpi": lab,
+                "stored": point["stored"][split][lab],
+                "alt": point["alt"][split][lab],
+                "free_lo": point["free_lo"][split][lab],
+                "free_hi": point["free_hi"][split][lab],
+                "min": point.get(f"min|{key}", {}).get(split, {}).get(lab, math.nan),
+                "max_found": point.get(f"max|{key}", {})
+                .get(split, {})
+                .get(lab, math.nan),
+                "status_min": statuses[f"min|{key}"],
+                "status_max": statuses[f"max|{key}"],
+                "max_steps": steps[f"max|{key}"],
+                "objective_excess_min": checks.get(f"min|{key}", {}).get(
+                    "objective_excess", math.nan
+                ),
+                "objective_excess_max": checks.get(f"max|{key}", {}).get(
+                    "objective_excess", math.nan
+                ),
+                "alt_objective_excess": checks["alt"]["objective_excess"],
+                "rel_tol": RANGE_REL_TOL,
+                "config_hash": config_hash(cfg),
+                "run_id": rid,
+            }
+        )
+    return {
+        "group": (pricing, design, scope),
+        "rows": rows,
+        "reps": reps,
+        "point": point,
+        "checks": checks,
+        "thetas": {k: v.tolist() for k, v in cand.items()},
+        "seconds": round(time.perf_counter() - t0, 1),
+    }
+
+
+def _save_joint(full: Path, out: dict[str, Any]) -> None:
+    pricing, design, scope = out["group"]
+    stem = f"joint_{pricing}_{design}_{scope}"
+    np.savez_compressed(full / "joint" / f"reps_{stem}.npz", **out.pop("reps"))
+    (full / "joint" / f"result_{stem}.json").write_text(
+        json.dumps(out, indent=1, default=float) + "\n"
+    )
+
+
+def run_joint_ranges(args: argparse.Namespace) -> dict[str, Any]:
+    """Phase (e), part 1: range every joint design (kappa 1, pure and r 0.06)."""
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    from multiprocessing import get_context
+
+    t0 = time.perf_counter()
+    (args.full / "joint").mkdir(parents=True, exist_ok=True)
+    groups = c1_groups(
+        ["main"],
+        lambda s: (
+            s.variant.kappa == 1.0
+            and s.variant.pricing in T6_PRICINGS
+            and s.design in T6_DESIGNS
+            and s.scope in JOINT_SCOPES
+        ),
+    )
+    tasks = []
+    for (_, _, pricing, _, design), members in groups.items():
+        for scope, member in members.items():
+            label = f"{pricing}|{design}|{scope}"
+            if args.only and not any(o in label for o in args.only):
+                continue
+            stem = f"joint_{pricing}_{design}_{scope}"
+            if (args.full / "joint" / f"result_{stem}.json").exists():
+                print(f"cached {label}", flush=True)
+                continue
+            tasks.append((pricing, design, scope, member, str(args.c1_store)))
+    with ProcessPoolExecutor(
+        max_workers=args.jobs, mp_context=get_context("spawn")
+    ) as pool:
+        futs = [pool.submit(joint_range_worker, *t) for t in tasks]
+        for i, fut in enumerate(as_completed(futs), 1):
+            out = fut.result()
+            _save_joint(args.full, out)
+            print(f"[{i}/{len(futs)}] {out['group']} {out['seconds']}s", flush=True)
+    return {
+        "joint_ranges_designs": len(tasks),
+        "joint_ranges_seconds": round(time.perf_counter() - t0, 1),
+    }
+
+
+# --------------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------------
 
@@ -1360,6 +1751,7 @@ PHASES: Final[dict[str, Callable[[argparse.Namespace], dict[str, Any]]]] = {
     "nonunique": run_nonunique,
     "noise": lambda a: run_sens(a, "noise"),
     "nclusters": lambda a: run_sens(a, "nclusters"),
+    "joint_ranges": run_joint_ranges,
 }
 
 
