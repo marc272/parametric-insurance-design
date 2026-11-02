@@ -63,6 +63,12 @@ Default phases:
     recomputed for every weighted-CVaR design problem, and compared with the
     manifests that carry it; every stored run's statuses.
 
+``solvercheck``
+    Every run with an OSQP-solved problem (the MSE QPs) re-solved with
+    ``c1_rq2.ALT_POLICY`` (CLARABEL first); a stored design whose objective
+    exceeds the re-solve's by more than 0.1 % is reported, and the tables
+    mark every number that uses it. The store is not changed.
+
 Cross-check phases (not default): ``rq1``, ``rq2``, ``combination`` and
 ``premium`` run the C1 workers one by one (:func:`c1_checkpoint.group_worker`,
 :func:`c1_rq2.holdout_worker`, :func:`c1_combination.holdout_worker`,
@@ -144,7 +150,7 @@ from parametric_insurance_design.experiment.store import ResultStore
 from parametric_insurance_design.interfaces import Sample
 from parametric_insurance_design.problem import build_problems
 from parametric_insurance_design.scopes import Cluster
-from parametric_insurance_design.solve import DEFAULT_POLICY
+from parametric_insurance_design.solve import DEFAULT_POLICY, solve
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 PLAN: Final[Path] = REPO_ROOT / "research" / "configs" / "florida" / "plan.yaml"
@@ -2037,6 +2043,209 @@ def _guard_row(rid: str, manifest: dict[str, Any]) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------
+# Phase solvercheck: OSQP designs against an interior-point re-solve
+# --------------------------------------------------------------------------
+
+SOLVER_GAP: Final[float] = 1e-3
+"""Relative objective gap above which a stored design counts as not optimal."""
+
+
+def solvercheck_worker(
+    rid: str, cfg: ExperimentConfig, store_root: str
+) -> dict[str, Any]:
+    """Re-solve one stored run with ``c1_rq2.ALT_POLICY`` and compare objectives.
+
+    Parameters
+    ----------
+    rid : str
+        Run id of the stored run.
+    cfg : ExperimentConfig
+        Its single-run config (holdout or one k-fold fold).
+    store_root : str
+        Result store.
+
+    Returns
+    -------
+    dict
+        The stored and re-solved objective sums, statuses and solvers, and
+        the relative gap ``(stored - alt) / |alt|`` (a minimisation: a
+        positive gap means the stored design is worse than the re-solve).
+    """
+    store = ResultStore(Path(store_root))
+    runs = store.read("runs", run_ids=[rid])
+    prepared = c1._prepared(cfg)
+    sample = cfg.sample.model_dump(mode="json")
+    if sample["kind"] == "holdout":
+        train = splits.holdout(prepared, train_fraction=sample["train_fraction"])[0]
+        fold = -1
+    else:
+        fold = int(sample["fold"])
+        train = splits.year_block_kfold(prepared, k=int(sample["k"]))[fold][0]
+    comps = cfg.to_components()
+    built = build_problems(
+        prepared,
+        comps.scopes[0],
+        comps.payout,
+        comps.objectives[0],
+        comps.pricing,
+        comps.constraints,
+        basis=comps.basis,
+        sample=train,
+    )
+    t0 = time.perf_counter()
+    res = [solve(b, rq2.ALT_POLICY, pricing=comps.pricing) for b in built]
+    alt = float(sum(r.objective_value for r in res))
+    stored = float(runs["objective_value"].sum())
+    return {
+        "run_id": rid,
+        "config_hash": config_hash(cfg),
+        "split": sample["kind"],
+        "fold": fold,
+        "n_problems": len(res),
+        "stored_statuses": ",".join(sorted({str(x) for x in runs["status"]})),
+        "stored_solvers": ",".join(sorted({str(x) for x in runs["solver"]})),
+        "stored_objective": stored,
+        "alt_statuses": ",".join(sorted({str(r.status.value) for r in res})),
+        "alt_solvers": ",".join(sorted({r.solver for r in res})),
+        "alt_objective": alt,
+        "rel_gap": (stored - alt) / abs(alt),
+        "alt_seconds": round(time.perf_counter() - t0, 1),
+    }
+
+
+def separate_check_worker(
+    rid: str, cfg: ExperimentConfig, store_root: str
+) -> dict[str, Any]:
+    """Re-solve one ``cluster_separate`` design two ways and compare.
+
+    The holdout phase solves ``cluster_separate`` (C1.md 6b.6) from the
+    stored cluster run with ``solve.DEFAULT_POLICY``; this solves it again
+    the same way (deterministic: the design the tables use) and with
+    ``c1_rq2.ALT_POLICY``, and compares the objective sums.
+
+    Parameters
+    ----------
+    rid : str
+        Run id of the stored cluster run.
+    cfg : ExperimentConfig
+        Its single-run config.
+    store_root : str
+        Result store.
+
+    Returns
+    -------
+    dict
+        One :func:`solvercheck_worker`-shaped row, with the derived id.
+    """
+    store = ResultStore(Path(store_root))
+    cl = rq2._stored(cfg, rid, store)
+    if not isinstance(cl.scope, Cluster):
+        raise RuntimeError("the cluster run's scope is not a Cluster")
+    prepared = c1._prepared(cfg)
+    train = splits.holdout(prepared, train_fraction=0.7)[0]
+    specs = rq2.separate_specs([r.spec for r in cl.results])
+    out: dict[str, rq2._Design] = {}
+    for name, policy in (("stored", DEFAULT_POLICY), ("alt", rq2.ALT_POLICY)):
+        out[name] = rq2._solved(
+            rq2.SEPARATE,
+            rq2.SeparateClusters(cl.scope),
+            cfg,
+            prepared,
+            train,
+            specs,
+            policy,
+            cl.config_hash,
+        )
+    stored, alt = out["stored"], out["alt"]
+    return {
+        "run_id": stored.run_id,
+        "config_hash": stored.config_hash,
+        "split": "holdout",
+        "fold": -1,
+        "n_problems": len(stored.results),
+        "stored_statuses": stored.statuses,
+        "stored_solvers": stored.solvers,
+        "stored_objective": stored.objective_value,
+        "alt_statuses": alt.statuses,
+        "alt_solvers": alt.solvers,
+        "alt_objective": alt.objective_value,
+        "rel_gap": (stored.objective_value - alt.objective_value)
+        / abs(alt.objective_value),
+        "alt_seconds": float("nan"),
+    }
+
+
+def run_solvercheck(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any]:
+    """Phase solvercheck: every run with an OSQP-solved problem, re-solved.
+
+    OSQP is a first-order solver (``solve.DEFAULT_POLICY`` tries it first
+    for the MSE QPs). Every holdout and k-fold run of the plan with at least
+    one OSQP-solved problem, and every MSE ``cluster_separate`` design
+    (:func:`separate_check_worker`), is rebuilt and solved again with
+    ``c1_rq2.ALT_POLICY`` (CLARABEL first for QPs); the objective sums are
+    compared. A stored design whose objective exceeds the re-solve's by more
+    than :data:`SOLVER_GAP` (relative) is reported as not optimal; the
+    tables mark every number that uses it. Nothing in the store changes.
+    Writes ``solver_check.csv`` to ``args.full``.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Command-line arguments.
+    plan : dict
+        The plan.
+
+    Returns
+    -------
+    dict
+        Summary entries.
+    """
+    store = ResultStore(args.store)
+    configs = {r.run_id: r.config for r in holdout_runs(plan)}
+    for cfg in kfold_configs(plan).values():
+        for s in cfg.single_runs():
+            configs[rid_of(s)] = s
+    check_ok(store, configs)
+    todo = {
+        rid: cfg
+        for rid, cfg in configs.items()
+        if (store.read("runs", run_ids=[rid])["solver"] == "OSQP").any()
+    }
+    separate = [
+        r for r in holdout_runs(plan) if r.scope == "cluster" and r.design == "mse"
+    ]
+    print(
+        f"solvercheck: {len(todo)} runs with an OSQP-solved problem, "
+        f"{len(separate)} cluster_separate MSE designs",
+        flush=True,
+    )
+    rows: list[dict[str, Any]] = []
+    with _pool(args.jobs) as pool:
+        futs = [
+            pool.submit(solvercheck_worker, rid, cfg, str(args.store))
+            for rid, cfg in todo.items()
+        ]
+        futs += [
+            pool.submit(separate_check_worker, r.run_id, r.config, str(args.store))
+            for r in separate
+        ]
+        for fut in as_completed(futs):
+            rows.append(fut.result())
+    out = pd.DataFrame(rows).sort_values(["split", "config_hash"], ignore_index=True)
+    args.full.mkdir(parents=True, exist_ok=True)
+    out.to_csv(args.full / "solver_check.csv", index=False, float_format="%.10g")
+    bad = out.loc[out["rel_gap"] > SOLVER_GAP]
+    return {
+        "solvercheck_runs": len(out),
+        "solvercheck_gap_threshold": SOLVER_GAP,
+        "solvercheck_not_optimal": sorted(bad["run_id"]),
+        "solvercheck_max_abs_gap_others": float(
+            out.loc[out["rel_gap"] <= SOLVER_GAP, "rel_gap"].abs().max()
+        ),
+    }
+
+
+# --------------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------------
 
@@ -2046,6 +2255,7 @@ PHASES: Final[tuple[str, ...]] = (
     "holdout",
     "kfold",
     "guard",
+    "solvercheck",
     "rq1",
     "rq2",
     "combination",
@@ -2057,6 +2267,7 @@ DEFAULT_PHASES: Final[tuple[str, ...]] = (
     "holdout",
     "kfold",
     "guard",
+    "solvercheck",
 )
 """``rq1``, ``rq2``, ``combination`` and ``premium`` bootstrap the same
 designs again, one C1 worker each; ``holdout`` does all of it in one pass.
@@ -2121,6 +2332,7 @@ def main(argv: list[str] | None = None) -> int:
         "kfold": run_kfold,
         "premium": run_premium,
         "guard": run_guard,
+        "solvercheck": run_solvercheck,
     }
     for name in PHASES:
         if name not in args.phases:

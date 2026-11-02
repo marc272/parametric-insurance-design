@@ -88,6 +88,20 @@ CONFIG_BETA: Final[float] = 0.99
 TAIL: Final[frozenset[str]] = frozenset({"var_uncovered", "cvar_uncovered"})
 MONEY: Final[float] = 1e6
 """Markdown money unit: USD million (LitPop reference year 2018)."""
+SOLVER_GAP: Final[float] = 1e-3
+"""``florida_rerun.SOLVER_GAP``: a stored design this much (relative) above
+the interior-point re-solve's objective is not optimal."""
+NOT_OPTIMAL: Final[str] = "not optimal (T14)"
+"""Markdown cell for a number that uses a design the solver check rejects."""
+CONTRAST_DESIGNS: Final[dict[str, tuple[tuple[str, str], ...]]] = {
+    "rq1_alone": (("I", "W"), ("I", "O")),
+    "adds_rq1": (("J", "W"), ("J", "O")),
+    "rq2_alone": (("J", "O"), ("I", "O")),
+    "adds_rq2": (("J", "W"), ("I", "W")),
+    "both": (("J", "W"), ("I", "O")),
+    "interaction": (("J", "W"), ("J", "O"), ("I", "W"), ("I", "O")),
+}
+"""The (scope, design) terms of each ``c1_combination`` contrast."""
 NOT_UNIQUE: Final[str] = (
     "Individual-scope near-optimal ranges are not measured yet for Florida "
     "(MAR-203): the individual design here is the one member of its optimal "
@@ -453,6 +467,15 @@ def build(full: Path) -> dict[str, pd.DataFrame]:
         out["kfold_folds"] = f[fold_cols]
     g = pd.read_csv(full / "guard_samples.csv")
     out["guard"] = g.drop(columns=["filters"])
+    sc = pd.read_csv(full / "solver_check.csv")
+    ids = out["runs"][
+        ["run_id", "kind", "eventset", "pricing", "kappa", "scope", "design"]
+    ]
+    sc = sc.merge(ids, on="run_id", how="left", validate="one_to_one")
+    if sc["eventset"].isna().any():
+        raise RuntimeError("solver_check.csv has runs that runs.csv does not")
+    sc["not_optimal"] = sc["rel_gap"] > SOLVER_GAP
+    out["solver_check"] = sc
     t = _read(full / "guard_tails.csv")
     if not t.empty:
         out["guard_tails"] = (
@@ -508,6 +531,45 @@ class Look:
         c = c.fillna({"joint_scope": "", "tail_design": "", "base_design": ""})
         self.c = c
         self.g = t["grid"]
+        bad = t["solver_check"].loc[t["solver_check"]["not_optimal"]]
+        self.bad: set[tuple[str, str, float, str, str, str]] = set()
+        for r in bad.itertuples():
+            splits = ("pooled",) if r.kind == "kfold" else ("train", "test")
+            for split in splits:
+                self.bad.add(
+                    (
+                        str(r.eventset),
+                        str(r.pricing),
+                        float(r.kappa),
+                        split,
+                        str(r.scope),
+                        str(r.design),
+                    )
+                )
+
+    def flagged(
+        self, idx: str, pricing: str, kappa: float, split: str, scope: str, design: str
+    ) -> bool:
+        """Return True if a design of that cell failed the solver check."""
+        return (idx, pricing, float(kappa), split, scope, design) in self.bad
+
+    def con_flagged(
+        self,
+        idx: str,
+        pricing: str,
+        kappa: float,
+        split: str,
+        name: str,
+        j: str,
+        w: str,
+        o: str,
+    ) -> bool:
+        """Return True if any design of a contrast failed the solver check."""
+        terms = {"I": "individual", "J": j, "W": w, "O": o}
+        return any(
+            self.flagged(idx, pricing, kappa, split, terms[a], terms[b])
+            for a, b in CONTRAST_DESIGNS[name]
+        )
 
     def con(
         self,
@@ -548,6 +610,8 @@ class Look:
         r = self.con(*args)
         if r is None:
             return "not run"
+        if self.con_flagged(*args[:8]):
+            return NOT_OPTIMAL
         if r["split"] == "train":
             return _pct(float(r["rel"]))
         return _rel_ci(float(r["rel"]), float(r["rel_ci_low"]), float(r["rel_ci_high"]))
@@ -585,6 +649,8 @@ class Look:
         r = self.grid(*args)
         if r is None:
             return "not run"
+        if self.flagged(*args[:6]):
+            return NOT_OPTIMAL
         return _money_ci(float(r["value"]), float(r["ci_low"]), float(r["ci_high"]))
 
 
@@ -1190,6 +1256,9 @@ def markdown(t: dict[str, pd.DataFrame]) -> str:
     # T12 folds
     parts += _fold_table(t)
 
+    # T14 solver check (placed after T13 below)
+    t14 = _solver_table(t)
+
     # T13 guard
     g = t["guard"]
     parts += [
@@ -1226,6 +1295,7 @@ def markdown(t: dict[str, pd.DataFrame]) -> str:
         ),
         "",
     ]
+    parts += t14
     return "\n".join(parts)
 
 
@@ -1551,6 +1621,17 @@ def _fold_table(t: dict[str, pd.DataFrame]) -> list[str]:
                     cells.append(
                         f"{_pct(float(rel.min()))} to {_pct(float(rel.max()))}"
                     )
+                sc = t["solver_check"]
+                bad = sc.loc[
+                    sc["not_optimal"]
+                    & (sc["kind"] == "kfold")
+                    & (sc["eventset"] == idx)
+                    & (sc["pricing"] == pricing)
+                    & (sc["design"] == d)
+                ]
+                if not bad.empty:
+                    folds = ", ".join(str(int(x)) for x in sorted(bad["fold"]))
+                    cells = [f"{c} (folds {folds}: {NOT_OPTIMAL})" for c in cells]
                 rows.append([idx, PRICING_LABEL[pricing], DESIGN_LABEL[d], *cells])
     return [
         "## T12. Per fold: portfolio − individual, CVaR₀.₉₉(U), κ 1",
@@ -1562,6 +1643,68 @@ def _fold_table(t: dict[str, pd.DataFrame]) -> list[str]:
         "",
         _table(
             ["Index", "Pricing", "Design", "Train (5 folds)", "Test (5 folds)"], rows
+        ),
+        "",
+    ]
+
+
+def _solver_table(t: dict[str, pd.DataFrame]) -> list[str]:
+    sc = t["solver_check"]
+    ok = sc.loc[~sc["not_optimal"]]
+    bad = sc.loc[sc["not_optimal"]]
+    head = [
+        "## T14. Solver check: OSQP designs against an interior-point re-solve",
+        "",
+        "Every run of the plan with an OSQP-solved problem "
+        f"({int((sc['kind'] != 'derived').sum())} runs, all MSE designs) and "
+        f"every MSE `cluster_separate` design ({int((sc['kind'] == 'derived').sum())}) "
+        "was rebuilt and solved again with CLARABEL first "
+        "(`c1_rq2.ALT_POLICY`); the `portfolio_matched` runs (CoC) had no "
+        "OSQP-solved problem. "
+        f"{len(ok)} of {len(sc)} agree: relative objective gap within "
+        f"{ok['rel_gap'].abs().max():.1e}. "
+        f"{len(bad)} do not (gap above {SOLVER_GAP:g}): OSQP returned status "
+        "`optimal` for a design that is not optimal. Every number that uses "
+        f"one of them reads '{NOT_OPTIMAL}' in T1–T12 (the CSVs keep the "
+        "values, with the run ids in `solver_check.csv`). The re-solved designs "
+        "are not used anywhere.",
+        "",
+    ]
+    rows = [
+        [
+            str(r.eventset),
+            str(r.kind),
+            "" if r.fold < 0 else str(int(r.fold)),
+            PRICING_LABEL[str(r.pricing)],
+            f"{r.kappa:g}",
+            str(r.scope),
+            DESIGN_LABEL[str(r.design)],
+            str(r.stored_statuses),
+            f"{r.stored_objective:.4e}",
+            f"{r.alt_objective:.4e}",
+            _pct(float(r.rel_gap)),
+            f"`{_short(r.config_hash)}`",
+        ]
+        for r in bad.sort_values(["eventset", "fold"]).itertuples()
+    ]
+    return [
+        *head,
+        _table(
+            [
+                "Index",
+                "Split",
+                "Fold",
+                "Pricing",
+                "κ",
+                "Scope",
+                "Design",
+                "OSQP status",
+                "Stored objective",
+                "Re-solved objective",
+                "Gap",
+                "Hash",
+            ],
+            rows,
         ),
         "",
     ]
