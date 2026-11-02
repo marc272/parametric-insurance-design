@@ -20,7 +20,7 @@ with one ``except`` clause. Each error also derives from the closest built-in
 
 EventSet validation errors live in :mod:`parametric_insurance_design.eventset`
 and derive from :class:`~parametric_insurance_design.eventset.EventSetError`
-(a ``ValueError``). Since MAR-82, ``EventSetError`` also derives from
+(a ``ValueError``). ``EventSetError`` also derives from
 :class:`ParametricInsuranceDesignError`, so one ``except`` catches the whole library.
 
 Changing this module needs an ADR 0002 amendment. An implementing module may

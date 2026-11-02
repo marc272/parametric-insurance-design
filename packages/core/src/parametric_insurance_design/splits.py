@@ -1,6 +1,6 @@
 """Year-block train/test splits (SPEC §6.1, thesis issue M1).
 
-Owner: MAR-22. Splits are by contiguous blocks of simulation years, so every
+Splits are by contiguous blocks of simulation years, so every
 draw (noise or vulnerability ``draw_id``) of an event lands in the same fold.
 Each split returns :class:`~parametric_insurance_design.interfaces.Sample`
 objects whose ``years`` include the years without rows. Years follow the

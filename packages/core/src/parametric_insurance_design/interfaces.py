@@ -1,9 +1,8 @@
 """Contracts between the core modules (ADR 0002).
 
-This module holds every type that more than one Linear issue implements or
-consumes. Its public signatures are fixed by ADR 0002: implementing issues
-import from here and never edit this file. Changing it needs an ADR 0002
-amendment.
+This module holds every type that more than one core module implements or
+consumes. Its public signatures are fixed by ADR 0002: implementing modules
+import from here. Changing it needs an ADR 0002 amendment.
 
 Data flow of one run (``problem.py`` assembles it, see ADR 0002)::
 
@@ -504,7 +503,8 @@ class ObjectiveTerm(Term):
         E[U] and CVaR, 2 for MSE. Used to report the objective value in loss
         units: ``value * scale**d``.
     components : mapping of str to cvxpy.Expression, optional
-        Named scalar parts worth recording, e.g. ``{"cvar": ..., "eu": ...}``,
+        Named scalar parts worth recording, e.g.
+        ``{"cvar": ..., "expected_uncovered": ...}``,
         with the same homogeneity.
     """
 
@@ -535,8 +535,8 @@ class ObjectiveTerm(Term):
 class PayoutStructure(ABC):
     """A family of payout functions, linear in its parameters ``theta``.
 
-    Implementations: ``payout.StepPayout`` (MAR-11). Piecewise-linear payouts
-    are parked (SPEC §9) but fit: their basis matrix holds hat functions.
+    Implementations: ``payout.StepPayout``. Piecewise-linear payouts
+    are out of scope (SPEC §9) but fit: their basis matrix holds hat functions.
 
     Attributes
     ----------
@@ -622,7 +622,7 @@ class Scope(ABC):
     """Maps locations to payout entities and design problems.
 
     Implementations: ``scopes.Individual``, ``scopes.Portfolio`` and
-    ``scopes.Cluster`` (MAR-12).
+    ``scopes.Cluster``.
 
     Attributes
     ----------
@@ -676,8 +676,8 @@ class Objective(ABC):
     """Builds the quantity a design problem minimises.
 
     Implementations: ``objectives.MSE``, ``objectives.ExpectedUncovered`` and
-    ``objectives.WeightedCVaR`` (MAR-13); ``robust.DistributionallyRobust``
-    wraps one (MAR-35).
+    ``objectives.WeightedCVaR``. ``robust.DistributionallyRobust`` is to
+    wrap one; it is a stub for now (SPEC §6.5).
 
     Objectives are basis-agnostic: they aggregate per-row quantities with
     ``ctx.measure`` and raise :class:`UnsupportedBasisError` only if they
@@ -710,8 +710,8 @@ class Objective(ABC):
 class Pricing(ABC):
     """Prices a payout: the premium in the budget constraint.
 
-    Implementations: ``pricing.PurePremium`` (MAR-13) and
-    ``pricing.CostOfCapitalLoad`` (MAR-27).
+    Implementations: ``pricing.PurePremium`` and
+    ``pricing.CostOfCapitalLoad``.
 
     Attributes
     ----------
@@ -757,7 +757,7 @@ class Pricing(ABC):
 class Constraint(ABC):
     """An extra constraint on a design problem, e.g. the budget.
 
-    Implementations: ``constraints.Budget`` (MAR-13). Payout-family
+    Implementations: ``constraints.Budget``. Payout-family
     constraints (non-negative, monotone, cap) come from
     :meth:`PayoutStructure.constraints` and are always added.
 
