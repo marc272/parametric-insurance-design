@@ -21,19 +21,22 @@ Phases (``--phases``):
     portfolio MSE, folds 0 and 4), each rebuilt from its config and solved
     afresh (a new cvxpy problem per variant, so nothing is warm-started) by
     OSQP with the default policy's options, OSQP with polishing off, OSQP at
-    cvxpy's defaults (``THESIS_POLICY``) and CLARABEL. Records OSQP's
+    cvxpy's defaults (``THESIS_POLICY``), CLARABEL at its defaults and
+    CLARABEL at :data:`REFERENCE_POLICY`'s tolerances. Records OSQP's
     ``status_polish`` and whether the returned payout parameters are all
-    zero. Writes ``florida_osqp.csv``.
+    zero. Writes ``florida_osqp.csv``; ``--florida-variants`` reruns some
+    variants and keeps the other rows.
 ``thesis``
     Every MSE design of the committed thesis-portfolio configs (parity, C1,
-    the site), rebuilt from its config (:func:`thesis_designs`). A design
-    whose problems are not QPs (cost-of-capital pricing) never reaches OSQP
-    under the policy and is recorded as such. Every QP design is solved
-    three times, each on a freshly built problem: with
-    ``solve.DEFAULT_POLICY``, with ``solve.THESIS_POLICY`` and with CLARABEL
-    at tight tolerances (:data:`REFERENCE_POLICY`); the objectives are
-    compared, and OSQP's polish status is recorded for every problem OSQP
-    solved. Writes ``thesis_mse.csv``.
+    the site), rebuilt from its config (:func:`thesis_designs`; set
+    ``C1_EVENTSETS`` to the F-12 EventSets). Every QP design is solved three
+    times, each on a freshly built problem: with ``solve.DEFAULT_POLICY``,
+    with ``solve.THESIS_POLICY`` and with CLARABEL at tight tolerances
+    (:data:`REFERENCE_POLICY`); the objectives are compared, and OSQP's
+    polish status is recorded for every problem OSQP solved. A design that
+    fails to build is recorded with its error. Rows are also appended to
+    ``results/mar224/thesis_rows.jsonl``; ``--resume`` keeps them. Writes
+    ``thesis_mse.csv``.
 ``profile``
     Index (b) against index (a) on the slowest Florida family, the
     individual scope under cost of capital (r 0.06, kappa 0.5), E[U] and
@@ -47,14 +50,22 @@ Phases (``--phases``):
     CLARABEL with more iterations, HiGHS, and CLARABEL on a problem built
     with a tenth of the default loss scale; the objective and payout of each
     are compared with the stored ones. Writes ``inaccurate.csv``.
+``stores``
+    Scans result stores (``--scan-store LABEL=PATH``, repeatable, read only)
+    for problems stored by OSQP with an all-zero payout, the signature of
+    OSQP's polish failure. Writes ``stores.csv``. Not a default phase.
 
 Committed tables go to ``research/data/solver-check/`` (each < 500 kB);
 logs to ``results/mar224/``. Run from the repository root, with the Florida
 EventSets where the Florida base configs expect them
 (``results/florida/eventsets``)::
 
-    uv run python research/scripts/solver_check.py --jobs 2 \
-        --florida-store <kept worktree>/results/florida/store
+    C1_EVENTSETS=<F-12 EventSets> uv run python \
+        research/scripts/solver_check.py --jobs 2 \
+        --phases attempts thesis florida profile inaccurate \
+        --florida-store <MAR-202 worktree>/results/florida/store
+    uv run python research/scripts/solver_check.py --phases stores \
+        --scan-store florida=<Florida store> --scan-store c1=<C1 store> ...
 
 Observations only. The interpretation is the owner's.
 """
@@ -492,8 +503,10 @@ FLORIDA_VARIANTS: Final[dict[str, tuple[str, dict[str, Any]]]] = {
     "osqp_no_polish": ("OSQP", {**OSQP_OPTIONS, "polishing": False}),
     "osqp_thesis": ("OSQP", {}),
     "clarabel": ("CLARABEL", {}),
+    "clarabel_tight": ("CLARABEL", dict(REFERENCE_POLICY.solver_options["CLARABEL"])),
 }
-"""Solver and options of each variant; ``osqp_default`` is DEFAULT_POLICY's."""
+"""Solver and options of each variant; ``osqp_default`` is DEFAULT_POLICY's,
+``clarabel_tight`` is :data:`REFERENCE_POLICY`'s."""
 
 
 def t14_configs() -> dict[str, ExperimentConfig]:
@@ -575,9 +588,16 @@ def run_florida(args: argparse.Namespace) -> dict[str, Any]:
         REPO_ROOT / "research" / "data" / "florida-rerun" / "solver_check.csv"
     )
     stored["h"] = stored["config_hash"].map(short)
-    items = [(h, v) for h in T14_HASHES for v in FLORIDA_VARIANTS]
-    rows = list(_map(florida_worker, items, args.jobs))
-    out = pd.DataFrame(rows)
+    variants = args.florida_variants or list(FLORIDA_VARIANTS)
+    items = [(h, v) for h in T14_HASHES for v in variants]
+    out = pd.DataFrame(list(_map(florida_worker, items, args.jobs)))
+    previous = OUT_DIR / "florida_osqp.csv"
+    if args.florida_variants and previous.exists():
+        # A partial rerun replaces its variants and keeps the other rows.
+        old = pd.read_csv(previous, dtype={"config_hash": str})
+        old = old[~old["variant"].isin(variants)]
+        old = old.drop(columns=["rel_gap_vs_clarabel", "stored_objective"])
+        out = pd.concat([old, out], ignore_index=True)
     ref = out[out["variant"] == "clarabel"].set_index("config_hash")["objective"]
     out["rel_gap_vs_clarabel"] = (out["objective"] - out["config_hash"].map(ref)) / out[
         "config_hash"
@@ -1207,6 +1227,14 @@ PHASES: Final[dict[str, Callable[[argparse.Namespace], dict[str, Any]]]] = {
     "inaccurate": run_inaccurate,
     "stores": run_stores,
 }
+DEFAULT_PHASES: Final[tuple[str, ...]] = (
+    "attempts",
+    "thesis",
+    "florida",
+    "profile",
+    "inaccurate",
+)
+"""``stores`` needs ``--scan-store`` paths, so it runs only when asked."""
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1224,8 +1252,16 @@ def main(argv: list[str] | None = None) -> int:
     """
     parser = argparse.ArgumentParser(description="MAR-224 solver checks.")
     parser.add_argument("--jobs", type=int, default=2)
-    parser.add_argument("--phases", nargs="+", default=list(PHASES), choices=PHASES)
+    parser.add_argument(
+        "--phases", nargs="+", default=list(DEFAULT_PHASES), choices=PHASES
+    )
     parser.add_argument("--florida-store", type=Path, default=FLORIDA_STORE)
+    parser.add_argument(
+        "--florida-variants",
+        nargs="+",
+        choices=list(FLORIDA_VARIANTS),
+        help="florida: run only these variants and keep the others' rows",
+    )
     parser.add_argument("--limit", type=int, default=0, help="thesis: first n only")
     parser.add_argument(
         "--resume",
