@@ -49,7 +49,15 @@ from parametric_insurance_design_viz.errors import (
     MissingRunError,
 )
 from parametric_insurance_design_viz.kpi_figures import KFoldRunsError
-from parametric_insurance_design_viz.reader import ResultReader, entity_events
+from parametric_insurance_design_viz.payout_functions import (
+    JOINT_CAPTION,
+    is_joint_design,
+)
+from parametric_insurance_design_viz.reader import (
+    ResultReader,
+    RunResult,
+    entity_events,
+)
 from parametric_insurance_design_viz.site_export import (
     BUNDLE_FORMAT,
     BUNDLE_FORMAT_VERSION,
@@ -1362,3 +1370,100 @@ def test_a_joint_scope_never_falls_back_to_its_entity_rows(toy: Fixture) -> None
         columns = ["kpi_level", "allocation", *site_export._MAP_KPIS]
         assert rows.loc[:, columns].isna().to_numpy().all()
         assert (sources[0]["kpi_level"], sources[0]["allocation"]) == (None, None)
+
+
+# -- joint designs: the payouts' joint flag (MAR-222) ----------------------------
+
+
+def joint_problems(run: RunResult) -> dict[str, bool]:
+    """Per design problem of a run: whether it has more than one entity."""
+    return {s.problem_id: len(s.entities) > 1 for s in run.problem_specs()}
+
+
+def test_payout_rows_of_joint_designs_are_marked(swept: Swept) -> None:
+    reader = ResultReader(swept.toy.store)
+    for name in ("baseline.payouts.arrow", "sweep.alpha.payouts.arrow"):
+        payouts = arrow(swept.out / name)
+        assert payouts.schema.field("joint").type == pa.bool_()
+        assert payouts.column("joint").null_count == 0
+        frame = payouts.to_pandas()
+        # the toy's cluster scope has two clusters: joint, like the portfolio
+        assert set(frame["scope"]) == {"individual", "cluster", "portfolio"}
+        for (run_id, problem_id), rows in frame.groupby(["run_id", "problem_id"]):
+            expected = joint_problems(reader.run(str(run_id)))[str(problem_id)]
+            assert set(rows["joint"]) == {expected}, (name, run_id, problem_id)
+        assert frame["joint"].tolist() == (frame["scope"] != "individual").tolist()
+        entry = next(f for f in swept.manifest["files"] if f["path"] == name)
+        assert entry["columns"][-1] == {
+            "name": "joint",
+            "type": "bool",
+            "nulls": 0,
+            "null_means": None,
+        }
+
+
+def test_the_manifest_records_the_joint_designs(swept: Swept) -> None:
+    section = swept.manifest["joint"]
+    assert section["rule"] == site_export._JOINT_RULE
+    assert section["caption"] == JOINT_CAPTION
+    runs = strict_json(swept.out / "runs.json")["runs"]
+    reader = ResultReader(swept.toy.store)
+    expected = [r["run_id"] for r in runs if is_joint_design(reader.run(r["run_id"]))]
+    assert section["runs"] == expected
+    assert {r["scope"] for r in runs if r["run_id"] in expected} == {
+        "cluster",
+        "portfolio",
+    }
+    assert swept.manifest["format_version"] == 1
+
+
+def test_a_separately_calibrated_cluster_scope_is_not_joint(tmp_path: Path) -> None:
+    cluster = {
+        "kind": "cluster",
+        "n_clusters": 2,
+        "strategy": {"kind": "thesis_ward", "beta_tail": 0.9},
+    }
+    toy = build_fixture(
+        tmp_path / "store",
+        scopes=[{"kind": "individual"}, {**cluster, "joint": False}, cluster],
+        objectives=[{"kind": "mse"}],
+    )
+    report = export(toy, tmp_path / "bundle")
+    payouts = arrow(tmp_path / "bundle" / "baseline.payouts.arrow").to_pandas()
+    flags = payouts.groupby("scope_key")["joint"].unique()
+    assert {k: list(v) for k, v in flags.items()} == {
+        "individual": [False],
+        "cluster_separate": [False],
+        "cluster": [True],
+    }
+    assert report.manifest["joint"]["runs"] == [toy.run_ids[2]]
+
+
+def test_kfold_payouts_are_marked_too(kfold: Pooled) -> None:
+    payouts = arrow(kfold.out / "baseline.payouts.arrow").to_pandas()
+    assert payouts["joint"].tolist() == (payouts["scope"] != "individual").tolist()
+    section = kfold.manifest["joint"]
+    assert section["caption"] == JOINT_CAPTION
+    reader = ResultReader(kfold.toy.store)
+    assert section["runs"] == [
+        r for r in kfold.toy.run_ids if is_joint_design(reader.run(r))
+    ]
+    assert len(section["runs"]) == 12  # cluster and portfolio, 3 objectives, 2 folds
+
+
+def test_boolean_columns_follow_the_rules() -> None:
+    flag = site_export._Col("joint", "bool")
+    table = site_export._encode(
+        pd.DataFrame({"joint": [True, np.bool_(False)]}), [flag], "t.arrow"
+    )
+    assert table.column("joint").type == pa.bool_()
+    assert table.column("joint").to_pylist() == [True, False]
+    with pytest.raises(BundleValueError, match="1 null value"):
+        site_export._encode(pd.DataFrame({"joint": [True, None]}), [flag], "t.arrow")
+    with pytest.raises(BundleValueError, match="not a boolean"):
+        site_export._encode(pd.DataFrame({"joint": [1, 0]}), [flag], "t.arrow")
+    nullable = site_export._Col("joint", "bool", null="unknown")
+    table = site_export._encode(
+        pd.DataFrame({"joint": [True, None]}), [nullable], "t.arrow"
+    )
+    assert table.column("joint").to_pylist() == [True, None]
