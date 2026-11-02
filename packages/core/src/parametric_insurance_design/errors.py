@@ -1,30 +1,30 @@
-"""Error hierarchy of the core library (ADR 0002).
+"""Error hierarchy of the core library.
 
 Every error the core raises on purpose derives from
 :class:`ParametricInsuranceDesignError`, so callers can catch the whole library
 with one ``except`` clause. Each error also derives from the closest built-in
 (``ValueError`` or ``RuntimeError``), so code that catches those keeps working.
 
-::
-
-    ParametricInsuranceDesignError
-    ├── ComponentConfigError (ValueError)      invalid component parameters
-    │   └── UnsupportedBasisError              component cannot use this basis
-    ├── ConfigError (ValueError)               invalid experiment configuration
-    ├── InputMismatchError (ValueError)        arrays, ids or samples do not line up
-    │   └── EntityMismatchError                missing or mismatched entities
-    ├── SolveError (RuntimeError)              no acceptable solver result
-    │   ├── InfeasibleError
-    │   └── UnboundedError
-    └── RecordSchemaError (ValueError)         result-store table breaks its schema
+```text
+ParametricInsuranceDesignError
+├── ComponentConfigError (ValueError)      invalid component parameters
+│   └── UnsupportedBasisError              component cannot use this basis
+├── ConfigError (ValueError)               invalid experiment configuration
+├── InputMismatchError (ValueError)        arrays, ids or samples do not line up
+│   └── EntityMismatchError                missing or mismatched entities
+├── SolveError (RuntimeError)              no acceptable solver result
+│   ├── InfeasibleError
+│   └── UnboundedError
+└── RecordSchemaError (ValueError)         result-store table breaks its schema
+```
 
 EventSet validation errors live in :mod:`parametric_insurance_design.eventset`
 and derive from :class:`~parametric_insurance_design.eventset.EventSetError`
 (a ``ValueError``). ``EventSetError`` also derives from
 :class:`ParametricInsuranceDesignError`, so one ``except`` catches the whole library.
 
-Changing this module needs an ADR 0002 amendment. An implementing module may
-define further subclasses of these classes in its own file.
+The hierarchy is part of the core's fixed interfaces. An implementing module
+may define further subclasses of these classes in its own file.
 """
 
 from __future__ import annotations
@@ -80,7 +80,7 @@ class InputMismatchError(ParametricInsuranceDesignError, ValueError):
 class EntityMismatchError(InputMismatchError):
     """Entities are missing, repeated or do not match between inputs.
 
-    The thesis dropped such groups silently (thesis issue C3). The core raises
+    The thesis code dropped such groups silently. The core raises
     instead.
     """
 

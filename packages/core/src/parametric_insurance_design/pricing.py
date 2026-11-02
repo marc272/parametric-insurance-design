@@ -1,11 +1,11 @@
-"""Pricing components (SPEC §4.2, §6.4).
+"""Pricing components: the pure premium and a cost-of-capital load.
 
-The interface is :class:`~parametric_insurance_design.interfaces.Pricing`
-(ADR 0002).
+The interface is :class:`~parametric_insurance_design.interfaces.Pricing`.
 
 * :class:`PurePremium`: ``Premium = E[pi]`` under the outcome measure.
-* :class:`CostOfCapitalLoad`: ``Premium = (1 - r) E[pi] + r CVaR_q(pi)``
-  (thesis issue M4), convex for ``r`` in ``[0, 1]`` (still an LP). ``r = 0``
+* :class:`CostOfCapitalLoad`: ``Premium = (1 - r) E[pi] + r CVaR_q(pi)``,
+  a risk load the thesis lacked (it priced a payout at its expected value
+  only), convex for ``r`` in ``[0, 1]`` (still an LP). ``r = 0``
   is exactly :class:`PurePremium`. The CVaR uses
   ``objectives.rockafellar_uryasev`` in the problem and
   ``riskmeasures.var_cvar`` for a realised payout.
@@ -121,10 +121,11 @@ class PurePremium(Pricing):
 class CostOfCapitalLoad(Pricing):
     """Expected payout plus a cost-of-capital load on the payout tail.
 
-    ``Premium = (1 - r) E[pi] + r CVaR_q(pi)`` (SPEC §6.4, thesis issue M4),
-    with ``pi_o`` the objective-level payout of outcome ``o`` and ``CVaR_q``
-    the mean of the worst ``1 - q`` probability mass of ``pi`` (the exact
-    discrete CVaR, :func:`~parametric_insurance_design.riskmeasures.var_cvar`).
+    ``Premium = (1 - r) E[pi] + r CVaR_q(pi)``, a risk load the thesis
+    lacked (it priced a payout at its expected value only), with ``pi_o``
+    the objective-level payout of outcome ``o`` and ``CVaR_q`` the mean of
+    the worst ``1 - q`` probability mass of ``pi`` (the exact discrete CVaR,
+    :func:`~parametric_insurance_design.riskmeasures.var_cvar`).
     The load ``r (CVaR_q(pi) - E[pi])`` prices the risk capital a writer
     holds against the payout tail, so a tail-heavy payout costs more than
     its expected value: ``E[pi] <= Premium <= CVaR_q(pi)``.

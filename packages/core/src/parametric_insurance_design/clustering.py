@@ -1,4 +1,4 @@
-"""Clustering strategies for the cluster scope (SPEC §4.2).
+"""Clustering strategies for the cluster scope.
 
 Port of the thesis feature-plus-Ward clustering
 (``ClusterLevelIntegratedOptimizationApproach._compute_features`` and
@@ -6,33 +6,34 @@ Port of the thesis feature-plus-Ward clustering
 value, tail share, tail beta, sigma_L and mu_W, z-scored, then hierarchical
 clustering with Ward linkage, cut into ``n_clusters`` clusters with scipy's
 ``fcluster(..., criterion="maxclust")``. Cluster labels are scipy's labels,
-as in the thesis (scipy 1.17). New clustering methods are out of scope (SPEC §9).
+as in the thesis (scipy 1.17). The thesis clustering is ported as it is; the
+library adds no other clustering method.
 
 scipy < 1.15 cuts most trees into too few clusters with ``maxclust`` (seen
 with 1.11 to 1.14), hence the core's ``scipy>=1.15`` floor. :meth:`assign
 <ThesisWardClustering.assign>` raises if the cut misses ``n_clusters``.
 
-The features (thesis definitions, ``p`` the row probabilities ``rate / sum
+Features
+--------
+The thesis definitions, with ``p`` the row probabilities ``rate / sum
 rate`` of the calibration data, ``L_port`` the summed loss over all
-locations, the portfolio tail the rows with ``L_port >= VaR_beta(L_port)``):
+locations, and the portfolio tail the rows with
+``L_port >= VaR_beta(L_port)``:
 
-``log_value``
-    ``log(max(value, 1))``.
-``tail_share``
-    ``E[L_i / (L_port + eps) | tail]``.
-``tail_beta_port``
-    ``Cov(L_i, L_port | tail) / (Var(L_port | tail) + eps)``.
-``sigma_L``
-    Standard deviation over the other locations ``j`` of the loss distance
-    ``1 - Corr(L_i, L_j)``.
-``mu_W``
-    Mean over the other locations of the index distance
-    ``1 - Corr(W_i, W_j)``.
+* ``log_value``: ``log(max(value, 1))``.
+* ``tail_share``: ``E[L_i / (L_port + eps) | tail]``.
+* ``tail_beta_port``: ``Cov(L_i, L_port | tail) / (Var(L_port | tail) + eps)``.
+* ``sigma_L``: standard deviation over the other locations ``j`` of the loss
+  distance ``1 - Corr(L_i, L_j)``.
+* ``mu_W``: mean over the other locations of the index distance
+  ``1 - Corr(W_i, W_j)``.
 
 All moments are weighted by ``p`` (in the tail by ``p`` renormalised on the
 tail rows), with ``eps = 1e-12``.
 
-**Row probabilities on every basis.** ``p`` is ``rate / sum(rate)`` over the
+Row probabilities on every basis
+--------------------------------
+``p`` is ``rate / sum(rate)`` over the
 calibration rows, the ``event_conditional`` measure, whatever the run's
 basis. On the ``event`` basis the "no event" mass, and on the ``annual``
 basis the grouping of rows into (year, draw) outcomes, do not enter the
@@ -42,7 +43,9 @@ assignment. The assignment therefore depends on the calibration rows alone,
 not on the basis. A threshold filter drops rows, which removes their
 probability from ``p``, so it can change the features.
 
-**Degenerate tail.** Losses are ``>= 0``. If at least ``beta_tail`` of ``p``
+Degenerate tail
+---------------
+Losses are ``>= 0``. If at least ``beta_tail`` of ``p``
 lies on rows with zero portfolio loss, ``VaR_beta_tail(L_port) = 0`` and the
 "tail" would be every row, so ``tail_share`` and ``tail_beta_port`` would be
 whole-sample features. :meth:`ThesisWardClustering.features` raises

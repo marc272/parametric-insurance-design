@@ -1,34 +1,34 @@
-"""Record schemas of the result store (ADR 0002, SPEC §3.1 C5).
+"""Record schemas of the result store.
 
 The result store is a set of tidy tables. ``evaluate.py`` produces KPI and
 exceedance rows, the runner (``experiment/runner.py``) produces run, entity
 and payout rows, ``experiment/store.py`` persists them as Parquet, and the
-viz package reads them. All of them agree on the schemas defined here.
+viz package reads them. All of them agree on the schemas defined here, which
+are part of the core's fixed interfaces.
 
-Tables (key columns first)
-    ``runs``
-        One row per (run, design problem), including failed solves.
-    ``entities``
-        Which locations each payout entity covers (e.g. cluster members).
-    ``payouts``
-        One row per payout parameter: the fitted step levels and their bin
-        edges. No arrays stored as strings.
-    ``kpis``
-        Long format: one row per KPI value, with optional confidence bounds.
-    ``exceedance``
-        Exceedance curves: value per return period.
+Tables
+------
+Key columns first.
+
+* ``runs``: one row per (run, design problem), including failed solves.
+* ``entities``: which locations each payout entity covers (e.g. cluster
+  members).
+* ``payouts``: one row per payout parameter: the fitted step levels and
+  their bin edges. No arrays stored as strings.
+* ``kpis``: long format: one row per KPI value, with optional confidence
+  bounds.
+* ``exceedance``: exceedance curves: value per return period.
 
 Conventions
-    * ``run_id`` is the run's content hash (cache key); ``problem_id`` is the
-      design problem (asset id, or ``"portfolio"``).
-    * Rows that aggregate every design problem of a run (the portfolio KPIs
-      of the individual scope) use ``problem_id = "*"``
-      (:data:`ALL_PROBLEMS`).
-    * Undefined values (e.g. a correlation with zero variance) are null:
-      NaN in a pandas float column, null in Parquet. Infinite values are
-      rejected.
-
-Changing a schema needs an ADR 0002 amendment.
+-----------
+* ``run_id`` is the run's content hash (cache key); ``problem_id`` is the
+  design problem (asset id, or ``"portfolio"``).
+* Rows that aggregate every design problem of a run (the portfolio KPIs
+  of the individual scope) use ``problem_id = "*"``
+  (:data:`ALL_PROBLEMS`).
+* Undefined values (e.g. a correlation with zero variance) are null:
+  NaN in a pandas float column, null in Parquet. Infinite values are
+  rejected.
 """
 
 from __future__ import annotations

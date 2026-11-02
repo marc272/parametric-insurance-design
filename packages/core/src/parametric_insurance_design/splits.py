@@ -1,10 +1,12 @@
-"""Year-block train/test splits (SPEC §6.1, thesis issue M1).
+"""Year-block train/test splits.
 
-Splits are by contiguous blocks of simulation years, so every
-draw (noise or vulnerability ``draw_id``) of an event lands in the same fold.
+They allow out-of-sample evaluation, where the thesis calibrated and evaluated
+on the same events. Splits are by contiguous blocks of simulation years, so
+every draw (noise or vulnerability ``draw_id``) of an event lands in the same
+fold.
 Each split returns :class:`~parametric_insurance_design.interfaces.Sample`
-objects whose ``years`` include the years without rows. Years follow the
-ADR 0002 convention ``0 .. n_years - 1`` (as in IRIS and the thesis), which
+objects whose ``years`` include the years without rows. Years are 0-based,
+``0 .. n_years - 1`` (as in IRIS and the thesis), which
 the ``EventSet`` constructor enforces, so no calendar-year mapping is needed
 here.
 
@@ -22,8 +24,8 @@ Block sizes
 * :func:`holdout`: the first ``floor(train_fraction * n_years)`` years train
   (with a ``1e-9`` tolerance, so ``0.7 * 10`` gives 7 years despite floating
   point), the rest test. On the thesis fixture (``n_years = 10_000``) that is
-  years ``0 .. 6_999`` and ``7_000 .. 9_999``, SPEC §6.1's "years 1 … 0.7Y"
-  in 0-based storage.
+  years ``0 .. 6_999`` and ``7_000 .. 9_999``: the first 70 % of the years
+  train.
 * :func:`year_block_kfold`: ``numpy.array_split`` of ``0 .. n_years - 1``
   into ``k`` contiguous blocks (the first ``n_years % k`` blocks get one year
   more). Fold ``i`` tests on block ``i`` and trains on the other blocks.
@@ -37,7 +39,7 @@ Overfitting diagnostic
 :func:`kpi_gap` puts each KPI's in-sample (``train``) and out-of-sample
 (``test``) values of one run side by side, with their gap. Joined with the
 ``runs`` table (scope, ``parameters.n_bins``) it gives the gap as a function
-of ``n_bins`` and scope (SPEC §6.1).
+of ``n_bins`` and scope.
 """
 
 from __future__ import annotations

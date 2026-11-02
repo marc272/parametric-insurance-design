@@ -1,13 +1,12 @@
-"""Objectives (SPEC §4.2, §6).
+"""Objectives: MSE, expected uncovered loss and weighted CVaR.
 
-The interface is :class:`~parametric_insurance_design.interfaces.Objective`
-(ADR 0002).
+The interface is :class:`~parametric_insurance_design.interfaces.Objective`.
 
 Every objective works on ``ctx.loss`` and ``ctx.payout`` (scaled, per row),
 aggregates per-row quantities into outcomes with
 ``ctx.measure.aggregate_expression`` and weights them with
 ``ctx.measure.probability``. That keeps objectives basis-agnostic: the annual
-basis (SPEC §6.2) changes the measure, not this file.
+basis changes the measure, not this file.
 
 With outcome probabilities ``p_o``, outcome loss ``L_o`` and outcome payout
 ``pi_o`` (sums over the rows of outcome ``o``; one row per outcome on the

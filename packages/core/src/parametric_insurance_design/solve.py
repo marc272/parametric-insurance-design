@@ -1,113 +1,122 @@
-"""Solver policy (SPEC §4.2, §3.1 C3).
+"""Solver policy: which solvers run, in which order, and what is accepted.
 
 :func:`solve` tries the policy's solvers in order and returns
 a :class:`~parametric_insurance_design.interfaces.SolveResult` for the first
 acceptable status. If none is acceptable it raises
 :class:`~parametric_insurance_design.errors.SolveError` (or a subclass) with
-every attempt attached. Nothing is swallowed or skipped (SPEC §3.1, C3).
+every attempt attached. Nothing is swallowed or skipped: the thesis code
+swallowed solver exceptions and skipped failed runs.
 
 The result types are defined in ``interfaces.py`` and re-exported here.
 
 Default policy (:data:`DEFAULT_POLICY`)
-    * LPs and other conic problems (E[U], weighted CVaR): ``CLARABEL``, then
-      ``HIGHS``, then ``SCS`` with ``max_iters = 20000``. The thesis used
-      Clarabel, then SCS with the same iteration limit.
-    * QPs (MSE): ``OSQP``, then ``CLARABEL``, as in the thesis. OSQP runs
-      with :data:`OSQP_OPTIONS` (``eps_abs = eps_rel = 1e-8``, ``max_iter =
-      100000``), not with cvxpy's defaults (``1e-5`` and ``10000``) that the
-      thesis used ("OSQP accuracy", below).
-    * ``optimal_inaccurate`` is accepted (thesis).
-
-OSQP accuracy
-    OSQP is a first-order (ADMM) solver. With cvxpy's default ``eps = 1e-5``
-    its solutions violate ``theta >= 0``, monotonicity, the cap and the
-    budget by up to about ``1e-5`` in scaled units, and miss the optimal
-    payouts by about as much, whenever OSQP's polishing step fails (on
-    about a third of the MSE problems). The default policy therefore
-    tightens OSQP to ``1e-8``, the accuracy of the interior-point solvers
-    (Clarabel, HiGHS), so a solution meets the constraints to about
-    ``1e-8`` in scaled units whichever solver of the policy produced it.
-    The cost is more ADMM iterations: 8 to 13 times the MSE solve time on
-    the parity fixture (``parity/BENCHMARK.md``). The MSE objective values
-    there drop by up to ``9.1e-5`` relative, to the true optimum: the thesis
-    MSE values carry OSQP's default inaccuracy. KPIs of the MSE payouts move
-    more, by up to about 2 % at portfolio level, because the objective is
-    flat at its optimum. To reproduce the thesis values, use
-    :data:`THESIS_POLICY` (parity gate only).
+---------------------------------------
+* LPs and other conic problems (E[U], weighted CVaR): ``CLARABEL``, then
+  ``HIGHS``, then ``SCS`` with ``max_iters = 20000``. The thesis used
+  Clarabel, then SCS with the same iteration limit.
+* QPs (MSE): ``OSQP``, then ``CLARABEL``, as in the thesis. OSQP runs
+  with :data:`OSQP_OPTIONS` (``eps_abs = eps_rel = 1e-8``, ``max_iter =
+  100000``), not with cvxpy's defaults (``1e-5`` and ``10000``) that the
+  thesis used ("OSQP accuracy", below).
+* ``optimal_inaccurate`` is accepted (thesis).
 
 A problem is a QP when its objective is quadratic but not piecewise linear
 and cvxpy recognises the whole problem as a QP; every other problem goes to
 the LP list.
 
-The premium of a solution
-    :func:`solve` records ``SolveResult.premium`` as ``pricing.premium_value``
-    of the realised payout, with the pricing the problem was built with
-    (``BuiltProblem.pricing``, which ``problem.build_problems`` sets):
-    ``payout_structure.evaluate(index, theta)`` in loss units, summed over
-    the entities as ``evaluate.kpis`` sums them, under the problem's
-    measure. That is exact, needs no solver, and equals the in-sample
-    ``premium`` KPI of the design problem bit for bit. ``solve(built)`` is
-    enough. The optional ``pricing`` keyword is checked against it: a
-    pricing that differs from the built one (``!=``: the pricing components
-    are frozen dataclasses, equal when their class and fields are) raises
-    :class:`~parametric_insurance_design.errors.ComponentConfigError` before
-    any solver runs. Only a problem assembled by hand without a pricing
-    (``BuiltProblem.pricing is None``) falls back: to ``premium_value``
-    under the ``pricing`` given, unchecked since there is nothing to check
-    it against, or else to the value of the premium term at the solution.
-    That value is the pure premium up to rounding, but for a loaded premium
-    (``pricing.CostOfCapitalLoad``) the Rockafellar-Uryasev bound at the
-    solver's ``zeta``, exact only where the budget binds.
+OSQP accuracy
+-------------
+OSQP is a first-order (ADMM) solver. With cvxpy's default ``eps = 1e-5``
+its solutions violate ``theta >= 0``, monotonicity, the cap and the
+budget by up to about ``1e-5`` in scaled units, and miss the optimal
+payouts by about as much, whenever OSQP's polishing step fails (on
+about a third of the MSE problems). The default policy therefore
+tightens OSQP to ``1e-8``, the accuracy of the interior-point solvers
+(Clarabel, HiGHS), so a solution meets the constraints to about
+``1e-8`` in scaled units whichever solver of the policy produced it.
+The cost is more ADMM iterations: 8 to 13 times the MSE solve time on
+the parity fixture (``parity/BENCHMARK.md``). The MSE objective values
+there drop by up to ``9.1e-5`` relative, to the true optimum: the thesis
+MSE values carry OSQP's default inaccuracy. KPIs of the MSE payouts move
+more, by up to about 2 % at portfolio level, because the objective is
+flat at its optimum. To reproduce the thesis values, use
+:data:`THESIS_POLICY` (for the parity check with the thesis code only).
 
+The premium of a solution
+-------------------------
+:func:`solve` records ``SolveResult.premium`` as ``pricing.premium_value``
+of the realised payout, with the pricing the problem was built with
+(``BuiltProblem.pricing``, which ``problem.build_problems`` sets):
+``payout_structure.evaluate(index, theta)`` in loss units, summed over
+the entities as ``evaluate.kpis`` sums them, under the problem's
+measure. That is exact, needs no solver, and equals the in-sample
+``premium`` KPI of the design problem bit for bit. ``solve(built)`` is
+enough. The optional ``pricing`` keyword is checked against it: a
+pricing that differs from the built one (``!=``: the pricing components
+are frozen dataclasses, equal when their class and fields are) raises
+:class:`~parametric_insurance_design.errors.ComponentConfigError` before
+any solver runs. Only a problem assembled by hand without a pricing
+(``BuiltProblem.pricing is None``) falls back: to ``premium_value``
+under the ``pricing`` given, unchecked since there is nothing to check
+it against, or else to the value of the premium term at the solution.
+That value is the pure premium up to rounding, but for a loaded premium
+(``pricing.CostOfCapitalLoad``) the Rockafellar-Uryasev bound at the
+solver's ``zeta``, exact only where the budget binds.
+
+Solvers that are not installed
+------------------------------
 Solvers that are not installed are not called, but they are still recorded
 as an attempt with status ``error`` and the message
 :data:`NOT_INSTALLED`, so the attempt log shows every solver the policy
 named up to the accepted one. This is how the policy copes with HiGHS
-missing: cvxpy < 1.8 ships no ``highspy`` (e.g. the core's lowest-direct CI
-job, ADR 0002), so the LP chain there is Clarabel, then SCS. If no solver of
+missing: cvxpy < 1.8 ships no ``highspy`` (e.g. the core's CI job on the
+lowest supported dependency versions), so the LP chain there is Clarabel,
+then SCS. If no solver of
 the chosen list is installed, :func:`solve` raises :class:`SolveError` before
 trying any.
 
 Failure handling
-    * An exception that cvxpy raises as :class:`cvxpy.error.SolverError`
-      (solver crash, unsupported problem class) is recorded as an attempt
-      with status ``solver_error`` and the exception text; the next solver
-      is tried. Every other exception propagates unchanged: it is a bug, not
-      a solver outcome.
-    * A status cvxpy reports that :class:`SolveStatus` does not list (e.g.
-      ``infeasible_or_unbounded``) is recorded as ``solver_error`` with the
-      raw status in the message.
-    * An accepted status without a finite solution is recorded as ``error``.
-    * An OSQP solution whose polishing step failed to factorise its linear
-      system is recorded as ``solver_error`` and the next solver is tried
-      ("OSQP polishing guard", below).
-    * After the last solver, the final status is the most informative status
-      among the attempts (:data:`FAILURE_PRECEDENCE`): an infeasibility or
-      unboundedness certificate beats a numerical failure. It selects the
-      error class: :class:`InfeasibleError`, :class:`UnboundedError`, or
-      :class:`SolveError` for everything else.
+----------------
+* An exception that cvxpy raises as :class:`cvxpy.error.SolverError`
+  (solver crash, unsupported problem class) is recorded as an attempt
+  with status ``solver_error`` and the exception text; the next solver
+  is tried. Every other exception propagates unchanged: it is a bug, not
+  a solver outcome.
+* A status cvxpy reports that :class:`SolveStatus` does not list (e.g.
+  ``infeasible_or_unbounded``) is recorded as ``solver_error`` with the
+  raw status in the message.
+* An accepted status without a finite solution is recorded as ``error``.
+* An OSQP solution whose polishing step failed to factorise its linear
+  system is recorded as ``solver_error`` and the next solver is tried
+  ("OSQP polishing guard", below).
+* After the last solver, the final status is the most informative status
+  among the attempts (:data:`FAILURE_PRECEDENCE`): an infeasibility or
+  unboundedness certificate beats a numerical failure. It selects the
+  error class: :class:`InfeasibleError`, :class:`UnboundedError`, or
+  :class:`SolveError` for everything else.
 
 OSQP polishing guard
-    After converging, OSQP polishes its solution: it guesses the active
-    constraints and solves a reduced, regularised KKT system. When that
-    system cannot be factorised, OSQP 1.x sets ``info.status_polish`` to
-    ``-2`` (``OSQP_POLISH_LINSYS_ERROR``) and returns without storing the
-    solution, so the returned point is OSQP's initial one (all zeros), yet
-    ``info.status`` stays ``solved`` and cvxpy reports ``optimal``. This
-    was observed on large MSE problems (``research/notes/solver-check.md``,
-    section 3). After every OSQP solve with status ``optimal`` or
-    ``optimal_inaccurate``, :func:`solve` therefore reads ``status_polish``
-    from the OSQP result that cvxpy keeps in
-    ``problem.solver_stats.extra_stats.info``; if it is ``-2``, the attempt
-    is recorded as ``solver_error`` with a message naming the polishing
-    failure, and the next solver of the list is tried (Clarabel in both named
-    policies). The other polishing outcomes (``-1``: polishing did not
-    improve the point, which OSQP then keeps; ``0``: not performed; ``1``:
-    success) store the solution and are accepted as before. The guard does
-    nothing when ``extra_stats``, ``info`` or ``status_polish`` is missing
-    (other OSQP or cvxpy versions). It applies under every policy that lists
-    OSQP, :data:`THESIS_POLICY` included; it is not a policy option, so it
-    leaves policy fingerprints and run ids unchanged.
+--------------------
+After converging, OSQP polishes its solution: it guesses the active
+constraints and solves a reduced, regularised KKT system. When that
+system cannot be factorised, OSQP 1.x sets ``info.status_polish`` to
+``-2`` (``OSQP_POLISH_LINSYS_ERROR``) and returns without storing the
+solution, so the returned point is OSQP's initial one (all zeros), yet
+``info.status`` stays ``solved`` and cvxpy reports ``optimal``. This
+was observed on large MSE problems (``research/notes/solver-check.md``,
+section 3). After every OSQP solve with status ``optimal`` or
+``optimal_inaccurate``, :func:`solve` therefore reads ``status_polish``
+from the OSQP result that cvxpy keeps in
+``problem.solver_stats.extra_stats.info``; if it is ``-2``, the attempt
+is recorded as ``solver_error`` with a message naming the polishing
+failure, and the next solver of the list is tried (Clarabel in both named
+policies). The other polishing outcomes (``-1``: polishing did not
+improve the point, which OSQP then keeps; ``0``: not performed; ``1``:
+success) store the solution and are accepted as before. The guard does
+nothing when ``extra_stats``, ``info`` or ``status_polish`` is missing
+(other OSQP or cvxpy versions). It applies under every policy that lists
+OSQP, :data:`THESIS_POLICY` included; it is not a policy option, so it
+leaves policy fingerprints and run ids unchanged.
 """
 
 from __future__ import annotations

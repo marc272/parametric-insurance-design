@@ -1,11 +1,13 @@
-"""Design a cover in one call (ADR 0004, Q2).
+"""Design a cover in one call.
 
 :func:`design` builds every design problem of a scope and solves each one. It
-is a plain composition of the low-level path::
+is a plain composition of the low-level path:
 
-    built = problem.build_problems(eventset, scope, payout, objective, pricing,
-                                   constraints, basis=basis, sample=sample)
-    results = tuple(solve.solve(b, policy) for b in built)
+```python
+built = problem.build_problems(eventset, scope, payout, objective, pricing,
+                               constraints, basis=basis, sample=sample)
+results = tuple(solve.solve(b, policy) for b in built)
+```
 
 and gives the same results. The pricing is given once: every built problem
 carries it, so :func:`~parametric_insurance_design.solve.solve` records the

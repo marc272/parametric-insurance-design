@@ -1,4 +1,4 @@
-"""Evaluation basis and the probability measure over outcomes (ADR 0002, SPEC §6.2).
+"""Evaluation basis and the probability measure over outcomes.
 
 Objectives, pricing, constraints and evaluation never read event rates
 directly. They receive an :class:`OutcomeMeasure`, built once per design
@@ -12,53 +12,57 @@ uncovered loss ``(L_e - pi_e)^+``), then summed into outcomes with
 :meth:`OutcomeMeasure.aggregate` (numpy) or
 :meth:`OutcomeMeasure.aggregate_expression` (cvxpy, a sparse 0/1 matrix), and
 finally weighted by ``probability``. This one mechanism covers all three
-bases. With ``Y`` the EventSet's ``metadata.n_years``, ``S`` the years the
-rows represent (the sample's years; all ``Y`` by default) and ``D`` the number
-of draws:
+bases.
 
-``event_conditional`` (thesis parity)
-    One outcome per row; probability ``rate / sum(rate)`` over the rows given.
-    This reproduces the thesis's rescaling after the threshold filter, so
-    ``beta`` has no return-period meaning (thesis issue M3).
-``event``
-    One outcome per row with probability ``rate * Y / |S|``: the row's annual
-    rate, unrescaled. On the full sample ``Y / |S| = 1``; on a sample of
-    fewer years the factor re-expresses the rate over the years the sample
-    covers (an event seen once in ``|S|`` years). The remaining mass
-    ``1 - sum(probability)``, the probability of "no event", is one extra
-    outcome without rows (zero loss, zero payout), present only if it
-    exceeds :data:`PROBABILITY_ATOL`. The rows' annual rates must therefore
-    sum to at most one event per year; otherwise this raises. ``beta`` is then
-    an annual occurrence probability: ``CVaR_beta`` is the mean over the
-    worst ``1 - beta`` of annual event probability, which approximates an
-    occurrence (OEP) tail when years rarely hold more than one event.
-``annual`` (paper default)
-    One outcome per simulated year and draw (SPEC §5: each draw is one
-    simulated version of its year), rows summed within it, so that
-    ``U_y = sum_{e in y} (L_e - pi_e)^+``. Every (year, draw) slot has
-    probability ``1 / (|S| * D)``. ``D`` follows from the rates: the draw-row
-    convention gives every row ``rate = 1 / (Y * D)`` (SPEC §5), and a row
-    whose rate does not fit it raises, because the rates would then say
-    something the year structure cannot. Zero-loss years enter through the
-    rates' year structure: the slots with rows are outcomes in (year, draw)
-    order, and every slot without rows is pooled into **one** last outcome
-    whose probability is their count over ``|S| * D``. Pooling is exact for
-    everything computed on a measure (expectations, quantiles, CVaR, the
-    exceedance curves): those slots have value 0 for every per-row quantity
-    summed or maximised into an outcome, and a discrete distribution does not
-    change when atoms at the same value merge. It keeps the number of
-    outcomes, and so of Rockafellar-Uryasev auxiliaries, at most
-    ``n_rows + 1`` instead of ``|S| * D``. The year of an outcome with rows
-    is the year of its rows.
+The three bases
+---------------
+``Y`` is the EventSet's ``metadata.n_years``, ``S`` the years the rows
+represent (the sample's years; all ``Y`` by default) and ``D`` the number
+of draws.
+
+* ``event_conditional`` (thesis parity): one outcome per row; probability
+  ``rate / sum(rate)`` over the rows given. This reproduces the thesis's
+  rescaling after the threshold filter, which makes the event distribution
+  conditional on the kept rows, so ``beta`` has no return-period meaning.
+* ``event``: one outcome per row with probability ``rate * Y / |S|``: the
+  row's annual rate, unrescaled. On the full sample ``Y / |S| = 1``; on a
+  sample of fewer years the factor re-expresses the rate over the years the
+  sample covers (an event seen once in ``|S|`` years). The remaining mass
+  ``1 - sum(probability)``, the probability of "no event", is one extra
+  outcome without rows (zero loss, zero payout), present only if it
+  exceeds :data:`PROBABILITY_ATOL`. The rows' annual rates must therefore
+  sum to at most one event per year; otherwise this raises. ``beta`` is then
+  an annual occurrence probability: ``CVaR_beta`` is the mean over the
+  worst ``1 - beta`` of annual event probability, which approximates an
+  occurrence (OEP) tail when years rarely hold more than one event.
+* ``annual`` (paper default): one outcome per simulated year and draw (each
+  draw is one simulated version of its year), rows summed within it, so that
+  ``U_y = sum_{e in y} (L_e - pi_e)^+``. Every (year, draw) slot has
+  probability ``1 / (|S| * D)``. ``D`` follows from the rates: the draw-row
+  convention gives every row ``rate = 1 / (Y * D)`` (an event's ``D`` draw
+  rows share its rate ``1 / Y``), and a row whose rate does not fit it
+  raises, because the rates would then say something the year structure
+  cannot. Zero-loss years enter through the rates' year structure: the slots
+  with rows are outcomes in (year, draw) order, and every slot without rows
+  is pooled into **one** last outcome whose probability is their count over
+  ``|S| * D``. Pooling is exact for everything computed on a measure
+  (expectations, quantiles, CVaR, the exceedance curves): those slots have
+  value 0 for every per-row quantity summed or maximised into an outcome, and
+  a discrete distribution does not change when atoms at the same value merge.
+  It keeps the number of outcomes, and so of Rockafellar-Uryasev
+  auxiliaries, at most ``n_rows + 1`` instead of ``|S| * D``. The year of an
+  outcome with rows is the year of its rows.
 
 With exactly one event per year and no draws, ``event`` and ``annual`` give
 the same outcomes and probabilities (in another order on a sample), so every
 objective, premium and KPI agrees on the two bases.
 
-**MSE on a grouped basis.** :class:`~parametric_insurance_design.objectives.MSE`
+MSE on a grouped basis
+----------------------
+:class:`~parametric_insurance_design.objectives.MSE`
 squares each outcome's summed residual, ``(L_y - pi_y)^2`` with
 ``L_y - pi_y = sum_{e in y} (L_e - pi_e)``, not ``sum_{e in y} (L_e -
-pi_e)^2`` (SPEC §6.2; explained in
+pi_e)^2`` (explained in
 ``docs/methodology/annual-basis.md``): the annual basis measures the risk
 owner's net position per year, the premium is annual, and the MSE design then
 minimises exactly the ``rmse_residual`` KPI that evaluation reports on the
