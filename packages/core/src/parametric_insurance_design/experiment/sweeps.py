@@ -1,6 +1,6 @@
 """One-factor-at-a-time sweeps (SPEC §4.2).
 
-Owner: MAR-65. Reproduces the thesis sensitivity design on top of the run
+Reproduces the thesis sensitivity design on top of the run
 executor (:mod:`~parametric_insurance_design.experiment.runner`): vary one
 parameter, hold every other at its baseline value, and run each sweep point
 as a cached single run whose ``runs.source`` is the thesis tag
@@ -36,8 +36,8 @@ subset by subset), each value with the experiment's scope x objective runs in
   noise and the threshold (thesis order). The thesis config gives
   9 + 6 x 25 + 9 + 1 = 169 subsets.
 
-Cluster count of ``n_assets`` subsets (MAR-131)
------------------------------------------------
+Cluster count of ``n_assets`` subsets
+-------------------------------------
 A subset can have fewer locations than the cluster scope's ``n_clusters``
 (the thesis' 1- and 2-asset subsets with 3 clusters). Without
 ``cap_n_clusters`` on the cluster scope (the default, and the parity config)
@@ -52,11 +52,12 @@ count it used. The cap is recorded, never applied silently: the point keeps
 both counts (:attr:`SweepPoint.n_clusters_requested`,
 :attr:`SweepPoint.n_clusters_effective`), and so does its entry in the sweep
 manifest (``n_clusters_requested``, ``n_clusters_effective``; only for
-cluster-scope points of a capped scope, so uncapped manifests are unchanged).
+cluster-scope points of a capped scope, so uncapped manifests have no such
+keys).
 Other sweeps never cap: an ``n_clusters`` sweep value is the count asked for.
 
-Folds of a k-fold experiment (MAR-138)
---------------------------------------
+Folds of a k-fold experiment
+----------------------------
 A k-fold experiment runs **one run per fold** (ADR 0002 §7):
 ``single_runs()`` sets :attr:`~.config.KFoldSampleConfig.fold`, so the fold
 is part of each point's config, config hash and ``run_id``, and a sweep of a
@@ -64,36 +65,33 @@ k-fold experiment has ``k`` points per value and scope x objective (folds
 ``0 .. k - 1`` next to each other). The point's fold is
 :attr:`SweepPoint.fold`, and its entry in the sweep manifest has a ``fold``
 key, so a manifest says which fold every point calibrated on without a join
-with ``runs.fold``. Only k-fold points have the key: the manifests of other
-samples are unchanged, and :func:`sweep_membership` reads a manifest without
-it (written before MAR-138, or of another sample) as ``fold`` = ``<NA>``.
+with ``runs.fold``. Only k-fold points have the key, and
+:func:`sweep_membership` reads a manifest without it (of another sample, or
+written by a version without the key) as ``fold`` = ``<NA>``.
 
 The thesis' simulation sweeps (``noise_value``, ``n_assets``) ran every scope
 x objective except those a figure cell excluded; that exclusion is a plotting
 choice, so every single run is a point here and the figures select.
 
-Sweep membership (decision of MAR-65)
--------------------------------------
+Sweep membership
+----------------
 The cache key (``run_id``) leaves out the ``source`` tag, so a sweep point
 equal to the baseline (e.g. ``alpha = 0.9``, or the ``n_assets`` subset that
 is the whole portfolio) is a cache hit, and its ``runs`` rows keep the tag of
 the run that computed it first (``"single_run"``). The ``runs`` table
-therefore cannot say which sweeps a run belongs to. Options considered:
-(a) a ``sweep_points`` record table, which is an ADR 0002 §7 amendment;
-(b) a manifest per sweep; (c) matching on ``runs.parameters`` only.
-
-**Chosen: (b), a sweep manifest**, which keeps (c) possible. After a sweep has
-run, :func:`run_sweep` writes ``<store root>/sweeps/<hex>.json`` (the hex
-digits of :attr:`SweepResult.sweep_id`), listing every point: its value, its
-location subset, its scope and objective, its config hash and ``run_id``, the
+therefore cannot say which sweeps a run belongs to; a **sweep manifest**
+does. After a sweep has run, :func:`run_sweep` writes
+``<store root>/sweeps/<hex>.json`` (the hex digits of
+:attr:`SweepResult.sweep_id`), listing every point: its value, its location
+subset, its scope and objective, its config hash and ``run_id``, the
 source tag its ``runs`` rows carry, whether it was a cache hit and whether it
 succeeded. :func:`sweep_membership` reads every manifest of a store into one
-table that joins the record tables on ``run_id``. Why (b): it needs no change
-to the record schemas or the store, it keeps the runner's cache (a baseline
-point is computed once), and it states membership explicitly instead of
+table that joins the record tables on ``run_id``. The manifest needs no
+change to the record schemas or the store, keeps the runner's cache (a
+baseline point is computed once), and states membership explicitly instead of
 inferring it from parameters, which cannot tell the ``n_assets`` subsets of
-one size apart. (c) keeps working: ``runs.parameters`` names each sweep
-parameter (``run_parameters``).
+one size apart. Matching on parameters still works where it suffices:
+``runs.parameters`` names each sweep parameter (``run_parameters``).
 
 The ``sweeps/`` directory sits next to the store's own layout; the store does
 not read it. A manifest is written once all of its points are in the store, so
@@ -117,8 +115,8 @@ raises :class:`~parametric_insurance_design.errors.ConfigError` instead of
 being skipped. Any exception from the runner (an input or configuration
 error, or a bug) propagates, and no manifest is written for that sweep.
 
-Parallel execution (MAR-105)
-----------------------------
+Parallel execution
+------------------
 ``run_sweeps(..., jobs=N)`` and ``run_sweep(..., jobs=N)`` execute the runs
 in ``N`` worker processes (``concurrent.futures.ProcessPoolExecutor`` with
 the ``spawn`` start method, so no worker inherits the parent's threads or
@@ -310,7 +308,7 @@ class SweepPoint:
         its size (0-based, in sampling order).
     n_clusters_requested : int or None, default None
         ``n_assets`` points of a cluster scope with ``cap_n_clusters`` only:
-        the experiment's ``n_clusters`` (MAR-131).
+        the experiment's ``n_clusters``.
     n_clusters_effective : int or None, default None
         Likewise: the count the point's config has,
         ``min(n_clusters_requested, len(location_ids))``.
@@ -491,7 +489,7 @@ def sweep_points(
 def _subset_point(
     single: ExperimentConfig, size: int, subset: tuple[str, ...], index: int
 ) -> SweepPoint:
-    """Return the ``n_assets`` point of one single run on one subset (MAR-131 cap)."""
+    """Return the ``n_assets`` point of one single run on one subset (cluster cap)."""
     config = single.with_locations(subset)
     scope = config.scopes[0]
     if not (isinstance(scope, ClusterScopeConfig) and scope.cap_n_clusters):
@@ -665,7 +663,7 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
 
 
 # --------------------------------------------------------------------------
-# Parallel execution (MAR-105)
+# Parallel execution
 # --------------------------------------------------------------------------
 
 
@@ -706,8 +704,8 @@ def _execute_in_worker(
 def _check_policy_survives_pickling(policy: SolverPolicy) -> None:
     """Refuse a policy that a worker would receive with another fingerprint.
 
-    The policy goes to a worker pickled (``SolverPolicy`` supports it,
-    MAR-124). A subclass that pickles differently would give the worker's
+    The policy goes to a worker pickled (``SolverPolicy`` supports it). A
+    subclass that pickles differently would give the worker's
     runs another run id than the parent computed, so the parent compares the
     fingerprint of a pickle round trip before it submits a run.
     """
@@ -1090,7 +1088,7 @@ def _cap_record(point: SweepPoint) -> dict[str, int]:
 
 
 def _fold_record(point: SweepPoint) -> dict[str, int]:
-    """Manifest field of a point's k-fold fold; empty for other samples (MAR-138)."""
+    """Manifest field of a point's k-fold fold; empty for other samples."""
     return {} if point.fold is None else {"fold": point.fold}
 
 
@@ -1238,9 +1236,8 @@ def sweep_membership(store: ResultStore) -> pd.DataFrame:
         with the record tables on ``run_id``. ``location_ids`` is a tuple of
         str (``n_assets``) or None; ``subset_index`` is None outside
         ``n_assets``. ``run_source`` is the tag of the run's ``runs`` rows,
-        ``source`` the sweep's tag. ``fold`` is the k-fold fold of the point
-        (MAR-138), ``<NA>`` for other samples and for manifests written
-        before it was recorded.
+        ``source`` the sweep's tag. ``fold`` is the k-fold fold of the point,
+        ``<NA>`` for other samples and for manifests without a ``fold`` key.
 
     Raises
     ------

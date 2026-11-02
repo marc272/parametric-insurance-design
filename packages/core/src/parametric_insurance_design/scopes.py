@@ -1,6 +1,6 @@
 """Scopes: individual, portfolio and cluster (SPEC §4.2, §6).
 
-Owner: MAR-12. The interface is
+The interface is
 :class:`~parametric_insurance_design.interfaces.Scope` (ADR 0002). A scope
 maps locations to payout entities and design problems; the objective of a
 design problem is on the sum over its entities (``L_e = sum_j L_{e,j}``,
@@ -20,8 +20,7 @@ design problem is on the sum over its entities (``L_e = sum_j L_{e,j}``,
   its own budget on its cluster's loss, as the individual scope per
   location. The two settings have the same clusters and the same index, so
   comparing them isolates the joint calibration, and comparing
-  ``joint=False`` with :class:`Individual` isolates the cluster index
-  (MAR-180).
+  ``joint=False`` with :class:`Individual` isolates the cluster index.
 
 An entity's loss is the sum of its locations' losses. Entities list their
 locations in EventSet order, and clusters are numbered by the strategy's

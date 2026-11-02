@@ -1,11 +1,10 @@
 """Risk measures of discrete distributions: VaR, CVaR, lower quantiles.
 
-Owner: MAR-143 (ADR 0002 §10). Pure numpy, below both the problem
-components and the evaluation: ``pricing.CostOfCapitalLoad`` prices a
-realised payout with :func:`var_cvar`, and ``evaluate`` reports it (KPIs) and
-uses :func:`lower_quantile` for the exceedance curves, so both read one
-definition. ``evaluate`` re-exports :func:`var_cvar`; it lived there until
-MAR-143.
+Pure numpy, below both the problem components and the evaluation
+(ADR 0002 §10): ``pricing.CostOfCapitalLoad`` prices a realised payout with
+:func:`var_cvar`, and ``evaluate`` reports it (KPIs) and uses
+:func:`lower_quantile` for the exceedance curves, so both read one
+definition. ``evaluate`` re-exports :func:`var_cvar`.
 
 Quantiles on a step of the distribution: strict, as in the thesis
     The VaR is the smallest value whose cumulative probability reaches
@@ -20,12 +19,12 @@ Quantiles on a step of the distribution: strict, as in the thesis
     differs between platforms, e.g. Linux and macOS). The result is then
     either of the two adjacent atoms: the exact-arithmetic lower one or the
     next one up. Kept strict so that the parity reports stay byte-identical
-    with the thesis golden values (MAR-143, orchestrator decision: option
-    B; a tolerance moved 162 ``VaR_Uncovered`` values of the asset-count
-    sweep to the lower atom). Making the quantile platform-independent is
-    tracked as a follow-up.
+    with the thesis golden values (ADR 0002, ``riskmeasures.py`` row; a
+    tolerance moved 162 ``VaR_Uncovered`` values of the asset-count sweep to
+    the lower atom). The quantile is therefore not platform-independent on
+    an exact step.
 
-    The bootstrap (``bootstrap.py``, MAR-23) does use a tolerance,
+    The bootstrap (``bootstrap.py``) does use a tolerance,
     :data:`CDF_ATOL`, in its vectorised VaR, and accepts either adjacent
     atom when it checks its point values against ``evaluate.kpis``.
 """
@@ -194,13 +193,15 @@ def var_cvar(
 ) -> tuple[float, float]:
     """VaR and CVaR of a discrete distribution (thesis ``calculate_var_cvar``).
 
-    ``VaR_beta`` is the lower ``beta``-quantile: the smallest value ``v``
-    with ``P(X <= v) >= beta`` (:func:`lower_quantile`, compared strictly,
-    as the thesis; see the module docstring for a ``beta`` exactly on a
-    step). ``CVaR_beta``
-    is the Rockafellar-Uryasev value ``VaR + E[(X - VaR)^+] / (1 - beta)``,
-    i.e. the mean of the worst ``1 - beta`` probability mass, with the atom
-    at the VaR split as needed:
+    ``VaR_beta`` is the lower ``beta``-quantile, computed with
+    :func:`lower_quantile`: the smallest value whose summed probability
+    reaches ``beta``. In exact arithmetic that is the smallest ``v`` with
+    ``P(X <= v) >= beta``. With ``beta`` exactly on a step of the
+    distribution the summed probabilities are compared strictly, as in the
+    thesis, so the result can be the next atom up (module docstring).
+    ``CVaR_beta`` is the Rockafellar-Uryasev value
+    ``VaR + E[(X - VaR)^+] / (1 - beta)``, i.e. the mean of the worst
+    ``1 - beta`` probability mass, with the atom at the VaR split as needed:
 
     ``CVaR = (sum_{x > VaR} p x + (1 - beta - P(X > VaR)) VaR) / (1 - beta)``,
 

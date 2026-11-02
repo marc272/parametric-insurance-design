@@ -1,14 +1,13 @@
 """Robust design under uncertainty (SPEC §6.5). Not implemented yet.
 
-**Unimplemented until MAR-34.** Both entry points are stubs that raise
+**Not implemented.** Both entry points are stubs that raise
 ``NotImplementedError``. So this module is off the public API: the package's
 ``__init__`` doesn't import it, and it isn't in ``pid.__all__`` (ADR 0004,
-Q2). It comes back to the top level once MAR-34 implements R1. Until then,
+Q2). It comes back to the top level once R1 is implemented. Until then,
 import it by its full name, ``parametric_insurance_design.robust``.
 
-Owners, in sequence (ADR 0002): MAR-34 implements R1
-(:func:`build_scenario_robust`); MAR-35 then implements R2
-(:class:`DistributionallyRobust`), only if D6 = yes at checkpoint C1.
+The planned design (SPEC §6.5): R1, :func:`build_scenario_robust`, is the
+primary method; R2, :class:`DistributionallyRobust`, is secondary.
 
 R1, scenario-robust: ``min_theta max_k F_k(theta)`` in epigraph form. One
 :class:`~parametric_insurance_design.interfaces.ProblemContext` per scenario

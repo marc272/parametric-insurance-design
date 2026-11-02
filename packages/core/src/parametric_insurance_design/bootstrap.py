@@ -1,6 +1,6 @@
 """Block-bootstrap confidence intervals over years (SPEC §6.1, thesis issue M1).
 
-Owner: MAR-23. Fills the ``ci_low``, ``ci_high``, ``ci_level`` and
+Fills the ``ci_low``, ``ci_high``, ``ci_level`` and
 ``n_bootstrap`` columns of the ``kpis`` table (ADR 0002 §7) and gives paired
 confidence intervals for the difference of a KPI between two designs.
 Method notes: ``docs/methodology/bootstrap.md``.
@@ -51,7 +51,7 @@ Array-level replicates
     and payout, and :func:`premium_replicates` the premium of a payout
     (``pricing.premium_value`` on each replicate's measure), without an
     EventSet. :func:`bootstrap_kpis` builds on the same code, and
-    ``experiment.kfold`` uses both for the pooled k-fold KPIs (MAR-153).
+    ``experiment.kfold`` uses both for the pooled k-fold KPIs.
 
 Intervals
     Percentile intervals: the ``(1 - level) / 2`` and ``(1 + level) / 2``
@@ -67,7 +67,7 @@ No silent failures
     table, so a null bound next to them means "bootstrapped, undefined", not
     "not bootstrapped". A KPI that this module cannot replicate raises.
 
-Per-location rows (MAR-217)
+Per-location rows
     :func:`bootstrap_kpis` takes ``evaluate``'s ``allocation`` rule. Under
     ``"value"`` or ``"loss"`` its table has the per-location rows of
     ``evaluate.kpis`` with intervals, checked against ``evaluate.kpis`` like
@@ -146,7 +146,7 @@ PORTFOLIO_PAIR_KEY: Final[tuple[str, ...]] = tuple(
     column for column in PAIR_KEY if column != "problem_id"
 )
 """Columns that pair two designs' portfolio-level KPI rows across scopes in
-``paired_difference(..., across_scopes=True)`` (MAR-179): :data:`PAIR_KEY`
+``paired_difference(..., across_scopes=True)``: :data:`PAIR_KEY`
 without ``problem_id``. A portfolio row's ``problem_id`` depends on the
 scope, not on the subject: ``records.ALL_PROBLEMS`` (``"*"``) for a run with
 several design problems (individual, cluster), the problem's own id for a run
@@ -736,7 +736,7 @@ class KpiBootstrap:
         """Keep the portfolio-level rows only, with their replicates.
 
         The input of ``paired_difference(..., across_scopes=True)``, which
-        refuses location-, entity- and problem-level rows (MAR-179). The
+        refuses location-, entity- and problem-level rows. The
         kept rows, their replicates, the resample and the level are
         unchanged; the other levels' rows are left out.
 
@@ -852,13 +852,13 @@ def bootstrap_kpis(
     ----------
     eventset, scope, results, basis, beta, run_id, sample, pricing, allocation
         As in :func:`~parametric_insurance_design.evaluate.kpis`. Under an
-        ``allocation`` rule other than ``"none"`` (MAR-217) the table has the
+        ``allocation`` rule other than ``"none"`` the table has the
         per-location rows of ``evaluate.kpis`` (``level =
         "location_by_value"`` or ``"location_by_loss"``), and they get
         intervals like every other row: each location's loss and allocated
         payout are fixed per row, so a replicate reweights them as it
         reweights the other subjects. Under ``"none"`` (the default) the
-        table, the replicates and the intervals are exactly as before.
+        table has no per-location rows.
     resample : YearResample
         Replicates of the evaluation sample's years: ``resample.years`` must
         equal ``sample.years`` (all years for the full sample). Reuse one
@@ -1058,7 +1058,10 @@ def paired_difference(
         MSE (``b``) of one scope. Their KPI rows are paired on
         :data:`PAIR_KEY`, so they must describe the same subjects (the same
         scope and portfolio), and each table must hold one run, so that every
-        row has its own key. With ``across_scopes=True``: the
+        row has its own key. Each ``table`` must have every key column of
+        :data:`~parametric_insurance_design.records.KPIS` and ``value``, as
+        the tables of :func:`bootstrap_kpis` do; a hand-built table without
+        one raises ``KeyError``. With ``across_scopes=True``: the
         portfolio-level rows of two designs of possibly different scopes on
         the same portfolio, e.g. ``a.portfolio_rows()`` and
         ``b.portfolio_rows()``.
@@ -1067,14 +1070,15 @@ def paired_difference(
     across_scopes : bool, default False
         Pair two designs' **portfolio-level** rows across scopes, e.g. a
         joint (portfolio or cluster scope) design against the individual
-        one (MAR-179). Rows are paired on :data:`PORTFOLIO_PAIR_KEY` (the
+        one. Rows are paired on :data:`PORTFOLIO_PAIR_KEY` (the
         KPI, its beta and the subject, with split, fold and basis), and
         ``problem_id`` is ignored: it is ``"*"`` for a run with several
         design problems and the problem's id for a run with one. Every row
         of both tables must be at the portfolio level: location-, entity-
         and problem-level rows are refused, because they aren't comparable
         across scopes and the per-entity values of a joint design aren't
-        unique (MAR-100). Select the portfolio rows with
+        unique (``docs/methodology/payout-allocation.md``). Select the
+        portfolio rows with
         :meth:`KpiBootstrap.portfolio_rows`. The same-resample check applies
         as without the option, and the values, replicates and intervals are
         computed the same way.
@@ -1100,7 +1104,7 @@ def paired_difference(
         also if a table has a row that is not at the portfolio level, or no
         rows, or portfolio rows of several problem ids for one KPI (e.g. the
         ``portfolio_rows()`` of two runs stacked). Every refusal is checked
-        before the rows are paired (MAR-211).
+        before the rows are paired.
 
     Examples
     --------

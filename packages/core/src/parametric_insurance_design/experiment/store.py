@@ -1,6 +1,6 @@
 """Parquet result store (SPEC §4.2, thesis issue C5).
 
-Owner: MAR-64. Persists and reads the tables defined in
+Persists and reads the tables defined in
 :mod:`parametric_insurance_design.records` (``runs``, ``entities``,
 ``payouts``, ``kpis``, ``exceedance``), one Parquet file per run and table,
 written with ``TableSchema.arrow_schema``, plus one provenance manifest per
@@ -30,12 +30,12 @@ with zero rows (e.g. no ``kpis`` for a run with a failed solve).
 
 One file per run keeps writes independent and idempotent: re-running a run
 replaces its files, and nothing is read, merged and rewritten. Many small
-files are the cost; compacting a finished sweep is a possible follow-up.
+files are the cost.
 
 The store assumes a single writer per run. Two processes writing the same
 ``run_id`` at the same time are not coordinated.
 
-Reads keep no state between calls (MAR-128): another process may commit runs
+Reads keep no state between calls: another process may commit runs
 while this one reads, e.g. a ``sweep`` writing while ``figures`` reads, and
 every call sees the store as it is on disk. A read of given runs checks only
 those runs' manifest files, one ``stat`` each, instead of listing the
@@ -382,7 +382,7 @@ class ResultStore:
         if run_ids is None:
             wanted = self.run_ids()
         else:
-            # Check only the requested runs (MAR-128): one stat per run, no
+            # Check only the requested runs: one stat per run, no
             # listing and no cache, so runs that another process commits
             # between two reads are seen.
             wanted = tuple(sorted(set(run_ids)))
@@ -399,7 +399,7 @@ class ResultStore:
                     "the store is damaged"
                 )
             # ParquetFile.read: half the time of pq.read_table, which goes
-            # through the dataset API, for the same table (MAR-128).
+            # through the dataset API, for the same table.
             with pq.ParquetFile(path) as handle:
                 part = handle.read()
             if not part.schema.equals(arrow_schema):
