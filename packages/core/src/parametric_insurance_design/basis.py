@@ -346,8 +346,9 @@ def _n_draws(eventset: EventSet) -> int:
     Raises
     ------
     InputMismatchError
-        If a row's rate is not ``1 / (n_years * D)`` for one integer ``D`` (SPEC
-        §5 draw-row convention), or a ``draw_id`` lies outside ``[0, D)``.
+        If a row's rate is not ``1 / (n_years * D)`` for one integer ``D`` (an
+        event's ``D`` draw rows split its annual rate equally), or a
+        ``draw_id`` lies outside ``[0, D)``.
     """
     n_years = eventset.metadata.n_years
     rates = eventset.rates
@@ -356,7 +357,8 @@ def _n_draws(eventset: EventSet) -> int:
     if n_draws < 1 or not np.allclose(implied, n_draws, rtol=DRAW_RATE_RTOL, atol=0):
         raise InputMismatchError(
             "the annual basis needs every row's rate to be 1 / (n_years * n_draws) "
-            f"(SPEC §5) with n_years = {n_years}; the rates imply between "
+            "(an event's draw rows split its annual rate equally) with "
+            f"n_years = {n_years}; the rates imply between "
             f"{implied.min():.6g} and {implied.max():.6g} draws per event"
         )
     draws = eventset.events["draw_id"].to_numpy(dtype=np.int64)

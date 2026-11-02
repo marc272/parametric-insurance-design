@@ -1694,7 +1694,7 @@ def _check_years(events: pd.DataFrame, n_years: int) -> None:
     bad = (years < 0) | (years >= n_years)
     if bad.any():
         raise OutOfRangeError(
-            f"year must lie in [0, {n_years}) (0-based, ADR 0002 §5; n_years from "
+            f"year must lie in [0, {n_years}) (years are 0-based; n_years from the "
             f"metadata); {int(bad.sum())} rows are outside, e.g. "
             f"{_examples(events.loc[bad, ['event_id', 'draw_id', 'year']])}",
             table="events",

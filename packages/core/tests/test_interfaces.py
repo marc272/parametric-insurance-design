@@ -237,7 +237,12 @@ def test_full_sample_enforces_year_convention(toy_eventset: EventSet) -> None:
         )
     # Sample.full keeps its own guard: bypass validation to reach it.
     object.__setattr__(toy_eventset, "events", events)
-    with pytest.raises(errors.InputMismatchError, match="year convention"):
+    with pytest.raises(
+        errors.InputMismatchError,
+        match=re.escape(
+            "event years must lie in [0, 3) (years are 0-based), got [1, 3]"
+        ),
+    ):
         Sample.full(toy_eventset)
 
 

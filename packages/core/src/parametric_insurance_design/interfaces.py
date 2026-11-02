@@ -159,8 +159,8 @@ class Sample:
         observed = eventset.events["year"].to_numpy(dtype=np.int64)
         if observed.size and (observed.min() < 0 or observed.max() >= n_years):
             raise InputMismatchError(
-                f"event years must lie in [0, {n_years}) (ADR 0002 year "
-                f"convention), got [{observed.min()}, {observed.max()}]"
+                f"event years must lie in [0, {n_years}) (years are 0-based), "
+                f"got [{observed.min()}, {observed.max()}]"
             )
         return cls(
             name="full",

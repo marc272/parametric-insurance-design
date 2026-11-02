@@ -1,4 +1,4 @@
-"""Command-line interface ``parametric-insurance-design`` (SPEC §4.2).
+"""Command-line interface ``parametric-insurance-design``.
 
 A thin front end over
 :mod:`~parametric_insurance_design.experiment.runner` and
@@ -86,9 +86,10 @@ Common options of ``run`` and ``sweep``:
 ``--policy {default,thesis}``
     Solver policy: ``default`` is
     :data:`~parametric_insurance_design.solve.DEFAULT_POLICY`; ``thesis`` is
-    :data:`~parametric_insurance_design.solve.THESIS_POLICY` and is for the
-    parity gate only (see :mod:`~parametric_insurance_design.solve`, "OSQP
-    accuracy"). The policy is part of every ``run_id``.
+    :data:`~parametric_insurance_design.solve.THESIS_POLICY` and is only for
+    the parity check against the thesis code (see
+    :mod:`~parametric_insurance_design.solve`, "OSQP accuracy"). The policy
+    is part of every ``run_id``.
 ``-v`` / ``-q``
     Logging level on stderr: ``INFO`` by default (one line per run and per
     sweep), ``DEBUG`` with ``-v`` (one line per sweep point), ``WARNING``
@@ -271,7 +272,8 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
         default="default",
         help=(
             "solver policy (default: %(default)s); 'thesis' reproduces the "
-            "thesis solves and is for the parity gate only"
+            "thesis solves and is only for the parity check against the "
+            "thesis code"
         ),
     )
     verbosity = parser.add_mutually_exclusive_group()
