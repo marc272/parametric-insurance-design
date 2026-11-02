@@ -41,7 +41,7 @@ The explorer bundle is the one the payout explorer (MAR-54) reads: the thesis po
 
 ## Build
 
-The workflow [`.github/workflows/site.yml`](../.github/workflows/site.yml) builds the site on every pull request that touches `site/`, the workflow, or the code and data of the explorer bundle (above), and builds and deploys it to GitHub Pages on `main`. It checks that the two Quarto pins agree (below), solves and exports the explorer bundle, checks that no fixture bundle is in the site, and checks the explorer bundle.
+The workflow [`.github/workflows/site.yml`](../.github/workflows/site.yml) builds the site on every pull request that touches `site/`, the workflow, or the code and data of the explorer bundle (above), and builds and deploys it to GitHub Pages on `main`. It checks that the two Quarto pins agree (below), solves the explorer runs, draws the config's figures from the same store as a check only (they are not published; any non-zero `figures` exit fails the build, MAR-233), exports the explorer bundle, checks that no fixture bundle is in the site, and checks the explorer bundle.
 
 **The Quarto pin.** The Quarto CLI is pinned twice: `QUARTO_VERSION` in the workflow (what `quarto-dev/quarto-actions/setup` installs) and `quarto-required` in `_quarto.yml` (what the render requires). Change both together: the workflow's step "Check the Quarto pin" fails the build, before the solve, when they differ (MAR-210). That step catches drift between the two pins, not a pin that has fallen behind Quarto's releases.
 

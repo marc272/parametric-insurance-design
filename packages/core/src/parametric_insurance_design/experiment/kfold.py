@@ -1,11 +1,10 @@
-"""Pooled out-of-sample KPIs of a k-fold experiment (SPEC §6.1, MAR-151).
+"""Pooled out-of-sample KPIs of a k-fold experiment (SPEC §6.1).
 
-Owner: MAR-151. A k-fold experiment stores a run per scope x objective x
-fold (MAR-22, ADR 0002 §7 amendment MAR-138), so each scope x objective has
-``k`` out-of-sample KPI values, each over ``1/k`` of the years. This module
-combines the folds into one out-of-sample KPI per scope x objective, computed
-on demand from the result store; nothing is written to the store and no
-record table changes (MAR-151 "option A"). Method notes:
+A k-fold experiment stores a run per scope x objective x fold (ADR 0002
+§7), so each scope x objective has ``k`` out-of-sample KPI values, each over
+``1/k`` of the years. This module combines the folds into one out-of-sample
+KPI per scope x objective, computed on demand from the result store; nothing
+is written to the store and no record table changes. Method notes:
 ``docs/methodology/out-of-sample.md``.
 
 The pooled rule
@@ -19,7 +18,7 @@ The pooled rule
     * Only the **portfolio level** is pooled. Entity and design-problem
       subjects are not comparable across folds: the cluster scope's partition
       differs per fold, so "cluster C1" of fold 0 is not that of fold 1.
-      Under an allocation rule (``evaluation.allocation``, MAR-217) each
+      Under an allocation rule (``evaluation.allocation``) each
       fold's run stores per-location rows (``location_by_value`` or
       ``location_by_loss``) for its ``train`` and ``test`` samples; they stay
       in the store as written and are not pooled either. The pooled table is
@@ -30,8 +29,8 @@ The pooled rule
       once and shared by every design, so differences between designs are
       paired (:func:`pooled_difference`). The replicates are
       ``bootstrap.kpi_replicates`` of the pooled loss and payout, and, for
-      the premium, ``bootstrap.premium_replicates`` of the pooled payout
-      (MAR-153); the intervals are ``bootstrap.percentile_interval``.
+      the premium, ``bootstrap.premium_replicates`` of the pooled payout;
+      the intervals are ``bootstrap.percentile_interval``.
     * **Rejected: the mean of the per-fold KPIs.** A tail KPI (VaR, CVaR)
       from ``1/k`` of the years is noisier than one from all years, and the
       mean of ``k`` CVaRs is not the CVaR of any distribution.

@@ -1,12 +1,12 @@
 """Command-line interface ``parametric-insurance-design`` (SPEC §4.2).
 
-Owner: MAR-66. A thin front end over
+A thin front end over
 :mod:`~parametric_insurance_design.experiment.runner` and
 :mod:`~parametric_insurance_design.experiment.sweeps`. It parses arguments,
 sets up logging, calls the library and turns the outcome into a summary and
 an exit code. Every decision about what runs, what is cached and what is
-written stays in the library. Later commands (``export-site``) register
-here as further subcommands.
+written stays in the library. Every command is a subcommand registered
+here.
 
 Commands
 --------
@@ -19,19 +19,19 @@ Commands
     (:func:`~parametric_insurance_design.experiment.sweeps.run_sweeps`).
     ``--parameter P`` (repeatable) runs only the sweeps of those parameters,
     ``--no-baseline`` skips the baseline runs, ``--jobs N`` runs them in
-    ``N`` worker processes (default 1; same store contents, MAR-105). A
+    ``N`` worker processes (default 1; same store contents). A
     worker process that dies is an error (exit code 3).
 ``parametric-insurance-design figures CONFIG [--out DIR]``
-    Draw the config's figures from its result store (MAR-110), with their
+    Draw the config's figures from its result store, with their
     figure-data CSVs, into ``DIR`` (default ``<output.directory>/figures``).
     It reads the EventSet to compute every ``run_id`` and the prepared
     EventSet of the event overlays, and never solves: a run missing from the
-    store is an error. ``--skip-missing-sweeps`` (MAR-120) draws the figures
+    store is an error. ``--skip-missing-sweeps`` draws the figures
     before every sweep has run: the sweep figures whose points are missing
     are skipped and listed as ``MISSING`` (exit code 1); the single runs
     must still be in the store. ``--transaction-costs TAU,...`` sets the
     costs per contract of the cluster net-advantage figure (default: the
-    thesis' 25000,50000,75000,100000,125000). For a k-fold config (MAR-151)
+    thesis' 25000,50000,75000,100000,125000). For a k-fold config
     it first computes the pooled out-of-sample portfolio KPIs from the store
     (:func:`~parametric_insurance_design.experiment.kfold.pooled_kpis`, with
     its drift guard; nothing is solved), passes them as ``pooled_kpis=``,
@@ -43,7 +43,7 @@ Commands
     :class:`VizNotInstalledError` (exit code 3). Accepts ``--policy``, ``-v``
     and ``-q``.
 ``parametric-insurance-design export-site CONFIG [--out DIR]``
-    Export the config's site bundle (MAR-200) from its result store into
+    Export the config's site bundle from its result store into
     ``DIR`` (default ``<output.directory>/site``): JSON and uncompressed
     Arrow IPC slices of the payout grids, KPIs, exceedance curves and map
     data, with a manifest (format, config hash, run ids, the setup of every
@@ -57,14 +57,14 @@ Commands
     default). ``--max-file-bytes N`` and ``--max-bundle-bytes N`` set the
     size budget (default 2 MB per file, 10 MB of data files); over budget
     is an error (exit code 3) and nothing is written. ``--label TEXT`` says
-    what the data are. ``--split S`` (``full``, ``train`` or ``test``;
-    MAR-213) keeps only the rows of evaluation split ``S`` in the KPI,
+    what the data are. ``--split S`` (``full``, ``train`` or ``test``)
+    keeps only the rows of evaluation split ``S`` in the KPI,
     exceedance and map slices (``--split test``: out of sample only, for a
     published bundle); the payout tables are unaffected, the manifest records
     the filter (``split_filter``), and a run without rows of ``S`` or a
     k-fold config is refused (exit code 3). A run with a failed design
     problem is listed and left out (exit code 1). For a k-fold config
-    (MAR-208) it first computes the pooled out-of-sample portfolio KPIs
+    it first computes the pooled out-of-sample portfolio KPIs
     from the store, as ``figures`` does
     (:func:`~parametric_insurance_design.experiment.kfold.pooled_kpis`, with
     its drift guard; nothing is solved), passes them as ``pooled_kpis=``,
@@ -87,7 +87,8 @@ Common options of ``run`` and ``sweep``:
     Solver policy: ``default`` is
     :data:`~parametric_insurance_design.solve.DEFAULT_POLICY`; ``thesis`` is
     :data:`~parametric_insurance_design.solve.THESIS_POLICY` and is for the
-    parity gate only (MAR-98). The policy is part of every ``run_id``.
+    parity gate only (see :mod:`~parametric_insurance_design.solve`, "OSQP
+    accuracy"). The policy is part of every ``run_id``.
 ``-v`` / ``-q``
     Logging level on stderr: ``INFO`` by default (one line per run and per
     sweep), ``DEBUG`` with ``-v`` (one line per sweep point), ``WARNING``
@@ -402,7 +403,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _add_export_site(commands: argparse._SubParsersAction[Any]) -> None:
-    """Add the ``export-site`` subcommand (MAR-200)."""
+    """Add the ``export-site`` subcommand."""
     export = commands.add_parser(
         "export-site",
         help="export a config's site bundle from its result store",
@@ -544,9 +545,9 @@ def _label(config: ExperimentConfig) -> str:
 def _point_label(point: SweepPoint) -> str:
     """Describe a sweep point: its value (and subset), scope and objective.
 
-    A point whose cluster count was capped at its subset size (MAR-131) also
-    shows the cap, e.g. ``n_assets=2 [A,B] (n_clusters 3->2) cluster x mse``
-    (MAR-150), so a dry run never hides it.
+    A point whose cluster count was capped at its subset size also shows the
+    cap, e.g. ``n_assets=2 [A,B] (n_clusters 3->2) cluster x mse``, so a dry
+    run never hides it.
     """
     value = f"{point.parameter}={point.value!r}"
     if point.location_ids is not None:
@@ -779,7 +780,7 @@ def _import_viz() -> ModuleType:
 def _sweep_runs(
     viz: ModuleType, config: ExperimentConfig, data: RunInput, policy: SolverPolicy
 ) -> list[object]:
-    """Every point of the config's sweeps as a viz ``SweepRun`` (MAR-112).
+    """Every point of the config's sweeps as a viz ``SweepRun``.
 
     The ``run_id`` of a point is computed as ``sweep`` (and its dry run)
     does, so no sweep manifest is needed. ``sweep_points`` lists the points
@@ -833,7 +834,7 @@ def _figures(config: ExperimentConfig, args: argparse.Namespace) -> ExitCode:
         for single in config.single_runs()
     ]
     kfold = config.sample.kind == KFOLD_SAMPLE
-    # A k-fold config's figures read no sweep points (MAR-151).
+    # A k-fold config's figures read no sweep points.
     sweeps = [] if kfold else _sweep_runs(viz, config, data, policy)
     out_dir: Path = (
         args.out if args.out is not None else config.output.directory / "figures"
@@ -946,7 +947,7 @@ def _export_site(config: ExperimentConfig, args: argparse.Namespace) -> ExitCode
     parameters: list[str] | None = [] if args.no_sweeps else args.parameter
     kfold = config.sample.kind == KFOLD_SAMPLE
     # A k-fold config's bundle holds no sweeps; asking for one is refused by
-    # export_site (MAR-208).
+    # export_site.
     sweeps = (
         [] if parameters == [] or kfold else _sweep_runs(export, config, data, policy)
     )
@@ -960,7 +961,7 @@ def _export_site(config: ExperimentConfig, args: argparse.Namespace) -> ExitCode
     options: dict[str, object] = {}
     pooled: PooledKpis | None = None
     if kfold and not parameters and not args.events:
-        # The pooled out-of-sample KPIs, as figures computes them (MAR-151).
+        # The pooled out-of-sample KPIs, as figures computes them.
         pooled = pooled_kpis(config, store, prepared, run_ids)
         options["pooled_kpis"] = pooled.table
     report = export.export_site(

@@ -1,6 +1,6 @@
 """Evaluation: KPIs and exceedance curves (SPEC §4.2, §6.1, §6.2).
 
-Owner: MAR-16. Port of the thesis ``benchmarking.py``
+Port of the thesis ``benchmarking.py``
 (``calculate_benchmarking_kpis``) and of the quantile behind its exceedance
 plots (``plotting._weighted_quantile``). Outputs are tidy tables validated
 against :data:`~parametric_insurance_design.records.KPIS` and
@@ -25,7 +25,7 @@ How a run is evaluated
     5. Per-row quantities are summed into outcomes with the measure, and
        weighted with its probabilities.
 
-Per-location rows and joint designs (MAR-100, MAR-91)
+Per-location rows and joint designs
     A joint design (``Portfolio`` or ``Cluster`` scope) is identified only
     through its design problem's payout. The MSE objective depends on the
     summed payout of each outcome alone, so any other split of the same sums
@@ -64,7 +64,8 @@ Per-location rows and joint designs (MAR-100, MAR-91)
     the annual basis the MSE objective sees yearly sums only, and an
     out-of-sample evaluation applies the per-entity payout functions to new
     index values). No ``premium`` is reported per location: pricing is a
-    design-problem component (ADR 0002).
+    design-problem component (ADR 0002). See
+    ``docs/methodology/payout-allocation.md``.
 
 KPIs of one subject (``p`` the outcome probabilities, ``o`` an outcome, sums
 over the rows ``e`` of an outcome)
@@ -73,7 +74,7 @@ over the rows ``e`` of an outcome)
     * ``expected_uncovered = E[U]`` [thesis ``E_Uncovered``].
     * ``var_uncovered``, ``cvar_uncovered``: :func:`var_cvar` of ``U`` at
       ``beta`` [``VaR_Uncovered``, ``CVaR_Uncovered``]. ``var_cvar`` lives in
-      ``riskmeasures.py`` since MAR-143 and is re-exported here. It
+      ``riskmeasures.py`` and is re-exported here. It
       compares the cumulative probability with ``beta`` strictly, as the
       thesis; for a ``beta`` exactly on a step of the distribution see
       ``riskmeasures``.
@@ -87,8 +88,8 @@ over the rows ``e`` of an outcome)
     * ``premium`` (only if a pricing is given): ``pricing.premium_value`` of
       each design problem's payout at ``level = "problem"``, and of the
       portfolio payout (the sum over every entity's payout) at ``level =
-      "portfolio"``: the premium of the run's whole cover bought by one owner
-      (MAR-27). For the pure premium that is the sum of the problem
+      "portfolio"``: the premium of the run's whole cover bought by one owner.
+      For the pure premium that is the sum of the problem
       premiums. A loaded pricing (``CostOfCapitalLoad``) is sub-additive, so
       the portfolio premium can be less than that sum: the tails of
       separately designed covers diversify when one writer holds them all.
@@ -101,7 +102,7 @@ over the rows ``e`` of an outcome)
     formulas. On the ``annual`` basis an outcome is a simulated year (and
     draw), years without rows included, so the same code gives the KPIs over
     years. Nothing here depends on the basis beyond the measure (ADR 0002
-    §4); the annual measure itself is built in ``basis.py`` (MAR-24).
+    §4); the annual measure itself is built in ``basis.py``.
 
 Exceedance curves
     For each subject and quantity (loss, payout, uncovered loss), the value
@@ -134,7 +135,7 @@ Exceedance curves
       Probabilities are ``rate / sum(rate)`` over the rows given, so ``1 /
       T`` is a share of those rows' events and ``T`` counts events.
 
-No silent failures (thesis issue C3)
+No silent failures (SPEC §3.1, C3)
     Results whose design problems repeat, overlap in locations, or do not
     cover exactly the EventSet's locations raise
     :class:`~parametric_insurance_design.errors.EntityMismatchError`, as does
@@ -142,10 +143,11 @@ No silent failures (thesis issue C3)
     thesis skipped such groups. Undefined KPI values are null rows, never
     missing rows.
 
-Block-bootstrap confidence bounds (MAR-23) fill the ``ci_*`` columns of the
-KPI table; ADR 0002 places them in a new module ``bootstrap.py``. Here they
-are null. ``bootstrap.bootstrap_kpis`` evaluates without an allocation rule,
-so it has no per-location rows.
+Block-bootstrap confidence bounds fill the ``ci_*`` columns of the KPI
+table: ``bootstrap.bootstrap_kpis`` computes them (see
+``docs/methodology/bootstrap.md``). Here they are null.
+``bootstrap.bootstrap_kpis`` takes the same ``allocation`` rule, and under
+``"value"`` or ``"loss"`` fills the intervals of the per-location rows too.
 """
 
 from __future__ import annotations
@@ -212,8 +214,8 @@ PORTFOLIO_SUBJECT: Final[str] = "portfolio"
 class Allocation(StrEnum):
     """Rule that splits a design problem's payout across its locations.
 
-    See the module docstring, "Per-location rows and joint designs"
-    (MAR-100, MAR-91).
+    See the module docstring, "Per-location rows and joint designs", and
+    ``docs/methodology/payout-allocation.md``.
 
     Attributes
     ----------
@@ -287,8 +289,8 @@ def _correlation(
 class KpiSubject:
     """Per-row loss and payout of one KPI subject (module docstring, step 4).
 
-    Public since MAR-143, for ``bootstrap.py``, which recomputes the KPIs of
-    exactly these vectors on resampled measures.
+    Public for ``bootstrap.py``, which recomputes the KPIs of exactly these
+    vectors on resampled measures.
 
     Attributes
     ----------
@@ -476,8 +478,8 @@ def evaluate_results(
     """Materialise every result on the sample and form the KPI subjects.
 
     Steps 1 to 4 of the module docstring, shared by :func:`kpis`,
-    :func:`exceedance_curves` and ``bootstrap.bootstrap_kpis`` (public since
-    MAR-143), so that all of them see the same per-row vectors.
+    :func:`exceedance_curves` and ``bootstrap.bootstrap_kpis``, so that all
+    of them see the same per-row vectors.
 
     Parameters
     ----------
@@ -724,7 +726,8 @@ def kpis(
             pid: float(pricing.premium_value(payout, measure))
             for pid, payout in ev.problem_payouts
         }
-        # Portfolio: the pricing applied to the aggregate payout (MAR-27).
+        # Portfolio: the pricing applied to the aggregate payout
+        # (docs/methodology/pricing.md, "Portfolio premium").
         portfolio_premium = next(
             float(pricing.premium_value(s.payout, measure))
             for s in ev.subjects

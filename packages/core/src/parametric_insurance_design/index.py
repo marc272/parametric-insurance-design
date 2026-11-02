@@ -1,13 +1,14 @@
 """Entity index definitions (SPEC §4.2, §6.3).
 
-Owner: MAR-12. Scopes use an :class:`EntityIndex` to turn the EventSet's
+Scopes use an :class:`EntityIndex` to turn the EventSet's
 per-location ``index`` matrix into the entity index ``xi`` of a design
 problem.
 
 * :class:`PointIndex`: each entity covers one location and uses that
   location's index column. This also covers **precomputed** custom indices:
   an adapter writes them into the EventSet ``index`` column (e.g. the
-  cat-in-a-circle index of MAR-26, with ``metadata.index`` saying so), and the
+  cat-in-a-circle index of the CLIMADA adapter, with ``metadata.index``
+  saying so), and the
   core needs no extra code for them.
 * :class:`ValueWeightedIndex`: the value-weighted mean of the members' index
   (the thesis cluster index), weights from ``locations.value``.

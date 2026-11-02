@@ -1,6 +1,6 @@
 """Run executor with a content-hashed cache (SPEC §4.2, thesis issues C3, C5).
 
-Owner: MAR-64. Executes one configured run end to end and persists it in a
+Executes one configured run end to end and persists it in a
 :class:`~parametric_insurance_design.experiment.store.ResultStore`:
 
 1. **Input.** :func:`load_input` reads the EventSet at ``eventset.path`` and
@@ -16,23 +16,22 @@ Owner: MAR-64. Executes one configured run end to end and persists it in a
    threshold filter (``EventSet.filter_threshold``).
 4. **Samples.** ``full``: calibrate and evaluate on every row. ``holdout``:
    calibrate on the training years, evaluate on both samples
-   (``splits.holdout``, MAR-22). ``kfold``: one run per fold (see below);
+   (``splits.holdout``). ``kfold``: one run per fold (see below);
    calibrate on the fold's training years, evaluate on its training and
    test samples (``splits.year_block_kfold``).
 5. **Build, solve, evaluate.** ``problem.build_problems``, then
    ``solve.solve`` for every design problem, which carries the run's pricing
-   (``BuiltProblem.pricing``, MAR-171), so the recorded premium is
-   ``pricing.premium_value`` of the realised payout (MAR-143), then
-   ``evaluate.kpis`` and
-   ``evaluate.exceedance_curves`` (at ``evaluation.return_periods``, MAR-117)
+   (``BuiltProblem.pricing``), so the recorded premium is
+   ``pricing.premium_value`` of the realised payout, then ``evaluate.kpis``
+   and ``evaluate.exceedance_curves`` (at ``evaluation.return_periods``)
    when every design problem was solved. Both (and ``bootstrap.bootstrap_kpis``
    below, which then bounds the location rows too) get the config's
-   ``evaluation.allocation`` (MAR-217): under ``"value"`` or ``"loss"`` the
+   ``evaluation.allocation``: under ``"value"`` or ``"loss"`` the
    stored tables add per-location rows (``level = "location_by_value"`` or
-   ``"location_by_loss"``); under the default ``"none"`` they are as before.
+   ``"location_by_loss"``); under the default ``"none"`` they have none.
    An allocation rule is part of the config hash, so such a run is a cache
    entry of its own (``EvaluationConfig``, Notes).
-   With a ``bootstrap`` config section (MAR-23), ``bootstrap.bootstrap_kpis``
+   With a ``bootstrap`` config section, ``bootstrap.bootstrap_kpis``
    replaces ``evaluate.kpis``: the same point values plus block-bootstrap
    confidence intervals in the ``ci_*`` columns, with a fresh generator
    ``BootstrapConfig.rng()`` per evaluation sample. The manifest's
@@ -44,7 +43,8 @@ Owner: MAR-64. Executes one configured run end to end and persists it in a
 
 A *run* is one scope with one objective: one of
 ``ExperimentConfig.single_runs()``. :func:`run_config` runs every one of
-them; sweeps (MAR-65) call :func:`run_single` per sweep point with a shared
+them; sweeps (:mod:`~parametric_insurance_design.experiment.sweeps`) call
+:func:`run_single` per sweep point with a shared
 :class:`RunInput`, so the EventSet is read and hashed once per sweep.
 
 Cache key
@@ -68,14 +68,14 @@ convention: the run's content hash is its cache key).
   ``content_hash()`` is recorded in the manifest (``prepared_eventset``).
 * ``package_version`` is the installed ``parametric-insurance-design``
   version. **Any version bump invalidates every cached run**, with or
-  without noise. MAR-88 and MAR-92 found that ``TransformRecord.version``
-  makes the ``content_hash()`` of noisy and location-subset EventSets change
-  with the package version; this key makes that conservative behaviour
-  uniform, because the builder, the solver policy defaults and the
-  evaluation also change with the code. Versions of third-party packages
-  (cvxpy, the solvers, numpy) are recorded in the manifest but are **not**
-  part of the key: upgrading them reuses cached runs. Run with
-  ``force=True``, or into a new store, to recompute after such an upgrade.
+  without noise. ``TransformRecord.version`` makes the ``content_hash()`` of
+  noisy and location-subset EventSets change with the package version; this
+  key makes that conservative behaviour uniform, because the builder, the
+  solver policy defaults and the evaluation also change with the code.
+  Versions of third-party packages (cvxpy, the solvers, numpy) are recorded
+  in the manifest but are **not** part of the key: upgrading them reuses
+  cached runs. Run with ``force=True``, or into a new store, to recompute
+  after such an upgrade.
 * ``solver_policy`` is the policy's fields (:func:`policy_fingerprint`), so
   a run with another solver order or acceptance rule is a different run.
 
@@ -104,8 +104,8 @@ No silent failures
 * Any other exception (an input or configuration error, or a bug) propagates
   and nothing is written for that run.
 
-Degenerate tail objectives (MAR-173)
-------------------------------------
+Degenerate tail objectives
+--------------------------
 Every design problem's manifest entry (``problems``) records, on the
 calibration measure (the problem's ``OutcomeMeasure``, which carries the
 basis and the calibration sample):
@@ -123,10 +123,10 @@ basis and the calibration sample):
   - ``"expected_uncovered"`` when ``beta <= p_zero_loss``. Then
     ``VaR_beta(U) = 0`` for every design, so the weighted-CVaR objective is
     ``(alpha / (1 - beta) + 1 - alpha) * E[U]``: an E[U] run, with the same
-    minimisers (design review MAR-161, F4).
+    minimisers.
   - ``"single_outcome"`` when ``tail_outcomes <= 1``. Then ``1 - beta`` is at
     most every outcome's probability, so ``CVaR_beta(U)`` is the single worst
-    outcome and the objective a minimax over outcomes (F15). If both hold,
+    outcome and the objective a minimax over outcomes. If both hold,
     the flag is ``"expected_uncovered"``.
 
   Both comparisons allow :data:`DEGENERATE_TAIL_ATOL` for the rounding of
@@ -141,8 +141,8 @@ for all three.
 k-fold: a run per fold
 ----------------------
 A k-fold experiment calibrates once per fold, and the ``runs`` key is
-``(run_id, problem_id)`` without the fold. MAR-22 therefore makes each fold a
-run of its own: ``ExperimentConfig.single_runs()`` expands a k-fold sample
+``(run_id, problem_id)`` without the fold. Each fold is therefore a run of
+its own: ``ExperimentConfig.single_runs()`` expands a k-fold sample
 into one config per fold (``sample.fold`` set), so the fold is part of the
 config hash and hence of the ``run_id``. ``runs.fold``, ``kpis.fold`` and
 ``exceedance.fold`` carry the fold number; the KPI rows of a fold are its
@@ -262,11 +262,11 @@ PROVENANCE_PACKAGES: Final[tuple[str, ...]] = (
 
 DEGENERATE_TAIL_EXPECTED_UNCOVERED: Final[str] = "expected_uncovered"
 """``degenerate_tail`` of a weighted-CVaR problem with ``beta <= P(L_o = 0)``:
-its objective is a positive multiple of E[U] (MAR-173)."""
+its objective is a positive multiple of E[U]."""
 
 DEGENERATE_TAIL_SINGLE_OUTCOME: Final[str] = "single_outcome"
 """``degenerate_tail`` of a weighted-CVaR problem whose CVaR tail is the
-single worst outcome, ``tail_outcomes <= 1`` (MAR-173)."""
+single worst outcome, ``tail_outcomes <= 1``."""
 
 DEGENERATE_TAILS: Final[tuple[str, ...]] = (
     DEGENERATE_TAIL_EXPECTED_UNCOVERED,
@@ -551,27 +551,25 @@ def run_parameters(config: ExperimentConfig, eventset: EventSet) -> dict[str, An
     that name, so a sweep's ``runs`` rows can be read without parsing the
     config. A key is present only when its component is configured.
 
-    ``below_attachment`` (MAR-178) is present only when the payout's mode is
-    not the default ``"first_bin"``, i.e. for ``"zero"`` (MAR-170), so that
-    readers of the ``runs`` table, such as the viz payout figures, can tell
-    what the payout pays below the attachment. A run without the key pays
-    the first bin's level there. Leaving the default out keeps the stored
-    parameters of every ``"first_bin"`` run as they were before MAR-178 (the
-    MAR-131/MAR-170 pattern). The parameters are not part of :func:`run_key`,
-    so no run id changes either way.
+    ``below_attachment`` is present only when the payout's mode is not the
+    default ``"first_bin"``, i.e. for ``"zero"``, so that readers of the
+    ``runs`` table, such as the viz payout figures, can tell what the payout
+    pays below the attachment. A run without the key pays the first bin's
+    level there. The parameters are not part of :func:`run_key`, so the key
+    changes no run id either way.
 
-    ``allocation`` (MAR-217) follows the same pattern: present only when
+    ``allocation`` follows the same pattern: present only when
     ``evaluation.allocation`` is ``"value"`` or ``"loss"``, so readers of the
     ``runs`` table can tell which runs hold per-location KPI rows and under
-    which rule. A ``"none"`` run's parameters are as before MAR-217.
+    which rule. A ``"none"`` run has no ``allocation`` key.
 
-    ``cluster_joint`` (MAR-225) follows it too: ``False``, present only for a
-    cluster scope with ``joint: false`` (MAR-180, one design problem per
-    cluster). ``runs.scope`` reads ``"cluster"`` for both cluster settings
+    ``cluster_joint`` follows it too: ``False``, present only for a cluster
+    scope with ``joint: false`` (one design problem per cluster).
+    ``runs.scope`` reads ``"cluster"`` for both cluster settings
     (``Cluster.name`` is a class constant), so this key is what tells readers
     of the ``runs`` table, such as the viz scope keys and labels, that a
-    cluster run was calibrated cluster by cluster. A joint cluster run's
-    parameters are as before MAR-225.
+    cluster run was calibrated cluster by cluster. A joint cluster run has no
+    ``cluster_joint`` key.
 
     Parameters
     ----------
@@ -757,8 +755,8 @@ class RunOutcome:
 def _evaluation_entry(config: ExperimentConfig, skipped: str | None) -> dict[str, Any]:
     """Return the manifest's ``evaluation`` entry.
 
-    ``allocation`` is written only for a rule other than ``"none"``
-    (MAR-217), so a ``"none"`` run's manifest has the keys it had before.
+    ``allocation`` is written only for a rule other than ``"none"``, so a
+    ``"none"`` run's entry has no ``allocation`` key.
     """
     entry: dict[str, Any] = {
         "evaluated": skipped is None,
@@ -1008,8 +1006,8 @@ def execute(
             for location_id in entity.location_ids
         )
         try:
-            # The problem carries the run's pricing (MAR-171), so the premium
-            # is pricing.premium_value of the realised payout (MAR-143).
+            # The problem carries the run's pricing, so the premium is
+            # pricing.premium_value of the realised payout.
             result = solve(problem, policy)
         except SolveError as exc:
             _log.warning("run %s: %s", run_id, exc)
@@ -1254,7 +1252,7 @@ def _problem_log(
     """Manifest entry of one design problem: status, attempts, diagnostics.
 
     ``tail`` (:func:`_tail_record`) adds ``p_zero_loss``, ``tail_outcomes``
-    and ``degenerate_tail`` (MAR-173).
+    and ``degenerate_tail``.
     """
     if result is not None:
         return {
@@ -1379,7 +1377,8 @@ def run_config(
     Parameters
     ----------
     config : ExperimentConfig
-        The config; its ``sweeps`` are ignored (MAR-65 runs them).
+        The config; its ``sweeps`` are ignored (``sweeps.run_sweeps`` runs
+        them).
     store : ResultStore, optional
         Default: ``ResultStore(config.output.directory)``.
     data : RunInput, optional

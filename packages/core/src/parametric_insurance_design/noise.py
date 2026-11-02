@@ -8,9 +8,10 @@ config's ``noise`` section). It is off the package's top level (ADR 0004,
 Q2): the package's ``__init__`` doesn't import it, so import it by its full
 name, ``parametric_insurance_design.noise``.
 
-Owner: MAR-10. A bit-identical port of the thesis
+A bit-identical port of the thesis
 ``add_noise_to_asset_losses`` (``src/utils/data_processing.py`` in
-``parametric-insurance-framework``) for parity (F-06). Each event row is
+``parametric-insurance-framework``), for parity with the thesis code. Each
+event row is
 repeated ``n_copies`` times (``draw_id = 0 .. n_copies - 1``, event-major order
 as in the thesis), and each location's loss is multiplied by a mean-one
 lognormal factor. The index is unchanged.
