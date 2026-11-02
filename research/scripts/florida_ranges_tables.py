@@ -78,6 +78,12 @@ FAMILIES: Final[dict[str, tuple[str, ...]]] = {
     "near-optimal, joint terms only": ("near_low_joint", "near_high_joint"),
 }
 INDICES: Final[tuple[str, ...]] = ("a", "cic75")
+VERDICT_CODE: Final[dict[str, str]] = {
+    "below zero": "<0",
+    "contains zero": "0",
+    "above zero": ">0",
+}
+"""Interval verdicts in ``ranges_contrasts*.csv``: below, containing, above zero."""
 
 
 def _short(h: str) -> str:
@@ -323,6 +329,8 @@ def contrast_frames(con: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
         )
         wide_parts.append(part.set_index(KEYS))
     wide = pd.concat(wide_parts, axis=1).reset_index()
+    for col in [x for x in wide.columns if str(x).endswith("_verdict")]:
+        wide[col] = wide[col].map(VERDICT_CODE)  # short codes keep the CSV small
     hcols = [h for h in ("hash_a", "hash_b", "hash_c", "hash_d") if h in c.columns]
     if hcols:  # holdout: per term; pooled: the k-fold experiment configs (T15)
         hashes = c.loc[c["variant"] == "stored", [*KEYS, *hcols]]
@@ -944,9 +952,11 @@ def write(full: Path, out: Path) -> dict[str, Any]:
             raise RuntimeError(f"{path} is {size} bytes (over 500 kB)")
         summary[f"{name}_bytes"] = size
     (out / "ranges_tables.md").write_text(
-        markdown(k, d, counties, ents, wide, c, summary)
-        + "\n"
-        + pooled_markdown(pwide, pc, kd)
+        (
+            markdown(k, d, counties, ents, wide, c, summary)
+            + "\n"
+            + pooled_markdown(pwide, pc, kd)
+        ).rstrip("\n")
         + "\n"
     )
     (out / "ranges_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
