@@ -82,6 +82,7 @@ import numpy as np
 import pandas as pd
 
 from parametric_insurance_design.basis import outcome_measure
+from parametric_insurance_design.errors import ParametricInsuranceDesignError
 from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.experiment.config import (
     ExperimentConfig,
@@ -317,29 +318,31 @@ def osqp_info(built: BuiltProblem) -> dict[str, Any]:
     }
 
 
-def clarabel_info(built: BuiltProblem) -> dict[str, Any]:
-    """CLARABEL's own record of the last solve of a problem.
+def solver_record(built: BuiltProblem) -> dict[str, Any]:
+    """Return the status, iterations and solve time cvxpy records.
+
+    cvxpy keeps no CLARABEL or HiGHS solution object (``extra_stats`` is
+    None for them), so this is what there is: the status, the iteration count
+    (CLARABEL: interior-point iterations, default limit 200; HiGHS: simplex
+    or IPM iterations) and the solver's own time.
 
     Parameters
     ----------
     built : BuiltProblem
-        A problem whose last solve was by CLARABEL.
+        A solved problem.
 
     Returns
     -------
     dict
-        Status, iterations, primal and dual residuals, solve time.
+        ``solver_status``, ``solver_iter``, ``solver_time``.
     """
     stats = built.problem.solver_stats
-    extra = stats.extra_stats if stats is not None else None
-    if extra is None or not hasattr(extra, "iterations"):
-        return {}
+    iters = getattr(stats, "num_iters", None) if stats is not None else None
+    seconds = getattr(stats, "solve_time", None) if stats is not None else None
     return {
-        "clarabel_status": str(extra.status),
-        "clarabel_iter": int(extra.iterations),
-        "clarabel_r_prim": float(extra.r_prim),
-        "clarabel_r_dual": float(extra.r_dual),
-        "clarabel_solve_time": float(extra.solve_time),
+        "solver_status": str(built.problem.status),
+        "solver_iter": int(iters) if iters is not None else np.nan,
+        "solver_time": float(seconds) if seconds is not None else np.nan,
     }
 
 
@@ -551,7 +554,7 @@ def florida_worker(item: tuple[str, str]) -> dict[str, Any]:
     if solver == "OSQP":
         row.update(osqp_info(b))
     else:
-        row.update(clarabel_info(b))
+        row.update(solver_record(b))
     return row
 
 
@@ -613,9 +616,8 @@ def _swept(cfg: ExperimentConfig, source: str) -> list[Design]:
             if point.config.objectives[0].kind != "mse":
                 continue
             label = f"{point.parameter}={point.value}|{point.config.scopes[0].kind}"
-            subset = getattr(point, "subset", None)
-            if subset is not None:
-                label += f"|{','.join(subset)}"
+            if point.location_ids is not None:
+                label += f"|{','.join(point.location_ids)}"
             out.append(Design(source, label, point.config))
     return out
 
@@ -724,6 +726,10 @@ def _solve_all(
         f"{label}_osqp_x_zero": zero_osqp,
         f"{label}_osqp_iter_max": max(iters) if iters else np.nan,
         f"{label}_theta_all_zero": sum(int(not np.any(r.theta)) for r in results),
+        f"{label}_max_violation_scaled": max(
+            r.diagnostics["max_constraint_violation_scaled"] for r in results
+        ),
+        f"{label}_premium": float(sum(r.premium for r in results)),
         f"{label}_seconds": round(seconds, 2),
     }
 
@@ -755,7 +761,14 @@ def thesis_worker(design: Design) -> dict[str, Any]:
         "n_locations": len(prepared(cfg).location_ids),
         "config_hash": config_hash(cfg),
     }
-    built = build(cfg)
+    try:
+        built = build(cfg)
+    except ParametricInsuranceDesignError as exc:
+        # The runner records such a run as failed too (e.g. an n_assets
+        # subset smaller than the cluster count, without cap_n_clusters).
+        row["build_error"] = f"{type(exc).__name__}: {exc}"
+        row["qp"] = False
+        return row
     row["n_problems"] = len(built)
     row["qp"] = all(is_qp(b.problem) for b in built)
     if not row["qp"]:
@@ -787,11 +800,29 @@ def run_thesis(args: argparse.Namespace) -> dict[str, Any]:
         designs = designs[: args.limit]
     print(f"thesis: {len(designs)} MSE designs; skipped: {skipped}", flush=True)
     recorded = recorded_hashes()
+    # C1 and the site first, parity's large sweeps last; every row is also
+    # appended to a log, so an interrupted phase keeps what it has done.
+    designs.sort(key=lambda d: d.source == "parity")
+    partial = LOG_DIR / "thesis_rows.jsonl"
     rows: list[dict[str, Any]] = []
-    for i, row in enumerate(_map(thesis_worker, designs, args.jobs), 1):
-        rows.append(row)
-        if i % 25 == 0:
-            print(f"thesis: {i}/{len(designs)}", flush=True)
+    if args.resume and partial.exists():
+        by_hash = {config_hash(d.config): d for d in designs}
+        for line in partial.read_text(encoding="utf-8").splitlines():
+            row = json.loads(line)
+            design = by_hash.get(row["config_hash"])
+            if design is not None:
+                row["source"], row["label"] = design.source, design.label
+                rows.append(row)
+        done = {r["config_hash"] for r in rows}
+        designs = [d for d in designs if config_hash(d.config) not in done]
+        print(f"thesis: resumed {len(rows)} rows, {len(designs)} to do", flush=True)
+    with partial.open("a", encoding="utf-8") as log:
+        for i, row in enumerate(_map(thesis_worker, designs, args.jobs), 1):
+            rows.append(row)
+            log.write(json.dumps(row, default=str) + "\n")
+            log.flush()
+            if i % 25 == 0:
+                print(f"thesis: {i}/{len(designs)}", flush=True)
     out = pd.DataFrame(rows)
     out["recorded_in_research_data"] = out["config_hash"].isin(recorded)
     out["config_hash"] = out["config_hash"].map(short)
@@ -923,7 +954,7 @@ def profile_worker(item: tuple[str, str, str]) -> dict[str, Any]:
     t0 = time.perf_counter()
     b.problem.solve(solver="CLARABEL", verbose=False)
     row["clarabel_seconds"] = round(time.perf_counter() - t0, 2)
-    row.update(clarabel_info(b))
+    row.update(solver_record(b))
     return row
 
 
@@ -1055,8 +1086,7 @@ def inaccurate_worker(item: tuple[str, str, float, str, str, str]) -> dict[str, 
             row["max_abs_dtheta_rel"] = float(
                 np.max(np.abs(theta - stored_theta)) / max(np.max(stored_theta), 1.0)
             )
-        if solver == "CLARABEL":
-            row.update(clarabel_info(b))
+        row.update(solver_record(b))
         rows.append(row)
     return {"rows": rows}
 
@@ -1090,6 +1120,82 @@ def run_inaccurate(args: argparse.Namespace) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------
+# Phase stores: the failure's signature in stored designs
+# --------------------------------------------------------------------------
+
+
+def run_stores(args: argparse.Namespace) -> dict[str, Any]:
+    """Scan result stores for OSQP-solved problems with an all-zero payout.
+
+    OSQP's failure (note, section 3) returns the solver's initial iterate,
+    all zeros, with status ``solved``: every such problem is stored by
+    OSQP with payout parameters that are all exactly zero. A zero payout can
+    also be a true optimum, so a hit is a candidate, not a proof; no hit
+    rules the failure out for the stored designs. Reads each store's
+    ``runs`` and ``payouts`` tables (``--scan-store LABEL=PATH``, read
+    only).
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Command-line arguments (``scan_store``).
+
+    Returns
+    -------
+    dict
+        Summary entries.
+    """
+    recorded = recorded_hashes()
+    rows: list[dict[str, Any]] = []
+    for spec in args.scan_store:
+        label, path = spec.split("=", 1)
+        root = Path(path)
+        for run_file in sorted((root / "runs").glob("*.parquet")):
+            runs = pd.read_parquet(run_file)
+            payouts = pd.read_parquet(root / "payouts" / run_file.name)
+            osqp = runs[runs["solver"] == "OSQP"]
+            zero = [
+                str(pid)
+                for pid in osqp["problem_id"]
+                if not np.any(payouts.loc[payouts["problem_id"] == pid, "value"])
+            ]
+            rows.append(
+                {
+                    "store": label,
+                    "run_id": short(str(runs["run_id"].iloc[0])),
+                    "config_hash": short(str(runs["config_hash"].iloc[0])),
+                    "recorded_in_research_data": bool(
+                        runs["config_hash"].iloc[0] in recorded
+                    ),
+                    "objective": ",".join(sorted(set(runs["objective"].astype(str)))),
+                    "n_problems": len(runs),
+                    "n_osqp": len(osqp),
+                    "osqp_statuses": ",".join(sorted(set(osqp["status"].astype(str)))),
+                    "n_osqp_zero_payout": len(zero),
+                    "osqp_zero_payout_problems": ",".join(zero),
+                }
+            )
+    out = pd.DataFrame(rows)
+    by_store = out.groupby("store").agg(
+        runs=("run_id", "size"),
+        recorded=("recorded_in_research_data", "sum"),
+        osqp_problems=("n_osqp", "sum"),
+        zero_payout=("n_osqp_zero_payout", "sum"),
+    )
+    _write(out[out["n_osqp"] > 0].reset_index(drop=True), "stores.csv")
+    return {
+        "stores": {
+            k: {c: int(v) for c, v in r.items()} for k, r in by_store.iterrows()
+        },
+        "zero_payout_runs": sorted(
+            f"{r.store}:{r.config_hash}"
+            for r in out.itertuples()
+            if r.n_osqp_zero_payout
+        ),
+    }
+
+
+# --------------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------------
 
@@ -1099,6 +1205,7 @@ PHASES: Final[dict[str, Callable[[argparse.Namespace], dict[str, Any]]]] = {
     "thesis": run_thesis,
     "profile": run_profile,
     "inaccurate": run_inaccurate,
+    "stores": run_stores,
 }
 
 
@@ -1120,6 +1227,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--phases", nargs="+", default=list(PHASES), choices=PHASES)
     parser.add_argument("--florida-store", type=Path, default=FLORIDA_STORE)
     parser.add_argument("--limit", type=int, default=0, help="thesis: first n only")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="thesis: keep the rows already in results/mar224/thesis_rows.jsonl",
+    )
+    parser.add_argument(
+        "--scan-store",
+        action="append",
+        default=[],
+        metavar="LABEL=PATH",
+        help="stores: a result store to scan (repeatable)",
+    )
     args = parser.parse_args(argv)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     for name in args.phases:
