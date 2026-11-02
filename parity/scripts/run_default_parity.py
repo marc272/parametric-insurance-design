@@ -2276,6 +2276,44 @@ NOTES_SWEEPS: Final[str] = (
     "adapter regenerates the thesis event-loss table (MAR-20)."
 )
 
+WHAT_PARITY_REPRODUCES: Final[str] = (
+    "## What parity reproduces\n"
+    "\n"
+    "Parity here means parity with the thesis **code**, the code that produced "
+    "the thesis result tables, not with the thesis text. Where the two differ, "
+    "the parity runs follow the code. They differ in four places (design review "
+    "finding F5, `docs/reviews/core-design-review.md`, MAR-175). This section "
+    "changes no number or finding of the report.\n"
+    "\n"
+    "1. **Probabilities.** Thesis eq. (3.3) gives each event the probability "
+    "p_i = 1/T, so that the probabilities sum to the annual event frequency "
+    "N/T: the `event` basis. The thesis code rescales the probabilities that "
+    "remain after the threshold filter to sum to one: the `event_conditional` "
+    "basis, which the parity runs use. The E[U] objective "
+    "(`pure_uncovered_loss_minimization`), the MSE objective "
+    "(`pure_basis_risk_minimization`) and the budget all scale by the same "
+    "constant N/T, so their designs are the same on both bases. The "
+    "weighted-CVaR designs (`weighted_cvar_minimization`) are not: in the "
+    "thesis results, β is a share of the events above the threshold, not the "
+    "annual level the thesis text gives it.\n"
+    "2. **CVaR.** Thesis eq. (2.3) defines CVaR_β(L) = E[L | L ≥ VaR_β(L)]. "
+    "The thesis code solves the Rockafellar-Uryasev form, eq. (3.8), and so do "
+    "the parity runs. The two differ where the loss has an atom at its VaR, "
+    "for example an uncovered loss that is zero with probability at least β.\n"
+    "3. **Budget.** Thesis eq. (3.15) is an equality with a risk loading λ, "
+    "(1 + λ)·Σ p·π = κ·Σ p·L, with π the payout, L the loss and κ the budget "
+    "loading. The thesis code and the parity runs use the inequality "
+    "Σ p·π ≤ κ·Σ p·L, without λ (SPEC §3.1, C8). The two differ only where "
+    "the budget does not bind, for example for MSE designs with κ ≥ 1.\n"
+    "4. **Attachment.** Thesis §3.3 (3) says that no payout is triggered below "
+    "the attachment point. Thesis §3.3.1 and the thesis code put an index "
+    "below the attachment into the first bin, which pays θ_{j,0}. The parity "
+    'runs do the same (`StepPayout(below_attachment="first_bin")`, the '
+    "default)."
+)
+"""The section under the notes of ``REPORT.md`` that says the parity source is
+the thesis code, not the thesis text (design review F5, MAR-175)."""
+
 
 NOTES_SIMULATION: Final[Mapping[str, str]] = {
     "noise_value_sweep": (
@@ -2635,7 +2673,7 @@ def write_group(
     if main and adapter:
         appendices.append(Path(adapter).read_text(encoding="utf-8"))
     notes = (
-        (NOTES_SWEEPS if group.sweeps else NOTES)
+        (NOTES_SWEEPS if group.sweeps else NOTES) + "\n\n" + WHAT_PARITY_REPRODUCES
         if main
         else NOTES_SIMULATION[group.name]
     )

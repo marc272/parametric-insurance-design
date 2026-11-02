@@ -6,6 +6,15 @@ Parity of the new engine with the thesis golden tables (SPEC §7 F-06, gate MAR-
 
 This report covers the thesis baseline, the golden `single_run` records (MAR-68), and the optimisation-parameter sweeps over alpha, beta, budget loading, n_bins and n_clusters (MAR-69). It is written by `uv run python parity/scripts/run_default_parity.py`, which runs the 9 default runs and every sweep point, checks the noise draws and the thesis payouts (appendix), and calls `report.py` with the golden objective table (`golden/golden_objectives.csv`) and `explanations.yaml`. A sweep point equal to the baseline is the baseline run (a cache hit), so its *Run source* is `single_run`. The last section checks that the CLIMADA adapter regenerates the thesis event-loss table (MAR-20).
 
+## What parity reproduces
+
+Parity here means parity with the thesis **code**, the code that produced the thesis result tables, not with the thesis text. Where the two differ, the parity runs follow the code. They differ in four places (design review finding F5, `docs/reviews/core-design-review.md`, MAR-175). This section changes no number or finding of the report.
+
+1. **Probabilities.** Thesis eq. (3.3) gives each event the probability p_i = 1/T, so that the probabilities sum to the annual event frequency N/T: the `event` basis. The thesis code rescales the probabilities that remain after the threshold filter to sum to one: the `event_conditional` basis, which the parity runs use. The E[U] objective (`pure_uncovered_loss_minimization`), the MSE objective (`pure_basis_risk_minimization`) and the budget all scale by the same constant N/T, so their designs are the same on both bases. The weighted-CVaR designs (`weighted_cvar_minimization`) are not: in the thesis results, β is a share of the events above the threshold, not the annual level the thesis text gives it.
+2. **CVaR.** Thesis eq. (2.3) defines CVaR_β(L) = E[L | L ≥ VaR_β(L)]. The thesis code solves the Rockafellar-Uryasev form, eq. (3.8), and so do the parity runs. The two differ where the loss has an atom at its VaR, for example an uncovered loss that is zero with probability at least β.
+3. **Budget.** Thesis eq. (3.15) is an equality with a risk loading λ, (1 + λ)·Σ p·π = κ·Σ p·L, with π the payout, L the loss and κ the budget loading. The thesis code and the parity runs use the inequality Σ p·π ≤ κ·Σ p·L, without λ (SPEC §3.1, C8). The two differ only where the budget does not bind, for example for MSE designs with κ ≥ 1.
+4. **Attachment.** Thesis §3.3 (3) says that no payout is triggered below the attachment point. Thesis §3.3.1 and the thesis code put an index below the attachment into the first bin, which pays θ_{j,0}. The parity runs do the same (`StepPayout(below_attachment="first_bin")`, the default).
+
 ## Setup
 
 - Result store: `results/thesis`, 213 committed runs of the sweeps compared, 204 of them matched by a golden record.
