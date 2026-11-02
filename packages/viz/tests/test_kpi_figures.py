@@ -991,7 +991,7 @@ def test_kfold_runs_are_refused(kfold: Variant, holdout: dict) -> None:
     # every fold of one objective
     folds = {"portfolio": (runs["portfolio", "mse", 0], runs["portfolio", "mse", 1])}
     for scopes in (fold0, folds):
-        with pytest.raises(KFoldRunsError, match=r"refuse k-fold runs \(MAR-137\)"):
+        with pytest.raises(KFoldRunsError, match=r"refuse k-fold runs: "):
             kpi_table(scopes, ["cvar_uncovered"])
     with pytest.raises(KFoldRunsError, match=r"fold 1 of k=2"):
         kpi_table(folds, ["cvar_uncovered"], eval_split="test")
