@@ -16,7 +16,8 @@ payout figures, the KPI figures
 :func:`~parametric_insurance_design_viz.sweep_figures.sweep_figures`
 (sweep plots, premium reallocation, tail-vs-total trade-off, cluster net
 advantage and break-even; see that module for its figure names). New
-builders are appended to the tuple (append-only, ADR 0002 §10).
+builders are only ever appended to the end of the tuple, so the existing
+figure sets keep their order.
 
 =======================================  ====================================
 Figure                                   Thesis

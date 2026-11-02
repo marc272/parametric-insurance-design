@@ -1,6 +1,6 @@
 """Site bundles: what ``parametric-insurance-design export-site`` writes.
 
-The website (``site/``, Quarto + OJS, ADR 0003)
+The website (``site/``, Quarto + OJS)
 never solves and never reads the result store: it reads one **bundle** per
 config, a directory of small files that this module exports from the store.
 The core command ``parametric-insurance-design export-site CONFIG``

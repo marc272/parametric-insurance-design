@@ -1,4 +1,4 @@
-"""Write a figure together with its figure-data CSV (SPEC §7 F-08).
+"""Write a figure together with its figure-data CSV.
 
 Every figure of this package is returned as a
 :class:`FigureOutput`: the matplotlib figure plus the tables it was drawn

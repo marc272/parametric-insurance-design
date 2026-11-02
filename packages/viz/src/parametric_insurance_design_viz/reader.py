@@ -1,4 +1,4 @@
-"""Result-store reader: what figures read (SPEC §3.1 C6).
+"""Result-store reader: what figures read.
 
 Figures are drawn from the runner's result store
 (:class:`~parametric_insurance_design.experiment.store.ResultStore`)
