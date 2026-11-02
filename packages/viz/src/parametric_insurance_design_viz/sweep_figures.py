@@ -77,23 +77,6 @@ The runs of a sweep are read in bulk, one store read per table for all its
 points (:meth:`~parametric_insurance_design_viz.reader.ResultReader.runs`,
 MAR-120).
 
-Evaluation split
-----------------
-The figures that read KPIs (the premium reallocation, the sensitivity,
-trade-off, net-advantage and break-even figures) read every KPI of one
-figure on one split (:func:`figure_split`, MAR-229): the first of
-:data:`~.kpi_figures.SPLIT_PREFERENCE` that every complete run of the figure
-has, as the KPI figures choose. A holdout run stores KPI rows on its train
-years (``eval_split = "train"``, in sample) and its test years (``"test"``,
-out of sample), so its figures show ``test``; a full-sample run has
-``full`` rows only. On ``test`` or ``train`` the axes title states the split
-(:func:`~.kpi_figures.split_note`, "Out of sample (test years)") and the
-figure data gain the :data:`SPLIT_TABLE` table (``<name>.split.csv``). On
-``full`` neither, so the thesis figures are unchanged byte for byte. The
-payout-sweep figures read no KPI: they show designs, which have no
-evaluation split. Before MAR-229 every KPI was read on ``full``, so the
-``figures`` command failed on a holdout store with :class:`MissingKpiError`.
-
 No silent failures
 ------------------
 * A figure whose baseline run failed is not drawn: a
@@ -156,7 +139,6 @@ from parametric_insurance_design_viz.errors import (
     VizError,
 )
 from parametric_insurance_design_viz.figure_data import MAIN_TABLE, FigureOutput
-from parametric_insurance_design_viz.kpi_figures import SPLIT_PREFERENCE, split_note
 from parametric_insurance_design_viz.payout_functions import (
     CAPTION_COLUMNS,
     JOINT_CAPTION,
@@ -194,8 +176,6 @@ __all__ = [
     "SENSITIVITY_COLUMNS",
     "SENSITIVITY_EXCLUDED",
     "SEPARATE_CLUSTER_REASON",
-    "SPLIT_COLUMNS",
-    "SPLIT_TABLE",
     "SWEEP_STEP_COLUMNS",
     "TAIL_KPI",
     "THESIS_TRANSACTION_COSTS",
@@ -206,7 +186,6 @@ __all__ = [
     "SweepSeries",
     "breakeven_cost",
     "cluster_penalty",
-    "figure_split",
     "kpi_value",
     "net_advantage",
     "parameter_label",
@@ -402,18 +381,6 @@ BREAKEVEN_COLUMNS: Final[tuple[str, ...]] = (
 )
 """Main table of :func:`breakeven_cost`: the penalty rows with ``C < K``."""
 
-SPLIT_TABLE: Final[str] = "split"
-"""Key of the table that states a figure's evaluation split (MAR-229).
-
-Written as ``<name>.split.csv`` by the figures that read KPIs, when they
-read the ``test`` or ``train`` rows of holdout runs; see the module
-docstring, "Evaluation split"."""
-
-SPLIT_COLUMNS: Final[tuple[str, ...]] = ("eval_split", "note")
-"""Columns of the :data:`SPLIT_TABLE` table: one row, the split
-(``kpis.eval_split``) and the note the figure shows
-(:func:`~.kpi_figures.split_note`)."""
-
 _FIGSIZE: Final[tuple[float, float]] = (6.0, 6.0)  # thesis sweep cells
 _REALLOCATION_FIGSIZE: Final[tuple[float, float]] = (9.0, 7.0)
 _CLUSTER_FIGSIZE: Final[tuple[float, float]] = (8.0, 8.0)
@@ -597,99 +564,13 @@ def _evaluation_beta(run: RunResult) -> float:
     return float(run.parameters["evaluation_beta"])
 
 
-def figure_split(runs: Sequence[RunResult], eval_split: str | None = None) -> str:
-    """Return the evaluation split a figure reads from its runs (MAR-229).
-
-    Every KPI of one figure is read on one split: ``eval_split`` if given,
-    else the first of :data:`~.kpi_figures.SPLIT_PREFERENCE` (``test``,
-    ``full``, ``train``) on which every complete run has KPI rows, as the
-    KPI figures choose. A holdout run has ``train`` and ``test`` rows, so its
-    figures read ``test`` (out of sample); a full-sample run has ``full``
-    rows only.
-
-    Parameters
-    ----------
-    runs : sequence of RunResult
-        The figure's runs. Failed runs have no KPI rows and are not
-        considered.
-    eval_split : str, optional
-        The split to read; it must be one every complete run has.
-
-    Returns
-    -------
-    str
-        The split. Without a complete run no KPI is read, and it is
-        ``eval_split`` or ``"full"``.
-
-    Raises
-    ------
-    MissingKpiError
-        If a complete run lacks ``eval_split``, or the complete runs share
-        no split.
-    """
-    have = [(r, set(r.kpis["eval_split"])) for r in runs if r.complete]
-    common = set.intersection(*(h for _, h in have)) if have else set()
-    if eval_split is not None:
-        lacking = [(r, h) for r, h in have if eval_split not in h]
-        if lacking:
-            run, splits = lacking[0]
-            raise MissingKpiError(
-                f"{len(lacking)} of {len(have)} runs have no KPI rows on the "
-                f"{eval_split!r} split, e.g. run {run.run_id} ({run.scope} x "
-                f"{run.objective}) has the splits {sorted(splits)}"
-            )
-        return eval_split
-    if not have:
-        return "full"
-    for split in SPLIT_PREFERENCE:
-        if split in common:
-            return split
-    raise MissingKpiError(
-        "the runs of the figure share no evaluation split with KPI rows; "
-        f"splits per run: {[(r.run_id, sorted(h)) for r, h in have]}"
-    )
-
-
-def _split_table(split: str) -> pd.DataFrame | None:
-    """Return the :data:`SPLIT_TABLE` table of a figure, or None on ``full``."""
-    note = split_note(split)
-    if note is None:
-        return None
-    return pd.DataFrame(
-        [{"eval_split": split, "note": note}], columns=list(SPLIT_COLUMNS)
-    )
-
-
-def _split_heading(split: str) -> str | None:
-    """Return the split note as an axes title, capitalised; None on ``full``."""
-    note = split_note(split)
-    return None if note is None else note[0].upper() + note[1:]
-
-
-def _split_title(split: str, title: str) -> str:
-    """Return ``title`` with the split note on a second line (MAR-229).
-
-    ``title`` alone on ``full``.
-    """
-    heading = _split_heading(split)
-    return title if heading is None else f"{title}\n{heading}"
-
-
-def _with_split(data: dict[str, pd.DataFrame], split: str) -> dict[str, pd.DataFrame]:
-    """Add the :data:`SPLIT_TABLE` table to a figure's data, unless ``full``."""
-    table = _split_table(split)
-    if table is not None:
-        data[SPLIT_TABLE] = table
-    return data
-
-
 def kpi_value(
     run: RunResult,
     kpi: str,
     *,
     level: str = "portfolio",
     subject_id: str | None = None,
-    eval_split: str | None = None,
+    eval_split: str = "full",
 ) -> float:
     """Return one KPI value of a complete run from its ``kpis`` table.
 
@@ -706,10 +587,8 @@ def kpi_value(
         ``kpis.level``.
     subject_id : str, optional
         ``kpis.subject_id``; needed below the portfolio level.
-    eval_split : str, optional
-        ``kpis.eval_split``. Default: the run's preferred split
-        (:func:`figure_split` of the run): ``test`` for a holdout run,
-        ``full`` for a full-sample run (MAR-229; before, always ``full``).
+    eval_split : str, default "full"
+        ``kpis.eval_split``.
 
     Returns
     -------
@@ -724,8 +603,6 @@ def kpi_value(
         If there is no such row, or more than one.
     """
     run.require_complete()
-    if eval_split is None:
-        eval_split = figure_split([run])
     kpis = run.kpis
     basis = set(run.runs["basis"])
     mask = (
@@ -835,7 +712,6 @@ def premium_reallocation(
     labels: AxisLabels | None = None,
     figsize: tuple[float, float] = _REALLOCATION_FIGSIZE,
     name: str = "premium_reallocation",
-    eval_split: str | None = None,
 ) -> FigureOutput:
     """Draw each location's premium share under the individual and portfolio scope.
 
@@ -859,15 +735,11 @@ def premium_reallocation(
         Figure size in inches.
     name : str, default "premium_reallocation"
         Figure name.
-    eval_split : str, optional
-        Evaluation split of the premiums; default :func:`figure_split` of
-        the two runs (MAR-229).
 
     Returns
     -------
     FigureOutput
-        Main table :data:`REALLOCATION_COLUMNS`; on a ``test`` or ``train``
-        split also :data:`SPLIT_TABLE`, and the axes title states the split.
+        Main table :data:`REALLOCATION_COLUMNS`.
 
     Raises
     ------
@@ -877,13 +749,11 @@ def premium_reallocation(
         If the runs differ in objective or entities, or the totals are not
         positive.
     MissingKpiError
-        If an entity lacks its ``expected_payout`` row, or the runs share
-        no split.
+        If an entity lacks its ``expected_payout`` row.
     """
     labels = labels or AxisLabels()
     for run in (individual, portfolio):
         run.require_complete()
-    split = figure_split((individual, portfolio), eval_split)
     if individual.objective != portfolio.objective:
         raise InconsistentRunsError(
             f"premium reallocation compares one objective, got "
@@ -906,21 +776,13 @@ def premium_reallocation(
         )
     ind = np.array(
         [
-            kpi_value(
-                individual,
-                PREMIUM_KPI,
-                level="entity",
-                subject_id=e,
-                eval_split=split,
-            )
+            kpi_value(individual, PREMIUM_KPI, level="entity", subject_id=e)
             for e in entities
         ]
     )
     pf = np.array(
         [
-            kpi_value(
-                portfolio, PREMIUM_KPI, level="entity", subject_id=e, eval_split=split
-            )
+            kpi_value(portfolio, PREMIUM_KPI, level="entity", subject_id=e)
             for e in entities
         ]
     )
@@ -1015,17 +877,12 @@ def premium_reallocation(
         ax1.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v * 100:.0f}%"))
         top = float(np.nanmax(np.concatenate([ind_share, pf_share])))
         ax1.set_ylim(0, top * 1.18)
-        title = _split_heading(split)
-        if title is not None:
-            ax1.set_title(title, fontsize=style.FONT.label_size)
         _frame(ax1)
         if ax2 is not None:
             _frame(ax2)
         fig.tight_layout()
         _figure_legend(fig, handles, ncol=2)
-    return FigureOutput(
-        name=name, figure=fig, data=_with_split({MAIN_TABLE: table}, split)
-    )
+    return FigureOutput(name=name, figure=fig, data={MAIN_TABLE: table})
 
 
 def _scaled_unit(labels: AxisLabels, prefix: str) -> str:
@@ -1338,7 +1195,7 @@ def payout_sweep(
 # --------------------------------------------------------------------------
 
 
-def _point_rows(series: SweepSeries, kpi: str, split: str) -> list[dict[str, object]]:
+def _point_rows(series: SweepSeries, kpi: str) -> list[dict[str, object]]:
     """``points`` rows of one series: every sweep run, or its baseline."""
     rows: list[dict[str, object]] = []
     base = {
@@ -1359,9 +1216,7 @@ def _point_rows(series: SweepSeries, kpi: str, split: str) -> list[dict[str, obj
                 "run_id": run.run_id,
                 "ok": run.complete,
                 "beta": _evaluation_beta(run) if kpi == TAIL_KPI else None,
-                "kpi_value": (
-                    kpi_value(run, kpi, eval_split=split) if run.complete else None
-                ),
+                "kpi_value": kpi_value(run, kpi) if run.complete else None,
             }
         )
         return rows
@@ -1376,9 +1231,7 @@ def _point_rows(series: SweepSeries, kpi: str, split: str) -> list[dict[str, obj
                 "run_id": run.run_id,
                 "ok": run.complete,
                 "beta": _evaluation_beta(run) if kpi == TAIL_KPI else None,
-                "kpi_value": (
-                    kpi_value(run, kpi, eval_split=split) if run.complete else None
-                ),
+                "kpi_value": kpi_value(run, kpi) if run.complete else None,
             }
         )
     return rows
@@ -1393,7 +1246,6 @@ def sensitivity(
     labels: AxisLabels | None = None,
     figsize: tuple[float, float] = _FIGSIZE,
     name: str | None = None,
-    eval_split: str | None = None,
 ) -> FigureOutput:
     """Draw a portfolio KPI against the swept value, per scope x objective.
 
@@ -1419,17 +1271,12 @@ def sensitivity(
         Figure size in inches.
     name : str, optional
         Default ``"sensitivity_<parameter>"``.
-    eval_split : str, optional
-        Evaluation split of the KPI; default :func:`figure_split` of the
-        runs read (MAR-229).
 
     Returns
     -------
     FigureOutput
         Main table :data:`SENSITIVITY_COLUMNS`; ``points``
-        (:data:`POINT_COLUMNS`), one row per run read; on a ``test`` or
-        ``train`` split also :data:`SPLIT_TABLE`, and the axes title states
-        the split.
+        (:data:`POINT_COLUMNS`), one row per run read.
 
     Raises
     ------
@@ -1438,7 +1285,7 @@ def sensitivity(
     InconsistentRunsError
         If there are no series, or a series is of another parameter.
     MissingKpiError
-        If a run lacks the KPI, or the runs share no split.
+        If a run lacks the KPI.
     """
     labels = labels or AxisLabels()
     if not series:
@@ -1453,10 +1300,7 @@ def sensitivity(
             s.baseline.require_complete()
     if values is None:
         values = sorted({float(p.value) for s in series for p, _ in s.points})
-    read = [s.baseline for s in series if not s.points]
-    read += [r for s in series for _, r in s.points]
-    split = figure_split(read, eval_split)
-    point_rows = [row for s in series for row in _point_rows(s, kpi, split)]
+    point_rows = [row for s in series for row in _point_rows(s, kpi)]
     points = pd.DataFrame(point_rows, columns=list(POINT_COLUMNS))
     lines: list[dict[str, object]] = []
     for s in series:
@@ -1526,17 +1370,14 @@ def sensitivity(
             else f"{kpi.replace('_', ' ').capitalize()}{_unit(labels)}"
         )
         ax.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
-        ax.set_title(
-            _split_title(split, parameter_label(parameter)),
-            fontsize=style.FONT.label_size,
-        )
+        ax.set_title(parameter_label(parameter), fontsize=style.FONT.label_size)
         _frame(ax)
         fig.tight_layout()
         _scope_objective_legend(fig, [(s.scope_name, s.objective) for s in series])
     return FigureOutput(
         name=name or f"sensitivity_{parameter}",
         figure=fig,
-        data=_with_split({MAIN_TABLE: table, "points": points}, split),
+        data={MAIN_TABLE: table, "points": points},
     )
 
 
@@ -1552,7 +1393,6 @@ def tradeoff(
     annotate_every: int = 2,
     figsize: tuple[float, float] = _FIGSIZE,
     name: str | None = None,
-    eval_split: str | None = None,
 ) -> FigureOutput:
     """Draw tail against total basis risk along one sweep.
 
@@ -1573,25 +1413,20 @@ def tradeoff(
         Figure size in inches.
     name : str, optional
         Default ``"tradeoff_<scope>_<parameter>"``.
-    eval_split : str, optional
-        Evaluation split of the KPIs; default :func:`figure_split` of the
-        sweep runs (MAR-229).
 
     Returns
     -------
     FigureOutput
-        Main table :data:`TRADEOFF_COLUMNS`; on a ``test`` or ``train`` split
-        also :data:`SPLIT_TABLE`, and the axes title states the split.
+        Main table :data:`TRADEOFF_COLUMNS`.
 
     Raises
     ------
     InconsistentRunsError
         If no point succeeded.
     MissingKpiError
-        If a run lacks a KPI, or the runs share no split.
+        If a run lacks a KPI.
     """
     labels = labels or AxisLabels()
-    split = figure_split([r for _, r in series.points], eval_split)
     rows = [
         {
             "parameter": series.parameter,
@@ -1601,12 +1436,8 @@ def tradeoff(
             "run_id": run.run_id,
             "ok": run.complete,
             "beta": _evaluation_beta(run),
-            TOTAL_KPI: (
-                kpi_value(run, TOTAL_KPI, eval_split=split) if run.complete else None
-            ),
-            TAIL_KPI: (
-                kpi_value(run, TAIL_KPI, eval_split=split) if run.complete else None
-            ),
+            TOTAL_KPI: kpi_value(run, TOTAL_KPI) if run.complete else None,
+            TAIL_KPI: kpi_value(run, TAIL_KPI) if run.complete else None,
         }
         for point, run in series.sorted_points()
     ]
@@ -1637,10 +1468,7 @@ def tradeoff(
         ax.set_xlabel(_total_label(labels))
         ax.set_ylabel(_tail_label(labels))
         ax.ticklabel_format(axis="both", style="sci", scilimits=(0, 0))
-        ax.set_title(
-            _split_title(split, parameter_label(series.parameter)),
-            fontsize=style.FONT.label_size,
-        )
+        ax.set_title(parameter_label(series.parameter), fontsize=style.FONT.label_size)
         _frame(ax)
         fig.tight_layout()
         if annotate_every > 0:
@@ -1651,7 +1479,7 @@ def tradeoff(
     return FigureOutput(
         name=name or f"tradeoff_{series.scope}_{series.parameter}",
         figure=fig,
-        data=_with_split({MAIN_TABLE: table}, split),
+        data={MAIN_TABLE: table},
     )
 
 
@@ -1695,9 +1523,7 @@ def _n_locations(run: RunResult) -> int:
     return len(set(run.entities["location_id"]))
 
 
-def cluster_penalty(
-    series: SweepSeries, benchmark: RunResult, *, eval_split: str | None = None
-) -> pd.DataFrame:
+def cluster_penalty(series: SweepSeries, benchmark: RunResult) -> pd.DataFrame:
     """Return the tail-risk penalty of clustering at each cluster count.
 
     ``Pi(C) = CVaR(cluster scope at C clusters) - CVaR(benchmark)``, both
@@ -1709,9 +1535,6 @@ def cluster_penalty(
         The ``n_clusters`` sweep of a cluster scope x objective.
     benchmark : RunResult
         The portfolio scope's baseline run of the same objective.
-    eval_split : str, optional
-        Evaluation split of the CVaRs; default :func:`figure_split` of the
-        benchmark and the sweep runs (MAR-229).
 
     Returns
     -------
@@ -1726,8 +1549,6 @@ def cluster_penalty(
     InconsistentRunsError
         If the series is not an ``n_clusters`` sweep, the objectives differ,
         or the runs cover different numbers of locations.
-    MissingKpiError
-        If a run lacks the CVaR, or the runs share no split.
     """
     if series.parameter != "n_clusters":
         raise InconsistentRunsError(
@@ -1740,8 +1561,7 @@ def cluster_penalty(
             f"and {benchmark.objective!r}"
         )
     k = _n_locations(benchmark)
-    split = _cluster_split(series, benchmark, eval_split)
-    port = kpi_value(benchmark, TAIL_KPI, eval_split=split)
+    port = kpi_value(benchmark, TAIL_KPI)
     rows: list[dict[str, object]] = []
     for point, run in series.sorted_points():
         if run.complete and _n_locations(run) != k:
@@ -1749,7 +1569,7 @@ def cluster_penalty(
                 f"run {run.run_id} covers {_n_locations(run)} locations, the "
                 f"benchmark {benchmark.run_id} {k}"
             )
-        cvar = kpi_value(run, TAIL_KPI, eval_split=split) if run.complete else None
+        cvar = kpi_value(run, TAIL_KPI) if run.complete else None
         rows.append(
             {
                 "n_clusters": int(point.value),
@@ -1766,13 +1586,6 @@ def cluster_penalty(
     return pd.DataFrame(rows, columns=list(PENALTY_COLUMNS))
 
 
-def _cluster_split(
-    series: SweepSeries, benchmark: RunResult, eval_split: str | None
-) -> str:
-    """:func:`figure_split` of the benchmark and the sweep runs (MAR-229)."""
-    return figure_split([benchmark, *(r for _, r in series.points)], eval_split)
-
-
 def net_advantage(
     series: SweepSeries,
     benchmark: RunResult,
@@ -1781,7 +1594,6 @@ def net_advantage(
     labels: AxisLabels | None = None,
     figsize: tuple[float, float] = _CLUSTER_FIGSIZE,
     name: str | None = None,
-    eval_split: str | None = None,
 ) -> FigureOutput:
     """Draw the net advantage of clustering over the portfolio scope.
 
@@ -1806,16 +1618,12 @@ def net_advantage(
         Figure size in inches.
     name : str, optional
         Default ``"net_advantage_<scope>"``.
-    eval_split : str, optional
-        See :func:`cluster_penalty`.
 
     Returns
     -------
     FigureOutput
         Main table :data:`NET_ADVANTAGE_COLUMNS` (successful points only);
-        ``penalty`` (:data:`PENALTY_COLUMNS`, every point); on a ``test`` or
-        ``train`` split also :data:`SPLIT_TABLE`, and the axes title states
-        the split.
+        ``penalty`` (:data:`PENALTY_COLUMNS`, every point).
 
     Raises
     ------
@@ -1826,8 +1634,7 @@ def net_advantage(
     costs = sorted(float(c) for c in transaction_costs)
     if not costs:
         raise InconsistentRunsError("the net advantage needs transaction costs")
-    split = _cluster_split(series, benchmark, eval_split)
-    penalty = cluster_penalty(series, benchmark, eval_split=split)
+    penalty = cluster_penalty(series, benchmark)
     ok = _where(penalty, penalty["ok"].astype(bool)).reset_index(drop=True)
     if ok.empty:
         raise InconsistentRunsError(
@@ -1874,9 +1681,6 @@ def net_advantage(
         ax.set_xlabel(r"Number of clusters $C$")
         ax.set_ylabel(rf"Net advantage $\Delta(C;\tau)${_unit(labels)}")
         ax.yaxis.set_major_formatter(style.MoneyFormatter())
-        title = _split_heading(split)
-        if title is not None:
-            ax.set_title(title, fontsize=style.FONT.label_size)
         _frame(ax)
         bar = fig.colorbar(
             ScalarMappable(norm=norm, cmap=cmap),
@@ -1902,7 +1706,7 @@ def net_advantage(
     return FigureOutput(
         name=name or f"net_advantage_{series.scope}",
         figure=fig,
-        data=_with_split({MAIN_TABLE: table, "penalty": penalty}, split),
+        data={MAIN_TABLE: table, "penalty": penalty},
     )
 
 
@@ -1913,7 +1717,6 @@ def breakeven_cost(
     labels: AxisLabels | None = None,
     figsize: tuple[float, float] = _CLUSTER_FIGSIZE,
     name: str | None = None,
-    eval_split: str | None = None,
 ) -> FigureOutput:
     """Draw the break-even transaction cost of clustering.
 
@@ -1933,15 +1736,12 @@ def breakeven_cost(
         Figure size in inches.
     name : str, optional
         Default ``"breakeven_cost_<scope>"``.
-    eval_split : str, optional
-        See :func:`cluster_penalty`.
 
     Returns
     -------
     FigureOutput
         Main table :data:`BREAKEVEN_COLUMNS`, the points with ``C < K``
-        (failed ones with no values); on a ``test`` or ``train`` split also
-        :data:`SPLIT_TABLE`, and the axes title states the split.
+        (failed ones with no values).
 
     Raises
     ------
@@ -1950,8 +1750,7 @@ def breakeven_cost(
         ``K``.
     """
     labels = labels or AxisLabels()
-    split = _cluster_split(series, benchmark, eval_split)
-    penalty = cluster_penalty(series, benchmark, eval_split=split)
+    penalty = cluster_penalty(series, benchmark)
     k = int(penalty["n_locations"].iloc[0])
     table = penalty[penalty["n_clusters"] < k].reset_index(drop=True)
     breakeven = [
@@ -1985,9 +1784,6 @@ def breakeven_cost(
         ax.set_xlabel(r"Number of clusters $C$")
         ax.set_ylabel(rf"Break-even cost per contract $\tau^*(C)${_unit(labels)}")
         ax.yaxis.set_major_formatter(style.MoneyFormatter())
-        title = _split_heading(split)
-        if title is not None:
-            ax.set_title(title, fontsize=style.FONT.label_size)
         _frame(ax)
         fig.tight_layout()
         handles = [
@@ -2006,7 +1802,7 @@ def breakeven_cost(
     return FigureOutput(
         name=name or f"breakeven_cost_{series.scope}",
         figure=fig,
-        data=_with_split({MAIN_TABLE: table}, split),
+        data={MAIN_TABLE: table},
     )
 
 
