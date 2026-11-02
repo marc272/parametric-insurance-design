@@ -1,0 +1,72 @@
+# Florida rerun (MAR-202, C1-F1): the C1 main line (research/configs/c1/
+# c1_main.yaml) moved to the D2 paper portfolio, Florida's 67 counties with
+# the State of Florida as the single owner (SPEC 6.6). Index (a): wind at the
+# county's value-weighted centroid; loss on the LitPop cells with 10
+# vulnerability draws per storm from the recentred prior (MAR-160). No thesis
+# noise layer: the basis risk comes from the index and the loss model.
+#
+# Differences to c1_main.yaml: the EventSet (and so the portfolio: every
+# location, EventSet order), no noise layer, payout.below_attachment "zero"
+# (Marc, 2026-11-01, MAR-170/MAR-178). Everything else (threshold 20 m/s on
+# the index, step payout with 15 bins on [20, 70] m/s, annual basis, holdout
+# train fraction 0.7, the three scopes with 3 thesis-Ward clusters, the
+# designs, evaluation beta 0.99, bootstrap B 1000 / seed 0 / level 0.9) is
+# the C1 main line.
+#
+# research/scripts/florida_rerun.py derives every single run from this file
+# (and from florida_cic75.yaml for index (b)), varying only the pricing, the
+# budget loading kappa and the design (research/configs/florida/plan.yaml).
+#
+# The EventSet lives outside git (results/ is gitignored); the checksum pins
+# its content. Paths are relative to this file.
+schema_version: 1
+name: florida-main
+description: MAR-202 Florida rerun, index (a), annual basis, holdout, bootstrap.
+eventset:
+  path: ../../../results/florida/eventsets/florida-counties-iris-vulnerability
+  checksum: sha256:30b1723182e5bb3eef8abae0d0edcc605918aaf90e03b24bb09037a4c6416472
+portfolio:
+  location_ids: null
+noise: null
+threshold:
+  value: 20.0
+  column: index
+basis: annual
+sample:
+  kind: holdout
+  train_fraction: 0.7
+payout:
+  kind: step
+  attachment: 20.0
+  limit: 70.0
+  n_bins: 15
+  below_attachment: zero
+scopes:
+- kind: individual
+- kind: cluster
+  n_clusters: 3
+  strategy:
+    kind: thesis_ward
+    beta_tail: 0.9
+    linkage: ward
+- kind: portfolio
+objectives:
+- kind: mse
+- kind: expected_uncovered
+- kind: weighted_cvar
+  alpha: 0.9
+  beta: 0.99
+pricing:
+  kind: pure
+constraints:
+- kind: budget
+  loading: 1.0
+evaluation:
+  beta: 0.99
+bootstrap:
+  seed: 0
+  n_bootstrap: 1000
+  level: 0.9
+sweeps: []
+output:
+  directory: ../../../results/florida/store
