@@ -74,6 +74,15 @@ The figures draw it where it exists (MAR-148):
 * :func:`exceedance_curves` draws no intervals: the ``exceedance`` table
   has no interval columns (``records.EXCEEDANCE``).
 
+Scope labels (MAR-225): rows and legends are labelled by the scope name,
+``style.run_scope_name`` of the runs (or ``style.config_scope_name`` of the
+configured scope for the pooled k-fold table). A cluster scope calibrated
+cluster by cluster (``joint: false``, MAR-180) has ``runs.scope =
+"cluster"`` like the joint cluster scope; it is labelled "Cluster scope,
+calibrated per cluster" and drawn in its own line style, and a scope grid
+never mixes it with joint cluster runs. The ``scope`` column of the figure
+data stays ``runs.scope``; ``scope_key`` tells the two apart.
+
 Differences from the thesis code, all deliberate:
 
 * The exceedance curves are drawn at the return periods the runner stored
@@ -343,7 +352,7 @@ def _grid(scopes: ScopeGrid) -> tuple[list[str], list[str]]:
             raise InconsistentRunsError(f"scope {key!r} has no runs")
         for run in runs:
             run.require_complete()
-        kinds = sorted({r.scope for r in runs})
+        kinds = sorted({style.run_scope_name(r) for r in runs})
         if len(kinds) != 1:
             raise InconsistentRunsError(
                 f"scope {key!r} mixes runs of the scopes {kinds}"
@@ -373,13 +382,18 @@ class _Layout:
     def of_runs(cls, scopes: ScopeGrid) -> _Layout:
         """Return the layout of a checked scope grid (:func:`_grid`)."""
         keys, objectives = _grid(scopes)
-        return cls(
-            tuple(keys), tuple(objectives), {k: scopes[k][0].scope for k in keys}
-        )
+        names = {k: style.run_scope_name(scopes[k][0]) for k in keys}
+        return cls(tuple(keys), tuple(objectives), names)
 
     @classmethod
-    def of_table(cls, table: pd.DataFrame) -> _Layout:
+    def of_table(
+        cls, table: pd.DataFrame, names: Mapping[str, str] | None = None
+    ) -> _Layout:
         """Return the layout of a KPI table: every scope key with every objective.
+
+        ``names`` maps each scope key to its scope name
+        (``style.config_scope_name``); default the table's ``scope`` column
+        (``runs.scope``), which reads ``"cluster"`` for both cluster settings.
 
         Raises
         ------
@@ -397,7 +411,8 @@ class _Layout:
                 f"the KPI table is not a complete scope x objective grid; "
                 f"missing {absent}"
             )
-        names = dict(zip(table["scope_key"], table["scope"], strict=True))
+        if names is None:
+            names = dict(zip(table["scope_key"], table["scope"], strict=True))
         return cls(keys, objectives, {k: str(names[k]) for k in keys})
 
     def scope_text(self, key: str) -> str:
@@ -758,11 +773,17 @@ class Baseline:
 
 def _scope_text(key: str, scopes: ScopeGrid) -> str:
     """Label of a scope key; repeated kinds keep their key, e.g. "(cluster_2)"."""
-    return _scope_label(key, scopes[key][0].scope)
+    return _scope_label(key, style.run_scope_name(scopes[key][0]))
 
 
 def _scope_label(key: str, scope: str) -> str:
-    """Label of a scope key whose scope is ``scope``."""
+    """Label of a scope key whose scope name is ``scope``.
+
+    ``scope`` is ``style.run_scope_name`` (or ``style.config_scope_name``):
+    a cluster scope calibrated cluster by cluster is
+    ``"cluster_separate"``, "Cluster scope, calibrated per cluster"
+    (MAR-225), never the joint cluster scope's label.
+    """
     label = style.scope_label(scope)
     return label if key == scope else f"{label} ({key})"
 
@@ -1444,7 +1465,7 @@ def exceedance_curves(
         Complete runs of one scope, one per objective, in legend order.
     scope_key : str, optional
         Scope key for the figure data and the default name; default the
-        runs' scope.
+        runs' scope name (``style.run_scope_name``).
     quantity : str, default "uncovered"
         ``records.CurveQuantity`` value.
     curve : str, optional
@@ -1485,7 +1506,7 @@ def exceedance_curves(
     runs = tuple(runs)
     if not runs:
         raise InconsistentRunsError("an exceedance figure needs at least one run")
-    key = scope_key or runs[0].scope
+    key = scope_key or style.run_scope_name(runs[0])
     _grid({key: runs})
     labels = labels or AxisLabels()
     split = _eval_split(runs, eval_split)
@@ -1532,7 +1553,7 @@ def exceedance_curves(
     unit = _return_period_unit(bases[0])
     all_periods = np.unique(table["return_period"].to_numpy(dtype=np.float64))
     lo, hi = float(all_periods[0]), float(all_periods[-1])
-    scope = runs[0].scope
+    scope = style.run_scope_name(runs[0])
     linestyle = style.SCOPE_STYLES.get(scope, style.ScopeStyle("-", "o"))
 
     with style.style():
@@ -1722,7 +1743,8 @@ def _pooled_figures(
         keys = [s.key for s in context.scopes]
         kpis = list(dict.fromkeys([*HEATMAP_KPIS, *OVERVIEW_KPIS]))
         table = pooled_kpi_table(pooled, keys, kpis)
-        layout = _Layout.of_table(table)
+        names = [style.config_scope_name(c) for c in context.config.scopes]
+        layout = _Layout.of_table(table, dict(zip(keys, names, strict=True)))
         if layout.keys != tuple(keys):
             raise InconsistentRunsError(
                 f"the pooled KPIs cover the scopes {list(layout.keys)}; the "

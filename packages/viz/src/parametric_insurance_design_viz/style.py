@@ -18,6 +18,16 @@ Thesis key                                 Result-store name
 ``integrated_portfolio_optimization``      ``portfolio``
 =========================================  ======================
 
+A cluster scope calibrated cluster by cluster (``Cluster(joint=False)``,
+MAR-180) has ``runs.scope = "cluster"`` like the joint cluster scope, because
+``Cluster.name`` is a class constant. Figures and site bundles key and label
+it as its own scope, :data:`SEPARATE_CLUSTER_SCOPE` (``"cluster_separate"``,
+"Cluster scope, calibrated per cluster"; MAR-225): :func:`config_scope_name`
+names a configured scope, :func:`run_scope_name` a stored run (from the
+``cluster_joint`` run parameter, the problem ids and the manifest's config),
+and :data:`SCOPE_LABELS` and :data:`SCOPE_STYLES` hold its label and style.
+The thesis had no such scope; its style is new.
+
 The thesis font is Times New Roman. Where it is not installed (e.g. on Linux
 CI), :func:`font_family` falls back along :data:`SERIF_FALLBACK` to STIX,
 which ships with matplotlib and matches Times. The family is resolved to an
@@ -34,17 +44,32 @@ need, so neighbouring ticks never share a label.
 from __future__ import annotations
 
 import math
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Final, cast
+from typing import TYPE_CHECKING, Any, Final, cast
 
 import matplotlib as mpl
 from matplotlib import font_manager
 from matplotlib.ticker import Formatter
 
+from parametric_insurance_design.experiment.config import (
+    ClusterScopeConfig,
+    ScopeConfig,
+)
+from parametric_insurance_design.records import ALL_PROBLEMS
+from parametric_insurance_design.scopes import CLUSTER_PROBLEM_PREFIX, Cluster
+from parametric_insurance_design_viz.errors import (
+    FigureDataError,
+    InconsistentRunsError,
+)
+
+if TYPE_CHECKING:
+    from parametric_insurance_design_viz.reader import RunResult
+
 __all__ = [
     "BENCHMARK_OBJECTIVE",
+    "CLUSTER_JOINT_PARAMETER",
     "DEFAULT_COLOR",
     "EVENT_COLOR",
     "FONT",
@@ -55,15 +80,18 @@ __all__ = [
     "OBJECTIVE_LABELS",
     "SCOPE_LABELS",
     "SCOPE_STYLES",
+    "SEPARATE_CLUSTER_SCOPE",
     "SERIF_FALLBACK",
     "Font",
     "MoneyFormatter",
     "ScopeStyle",
+    "config_scope_name",
     "font_family",
     "money_prefix",
     "objective_color",
     "objective_label",
     "rc_params",
+    "run_scope_name",
     "scope_label",
     "style",
 ]
@@ -144,15 +172,29 @@ SCOPE_STYLES: Final[dict[str, ScopeStyle]] = {
     "individual": ScopeStyle(linestyle=":", marker="^"),
     "cluster": ScopeStyle(linestyle="--", marker="s"),
     "portfolio": ScopeStyle(linestyle="-", marker="o"),
+    "cluster_separate": ScopeStyle(linestyle="-.", marker="D"),
 }
-"""Line style and marker per scope (thesis ``COLOR_PALETTE.Approaches``)."""
+"""Line style and marker per scope (thesis ``COLOR_PALETTE.Approaches``), and
+of :data:`SEPARATE_CLUSTER_SCOPE`, which the thesis did not have (MAR-225)."""
 
 SCOPE_LABELS: Final[dict[str, str]] = {
     "individual": "Individual scope",
     "cluster": "Cluster scope",
     "portfolio": "Portfolio scope",
+    "cluster_separate": "Cluster scope, calibrated per cluster",
 }
-"""Label per scope (thesis ``prettify_scope_label``)."""
+"""Label per scope (thesis ``prettify_scope_label``), and of
+:data:`SEPARATE_CLUSTER_SCOPE` (MAR-225)."""
+
+SEPARATE_CLUSTER_SCOPE: Final[str] = "cluster_separate"
+"""Scope name of a cluster scope calibrated cluster by cluster
+(``Cluster(joint=False)``, MAR-180): its scope key and label stem in figures
+and site bundles (MAR-225). The result store records ``runs.scope =
+"cluster"`` for it, as for the joint cluster scope."""
+
+CLUSTER_JOINT_PARAMETER: Final[str] = "cluster_joint"
+"""The ``runs.parameters`` key the runner records, as ``false``, for a
+cluster scope with ``joint: false`` (MAR-225); absent otherwise."""
 
 BENCHMARK_OBJECTIVE: Final[str] = "mse"
 """The benchmark of normalised figures: the residual loss (MSE) objective."""
@@ -314,16 +356,133 @@ def scope_label(scope: str) -> str:
     Parameters
     ----------
     scope : str
-        Scope name, as in ``runs.scope``.
+        Scope name, as in ``runs.scope``, or :data:`SEPARATE_CLUSTER_SCOPE`
+        (:func:`run_scope_name`, :func:`config_scope_name`).
 
     Returns
     -------
     str
-        Its thesis label, or ``"<Name> scope"`` for another scope.
+        Its thesis label, ``"Cluster scope, calibrated per cluster"`` for
+        :data:`SEPARATE_CLUSTER_SCOPE`, or ``"<Name> scope"`` for another
+        scope.
     """
     if scope in SCOPE_LABELS:
         return SCOPE_LABELS[scope]
     return f"{scope.replace('_', ' ').capitalize()} scope"
+
+
+def config_scope_name(scope: ScopeConfig) -> str:
+    """Return the scope name of a configured scope (MAR-225).
+
+    Parameters
+    ----------
+    scope : ScopeConfig
+        One entry of ``ExperimentConfig.scopes``.
+
+    Returns
+    -------
+    str
+        :data:`SEPARATE_CLUSTER_SCOPE` for a cluster scope with ``joint:
+        false``, else its ``kind`` (the ``runs.scope`` of its runs).
+    """
+    if isinstance(scope, ClusterScopeConfig) and not scope.joint:
+        return SEPARATE_CLUSTER_SCOPE
+    return scope.kind
+
+
+def _configured_joint(run: RunResult) -> bool | None:
+    """``joint`` of the cluster scope in a run's manifest config, if it has one."""
+    config = run.manifest.get("config")
+    scopes = config.get("scopes") if isinstance(config, Mapping) else None
+    if not isinstance(scopes, Sequence) or len(scopes) != 1:
+        return None
+    scope = scopes[0]
+    if not isinstance(scope, Mapping) or scope.get("kind") != Cluster.name:
+        return None
+    joint = scope.get("joint", True)
+    if not isinstance(joint, bool):
+        raise FigureDataError(
+            f"run {run.run_id}: its manifest config records the cluster scope's "
+            f"joint as {joint!r}, not a bool"
+        )
+    return joint
+
+
+def run_scope_name(run: RunResult) -> str:
+    """Return the scope name of a stored run (MAR-225).
+
+    ``runs.scope`` is ``"cluster"`` for both cluster settings, so a cluster
+    run's setting is read from three sources, each where present:
+
+    * ``runs.parameters["cluster_joint"]`` (:data:`CLUSTER_JOINT_PARAMETER`),
+      which the runner records as ``false`` for ``joint: false`` since
+      MAR-225;
+    * the problem ids: ``"cluster:C<k>"`` (``scopes.CLUSTER_PROBLEM_PREFIX``)
+      per cluster for ``joint: false``, ``"portfolio"`` for the joint scope.
+      They tell apart a run written before MAR-225: its run id did not
+      change, so re-running it is a cache hit that keeps its parameters;
+    * the cluster scope of the manifest's config (``joint``, default true).
+
+    A failed build has only the run-level problem id ``"*"``, which is no
+    evidence; the other sources decide.
+
+    Parameters
+    ----------
+    run : RunResult
+        A run.
+
+    Returns
+    -------
+    str
+        :data:`SEPARATE_CLUSTER_SCOPE` for a cluster run calibrated cluster
+        by cluster, else ``runs.scope``.
+
+    Raises
+    ------
+    FigureDataError
+        If ``cluster_joint`` is recorded with a value other than ``false``,
+        or the manifest config's ``joint`` is not a bool.
+    InconsistentRunsError
+        If the sources disagree, or the problem ids mix both settings.
+    """
+    scope = run.scope
+    if scope != Cluster.name:
+        return scope
+    verdicts: dict[str, bool] = {}  # source -> joint
+    parameters = run.parameters
+    if CLUSTER_JOINT_PARAMETER in parameters:
+        recorded = parameters[CLUSTER_JOINT_PARAMETER]
+        if recorded is not False:
+            raise FigureDataError(
+                f"run {run.run_id}: runs.parameters records "
+                f"{CLUSTER_JOINT_PARAMETER} {recorded!r}; the runner records it "
+                "only as false"
+            )
+        verdicts["runs.parameters"] = False
+    problems = {str(p) for p in run.runs["problem_id"]} - {ALL_PROBLEMS}
+    separate = {p for p in problems if p.startswith(CLUSTER_PROBLEM_PREFIX)}
+    if separate and separate != problems:
+        raise InconsistentRunsError(
+            f"run {run.run_id}: its problem ids {sorted(problems)} mix the joint "
+            "and the separately calibrated cluster scope"
+        )
+    if problems:
+        verdicts["problem ids"] = not separate
+    configured = _configured_joint(run)
+    if configured is not None:
+        verdicts["manifest config"] = configured
+    if len(set(verdicts.values())) > 1:
+        detail = ", ".join(
+            f"{source}: {'joint' if joint else 'per cluster'}"
+            for source, joint in verdicts.items()
+        )
+        raise InconsistentRunsError(
+            f"run {run.run_id}: its sources disagree on whether the cluster "
+            f"scope was calibrated jointly ({detail})"
+        )
+    if verdicts and not next(iter(verdicts.values())):
+        return SEPARATE_CLUSTER_SCOPE
+    return scope
 
 
 def font_family() -> str:

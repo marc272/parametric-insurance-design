@@ -41,6 +41,15 @@ File                            Content
 ``sweep.<p>.exceedance.arrow``  point's value in ``sweep_value``
 ==============================  ==============================================
 
+Every exported row and run carries ``scope`` (``runs.scope``) and
+``scope_key``, the figures' key of its configured scope: the scope's name,
+numbered on repeats (``cluster``, ``cluster_2``). A cluster scope calibrated
+cluster by cluster (``joint: false``, MAR-180) is named
+``style.SEPARATE_CLUSTER_SCOPE`` (``cluster_separate``), so its rows never
+share a key with the joint cluster scope's, although both have ``scope =
+"cluster"``; its runs written since MAR-225 record ``cluster_joint: false``
+in their ``parameters``.
+
 Only the sweeps of :data:`SITE_SWEEP_PARAMETERS` (the explorers' alpha, beta,
 budget loading kappa and bin count) are exported. The manifest lists the
 config's other sweeps under ``sweeps_not_exported``.
@@ -201,6 +210,7 @@ from parametric_insurance_design.experiment.store import ResultStore
 from parametric_insurance_design.payout import NO_BIN
 from parametric_insurance_design.records import KpiLevel, Split
 from parametric_insurance_design.scopes import Individual
+from parametric_insurance_design_viz import style
 from parametric_insurance_design_viz.command import SweepRun
 from parametric_insurance_design_viz.errors import (
     InconsistentRunsError,
@@ -1024,8 +1034,13 @@ def _check_split(
 
 
 def _scope_keys(config: ExperimentConfig) -> list[str]:
-    """Name per configured scope: its kind, numbered on repeats (as figures)."""
-    kinds = [s.kind for s in config.scopes]
+    """Name per configured scope: its name, numbered on repeats (as figures).
+
+    The name is ``style.config_scope_name``: the kind, or
+    ``"cluster_separate"`` for a cluster scope with ``joint: false``
+    (MAR-225), so the two cluster settings never share a key.
+    """
+    kinds = [style.config_scope_name(s) for s in config.scopes]
     total = Counter(kinds)
     seen: Counter[str] = Counter()
     keys: list[str] = []
