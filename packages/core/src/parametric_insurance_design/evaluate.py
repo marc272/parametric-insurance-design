@@ -1,4 +1,4 @@
-"""Evaluation: KPIs and exceedance curves (SPEC §4.2, §6.1, §6.2).
+"""Evaluation: KPIs and exceedance curves.
 
 Port of the thesis ``benchmarking.py``
 (``calculate_benchmarking_kpis``) and of the quantile behind its exceedance
@@ -7,142 +7,152 @@ against :data:`~parametric_insurance_design.records.KPIS` and
 :data:`~parametric_insurance_design.records.EXCEEDANCE`.
 
 How a run is evaluated
-    1. ``data = sample.select(eventset)``; the sample defaults to
-       ``Sample.full(eventset)``.
-    2. ``measure = basis.outcome_measure(data, basis, years=sample.years)``.
-    3. Every result's spec is materialised on ``data`` with
-       ``scope.materialise`` and its payouts are evaluated with
-       ``SolveResult.payouts``. Out-of-sample evaluation passes the test
-       sample here and reuses the specs calibrated on the training sample.
-    4. Per-row loss ``L`` and payout ``pi`` are formed for every **subject**:
-       each entity (``level = "entity"``), each design problem (the sum over
-       its entities, ``level = "problem"``) and the whole run (the sum over
-       every location and every entity payout, ``level = "portfolio"``,
-       ``problem_id = "*"`` when the run has several design problems). With
-       an allocation rule other than ``"none"``, also each location
-       (``level = "location_by_value"`` or ``"location_by_loss"``; see
-       "Per-location rows" below).
-    5. Per-row quantities are summed into outcomes with the measure, and
-       weighted with its probabilities.
+----------------------
+1. ``data = sample.select(eventset)``; the sample defaults to
+   ``Sample.full(eventset)``.
+2. ``measure = basis.outcome_measure(data, basis, years=sample.years)``.
+3. Every result's spec is materialised on ``data`` with
+   ``scope.materialise`` and its payouts are evaluated with
+   ``SolveResult.payouts``. Out-of-sample evaluation passes the test
+   sample here and reuses the specs calibrated on the training sample.
+4. Per-row loss ``L`` and payout ``pi`` are formed for every **subject**:
+   each entity (``level = "entity"``), each design problem (the sum over
+   its entities, ``level = "problem"``) and the whole run (the sum over
+   every location and every entity payout, ``level = "portfolio"``,
+   ``problem_id = "*"`` when the run has several design problems). With
+   an allocation rule other than ``"none"``, also each location
+   (``level = "location_by_value"`` or ``"location_by_loss"``; see
+   "Per-location rows and joint designs" below).
+5. Per-row quantities are summed into outcomes with the measure, and
+   weighted with its probabilities.
 
 Per-location rows and joint designs
-    A joint design (``Portfolio`` or ``Cluster`` scope) is identified only
-    through its design problem's payout. The MSE objective depends on the
-    summed payout of each outcome alone, so any other split of the same sums
-    across the entities is optimal too; E[U] and weighted CVaR have the same
-    freedom wherever their LP has several optimal solutions. So the
-    ``entity`` rows of a joint design (an asset in the portfolio scope, a
-    cluster in the cluster scope) describe **one member of the set of
-    optimal designs**, the one the solver returned. Their definition is
-    unchanged; read them as that.
+-----------------------------------
+A joint design (``Portfolio`` or ``Cluster`` scope) is identified only
+through its design problem's payout. The MSE objective depends on the
+summed payout of each outcome alone, so any other split of the same sums
+across the entities is optimal too; E[U] and weighted CVaR have the same
+freedom wherever their LP has several optimal solutions. So the
+``entity`` rows of a joint design (an asset in the portfolio scope, a
+cluster in the cluster scope) describe **one member of the set of
+optimal designs**, the one the solver returned. Their definition is
+unchanged; read them as that.
 
-    Per-location rows are written only under an explicit ``allocation``
-    rule, which splits each **design problem's** payout ``pi_e`` (the sum
-    over its entities, the quantity its objective sees) across the
-    problem's locations ``i``:
+Per-location rows are written only under an explicit ``allocation``
+rule, which splits each **design problem's** payout ``pi_e`` (the sum
+over its entities, the quantity its objective sees) across the
+problem's locations ``i``:
 
-    * ``"none"`` (default): no per-location rows.
-    * ``"value"``: ``pi_{e,i} = pi_e * v_i / sum_k v_k``, ``v`` the insured
-      values (``locations.value``) of the problem's locations. The thesis
-      allocates a cluster's payout to its assets this way (eq. (3.23)), but
-      within each cluster; here the shares are over the whole design
-      problem, because the split across clusters isn't identified either.
-      ``level = "location_by_value"``.
-    * ``"loss"``: ``pi_{e,i} = pi_e * L_{e,i} / sum_k L_{e,k}``; in a row
-      where the problem has no loss, the value shares. Every location of a
-      row then has the same ratio of payout to loss. ``level =
-      "location_by_loss"``.
+* ``"none"`` (default): no per-location rows.
+* ``"value"``: ``pi_{e,i} = pi_e * v_i / sum_k v_k``, ``v`` the insured
+  values (``locations.value``) of the problem's locations. The thesis
+  allocates a cluster's payout to its assets this way (eq. (3.23)), but
+  within each cluster; here the shares are over the whole design
+  problem, because the split across clusters isn't identified either.
+  ``level = "location_by_value"``.
+* ``"loss"``: ``pi_{e,i} = pi_e * L_{e,i} / sum_k L_{e,k}``; in a row
+  where the problem has no loss, the value shares. Every location of a
+  row then has the same ratio of payout to loss. ``level =
+  "location_by_loss"``.
 
-    The rule is in the level name, so no per-location row can be read as the
-    solver's split. A problem with one location (the individual scope) gives
-    it its whole payout under every rule, so its location rows equal its
-    entity rows. The shares sum to 1 in every row, so the locations'
-    ``expected_loss`` and ``expected_payout`` sum to their problem's; under
-    ``"loss"`` so does ``expected_uncovered``, because every location of a
-    row is short or over-paid together. An allocation removes the solver's
-    choice of split; it doesn't make the problem's payout itself unique (on
-    the annual basis the MSE objective sees yearly sums only, and an
-    out-of-sample evaluation applies the per-entity payout functions to new
-    index values). No ``premium`` is reported per location: pricing is a
-    design-problem component (ADR 0002). See
-    ``docs/methodology/payout-allocation.md``.
+The rule is in the level name, so no per-location row can be read as the
+solver's split. A problem with one location (the individual scope) gives
+it its whole payout under every rule, so its location rows equal its
+entity rows. The shares sum to 1 in every row, so the locations'
+``expected_loss`` and ``expected_payout`` sum to their problem's; under
+``"loss"`` so does ``expected_uncovered``, because every location of a
+row is short or over-paid together. An allocation removes the solver's
+choice of split; it doesn't make the problem's payout itself unique (on
+the annual basis the MSE objective sees yearly sums only, and an
+out-of-sample evaluation applies the per-entity payout functions to new
+index values). No ``premium`` is reported per location: a pricing prices
+a design problem's payout, not a part of it. See
+``docs/methodology/payout-allocation.md``.
 
-KPIs of one subject (``p`` the outcome probabilities, ``o`` an outcome, sums
-over the rows ``e`` of an outcome)
-    * ``U_o = sum_e (L_e - pi_e)^+`` (SPEC §6.2), ``R_o = sum_e (L_e - pi_e)``,
-      ``L_o = sum_e L_e`` and ``pi_o = sum_e pi_e``.
-    * ``expected_uncovered = E[U]`` [thesis ``E_Uncovered``].
-    * ``var_uncovered``, ``cvar_uncovered``: :func:`var_cvar` of ``U`` at
-      ``beta`` [``VaR_Uncovered``, ``CVaR_Uncovered``]. ``var_cvar`` lives in
-      ``riskmeasures.py`` and is re-exported here. It
-      compares the cumulative probability with ``beta`` strictly, as the
-      thesis; for a ``beta`` exactly on a step of the distribution see
-      ``riskmeasures``.
-    * ``rmse_residual = sqrt(E[R^2])`` [``E_Residual``; despite the thesis
-      name, a root mean square].
-    * ``payout_to_loss_ratio = E[pi] / E[L]``, null if ``E[L] = 0``
-      [``E_Payout_to_E_Loss_Ratio``].
-    * ``correlation``: correlation of ``L_o`` and ``pi_o`` weighted with
-      ``p``, null if either has zero variance [``Correlation``].
-    * ``expected_loss = E[L]`` and ``expected_payout = E[pi]``.
-    * ``premium`` (only if a pricing is given): ``pricing.premium_value`` of
-      each design problem's payout at ``level = "problem"``, and of the
-      portfolio payout (the sum over every entity's payout) at ``level =
-      "portfolio"``: the premium of the run's whole cover bought by one owner.
-      For the pure premium that is the sum of the problem
-      premiums. A loaded pricing (``CostOfCapitalLoad``) is sub-additive, so
-      the portfolio premium can be less than that sum: the tails of
-      separately designed covers diversify when one writer holds them all.
-      The sum of the ``problem`` rows is the price of buying each cover
-      separately. Pricing is a design-problem component (ADR 0002), so no
-      entity-level premium is reported. See ``docs/methodology/pricing.md``.
+KPIs of one subject
+-------------------
+``p`` are the outcome probabilities, ``o`` an outcome, and the sums run
+over the rows ``e`` of an outcome. The thesis names of the KPIs are in
+brackets.
 
-    On the ``event_conditional`` basis every row is an outcome with
-    probability ``rate / sum(rate)``, so these are exactly the thesis
-    formulas. On the ``annual`` basis an outcome is a simulated year (and
-    draw), years without rows included, so the same code gives the KPIs over
-    years. Nothing here depends on the basis beyond the measure (ADR 0002
-    §4); the annual measure itself is built in ``basis.py``.
+* ``U_o = sum_e (L_e - pi_e)^+``, ``R_o = sum_e (L_e - pi_e)``,
+  ``L_o = sum_e L_e`` and ``pi_o = sum_e pi_e``.
+* ``expected_uncovered = E[U]`` [thesis ``E_Uncovered``].
+* ``var_uncovered``, ``cvar_uncovered``: :func:`var_cvar` of ``U`` at
+  ``beta`` [``VaR_Uncovered``, ``CVaR_Uncovered``]. ``var_cvar`` lives in
+  ``riskmeasures.py`` and is re-exported here. It
+  compares the cumulative probability with ``beta`` strictly, as the
+  thesis; for a ``beta`` exactly on a step of the distribution see
+  ``riskmeasures``.
+* ``rmse_residual = sqrt(E[R^2])`` [``E_Residual``; despite the thesis
+  name, a root mean square].
+* ``payout_to_loss_ratio = E[pi] / E[L]``, null if ``E[L] = 0``
+  [``E_Payout_to_E_Loss_Ratio``].
+* ``correlation``: correlation of ``L_o`` and ``pi_o`` weighted with
+  ``p``, null if either has zero variance [``Correlation``].
+* ``expected_loss = E[L]`` and ``expected_payout = E[pi]``.
+* ``premium`` (only if a pricing is given): ``pricing.premium_value`` of
+  each design problem's payout at ``level = "problem"``, and of the
+  portfolio payout (the sum over every entity's payout) at ``level =
+  "portfolio"``: the premium of the run's whole cover bought by one owner.
+  For the pure premium that is the sum of the problem
+  premiums. A loaded pricing (``CostOfCapitalLoad``) is sub-additive, so
+  the portfolio premium can be less than that sum: the tails of
+  separately designed covers diversify when one writer holds them all.
+  The sum of the ``problem`` rows is the price of buying each cover
+  separately. A pricing prices a design problem's payout, so no
+  entity-level premium is reported. See ``docs/methodology/pricing.md``.
+
+On the ``event_conditional`` basis every row is an outcome with
+probability ``rate / sum(rate)``, so these are exactly the thesis
+formulas. On the ``annual`` basis an outcome is a simulated year (and
+draw), years without rows included, so the same code gives the KPIs over
+years. Nothing here depends on the basis beyond the measure; the annual
+measure itself is built in ``basis.py``.
 
 Exceedance curves
-    For each subject and quantity (loss, payout, uncovered loss), the value
-    exceeded with probability ``1 / T`` at return period ``T``: the lower
-    ``(1 - 1/T)``-quantile of the outcome values, the same quantile as the VaR
-    of :func:`var_cvar` (``riskmeasures.lower_quantile``, strict as in the
-    thesis ``_weighted_quantile``). On the ``annual``
-    basis there are two curves: ``aep`` over the yearly sums and ``oep`` over
-    the yearly maximum event (the largest per-row value in each outcome; an
-    outcome without rows counts as 0). On the event bases there is one curve,
-    ``event``, over the per-event values. ``1 / T`` is a probability under
-    the measure, so the unit of ``T`` depends on the basis (``S`` the
-    sample's years, ``D`` the draws; see ``basis.py``):
+-----------------
+For each subject and quantity (loss, payout, uncovered loss), the value
+exceeded with probability ``1 / T`` at return period ``T``: the lower
+``(1 - 1/T)``-quantile of the outcome values, the same quantile as the VaR
+of :func:`var_cvar` (``riskmeasures.lower_quantile``, strict as in the
+thesis ``_weighted_quantile``). On the ``annual``
+basis there are two curves: ``aep`` over the yearly sums and ``oep`` over
+the yearly maximum event (the largest per-row value in each outcome; an
+outcome without rows counts as 0). On the event bases there is one curve,
+``event``, over the per-event values. ``1 / T`` is a probability under
+the measure, so the unit of ``T`` depends on the basis (``S`` the
+sample's years, ``D`` the draws; see ``basis.py``):
 
-    * ``annual``: years, exactly. Every (year, draw) slot has probability
-      ``1 / (|S| * D)``, and each draw is one simulated version of its year
-      (SPEC §5), so ``1 / T`` is the share of years whose value exceeds the
-      level, averaged over the draws. With ``D = 1`` that is the share of
-      the ``|S|`` simulated years. With ``D > 1`` the curve mixes the draws:
-      its ``|S| * D`` slots share the hazard of ``|S|`` years, so they are not
-      ``|S| * D`` independent years of record.
-    * ``event``: years, approximately. Probabilities are the rows' annual
-      rates (over the sample's years) plus a "no event" outcome, so ``1 / T``
-      is the expected number of events per year whose value exceeds the
-      level, and ``T`` is their mean recurrence interval in years. The share
-      of years with such an event is at most that rate, so ``T`` reads as an
-      occurrence (OEP) return period only while years rarely hold more than
-      one such event.
-    * ``event_conditional``: events, not years (thesis convention).
-      Probabilities are ``rate / sum(rate)`` over the rows given, so ``1 /
-      T`` is a share of those rows' events and ``T`` counts events.
+* ``annual``: years, exactly. Every (year, draw) slot has probability
+  ``1 / (|S| * D)``, and each draw is one simulated version of its year,
+  so ``1 / T`` is the share of years whose value exceeds the
+  level, averaged over the draws. With ``D = 1`` that is the share of
+  the ``|S|`` simulated years. With ``D > 1`` the curve mixes the draws:
+  its ``|S| * D`` slots share the hazard of ``|S|`` years, so they are not
+  ``|S| * D`` independent years of record.
+* ``event``: years, approximately. Probabilities are the rows' annual
+  rates (over the sample's years) plus a "no event" outcome, so ``1 / T``
+  is the expected number of events per year whose value exceeds the
+  level, and ``T`` is their mean recurrence interval in years. The share
+  of years with such an event is at most that rate, so ``T`` reads as an
+  occurrence (OEP) return period only while years rarely hold more than
+  one such event.
+* ``event_conditional``: events, not years (thesis convention).
+  Probabilities are ``rate / sum(rate)`` over the rows given, so ``1 /
+  T`` is a share of those rows' events and ``T`` counts events.
 
-No silent failures (SPEC §3.1, C3)
-    Results whose design problems repeat, overlap in locations, or do not
-    cover exactly the EventSet's locations raise
-    :class:`~parametric_insurance_design.errors.EntityMismatchError`, as does
-    a spec that the scope cannot materialise on the evaluation data. The
-    thesis skipped such groups. Undefined KPI values are null rows, never
-    missing rows.
+No silent failures
+------------------
+Results whose design problems repeat, overlap in locations, or do not
+cover exactly the EventSet's locations raise
+:class:`~parametric_insurance_design.errors.EntityMismatchError`, as does
+a spec that the scope cannot materialise on the evaluation data. The
+thesis code skipped such groups silently. Undefined KPI values are null
+rows, never missing rows.
 
+Confidence intervals
+--------------------
 Block-bootstrap confidence bounds fill the ``ci_*`` columns of the KPI
 table: ``bootstrap.bootstrap_kpis`` computes them (see
 ``docs/methodology/bootstrap.md``). Here they are null.
@@ -809,16 +819,14 @@ def exceedance_curves(
         without rows counting as 0) and AEP curves (the sum over each year).
         The event bases give per-event curves (``curve = "event"``). The
         unit of the return period depends on the basis (module docstring,
-        "Exceedance curves"):
-
-        * ``annual``: years, exactly. ``1 / T`` is the share of (year, draw)
-          slots above the level, i.e. the share of years above it averaged
-          over the draws; with one draw, the share of the sample's years.
-        * ``event``: years, approximately. ``1 / T`` is the annual rate of
-          events above the level, which bounds the share of years with such
-          an event from above and equals it when no year holds two.
-        * ``event_conditional``: events. ``1 / T`` is a share of the given
-          rows' events (thesis plots).
+        "Exceedance curves"). On ``annual``, years, exactly: ``1 / T`` is
+        the share of (year, draw) slots above the level, i.e. the share of
+        years above it averaged over the draws; with one draw, the share of
+        the sample's years. On ``event``, years, approximately: ``1 / T`` is
+        the annual rate of events above the level, which bounds the share of
+        years with such an event from above and equals it when no year holds
+        two. On ``event_conditional``, events: ``1 / T`` is a share of the
+        given rows' events (thesis plots).
     run_id : str
         Written to every row.
     return_periods : array_like of float, optional

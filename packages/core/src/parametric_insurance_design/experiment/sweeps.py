@@ -1,4 +1,4 @@
-"""One-factor-at-a-time sweeps (SPEC §4.2).
+"""One-factor-at-a-time sweeps.
 
 Reproduces the thesis sensitivity design on top of the run
 executor (:mod:`~parametric_insurance_design.experiment.runner`): vary one
@@ -58,7 +58,7 @@ Other sweeps never cap: an ``n_clusters`` sweep value is the count asked for.
 
 Folds of a k-fold experiment
 ----------------------------
-A k-fold experiment runs **one run per fold** (ADR 0002 §7):
+A k-fold experiment runs **one run per fold**:
 ``single_runs()`` sets :attr:`~.config.KFoldSampleConfig.fold`, so the fold
 is part of each point's config, config hash and ``run_id``, and a sweep of a
 k-fold experiment has ``k`` points per value and scope x objective (folds

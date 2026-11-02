@@ -1,81 +1,87 @@
-"""Block-bootstrap confidence intervals over years (SPEC §6.1, thesis issue M1).
+"""Block-bootstrap confidence intervals over years.
 
 Fills the ``ci_low``, ``ci_high``, ``ci_level`` and
-``n_bootstrap`` columns of the ``kpis`` table (ADR 0002 §7) and gives paired
-confidence intervals for the difference of a KPI between two designs.
+``n_bootstrap`` columns of the result store's ``kpis`` table and gives
+paired confidence intervals for the difference of a KPI between two designs.
 Method notes: ``docs/methodology/bootstrap.md``.
 
 Resampling unit: a year
-    A replicate draws ``|S|`` years with replacement from the ``|S|`` years
-    ``S`` of the evaluation sample (``Sample.years``, years without rows
-    included). Every row of a drawn year comes along: all its events and all
-    their draws (noise copies, vulnerability ``draw_id``), so the dependence
-    within a year is kept. :func:`resample_years` draws the year indices
-    once; every design evaluated on the same sample can reuse them, which
-    makes the comparison **paired** (:func:`paired_difference`).
+-----------------------
+A replicate draws ``|S|`` years with replacement from the ``|S|`` years
+``S`` of the evaluation sample (``Sample.years``, years without rows
+included). Every row of a drawn year comes along: all its events and all
+their draws (noise copies, vulnerability ``draw_id``), so the dependence
+within a year is kept. :func:`resample_years` draws the year indices
+once; every design evaluated on the same sample can reuse them, which
+makes the comparison **paired** (:func:`paired_difference`).
 
 From year counts to a resampled measure
-    A replicate is described by how often each year was drawn, ``c_y``.
-    Resampling never changes a row's loss or payout, only how much
-    probability its outcome carries, so a replicate is the evaluation
-    measure (``basis.outcome_measure``) with reweighted outcomes:
+---------------------------------------
+A replicate is described by how often each year was drawn, ``c_y``.
+Resampling never changes a row's loss or payout, only how much
+probability its outcome carries, so a replicate is the evaluation
+measure (``basis.outcome_measure``) with reweighted outcomes:
 
-    * an outcome with rows lies in one year ``y`` (checked: an outcome
-      spanning two years raises :class:`BootstrapError`) and gets
-      probability ``p_o * c_y``;
-    * ``event_conditional`` probabilities are conditional on an event, so
-      they are divided by their sum (the thesis' rescaling, applied to the
-      resampled rows);
-    * on ``event`` and ``annual``, probabilities are absolute (a row's
-      annual rate; ``1 / (|S| * D)`` per year-and-draw slot), so the
-      outcomes with rows keep ``p_o * c_y`` and the outcomes without rows
-      (the ``event`` basis' "no event" outcome, the ``annual`` basis'
-      pooled empty year-draw slots) take the remaining mass
-      ``1 - sum(p_o * c_y)``, shared in proportion to their probabilities.
-      If there is no such outcome, a zero-valued one is added. On ``annual``
-      this is exact: the empty slots of year ``y`` are drawn ``c_y`` times,
-      and their total is the remainder. A negative remainder (an ``event``
-      replicate with more than one event per year on average, which that
-      basis cannot represent) raises :class:`BootstrapError`.
+* an outcome with rows lies in one year ``y`` (checked: an outcome
+  spanning two years raises :class:`BootstrapError`) and gets
+  probability ``p_o * c_y``;
+* ``event_conditional`` probabilities are conditional on an event, so
+  they are divided by their sum (the thesis' rescaling, applied to the
+  resampled rows);
+* on ``event`` and ``annual``, probabilities are absolute (a row's
+  annual rate; ``1 / (|S| * D)`` per year-and-draw slot), so the
+  outcomes with rows keep ``p_o * c_y`` and the outcomes without rows
+  (the ``event`` basis' "no event" outcome, the ``annual`` basis'
+  pooled empty year-draw slots) take the remaining mass
+  ``1 - sum(p_o * c_y)``, shared in proportion to their probabilities.
+  If there is no such outcome, a zero-valued one is added. On ``annual``
+  this is exact: the empty slots of year ``y`` are drawn ``c_y`` times,
+  and their total is the remainder. A negative remainder (an ``event``
+  replicate with more than one event per year on average, which that
+  basis cannot represent) raises :class:`BootstrapError`.
 
-    Duplicating an outcome ``c`` times and multiplying its probability by
-    ``c`` give the same discrete distribution, so every KPI of the replicate
-    (means, VaR, CVaR, correlation, premium) equals the KPI of the
-    concatenated resampled years. All-ones counts give the evaluation
-    measure itself, which :func:`bootstrap_kpis` uses to check that its
-    vectorised KPI formulas reproduce ``evaluate.kpis`` (a guard against
-    drift; a mismatch raises :class:`BootstrapError`).
+Duplicating an outcome ``c`` times and multiplying its probability by
+``c`` give the same discrete distribution, so every KPI of the replicate
+(means, VaR, CVaR, correlation, premium) equals the KPI of the
+concatenated resampled years. All-ones counts give the evaluation
+measure itself, which :func:`bootstrap_kpis` uses to check that its
+vectorised KPI formulas reproduce ``evaluate.kpis`` (a guard against
+drift; a mismatch raises :class:`BootstrapError`).
 
 Array-level replicates
-    :func:`kpi_replicates` gives the eight ``evaluate`` KPIs of per-row loss
-    and payout, and :func:`premium_replicates` the premium of a payout
-    (``pricing.premium_value`` on each replicate's measure), without an
-    EventSet. :func:`bootstrap_kpis` builds on the same code, and
-    ``experiment.kfold`` uses both for the pooled k-fold KPIs.
+----------------------
+:func:`kpi_replicates` gives the eight ``evaluate`` KPIs of per-row loss
+and payout, and :func:`premium_replicates` the premium of a payout
+(``pricing.premium_value`` on each replicate's measure), without an
+EventSet. :func:`bootstrap_kpis` builds on the same code, and
+``experiment.kfold`` uses both for the pooled k-fold KPIs.
 
 Intervals
-    Percentile intervals: the ``(1 - level) / 2`` and ``(1 + level) / 2``
-    quantiles (``numpy.quantile``, linear interpolation) of the replicate
-    values; ``level = 0.9`` by default (SPEC §6.1). Point estimates are
-    never changed: they are ``evaluate.kpis``'s values.
+---------
+Percentile intervals: the ``(1 - level) / 2`` and ``(1 + level) / 2``
+quantiles (``numpy.quantile``, linear interpolation) of the replicate
+values; ``level = 0.9`` by default. Point estimates are
+never changed: they are ``evaluate.kpis``'s values.
 
 No silent failures
-    A KPI that is undefined in some replicate (a payout-to-loss ratio with
-    zero expected loss, a correlation with zero variance) gets null bounds,
-    and :attr:`KpiBootstrap.n_undefined` counts its undefined replicates.
-    ``ci_level`` and ``n_bootstrap`` are set on every row of a bootstrapped
-    table, so a null bound next to them means "bootstrapped, undefined", not
-    "not bootstrapped". A KPI that this module cannot replicate raises.
+------------------
+A KPI that is undefined in some replicate (a payout-to-loss ratio with
+zero expected loss, a correlation with zero variance) gets null bounds,
+and :attr:`KpiBootstrap.n_undefined` counts its undefined replicates.
+``ci_level`` and ``n_bootstrap`` are set on every row of a bootstrapped
+table, so a null bound next to them means "bootstrapped, undefined", not
+"not bootstrapped". A KPI that this module cannot replicate raises.
 
 Per-location rows
-    :func:`bootstrap_kpis` takes ``evaluate``'s ``allocation`` rule. Under
-    ``"value"`` or ``"loss"`` its table has the per-location rows of
-    ``evaluate.kpis`` with intervals, checked against ``evaluate.kpis`` like
-    every other row. :func:`paired_difference` pairs them like any row of
-    two designs of the same scope (the level, rule included, and the
-    ``location_id`` are in :data:`PAIR_KEY`), and refuses an unpaired row,
-    e.g. a design bootstrapped under another rule. With
-    ``across_scopes=True`` it refuses them, as every non-portfolio row.
+-----------------
+:func:`bootstrap_kpis` takes ``evaluate``'s ``allocation`` rule. Under
+``"value"`` or ``"loss"`` its table has the per-location rows of
+``evaluate.kpis`` with intervals, checked against ``evaluate.kpis`` like
+every other row. :func:`paired_difference` pairs them like any row of
+two designs of the same scope (the level, rule included, and the
+``location_id`` are in :data:`PAIR_KEY`), and refuses an unpaired row,
+e.g. a design bootstrapped under another rule. With
+``across_scopes=True`` it refuses them, as every non-portfolio row.
 """
 
 from __future__ import annotations
@@ -124,10 +130,10 @@ __all__ = [
 ]
 
 DEFAULT_N_BOOTSTRAP: Final[int] = 1000
-"""Default number of bootstrap replicates ``B`` (SPEC §6.1)."""
+"""Default number of bootstrap replicates ``B``."""
 
 DEFAULT_LEVEL: Final[float] = 0.9
-"""Default confidence level of the intervals (SPEC §6.1)."""
+"""Default confidence level of the intervals."""
 
 PAIR_KEY: Final[tuple[str, ...]] = (
     "problem_id",
@@ -1111,11 +1117,13 @@ def paired_difference(
     Examples
     --------
     A joint design against the individual one, bootstrapped on the same
-    resample::
+    resample:
 
-        diff = paired_difference(
-            joint.portfolio_rows(), individual.portfolio_rows(), across_scopes=True
-        )
+    ```python
+    diff = paired_difference(
+        joint.portfolio_rows(), individual.portfolio_rows(), across_scopes=True
+    )
+    ```
     """
     ci_level = a.level if level is None else _check_level(level)
     _check_pair_columns(a, "a")

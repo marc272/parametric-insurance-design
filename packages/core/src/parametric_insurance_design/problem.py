@@ -1,7 +1,7 @@
-"""Problem builder: scope x payout x objective x pricing x constraints (SPEC §4.2).
+"""Problem builder: scope x payout x objective x pricing x constraints.
 
-Replaces the thesis's nine near-duplicate solver methods (SPEC §3.1, C1)
-with one assembly, fixed by ADR 0002:
+Replaces the thesis's nine near-duplicate solver methods (three scopes times
+three objectives, in its notebook) with one fixed assembly:
 
 1. ``data = sample.select(eventset)`` (default :meth:`Sample.full`).
 2. ``measure = outcome_measure(data, basis, years=sample.years)``.
@@ -303,7 +303,7 @@ def build_problems(
 ) -> tuple[BuiltProblem, ...]:
     """Assemble every design problem of a scope.
 
-    Follows the ADR 0002 recipe (module docstring). ``build_seconds`` of each
+    Follows the assembly in the module docstring. ``build_seconds`` of each
     problem covers materialising its data, building the context, the terms
     and the constraints, and the DCP check. The shared steps (sample
     selection, measure, partition) are not attributed to any one problem.

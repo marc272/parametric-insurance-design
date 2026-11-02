@@ -1,38 +1,41 @@
-"""Contracts between the core modules (ADR 0002).
+"""Contracts between the core modules.
 
 This module holds every type that more than one core module implements or
-consumes. Its public signatures are fixed by ADR 0002: implementing modules
-import from here. Changing it needs an ADR 0002 amendment.
+consumes. Its public signatures are fixed: implementing modules import from
+here, and changing them changes the core's interfaces.
 
-Data flow of one run (``problem.py`` assembles it, see ADR 0002)::
+Data flow of one run (``problem.py`` assembles it):
 
-    EventSet --Sample.select--> EventSet (rows of the sample)
-        |                         |
-        |   basis.outcome_measure(eventset, basis, years=sample.years)
-        v                         v
-    Scope.partition --> ProblemSpec --Scope.materialise--> DesignProblem
-                                                    |
-    PayoutStructure.basis_matrix, loss scaling  --> ProblemContext
-                                                    |
-          Objective.build -> ObjectiveTerm   Pricing.premium -> Term
-          PayoutStructure.constraints        Constraint.build(ctx, premium)
-                                                    |
-                                    cvxpy Problem --solve--> SolveResult
+```text
+EventSet --Sample.select--> EventSet (rows of the sample)
+    |                         |
+    |   basis.outcome_measure(eventset, basis, years=sample.years)
+    v                         v
+Scope.partition --> ProblemSpec --Scope.materialise--> DesignProblem
+                                                |
+PayoutStructure.basis_matrix, loss scaling  --> ProblemContext
+                                                |
+      Objective.build -> ObjectiveTerm   Pricing.premium -> Term
+      PayoutStructure.constraints        Constraint.build(ctx, premium)
+                                                |
+                                cvxpy Problem --solve--> SolveResult
+```
 
 Conventions
-    * Rows are EventSet rows (events times draws); ``n_rows`` counts them.
-    * An **entity** is something that gets its own payout function (an asset,
-      or a cluster of assets). A **design problem** is one optimisation: one
-      for each asset in the individual scope, one for the whole portfolio in
-      the portfolio and cluster scopes.
-    * The objective level of a design problem is the **sum over its
-      entities**: ``L_e = sum_j L_{e,j}`` and ``pi_e = sum_j pi_{e,j}``.
-    * ``theta`` has shape ``(n_entities, n_params)``. Entity ``j``'s payout is
-      ``basis_matrix(xi[:, j]) @ theta[j]``.
-    * Inside a :class:`ProblemContext` every loss and payout quantity is
-      divided by ``scale`` (numerical conditioning, thesis: the maximum
-      objective-level loss). Components work in scaled units and never see
-      the scale. :class:`SolveResult` reports loss units again.
+-----------
+* Rows are EventSet rows (events times draws); ``n_rows`` counts them.
+* An **entity** is something that gets its own payout function (an asset,
+  or a cluster of assets). A **design problem** is one optimisation: one
+  for each asset in the individual scope, one for the whole portfolio in
+  the portfolio and cluster scopes.
+* The objective level of a design problem is the **sum over its
+  entities**: ``L_e = sum_j L_{e,j}`` and ``pi_e = sum_j pi_{e,j}``.
+* ``theta`` has shape ``(n_entities, n_params)``. Entity ``j``'s payout is
+  ``basis_matrix(xi[:, j]) @ theta[j]``.
+* Inside a :class:`ProblemContext` every loss and payout quantity is
+  divided by ``scale`` (numerical conditioning, thesis: the maximum
+  objective-level loss). Components work in scaled units and never see
+  the scale. :class:`SolveResult` reports loss units again.
 """
 
 from __future__ import annotations
@@ -149,8 +152,8 @@ class Sample:
         Raises
         ------
         InputMismatchError
-            If an event year lies outside ``[0, n_years)`` (the year
-            convention of ADR 0002).
+            If an event year lies outside ``[0, n_years)`` (years are
+            0-based).
         """
         n_years = eventset.metadata.n_years
         observed = eventset.events["year"].to_numpy(dtype=np.int64)
@@ -536,7 +539,7 @@ class PayoutStructure(ABC):
     """A family of payout functions, linear in its parameters ``theta``.
 
     Implementations: ``payout.StepPayout``. Piecewise-linear payouts
-    are out of scope (SPEC §9) but fit: their basis matrix holds hat functions.
+    are not implemented but fit: their basis matrix holds hat functions.
 
     Attributes
     ----------
@@ -677,7 +680,7 @@ class Objective(ABC):
 
     Implementations: ``objectives.MSE``, ``objectives.ExpectedUncovered`` and
     ``objectives.WeightedCVaR``. ``robust.DistributionallyRobust`` is to
-    wrap one; it is a stub for now (SPEC §6.5).
+    wrap one for robust design; it is a stub for now.
 
     Objectives are basis-agnostic: they aggregate per-row quantities with
     ``ctx.measure`` and raise :class:`UnsupportedBasisError` only if they
