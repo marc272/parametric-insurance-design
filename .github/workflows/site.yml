@@ -120,10 +120,10 @@ jobs:
       # They go to the runner's temp directory, outside site/_site, and are
       # neither uploaded nor published. Every sweep was solved above, so there
       # is no --skip-missing-sweeps: any non-zero exit fails the build (1: a
-      # figure skipped because a run failed or a sweep point is missing; 3: a
-      # missing run or a refused input; 4: a bug). A figure that does not
-      # apply (premium reallocation needs a portfolio scope) is listed as
-      # "skipped" and exits 0.
+      # figure skipped because a run it needs failed; 3: a run or sweep point
+      # missing from the store, or a refused input; 4: a bug). A figure that
+      # does not apply (premium reallocation needs a portfolio scope) is listed
+      # as "skipped" and exits 0.
       - name: Draw the explorer figures (check only, not published)
         run: |
           start=$SECONDS
