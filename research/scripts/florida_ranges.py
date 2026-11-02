@@ -84,7 +84,6 @@ import pickle
 import time
 from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
-from itertools import combinations
 from multiprocessing import get_context
 from pathlib import Path
 from typing import Any, Final
@@ -241,7 +240,9 @@ def entity_bases(
     return out
 
 
-def row_payout(bases: list[list[np.ndarray]], thetas: Sequence[np.ndarray]) -> np.ndarray:
+def row_payout(
+    bases: list[list[np.ndarray]], thetas: Sequence[np.ndarray]
+) -> np.ndarray:
     """Portfolio payout per row: the sum over problems and entities."""
     total: np.ndarray | None = None
     for b_p, th_p in zip(bases, thetas, strict=True):
@@ -289,7 +290,10 @@ def individual_worker(
     prepared = c1._prepared(cfg)
     train, test = splits.holdout(prepared, train_fraction=0.7)
     specs = [r.spec for r in stored.results]
-    rows = {"train": split_rows(prepared, train, cfg), "test": split_rows(prepared, test, cfg)}
+    rows = {
+        "train": split_rows(prepared, train, cfg),
+        "test": split_rows(prepared, test, cfg),
+    }
     bases = {s: entity_bases(cfg, specs, rows[s].data) for s in rows}
     scope = cfg.to_components().scopes[0]
     theta = [np.asarray(r.theta, dtype=np.float64)[0] for r in stored.results]
@@ -304,7 +308,9 @@ def individual_worker(
             raise RuntimeError(f"{spec.problem_id}: stored payout above the cap")
         lo, hi = inu.free_bin_bounds(theta[i], free, cap)
         for t in (lo, hi):
-            if not np.allclose(b_tr @ t, b_tr @ theta[i], rtol=0, atol=1e-9 * max(cap, 1)):
+            if not np.allclose(
+                b_tr @ t, b_tr @ theta[i], rtol=0, atol=1e-9 * max(cap, 1)
+            ):
                 raise RuntimeError(f"{spec.problem_id}: a free bin has train rows")
         lo_all.append(lo)
         hi_all.append(hi)
@@ -335,12 +341,10 @@ def individual_worker(
         name: {s: point_kpis(rows[s], row_payout(bases[s], th)) for s in rows}
         for name, th in thetas.items()
     }
-    for s in rows:
-        if not math.isclose(
-            point["free_lo"][s]["eu"] if s == "test" else point["stored"][s]["eu"],
-            point["free_lo"][s]["eu"] if s == "test" else point["free_lo"][s]["eu"],
-        ):
-            raise RuntimeError("train KPIs of a free-bin end differ")  # pragma: no cover
+    for name in ("free_lo", "free_hi"):
+        for lab, v in point[name]["train"].items():
+            if not math.isclose(v, point["stored"]["train"][lab], rel_tol=1e-9):
+                raise RuntimeError(f"{rid}: {name} train {lab} differs from stored")
     return {
         "key": key,
         "design": ("individual", design),
@@ -371,7 +375,7 @@ class StoredSet(sens.JointSet):
     objective of the candidate optima given.
     """
 
-    def __init__(  # noqa: PLR0913
+    def __init__(
         self,
         built: BuiltProblem,
         cfg: ExperimentConfig,
@@ -411,12 +415,93 @@ def _lp_ranger(js: StoredSet, lp: bool) -> sens.JointRanger:
     return sens.JointRanger(js)
 
 
+FW_STEPS: Final[int] = 8
+"""Frank-Wolfe steps of the descent, at most."""
+FW_RTOL: Final[float] = 1e-6
+"""A descent step that lowers the KPI by less than this (relative) ends it."""
+
+
+def _line_min(f: Callable[[float], float], tol: float = 1e-4) -> float:
+    """Minimiser of a convex function on [0, 1] by golden-section search."""
+    g = (math.sqrt(5.0) - 1.0) / 2.0
+    a, b = 0.0, 1.0
+    c, d = b - g * (b - a), a + g * (b - a)
+    fc, fd = f(c), f(d)
+    while b - a > tol:
+        if fc <= fd:
+            b, d, fd = d, c, fc
+            c = b - g * (b - a)
+            fc = f(c)
+        else:
+            a, c, fc = c, d, fd
+            d = a + g * (b - a)
+            fd = f(d)
+    best = min((0.0, f(0.0)), (1.0, f(1.0)), (c, fc), (d, fd), key=lambda x: x[1])
+    return best[0]
+
+
+def descend_kpi(
+    ranger: sens.JointRanger,
+    sd: inu.SplitData,
+    kpi: str,
+    beta: float | None,
+    start: np.ndarray,
+) -> tuple[np.ndarray, int, str]:
+    """Lower a portfolio KPI over the set by Frank-Wolfe steps (scaled theta).
+
+    Each step minimises the KPI's linearisation at the current design over
+    the set (one LP through the ranger's cost parameter: maximise the
+    tail-weighted payout) and moves to the best point of the segment towards
+    that vertex (golden-section search on the KPI, which is convex along the
+    segment). The set is convex, so every point of the segment is in it;
+    each new point is checked in numpy all the same (:meth:`admit`). An
+    inner point of the range: the KPI never rises along the steps.
+
+    Returns
+    -------
+    theta, steps, status
+        The design reached (scaled), the steps taken, and ``"converged"``,
+        ``"step limit"`` or the reason the descent stopped.
+    """
+    scale = ranger.scale
+    current = np.asarray(start, dtype=np.float64)
+    value = sd.value(list(current * scale), kpi, beta)
+    for step in range(1, FW_STEPS + 1):
+        w = sd.weights(list(current * scale), kpi, beta)
+        cost = -np.vstack([b.T @ w for b in sd.basis])
+        top = float(np.max(np.abs(cost), initial=0.0))
+        if top == 0.0:
+            return current, step - 1, "zero gradient"
+        ranger.cost.value = cost / top
+        ranger.js.ctx.theta.value = None
+        status = inu.solve_range(ranger.lp)
+        vertex = ranger._theta()
+        if vertex is None:
+            return current, step - 1, f"stopped: {status}"
+        d = vertex - current
+
+        def f(g: float, d: np.ndarray = d) -> float:
+            return sd.value(list((current + g * d) * scale), kpi, beta)
+
+        gamma = _line_min(f)
+        nxt, note = ranger.admit(current + gamma * d)
+        if nxt is None:
+            return current, step - 1, f"stopped: {status}, step outside the set"
+        new = sd.value(list(nxt * scale), kpi, beta)
+        if new >= value * (1.0 - FW_RTOL):
+            if new < value:
+                current = nxt
+            return current, step, "converged"
+        current, value = nxt, new
+    return current, FW_STEPS, "step limit"
+
+
 def _objective_units(design: str, scale: float) -> float:
     """Factor from the scaled objective to the stored run's (loss units)."""
     return scale**2 if design == "mse" else scale
 
 
-def joint_worker(  # noqa: PLR0912, PLR0915
+def joint_worker(
     key: Key,
     design: Design,
     cfg: ExperimentConfig,
@@ -484,25 +569,48 @@ def joint_worker(  # noqa: PLR0912, PLR0915
     statuses: dict[str, str] = {}
     steps: dict[str, int] = {}
     seconds: dict[str, float] = {}
-    rows = {"train": split_rows(prepared, train, cfg), "test": split_rows(prepared, test, cfg)}
+    rows = {
+        "train": split_rows(prepared, train, cfg),
+        "test": split_rows(prepared, test, cfg),
+    }
     lp = design[1] != "mse"
     if near or payouts:
         ranger = _lp_ranger(js, lp)
     if near:
         sd = {
-            s: sens.joint_split(js, cfg, prepared, rows[s].sample) for s in ("train", "test")
+            s: sens.joint_split(js, cfg, prepared, rows[s].sample)
+            for s in ("train", "test")
         }
         for split, kpi, beta in KPIS:
             lab = f"{split}|{sens.klabel(kpi, beta)}"
             t = time.perf_counter()
             ref = sd[split].value(list(theta_stored), kpi, beta)
-            th, st = ranger.minimise_kpi(sd[split], beta, ref)
-            statuses[f"min|{lab}"] = st
-            if th is not None:
-                cand[f"min|{lab}"] = th * scale
+            th_ru, st_ru = ranger.minimise_kpi(sd[split], beta, ref)
+            # the smallest KPI over every checked member found: the convex
+            # program's end and a Frank-Wolfe descent from the best start
+            starts = {"stored": cand["stored"] / scale, "alt": cand["alt"] / scale}
+            if th_ru is not None:
+                starts["program"] = th_ru
+            vals = {
+                k: sd[split].value(list(v * scale), kpi, beta)
+                for k, v in starts.items()
+            }
+            first = min(vals, key=lambda k: vals[k])
+            th_fw, n_fw, st_fw = descend_kpi(
+                ranger, sd[split], kpi, beta, starts[first]
+            )
+            v_fw = sd[split].value(list(th_fw * scale), kpi, beta)
+            low = first if vals[first] <= v_fw else "descent"
+            th_min = starts[first] if low == first else th_fw
+            statuses[f"min|{lab}"] = (
+                f"{low}; program: {st_ru}; descent from {first}: {n_fw} steps, {st_fw}"
+            )
+            cand[f"min|{lab}"] = th_min * scale
             best: tuple[float, np.ndarray | None, int, str] = (-math.inf, None, 0, "")
             for start in ("stored", "alt"):
-                th, n, st = ranger.maximise_kpi(sd[split], kpi, beta, cand[start] / scale)
+                th, n, st = ranger.maximise_kpi(
+                    sd[split], kpi, beta, cand[start] / scale
+                )
                 if th is None:
                     if best[1] is None:
                         best = (-math.inf, None, n, f"{start}: {st}")
@@ -550,7 +658,10 @@ def joint_worker(  # noqa: PLR0912, PLR0915
                     math.nan if th is None else js.entity_ratio(th, j)
                 )
         seconds["payouts"] = round(time.perf_counter() - t, 1)
-        print(f"[joint] {_stem(key, design)} payouts ({seconds['payouts']:.0f}s)", flush=True)
+        print(
+            f"[joint] {_stem(key, design)} payouts ({seconds['payouts']:.0f}s)",
+            flush=True,
+        )
     checks = {name: js.check(th / scale) for name, th in cand.items()}
     bases = {s: entity_bases(cfg, [res.spec], rows[s].data) for s in rows}
     point = {
@@ -638,8 +749,8 @@ def _run_pool(
 
 
 def _selected(key: Key, only: Sequence[str] | None) -> bool:
-    label = "|".join(f"{x:g}" if isinstance(x, float) else str(x) for x in key)
-    return not only or any(o in label for o in only)
+    label = "/".join(f"{x:g}" if isinstance(x, float) else str(x) for x in key)
+    return not only or label in only
 
 
 def run_individual(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any]:
@@ -665,11 +776,14 @@ def run_individual(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, 
 
 
 def _cost(task: tuple[str, Any, tuple[Any, ...]]) -> tuple[int, int, int]:
-    """Longest first: near-optimal ranges, index (b), portfolio, CoC."""
+    """Cheap designs first (alt and free bins only), then the ranged ones.
+
+    Within each: index (b) first, then the portfolio scope (the longest).
+    """
     key, design = task[2][0], task[2][1]
     near, payouts = task[2][5], task[2][6]
     return (
-        -(int(near) + 2 * int(payouts)),
+        int(near) + 2 * int(payouts),
         0 if key[0] == "cic75" else 1,
         0 if design[0] == "portfolio" else 1,
     )
@@ -684,7 +798,7 @@ def run_joint(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any]:
         if not _selected(key, args.only):
             continue
         for (scope, design), (cfg, rid) in members.items():
-            if scope not in JOINT_SCOPES:
+            if scope not in JOINT_SCOPES or (args.scopes and scope not in args.scopes):
                 continue
             near = (key[1], key[2]) in near_groups
             payouts = (key[1], key[2]) in payout_groups
@@ -762,13 +876,17 @@ def variants(
             for t in joint:
                 out[f"alt:{t}"] = {**base, t: "alt"}
     for side, low in (("low", True), ("high", False)):
-        ends = {t: _end(res[d], low, SIGN[t], lab, near=False) for t, d in terms.items()}
+        ends = {
+            t: _end(res[d], low, SIGN[t], lab, near=False) for t, d in terms.items()
+        }
         out[f"free_{side}"] = ends
         if joint and ind:
             out[f"free_{side}_joint"] = {**base, **{t: ends[t] for t in joint}}
             out[f"free_{side}_individual"] = {**base, **{t: ends[t] for t in ind}}
         if joint and all(res[terms[t]]["meta"].get("near") for t in joint):
-            near = {t: _end(res[d], low, SIGN[t], lab, near=True) for t, d in terms.items()}
+            near = {
+                t: _end(res[d], low, SIGN[t], lab, near=True) for t, d in terms.items()
+            }
             out[f"near_{side}"] = near
             if ind:
                 out[f"near_{side}_joint"] = {**base, **{t: near[t] for t in joint}}
@@ -783,7 +901,7 @@ def _verdict(value: float, lo: float, hi: float) -> str:
     return "contains zero"
 
 
-def contrast_group(  # noqa: PLR0914
+def contrast_group(
     key: Key,
     members: dict[Design, tuple[ExperimentConfig, str]],
     res: dict[Design, dict[str, Any]],
@@ -795,7 +913,9 @@ def contrast_group(  # noqa: PLR0914
     _, test = splits.holdout(prepared, train_fraction=0.7)
     rows = split_rows(prepared, test, cfg0)
     assert cfg0.bootstrap is not None
-    resample = resample_years(test.years, cfg0.bootstrap.n_bootstrap, cfg0.bootstrap.rng())
+    resample = resample_years(
+        test.years, cfg0.bootstrap.n_bootstrap, cfg0.bootstrap.rng()
+    )
     level = float(cfg0.bootstrap.level)
     reps: dict[tuple[Design, str], dict[str, np.ndarray]] = {}
     point: dict[tuple[Design, str], dict[str, float]] = {}
@@ -814,7 +934,9 @@ def contrast_group(  # noqa: PLR0914
             pay = row_payout(bases[d], th_list)
             out: dict[str, np.ndarray] = {}
             for b in EVAL_BETAS:
-                k = kpi_replicates(rows.loss, pay, rows.measure, rows.years, resample, beta=b)
+                k = kpi_replicates(
+                    rows.loss, pay, rows.measure, rows.years, resample, beta=b
+                )
                 out[f"cvar@{b:g}"] = np.asarray(k["cvar_uncovered"])
                 out["eu"] = np.asarray(k["expected_uncovered"])
             reps[(d, cand)] = out
@@ -937,15 +1059,21 @@ def run_contrasts(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, A
         if not all((key, d) in avail for d in members):
             print(f"[contrasts] skip {key}: not every design ranged", flush=True)
             continue
-        name = "contrasts_" + "_".join(f"{x:g}" if isinstance(x, float) else x for x in key)
-        tasks.append((name, _contrast_task, (key, members, str(args.full), str(args.store))))
+        name = "contrasts_" + "_".join(
+            f"{x:g}" if isinstance(x, float) else x for x in key
+        )
+        tasks.append(
+            (name, _contrast_task, (key, members, str(args.full), str(args.store)))
+        )
     cache = args.full / "contrast_groups"
     for t in tasks:  # a group is recomputed whenever its inputs may have changed
         (cache / f"{t[0]}.pkl").unlink(missing_ok=True)
     failed = _run_pool(tasks, cache, args.jobs)
     if failed:
         raise RuntimeError("failed:\n" + "\n".join(failed))
-    frames = [pickle.loads(p.read_bytes())["contrasts"] for p in sorted(cache.glob("*.pkl"))]
+    frames = [
+        pickle.loads(p.read_bytes())["contrasts"] for p in sorted(cache.glob("*.pkl"))
+    ]
     con = pd.concat(frames, ignore_index=True)
     mar202 = pd.read_csv(MAR202_FULL / "holdout_contrasts.csv")
     n = check_stored(con, mar202)
@@ -980,7 +1108,9 @@ def main(argv: list[str] | None = None) -> int:
     int
         Exit status.
     """
-    parser = argparse.ArgumentParser(description="Florida near-optimal ranges (MAR-203).")
+    parser = argparse.ArgumentParser(
+        description="Florida near-optimal ranges (MAR-203)."
+    )
     parser.add_argument(
         "--phases",
         nargs="+",
@@ -991,7 +1121,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--store", type=Path, default=STORE)
     parser.add_argument("--full", type=Path, default=FULL_DIR)
     parser.add_argument("--plan", type=Path, default=fr.PLAN)
-    parser.add_argument("--only", nargs="*", default=None, help="group label filter")
+    parser.add_argument(
+        "--only",
+        nargs="*",
+        default=None,
+        help="groups to run, e.g. a/pure/1 (all if omitted)",
+    )
     parser.add_argument(
         "--near",
         nargs="*",
@@ -1007,12 +1142,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--near-scopes", nargs="*", default=None, help="limit ranges to these scopes"
     )
+    parser.add_argument(
+        "--scopes", nargs="*", default=None, help="joint phase: only these scopes"
+    )
     args = parser.parse_args(argv)
     args.near = _pairs(args.near)
     args.payouts = _pairs(args.payouts)
     plan = fr.load_plan(args.plan)
     args.full.mkdir(parents=True, exist_ok=True)
-    runners: dict[str, Callable[[argparse.Namespace, dict[str, Any]], dict[str, Any]]] = {
+    runners: dict[
+        str, Callable[[argparse.Namespace, dict[str, Any]], dict[str, Any]]
+    ] = {
         "individual": run_individual,
         "joint": run_joint,
         "contrasts": run_contrasts,
