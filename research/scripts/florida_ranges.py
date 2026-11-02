@@ -170,6 +170,11 @@ def _stem(key: Key, design: Design) -> str:
     return f"{index}_{pricing}_k{kappa:g}_{design[0]}_{design[1]}"
 
 
+SOLVE_LIMIT: Final[float] = 300.0
+"""Seconds per solver attempt of a range program (a stalled program then
+ends unsolved, recorded with its status; the descent still runs)."""
+
+
 def _solve_range(prob: cp.Problem, lp: bool) -> str:
     """Solve a range program; return ``"<status> (<solver>)"``.
 
@@ -179,13 +184,17 @@ def _solve_range(prob: cp.Problem, lp: bool) -> str:
     """
     attempts: list[tuple[str, dict[str, Any]]] = []
     if lp:
-        attempts.append(("HIGHS", {}))
-    attempts += [("CLARABEL", {}), ("CLARABEL", {"max_iter": inu.MAX_ITER})]
+        attempts.append(("HIGHS", {"time_limit": SOLVE_LIMIT}))
+    attempts += [
+        ("CLARABEL", {"time_limit": SOLVE_LIMIT}),
+        ("CLARABEL", {"max_iter": inu.MAX_ITER, "time_limit": SOLVE_LIMIT}),
+    ]
     status = "not solved"
     for name, opts in attempts:
         try:
             prob.solve(solver=name, **opts)
-            status = f"{prob.status} ({name}{'/long' if opts else ''})"
+            long = "/long" if "max_iter" in opts else ""
+            status = f"{prob.status} ({name}{long})"
         except cp.error.SolverError as exc:
             for v in prob.variables():
                 v.value = None
@@ -497,6 +506,21 @@ def _lp_ranger(js: StoredSet, lp: bool) -> sens.JointRanger:
         return _solve_range(prob, lp)
 
     inu.solve_range = solve_range  # type: ignore[assignment]
+    admit = ranger.admit
+    cap = np.asarray(js.ctx.cap, dtype=np.float64)
+
+    def admit_clean(theta: np.ndarray) -> tuple[np.ndarray | None, str]:
+        # a solver's iterate violates monotonicity or the cap by its
+        # tolerance (absolute, so up to 1e-3 of a small county's cap):
+        # repair that first, then MAR-206's check and projection as before
+        t = np.asarray(theta, dtype=np.float64)
+        if t.ndim == 2 and np.all(np.isfinite(t)):
+            t = np.minimum(
+                np.maximum.accumulate(np.clip(t, 0.0, None), axis=1), cap[:, None]
+            )
+        return admit(t)
+
+    ranger.admit = admit_clean  # type: ignore[method-assign]
     return ranger
 
 
