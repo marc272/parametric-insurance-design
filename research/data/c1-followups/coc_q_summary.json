@@ -1,0 +1,19 @@
+{
+  "issue": "MAR-205",
+  "family": "coc_q",
+  "grid": "research/configs/c1-followups/followups.yaml",
+  "base_config": "research/configs/c1/c1_main.yaml",
+  "eventset_checksums": {
+    "thesis": "sha256:404b0c3a3aefa38965ad3ace2747d308685a67e3b218cb835d45a9ab375294df"
+  },
+  "package_version": "0.1.0.dev0",
+  "n_runs": 48,
+  "n_runs_distinct": 48,
+  "n_runs_from_c1_store": 0,
+  "n_runs_solved_this_call": 48,
+  "jobs": 2,
+  "seconds": {
+    "solve_phase": 1161.1,
+    "bootstrap_phase": 197.2
+  }
+}

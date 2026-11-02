@@ -1,14 +1,13 @@
 """Robust design under uncertainty (SPEC §6.5). Not implemented yet.
 
-**Unimplemented until MAR-34.** Both entry points are stubs that raise
+**Not implemented.** Both entry points are stubs that raise
 ``NotImplementedError``. So this module is off the public API: the package's
 ``__init__`` doesn't import it, and it isn't in ``pid.__all__`` (ADR 0004,
-Q2). It comes back to the top level once MAR-34 implements R1. Until then,
+Q2). It comes back to the top level once R1 is implemented. Until then,
 import it by its full name, ``parametric_insurance_design.robust``.
 
-Owners, in sequence (ADR 0002): MAR-34 implements R1
-(:func:`build_scenario_robust`); MAR-35 then implements R2
-(:class:`DistributionallyRobust`), only if D6 = yes at checkpoint C1.
+The planned design (SPEC §6.5): R1, :func:`build_scenario_robust`, is the
+primary method; R2, :class:`DistributionallyRobust`, is secondary.
 
 R1, scenario-robust: ``min_theta max_k F_k(theta)`` in epigraph form. One
 :class:`~parametric_insurance_design.interfaces.ProblemContext` per scenario
@@ -85,7 +84,10 @@ def build_scenario_robust(
         One per design problem, solvable with ``solve.solve``. With one
         scenario the solution equals the nominal one.
     """
-    raise NotImplementedError("MAR-34")  # pragma: no cover
+    raise NotImplementedError(  # pragma: no cover
+        "build_scenario_robust (R1, scenario-robust design) is not implemented "
+        "yet; see docs/SPEC.md §6.5 for the planned method"
+    )
 
 
 @dataclass(frozen=True)
@@ -110,4 +112,7 @@ class DistributionallyRobust(Objective):
 
     def build(self, ctx: ProblemContext) -> ObjectiveTerm:
         """See ``Objective.build``."""
-        raise NotImplementedError("MAR-35")  # pragma: no cover
+        raise NotImplementedError(  # pragma: no cover
+            "DistributionallyRobust (R2, distributionally robust design) is not "
+            "implemented yet; see docs/SPEC.md §6.5 for the planned method"
+        )

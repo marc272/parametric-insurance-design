@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 250" role="img" aria-labelledby="sch-tail-title sch-tail-desc" class="schematic-svg">
+<title id="sch-tail-title">Schematic: the tail-risk objective</title>
+<desc id="sch-tail-desc">Bars show the uncovered loss U of each simulated year, sorted from no shortfall to the worst. Most years have none. A dashed line marks the expected uncovered loss E[U], the mean over all years. The two worst bars, the worst 1 minus beta of the years, are highlighted, and a second line marks their mean, CVaR at level beta. The objective mixes the two: alpha times CVaR plus one minus alpha times E[U]. Schematic, not data.</desc>
+<g fill="none" stroke="currentColor" stroke-width="1.2">
+  <line x1="40" y1="190" x2="380" y2="190"/>
+  <line x1="40" y1="190" x2="40" y2="34"/>
+</g>
+<g fill="currentColor" fill-opacity="0.4">
+  <rect x="210" y="186" width="14" height="4"/>
+  <rect x="228" y="182" width="14" height="8"/>
+  <rect x="246" y="178" width="14" height="12"/>
+  <rect x="264" y="172" width="14" height="18"/>
+  <rect x="282" y="164" width="14" height="26"/>
+  <rect x="300" y="154" width="14" height="36"/>
+  <rect x="318" y="138" width="14" height="52"/>
+</g>
+<g fill="#3b82f6" fill-opacity="0.75">
+  <rect x="336" y="100" width="14" height="90"/>
+  <rect x="354" y="50" width="14" height="140"/>
+</g>
+<line x1="44" y1="168.6" x2="378" y2="168.6" stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 4"/>
+<line x1="330" y1="75" x2="374" y2="75" stroke="#d4631c" stroke-width="2.2" stroke-dasharray="6 3"/>
+<g fill="none" stroke="currentColor" stroke-width="1">
+  <path d="M336,198 v5 h32 v-5"/>
+</g>
+<g fill="currentColor" font-family="inherit" font-size="13">
+  <text x="396" y="14" text-anchor="end" font-size="11" font-style="italic">Schematic, not data</text>
+  <text x="46" y="30">uncovered loss U of a year</text>
+  <text x="50" y="161">E[U]: the mean over all years</text>
+  <text x="324" y="70" text-anchor="end">CVaR<tspan dy="3" font-size="10">β</tspan><tspan dy="-3">(U): the mean</tspan></text>
+  <text x="324" y="86" text-anchor="end">of the worst 1 − β</text>
+  <text x="180" y="210" text-anchor="middle">years, sorted from no shortfall to the worst</text>
+  <text x="352" y="216" text-anchor="middle" font-size="11">worst 1 − β</text>
+  <text x="200" y="241" text-anchor="middle" font-weight="600">minimise α·CVaR<tspan dy="3" font-size="10">β</tspan><tspan dy="-3">(U) + (1 − α)·E[U]</tspan></text>
+</g>
+</svg>

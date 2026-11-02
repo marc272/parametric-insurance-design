@@ -1,6 +1,6 @@
 # P-06: the STORM hazard-model scenario (loader and reference; build pending)
 
-- Issue: [MAR-32](https://linear.app/marc-prinzing/issue/MAR-32/p-06-second-hazard-catalogue-eventset) (P-06). Written by a worker agent on 2026-10-27.
+- Issue: MAR-32 (P-06). Written by a worker agent on 2026-10-27.
 - Decision this implements: D7 (SPEC §11, MAR-62): STORM, present climate, version 4, North Atlantic, as the second catalogue of uncertainty source (i) (SPEC §6.5). The portfolio is D2's (Florida's 67 counties, per-cell loss, MAR-114).
 - Status: **partial.** The STORM loader, the track-source selection in the pipeline, the configs, the comparison script and the IRIS reference build are done. The STORM files could not be downloaded, so the STORM EventSet, its size estimate and the comparison figure are not built yet. Observations only.
 - Files: `research/data/p06-storm-eventset/` (checksums of the IRIS reference build and its `metadata.json`).

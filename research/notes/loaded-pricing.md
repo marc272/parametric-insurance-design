@@ -1,6 +1,6 @@
 # F-11: the thesis baseline under pure and cost-of-capital pricing
 
-- Issue: [MAR-27](https://linear.app/marc-prinzing/issue/MAR-27/f-11-cost-of-capital-loaded-pricing) (F-11, SPEC §6.4, thesis issue M4). Written by a worker agent on 2026-10-28.
+- Issue: MAR-27 (F-11, SPEC §6.4, thesis issue M4). Written by a worker agent on 2026-10-28.
 - Status: **observations only.** No interpretation. That belongs to checkpoint C1 (MAR-29).
 - Method: `docs/methodology/pricing.md`. Script: `research/scripts/loaded_pricing_sweep.py`. Tables in `research/data/mar27-loaded-pricing/`: `headline.csv` (portfolio-level KPIs, one row per run, with config hash and run id) and `problem_premiums.csv` (premium and budget use per design problem) for the thesis basis, `event_conditional`; `headline_annual.csv` and `problem_premiums_annual.csv` for the annual basis (MAR-24, section at the end).
 
@@ -92,7 +92,7 @@ This is the relative difference of the portfolio CVaR_0.95(U) of the weighted-CV
 4. **Order of the objectives on CVaR_0.95(U).** In every scope and pricing, the weighted-CVaR design has the lowest CVaR_0.95(U) of the three objectives. Under the loads, MSE comes second and E[U] third. The margin over MSE falls from 20–28 % (pure) to 0.3–6.8 % (loaded); the margin over E[U] falls to 15–20 % (second table).
 5. **Order of the objectives on E[U].** Under pure pricing, the E[U] and MSE designs are within 2 % of each other, and the weighted-CVaR design is higher (0.13–0.18 M). Under every load, the order is E[U] < weighted CVaR < MSE in each scope.
 6. **q = 0.99 against q = 0.995.** For the E[U] and weighted-CVaR designs, the KPIs are the same at both q, to the precision shown, for each r. The implied payout CVaR, (premium − (1 − r)·E[π]) / r, is the same at both levels. So, for these designs, the payout is flat over its worst 1 % of probability mass. The MSE designs differ between the two levels. At q = 0.995 they pay more on average and have a lower CVaR_0.95(U).
-7. **Portfolio premium against the sum of problem premiums.** The load priced on the aggregate payout is lower than the sum of the problem premiums only in the individual scope, by up to 0.35 % (r = 0.06, q = 0.99, MSE: 2.0542 M against 2.0614 M). In the cluster scope (3 problems) the two agree to the precision shown. Under pure pricing they agree up to floating-point rounding, as the expectation is additive.
+7. **Portfolio premium against the sum of problem premiums.** The load priced on the aggregate payout is lower than the sum of the problem premiums only in the individual scope, by up to 0.35 % (r = 0.06, q = 0.99, MSE: 2.0542 M against 2.0614 M). In the cluster scope the two agree to the precision shown: the cluster scope (joint, the default) is one design problem, with one entity per cluster, budgeted on the aggregate premium, so its problem premium is the aggregate one (`problem_premiums.csv`: one row per cluster run). (Corrected in MAR-174, 2026-11-02: the earlier text said "3 problems".) Under pure pricing they agree up to floating-point rounding, as the expectation is additive.
 
 ## Caveats
 
@@ -172,7 +172,10 @@ Weighted CVaR against MSE and against E[U], on the annual CVaR_0.95(U) (negative
   - Under every load, every design problem uses its whole budget: [0.99998, 1.0000000] of κ·E[L].
   - Under pure pricing the individual-scope MSE problems use 0.9966–1.0000007 of it, and all other problems use all of it.
 - A3. **Expected payout under a load.** E[π] is 0.08–0.30 of E[L] at r = 0.06 and 0.05–0.23 at r = 0.10. On `event_conditional` the same loads gave 0.40–0.70.
-- A4. **E[U] and weighted CVaR coincide.** In every scope and pricing on this basis, the E[U] and weighted-CVaR designs have the same KPIs to the precision shown. Their config hashes differ.
+- A4. **E[U] and weighted CVaR coincide here, as an observation.** In every scope and pricing on this basis, the E[U] and weighted-CVaR (β = 0.95) designs have the same KPIs to the precision shown. Their config hashes differ. (Corrected in MAR-174, 2026-11-02, after review MAR-161 F4.)
+  - The coincidence is a theorem only for β ≤ P(L_o = 0), the probability of the outcomes in which the design problem has no loss. Then VaR_β(U) = 0 and CVaR_β(U) = E[U] / (1 − β) for every design, so the weighted-CVaR objective is a positive multiple of E[U] (`docs/concepts/tail-risk-objective.md`; `test_weighted_cvar_reproduces_expected_uncovered_below_the_zero_loss_mass`). The pricing doesn't enter the condition.
+  - On this basis, P(L_o = 0) is 0.930 for the portfolio problem (the portfolio scope, and the cluster scope's single problem) and 0.943 to 0.947 for the nine individual problems. Source: the run manifests' `p_zero_loss` (MAR-173) of the pure-pricing weighted-CVaR runs `fce1b208d097` (portfolio) and `a3dc154343eb` (individual), annual basis, sample `full`, prepared EventSet `sha256:008057c84ba2541847f1c447c19a201c3d4951320610625e246a7a4bbd5eafdf`. These are the same configs as the MAR-24 rerun (`research/notes/annual-basis-rerun.md`, observation 4).
+  - β = 0.95 is above all of them, so the theorem doesn't cover these runs. That the two designs have the same KPIs at β = 0.95 is a property of these data, not of the method.
 - A5. **Tail KPI.**
   - Under pure pricing, the weighted-CVaR (= E[U]) design has a lower annual CVaR_0.95(U) than MSE by 0.9–2.4 %.
   - Under the loads, it is lower by 12.6–20.9 %.

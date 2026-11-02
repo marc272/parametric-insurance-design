@@ -56,7 +56,7 @@ known-first-party = [
 
 [tool.pyright]
 typeCheckingMode = "basic"
-include = ["packages/core", "packages/viz", "packages/crc", "parity"]
+include = ["packages/core", "packages/viz", "packages/crc", "parity", "examples"]
 # packages/climada is type-checked in its own pixi env (CLIMADA adapter work).
 exclude = ["**/__pycache__", "**/.*", "packages/climada"]
 executionEnvironments = [

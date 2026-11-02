@@ -1,6 +1,6 @@
 """Evaluation: KPIs and exceedance curves (SPEC §4.2, §6.1, §6.2).
 
-Owner: MAR-16. Port of the thesis ``benchmarking.py``
+Port of the thesis ``benchmarking.py``
 (``calculate_benchmarking_kpis``) and of the quantile behind its exceedance
 plots (``plotting._weighted_quantile``). Outputs are tidy tables validated
 against :data:`~parametric_insurance_design.records.KPIS` and
@@ -18,9 +18,54 @@ How a run is evaluated
        each entity (``level = "entity"``), each design problem (the sum over
        its entities, ``level = "problem"``) and the whole run (the sum over
        every location and every entity payout, ``level = "portfolio"``,
-       ``problem_id = "*"`` when the run has several design problems).
+       ``problem_id = "*"`` when the run has several design problems). With
+       an allocation rule other than ``"none"``, also each location
+       (``level = "location_by_value"`` or ``"location_by_loss"``; see
+       "Per-location rows" below).
     5. Per-row quantities are summed into outcomes with the measure, and
        weighted with its probabilities.
+
+Per-location rows and joint designs
+    A joint design (``Portfolio`` or ``Cluster`` scope) is identified only
+    through its design problem's payout. The MSE objective depends on the
+    summed payout of each outcome alone, so any other split of the same sums
+    across the entities is optimal too; E[U] and weighted CVaR have the same
+    freedom wherever their LP has several optimal solutions. So the
+    ``entity`` rows of a joint design (an asset in the portfolio scope, a
+    cluster in the cluster scope) describe **one member of the set of
+    optimal designs**, the one the solver returned. Their definition is
+    unchanged; read them as that.
+
+    Per-location rows are written only under an explicit ``allocation``
+    rule, which splits each **design problem's** payout ``pi_e`` (the sum
+    over its entities, the quantity its objective sees) across the
+    problem's locations ``i``:
+
+    * ``"none"`` (default): no per-location rows.
+    * ``"value"``: ``pi_{e,i} = pi_e * v_i / sum_k v_k``, ``v`` the insured
+      values (``locations.value``) of the problem's locations. The thesis
+      allocates a cluster's payout to its assets this way (eq. (3.23)), but
+      within each cluster; here the shares are over the whole design
+      problem, because the split across clusters isn't identified either.
+      ``level = "location_by_value"``.
+    * ``"loss"``: ``pi_{e,i} = pi_e * L_{e,i} / sum_k L_{e,k}``; in a row
+      where the problem has no loss, the value shares. Every location of a
+      row then has the same ratio of payout to loss. ``level =
+      "location_by_loss"``.
+
+    The rule is in the level name, so no per-location row can be read as the
+    solver's split. A problem with one location (the individual scope) gives
+    it its whole payout under every rule, so its location rows equal its
+    entity rows. The shares sum to 1 in every row, so the locations'
+    ``expected_loss`` and ``expected_payout`` sum to their problem's; under
+    ``"loss"`` so does ``expected_uncovered``, because every location of a
+    row is short or over-paid together. An allocation removes the solver's
+    choice of split; it doesn't make the problem's payout itself unique (on
+    the annual basis the MSE objective sees yearly sums only, and an
+    out-of-sample evaluation applies the per-entity payout functions to new
+    index values). No ``premium`` is reported per location: pricing is a
+    design-problem component (ADR 0002). See
+    ``docs/methodology/payout-allocation.md``.
 
 KPIs of one subject (``p`` the outcome probabilities, ``o`` an outcome, sums
 over the rows ``e`` of an outcome)
@@ -29,7 +74,7 @@ over the rows ``e`` of an outcome)
     * ``expected_uncovered = E[U]`` [thesis ``E_Uncovered``].
     * ``var_uncovered``, ``cvar_uncovered``: :func:`var_cvar` of ``U`` at
       ``beta`` [``VaR_Uncovered``, ``CVaR_Uncovered``]. ``var_cvar`` lives in
-      ``riskmeasures.py`` since MAR-143 and is re-exported here. It
+      ``riskmeasures.py`` and is re-exported here. It
       compares the cumulative probability with ``beta`` strictly, as the
       thesis; for a ``beta`` exactly on a step of the distribution see
       ``riskmeasures``.
@@ -43,8 +88,8 @@ over the rows ``e`` of an outcome)
     * ``premium`` (only if a pricing is given): ``pricing.premium_value`` of
       each design problem's payout at ``level = "problem"``, and of the
       portfolio payout (the sum over every entity's payout) at ``level =
-      "portfolio"``: the premium of the run's whole cover bought by one owner
-      (MAR-27). For the pure premium that is the sum of the problem
+      "portfolio"``: the premium of the run's whole cover bought by one owner.
+      For the pure premium that is the sum of the problem
       premiums. A loaded pricing (``CostOfCapitalLoad``) is sub-additive, so
       the portfolio premium can be less than that sum: the tails of
       separately designed covers diversify when one writer holds them all.
@@ -57,7 +102,7 @@ over the rows ``e`` of an outcome)
     formulas. On the ``annual`` basis an outcome is a simulated year (and
     draw), years without rows included, so the same code gives the KPIs over
     years. Nothing here depends on the basis beyond the measure (ADR 0002
-    §4); the annual measure itself is built in ``basis.py`` (MAR-24).
+    §4); the annual measure itself is built in ``basis.py``.
 
 Exceedance curves
     For each subject and quantity (loss, payout, uncovered loss), the value
@@ -90,7 +135,7 @@ Exceedance curves
       Probabilities are ``rate / sum(rate)`` over the rows given, so ``1 /
       T`` is a share of those rows' events and ``T`` counts events.
 
-No silent failures (thesis issue C3)
+No silent failures (SPEC §3.1, C3)
     Results whose design problems repeat, overlap in locations, or do not
     cover exactly the EventSet's locations raise
     :class:`~parametric_insurance_design.errors.EntityMismatchError`, as does
@@ -98,16 +143,19 @@ No silent failures (thesis issue C3)
     thesis skipped such groups. Undefined KPI values are null rows, never
     missing rows.
 
-Block-bootstrap confidence bounds (MAR-23) fill the ``ci_*`` columns of the
-KPI table; ADR 0002 places them in a new module ``bootstrap.py``. Here they
-are null.
+Block-bootstrap confidence bounds fill the ``ci_*`` columns of the KPI
+table: ``bootstrap.bootstrap_kpis`` computes them (see
+``docs/methodology/bootstrap.md``). Here they are null.
+``bootstrap.bootstrap_kpis`` takes the same ``allocation`` rule, and under
+``"value"`` or ``"loss"`` fills the intervals of the per-location rows too.
 """
 
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any, Final
 
 import numpy as np
@@ -121,8 +169,10 @@ from parametric_insurance_design.errors import (
     InputMismatchError,
 )
 from parametric_insurance_design.eventset import EventSet
+from parametric_insurance_design.index import location_columns
 from parametric_insurance_design.interfaces import (
     Pricing,
+    ProblemSpec,
     Sample,
     Scope,
     SolveResult,
@@ -145,8 +195,10 @@ from parametric_insurance_design.riskmeasures import (
 )
 
 __all__ = [
+    "ALLOCATION_LEVELS",
     "DEFAULT_RETURN_PERIODS",
     "PORTFOLIO_SUBJECT",
+    "Allocation",
     "Evaluation",
     "KpiSubject",
     "evaluate_results",
@@ -157,6 +209,36 @@ __all__ = [
 
 PORTFOLIO_SUBJECT: Final[str] = "portfolio"
 """``subject_id`` of the rows at ``level = "portfolio"``."""
+
+
+class Allocation(StrEnum):
+    """Rule that splits a design problem's payout across its locations.
+
+    See the module docstring, "Per-location rows and joint designs", and
+    ``docs/methodology/payout-allocation.md``.
+
+    Attributes
+    ----------
+    NONE : str
+        No per-location rows (the default).
+    VALUE : str
+        Pro rata to insured value (``locations.value``) over the design
+        problem's locations; rows at ``level = "location_by_value"``.
+    LOSS : str
+        Pro rata to each location's loss in the row, value shares in a row
+        without loss; rows at ``level = "location_by_loss"``.
+    """
+
+    NONE = "none"
+    VALUE = "value"
+    LOSS = "loss"
+
+
+ALLOCATION_LEVELS: Final[Mapping[Allocation, KpiLevel]] = {
+    Allocation.VALUE: KpiLevel.LOCATION_BY_VALUE,
+    Allocation.LOSS: KpiLevel.LOCATION_BY_LOSS,
+}
+"""The ``level`` of the per-location rows each rule writes."""
 
 DEFAULT_RETURN_PERIODS: Final[tuple[float, ...]] = (
     2.0,
@@ -207,18 +289,21 @@ def _correlation(
 class KpiSubject:
     """Per-row loss and payout of one KPI subject (module docstring, step 4).
 
-    Public since MAR-143, for ``bootstrap.py``, which recomputes the KPIs of
-    exactly these vectors on resampled measures.
+    Public for ``bootstrap.py``, which recomputes the KPIs of exactly these
+    vectors on resampled measures.
 
     Attributes
     ----------
     level : KpiLevel
-        ``entity``, ``problem`` or ``portfolio``.
+        ``entity``, ``problem`` or ``portfolio``; ``location_by_value`` or
+        ``location_by_loss`` under an allocation rule. An ``entity`` subject
+        of a joint design is one member of its set of optimal designs
+        (module docstring).
     problem_id : str
         Design problem of the subject; ``records.ALL_PROBLEMS`` for the
         portfolio of a run with several design problems.
     subject_id : str
-        Entity id, problem id, or :data:`PORTFOLIO_SUBJECT`.
+        Location id, entity id, problem id, or :data:`PORTFOLIO_SUBJECT`.
     loss, payout : numpy.ndarray
         Per-row loss and payout on the evaluated rows, shape ``(n_rows,)``,
         loss units.
@@ -245,8 +330,9 @@ class Evaluation:
     measure : OutcomeMeasure
         Outcome measure over the sample's rows.
     subjects : tuple of KpiSubject
-        Every entity, then its design problem, in result order, and the
-        portfolio last.
+        Every entity, then its design problem, then (under an allocation
+        rule) the problem's locations in spec order, in result order, and
+        the portfolio last.
     problem_payouts : tuple of (str, numpy.ndarray)
         Each design problem's id and objective-level payout per row (the
         payout that ``pricing.premium_value`` prices).
@@ -296,6 +382,90 @@ def _check_results(data: EventSet, results: Sequence[SolveResult]) -> None:
         )
 
 
+def _check_allocation(allocation: object) -> Allocation:
+    """Return ``allocation`` as an :class:`Allocation`.
+
+    Raises
+    ------
+    ComponentConfigError
+        If it is not one of the rule names.
+    """
+    try:
+        return Allocation(allocation)  # type: ignore[arg-type]
+    except ValueError:
+        names = [a.value for a in Allocation]
+        raise ComponentConfigError(
+            f"allocation must be one of {names}, got {allocation!r}"
+        ) from None
+
+
+def _allocation_shares(
+    data: EventSet,
+    spec: ProblemSpec,
+    loss: NDArray[np.float64],
+    allocation: Allocation,
+) -> NDArray[np.float64]:
+    """Share of the problem payout per row and location, ``(n_rows, n_loc)``.
+
+    ``loss`` holds the problem's location losses in ``spec.location_ids``
+    order. Every row of the result sums to 1 (module docstring).
+
+    Raises
+    ------
+    EntityMismatchError
+        If the rule needs the value shares of a problem with several
+        locations and all of them have value 0.
+    """
+    n_rows, n_loc = loss.shape
+    if n_loc == 1:
+        return np.ones((n_rows, 1), dtype=np.float64)
+    row_loss = loss.sum(axis=1)
+    no_loss = row_loss <= 0.0
+    needs_values = allocation is Allocation.VALUE or bool(no_loss.any())
+    by_value = np.zeros(n_loc, dtype=np.float64)
+    if needs_values:
+        cols = location_columns(data, spec.location_ids)
+        values = data.locations["value"].to_numpy(dtype=np.float64)[cols]
+        total = float(values.sum())
+        if total <= 0.0:
+            raise EntityMismatchError(
+                f"problem {spec.problem_id!r}: allocation {allocation.value!r} "
+                "needs value shares, but every location of the problem has "
+                "value 0"
+            )
+        by_value = values / total
+    if allocation is Allocation.VALUE:
+        return np.tile(by_value, (n_rows, 1))
+    shares = np.empty_like(loss)
+    has_loss = ~no_loss
+    shares[has_loss] = loss[has_loss] / row_loss[has_loss, None]
+    shares[no_loss] = by_value
+    return shares
+
+
+def _location_subjects(
+    data: EventSet,
+    spec: ProblemSpec,
+    problem_payout: NDArray[np.float64],
+    allocation: Allocation,
+) -> list[KpiSubject]:
+    """One subject per location of a design problem under ``allocation``."""
+    level = ALLOCATION_LEVELS[allocation]
+    cols = location_columns(data, spec.location_ids)
+    loss = np.array(data.loss[:, cols], dtype=np.float64)
+    payout = problem_payout[:, None] * _allocation_shares(data, spec, loss, allocation)
+    return [
+        KpiSubject(
+            level,
+            spec.problem_id,
+            loc,
+            np.ascontiguousarray(loss[:, i]),
+            np.ascontiguousarray(payout[:, i]),
+        )
+        for i, loc in enumerate(spec.location_ids)
+    ]
+
+
 def evaluate_results(
     eventset: EventSet,
     scope: Scope,
@@ -303,12 +473,13 @@ def evaluate_results(
     *,
     basis: Basis,
     sample: Sample | None = None,
+    allocation: Allocation | str = Allocation.NONE,
 ) -> Evaluation:
     """Materialise every result on the sample and form the KPI subjects.
 
     Steps 1 to 4 of the module docstring, shared by :func:`kpis`,
-    :func:`exceedance_curves` and ``bootstrap.bootstrap_kpis`` (public since
-    MAR-143), so that all of them see the same per-row vectors.
+    :func:`exceedance_curves` and ``bootstrap.bootstrap_kpis``, so that all
+    of them see the same per-row vectors.
 
     Parameters
     ----------
@@ -323,6 +494,10 @@ def evaluate_results(
         Evaluation basis.
     sample : Sample, optional
         Rows to evaluate on. Default: all rows.
+    allocation : Allocation or {"none", "value", "loss"}, default "none"
+        Rule that splits each design problem's payout across its locations,
+        adding one location subject per location (module docstring,
+        "Per-location rows and joint designs"). ``"none"`` adds none.
 
     Returns
     -------
@@ -333,16 +508,18 @@ def evaluate_results(
     Raises
     ------
     ComponentConfigError
-        If ``scope`` is not a Scope.
+        If ``scope`` is not a Scope or ``allocation`` is not a rule name.
     EntityMismatchError
-        If the results do not form one run over the EventSet's locations, or
-        a spec cannot be materialised on the evaluation rows.
+        If the results do not form one run over the EventSet's locations, a
+        spec cannot be materialised on the evaluation rows, or the rule needs
+        the value shares of a problem whose locations all have value 0.
     InputMismatchError
         If the sample does not fit the EventSet.
     """
     basis = Basis(basis)
     if not isinstance(scope, Scope):
         raise ComponentConfigError(f"scope must be a Scope, got {scope!r}")
+    rule = _check_allocation(allocation)
     sample = Sample.full(eventset) if sample is None else sample
     data = sample.select(eventset)
     _check_results(data, results)
@@ -375,6 +552,10 @@ def evaluate_results(
             KpiSubject(KpiLevel.PROBLEM, pid, pid, problem.loss, problem_payout)
         )
         problem_payouts.append((pid, problem_payout))
+        if rule is not Allocation.NONE:
+            subjects.extend(
+                _location_subjects(data, problem.spec, problem_payout, rule)
+            )
 
     # Portfolio: every location's loss and every entity's payout, summed one
     # vector after the other, as the thesis does.
@@ -445,11 +626,14 @@ def kpis(
     run_id: str,
     sample: Sample | None = None,
     pricing: Pricing | None = None,
+    allocation: Allocation | str = Allocation.NONE,
 ) -> pd.DataFrame:
-    """KPIs per entity, design problem and portfolio.
+    """KPIs per entity, design problem and portfolio, and optionally location.
 
     See the module docstring for the subjects, the formulas and their thesis
-    names.
+    names. The ``entity`` rows of a joint design (portfolio or cluster scope)
+    describe one member of its set of optimal designs, not a unique split
+    (module docstring, "Per-location rows and joint designs").
 
     Parameters
     ----------
@@ -474,23 +658,30 @@ def kpis(
         If given, adds the ``premium`` KPI at the problem and portfolio
         levels. The portfolio premium is the pricing of the aggregate payout,
         not the sum of the problem premiums (module docstring).
+    allocation : Allocation or {"none", "value", "loss"}, default "none"
+        If not ``"none"``, adds the eight KPIs of every location, its loss
+        against its share of its design problem's payout under that rule, at
+        ``level = "location_by_value"`` or ``"location_by_loss"`` (module
+        docstring). No ``premium`` per location.
 
     Returns
     -------
     pandas.DataFrame
         Table with the ``records.KPIS`` schema: for every subject, the eight
-        KPIs (plus ``premium``), ``beta`` set on the VaR/CVaR rows only, and
-        null ``ci_*`` columns. Undefined values (a ratio with zero expected
-        loss, a correlation with zero variance) are null.
+        KPIs (plus ``premium`` at the problem and portfolio levels), ``beta``
+        set on the VaR/CVaR rows only, and null ``ci_*`` columns. Undefined
+        values (a ratio with zero expected loss, a correlation with zero
+        variance) are null.
 
     Raises
     ------
     ComponentConfigError
-        If ``beta`` is not in ``(0, 1)``, or ``scope`` or ``pricing`` is not
-        a component of the right kind.
+        If ``beta`` is not in ``(0, 1)``, ``scope`` or ``pricing`` is not a
+        component of the right kind, or ``allocation`` is not a rule name.
     EntityMismatchError
-        If the results do not form one run over the EventSet's locations, or
-        a spec cannot be materialised on the evaluation rows.
+        If the results do not form one run over the EventSet's locations, a
+        spec cannot be materialised on the evaluation rows, or the rule needs
+        the value shares of a problem whose locations all have value 0.
     InputMismatchError
         If the sample does not fit the EventSet or ``run_id`` is empty.
     RecordSchemaError
@@ -500,7 +691,9 @@ def kpis(
     run_id = _check_run_id(run_id)
     if pricing is not None and not isinstance(pricing, Pricing):
         raise ComponentConfigError(f"pricing must be a Pricing, got {pricing!r}")
-    ev = evaluate_results(eventset, scope, results, basis=basis, sample=sample)
+    ev = evaluate_results(
+        eventset, scope, results, basis=basis, sample=sample, allocation=allocation
+    )
     measure = ev.measure
     p = measure.probability / measure.probability.sum()
 
@@ -533,7 +726,8 @@ def kpis(
             pid: float(pricing.premium_value(payout, measure))
             for pid, payout in ev.problem_payouts
         }
-        # Portfolio: the pricing applied to the aggregate payout (MAR-27).
+        # Portfolio: the pricing applied to the aggregate payout
+        # (docs/methodology/pricing.md, "Portfolio premium").
         portfolio_premium = next(
             float(pricing.premium_value(s.payout, measure))
             for s in ev.subjects
@@ -590,13 +784,15 @@ def exceedance_curves(
     run_id: str,
     return_periods: ArrayLike = DEFAULT_RETURN_PERIODS,
     sample: Sample | None = None,
+    allocation: Allocation | str = Allocation.NONE,
 ) -> pd.DataFrame:
     """Exceedance curves of loss, payout and uncovered loss.
 
-    For every subject (entity, design problem, portfolio; see the module
-    docstring) and quantity, the value exceeded with probability ``1 / T``:
-    the lower ``(1 - 1/T)``-quantile of the outcome values under the
-    measure, as the VaR of :func:`var_cvar`. The per-row uncovered loss is
+    For every subject (entity, design problem, portfolio, and the locations
+    under an allocation rule; see the module docstring) and quantity, the
+    value exceeded with probability ``1 / T``: the lower
+    ``(1 - 1/T)``-quantile of the outcome values under the measure, as the
+    VaR of :func:`var_cvar`. The per-row uncovered loss is
     ``(L_e - pi_e)^+``.
 
     Parameters
@@ -630,6 +826,9 @@ def exceedance_curves(
         gives them (see ``basis``).
     sample : Sample, optional
         Rows to evaluate on. Default: all rows.
+    allocation : Allocation or {"none", "value", "loss"}, default "none"
+        If not ``"none"``, adds the curves of every location under that rule
+        (as :func:`kpis`).
 
     Returns
     -------
@@ -638,9 +837,12 @@ def exceedance_curves(
 
     Raises
     ------
+    ComponentConfigError
+        If ``allocation`` is not a rule name.
     EntityMismatchError
-        If the results do not form one run over the EventSet's locations, or
-        a spec cannot be materialised on the evaluation rows.
+        If the results do not form one run over the EventSet's locations, a
+        spec cannot be materialised on the evaluation rows, or the rule needs
+        the value shares of a problem whose locations all have value 0.
     InputMismatchError
         If the return periods are invalid, the sample does not fit the
         EventSet, or ``run_id`` is empty.
@@ -649,7 +851,9 @@ def exceedance_curves(
     """
     run_id = _check_run_id(run_id)
     periods = _check_return_periods(return_periods)
-    ev = evaluate_results(eventset, scope, results, basis=basis, sample=sample)
+    ev = evaluate_results(
+        eventset, scope, results, basis=basis, sample=sample, allocation=allocation
+    )
     measure = ev.measure
     annual = measure.basis is Basis.ANNUAL
     levels = 1.0 - 1.0 / periods

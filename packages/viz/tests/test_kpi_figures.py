@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
@@ -34,7 +35,7 @@ from parametric_insurance_design.experiment.runner import (
     run_key,
 )
 from parametric_insurance_design.experiment.store import ResultStore
-from parametric_insurance_design_viz import command
+from parametric_insurance_design_viz import command, style
 from parametric_insurance_design_viz.command import (
     FIGURE_SETS,
     FigureContext,
@@ -56,8 +57,8 @@ from parametric_insurance_design_viz.kpi_figures import (
     POOLED_KPI_COLUMNS,
     Baseline,
     KFoldRunsError,
-    _fmt_sci,  # pyright: ignore[reportPrivateUsage]
     exceedance_curves,
+    heatmap_figsize,
     interval_note,
     kpi_figures,
     kpi_heatmap,
@@ -99,6 +100,21 @@ def where(frame: pd.DataFrame, mask: Any) -> pd.DataFrame:  # noqa: ANN401
 def drawn(frame: pd.DataFrame) -> NDArray[np.bool_]:
     """The figure data's ``ci_drawn`` column as a numpy array."""
     return frame["ci_drawn"].to_numpy(dtype=bool)
+
+
+def cell_text(value: float) -> str:
+    """The thesis heatmap cell text, written out here as the test's oracle.
+
+    Plain with two decimals for exponents -1 to 2, else e.g. ``1.66e6``.
+    """
+    if not np.isfinite(value):
+        return ""
+    if value == 0:
+        return "0"
+    exp = int(np.floor(np.log10(abs(value))))
+    if -1 <= exp <= 2:
+        return f"{value:.2f}"
+    return f"{value / 10**exp:.2f}e{exp}"
 
 
 def store_kpi(run: RunResult, kpi: str, split: str = "full") -> float:
@@ -461,6 +477,30 @@ def test_heatmap_with_a_zero_baseline_has_no_change(toy_grid: dict) -> None:
     assert bool(main["pct_vs_baseline"].isna().all())
 
 
+def test_heatmap_height_follows_the_rows(toy_grid: dict) -> None:
+    """Fewer than three scope rows: a lower figure, same cells (MAR-232)."""
+    assert heatmap_figsize(3) == heatmap_figsize(5) == (8.0, 8.0)
+    one, two = heatmap_figsize(1), heatmap_figsize(2)
+    assert one[0] == two[0] == 8.0
+    row = 8.0 - two[1]
+    assert row == pytest.approx(0.62 * 8.0 / 3)
+    assert one[1] == pytest.approx(8.0 - 2 * row)
+    with pytest.raises(FigureDataError, match="at least one row"):
+        heatmap_figsize(0)
+    full = kpi_heatmap(toy_grid, "cvar_uncovered")
+    single = kpi_heatmap({"individual": toy_grid["individual"]}, "cvar_uncovered")
+    assert tuple(full.figure.get_size_inches()) == (8.0, 8.0)
+    assert tuple(single.figure.get_size_inches()) == pytest.approx(one)
+    # the cells keep their size: the axes are as high in inches
+    heights = [
+        out.figure.axes[0].get_position().height * out.figure.get_size_inches()[1]
+        for out in (full, single)
+    ]
+    assert heights[1] == pytest.approx(heights[0] / 3)
+    fixed = kpi_heatmap(toy_grid, "cvar_uncovered", figsize=(8.0, 8.0))
+    assert tuple(fixed.figure.get_size_inches()) == (8.0, 8.0)
+
+
 # -- performance overview --------------------------------------------------------
 
 
@@ -588,7 +628,7 @@ def test_heatmap_shows_the_stored_intervals(holdout_ci: dict) -> None:
     assert drawn(main).all()
     texts = [t.get_text() for t in output.figure.axes[0].texts]
     for row in cast(Any, main.itertuples(index=False)):
-        assert f"[{_fmt_sci(row.ci_low)}, {_fmt_sci(row.ci_high)}]" in texts
+        assert f"[{cell_text(row.ci_low)}, {cell_text(row.ci_high)}]" in texts
     notes = [t.get_text() for t in output.figure.texts]
     assert "In brackets: 90% block-bootstrap interval over years (B = 200)" in notes
 
@@ -771,6 +811,66 @@ def test_exceedance_without_a_drawn_var_line(toy_grid: dict) -> None:
     assert np.isinf(unbounded.data["markers"]["return_period"].iloc[0])
 
 
+def value_axis(output: FigureOutput) -> tuple[str, list[str], list[float]]:
+    """Label, tick labels and tick values of a figure's value (y) axis."""
+    output.figure.canvas.draw()
+    ax = output.figure.axes[0]
+    labels = [t.get_text() for t in ax.get_yticklabels()]
+    axis = ax.get_ylabel(), labels, [float(v) for v in ax.get_yticks()]
+    plt.close(output.figure)
+    return axis
+
+
+def scaled(runs: tuple[RunResult, ...], factor: float) -> list[RunResult]:
+    """The runs with every exceedance value multiplied by ``factor``."""
+    return [
+        dataclasses.replace(
+            r, exceedance=r.exceedance.assign(value=r.exceedance["value"] * factor)
+        )
+        for r in runs
+    ]
+
+
+def drawn_top(runs: tuple[RunResult, ...]) -> float:
+    """Largest value an exceedance figure of the runs draws (portfolio U)."""
+    return max(float(stored_curve(r)["value"].to_numpy().max()) for r in runs)
+
+
+def test_exceedance_tick_labels_are_distinct(toy_grid: dict) -> None:
+    # MAR-197: below one million the thesis "%.1fM" repeated labels
+    usd = AxisLabels(payout_unit="USD")
+    for scope, runs in toy_grid.items():
+        top = drawn_top(runs)
+        assert top < 1e6, scope  # the toy losses are below one million
+        for factor in (1.0, 1e3 / top, 2.9e5 / top, 0.3 / top):
+            label, ticks, _ = value_axis(exceedance_curves(scaled(runs, factor)))
+            assert len(set(ticks)) == len(ticks), (scope, factor, ticks)
+        label, ticks, values = value_axis(
+            exceedance_curves(scaled(runs, 2.9e5 / top), labels=usd)
+        )
+        assert label == "Portfolio uncovered losses $UL^P$ [k USD]"
+        assert all(t.endswith("k") for t in ticks)
+        assert [float(t[:-1]) * 1e3 for t in ticks] == pytest.approx(values)
+        label, ticks, values = value_axis(exceedance_curves(scaled(runs, 50 / top)))
+        assert label == "Portfolio uncovered losses $UL^P$"  # no unit, no prefix
+        assert [float(t) for t in ticks] == pytest.approx(values)
+
+
+def test_exceedance_tick_labels_in_millions_are_the_thesis_labels(
+    toy_grid: dict,
+) -> None:
+    runs = toy_grid["portfolio"]
+    top = drawn_top(runs)
+    output = exceedance_curves(
+        scaled(runs, 6.3e6 / top), labels=AxisLabels(payout_unit="USD")
+    )
+    label, ticks, values = value_axis(output)
+    assert label == "Portfolio uncovered losses $UL^P$ [M USD]"
+    assert ticks == [f"{v * 1e-6:.1f}M" for v in values]  # thesis format_millions
+    assert ticks[:3] == ["0.0M", "1.0M", "2.0M"]
+    assert len(set(ticks)) == len(ticks)
+
+
 def test_exceedance_errors(toy_grid: dict, holdout: dict) -> None:
     runs = toy_grid["portfolio"]
     with pytest.raises(InconsistentRunsError, match="at least one run"):
@@ -891,7 +991,7 @@ def test_kfold_runs_are_refused(kfold: Variant, holdout: dict) -> None:
     # every fold of one objective
     folds = {"portfolio": (runs["portfolio", "mse", 0], runs["portfolio", "mse", 1])}
     for scopes in (fold0, folds):
-        with pytest.raises(KFoldRunsError, match=r"refuse k-fold runs \(MAR-137\)"):
+        with pytest.raises(KFoldRunsError, match=r"refuse k-fold runs: "):
             kpi_table(scopes, ["cvar_uncovered"])
     with pytest.raises(KFoldRunsError, match=r"fold 1 of k=2"):
         kpi_table(folds, ["cvar_uncovered"], eval_split="test")
@@ -922,7 +1022,7 @@ def test_a_kfold_store_without_pooled_kpis_is_refused(
             out_dir=tmp_path,
             figure_sets=(kpi_figures,),
         )
-    assert "pooled out-of-sample KPIs (MAR-151)" in str(info.value)
+    assert "pooled out-of-sample KPIs, which were not given" in str(info.value)
     assert not list(tmp_path.iterdir())  # nothing is drawn
 
 
@@ -1147,11 +1247,17 @@ def test_repeated_scope_kinds_keep_their_key(toy: Fixture, tmp_path: Path) -> No
 
 
 def test_repeated_scope_labels() -> None:
-    from parametric_insurance_design_viz.kpi_figures import _scope_text
-
     class Run:
+        # a joint cluster run, as style.run_scope_name reads it (MAR-225)
         scope = "cluster"
+        parameters: dict[str, Any] = {}  # noqa: RUF012
+        runs = pd.DataFrame({"problem_id": ["portfolio"]})
+        manifest: dict[str, Any] = {}  # noqa: RUF012
 
     scopes: Any = {"cluster": [Run()], "cluster_2": [Run()]}
-    assert _scope_text("cluster", scopes) == "Cluster scope"
-    assert _scope_text("cluster_2", scopes) == "Cluster scope (cluster_2)"
+    objective = style.objective_label("mse").lower()
+    assert Baseline("cluster", "mse").label(scopes) == f"cluster scope & {objective}"
+    assert (
+        Baseline("cluster_2", "mse").label(scopes)
+        == f"cluster scope (cluster_2) & {objective}"
+    )

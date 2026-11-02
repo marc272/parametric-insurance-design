@@ -1,6 +1,6 @@
 """Block-bootstrap confidence intervals over years (SPEC §6.1, thesis issue M1).
 
-Owner: MAR-23. Fills the ``ci_low``, ``ci_high``, ``ci_level`` and
+Fills the ``ci_low``, ``ci_high``, ``ci_level`` and
 ``n_bootstrap`` columns of the ``kpis`` table (ADR 0002 §7) and gives paired
 confidence intervals for the difference of a KPI between two designs.
 Method notes: ``docs/methodology/bootstrap.md``.
@@ -51,7 +51,7 @@ Array-level replicates
     and payout, and :func:`premium_replicates` the premium of a payout
     (``pricing.premium_value`` on each replicate's measure), without an
     EventSet. :func:`bootstrap_kpis` builds on the same code, and
-    ``experiment.kfold`` uses both for the pooled k-fold KPIs (MAR-153).
+    ``experiment.kfold`` uses both for the pooled k-fold KPIs.
 
 Intervals
     Percentile intervals: the ``(1 - level) / 2`` and ``(1 + level) / 2``
@@ -66,6 +66,16 @@ No silent failures
     ``ci_level`` and ``n_bootstrap`` are set on every row of a bootstrapped
     table, so a null bound next to them means "bootstrapped, undefined", not
     "not bootstrapped". A KPI that this module cannot replicate raises.
+
+Per-location rows
+    :func:`bootstrap_kpis` takes ``evaluate``'s ``allocation`` rule. Under
+    ``"value"`` or ``"loss"`` its table has the per-location rows of
+    ``evaluate.kpis`` with intervals, checked against ``evaluate.kpis`` like
+    every other row. :func:`paired_difference` pairs them like any row of
+    two designs of the same scope (the level, rule included, and the
+    ``location_id`` are in :data:`PAIR_KEY`), and refuses an unpaired row,
+    e.g. a design bootstrapped under another rule. With
+    ``across_scopes=True`` it refuses them, as every non-portfolio row.
 """
 
 from __future__ import annotations
@@ -86,7 +96,12 @@ from parametric_insurance_design.basis import (
     OutcomeMeasure,
 )
 from parametric_insurance_design.errors import ComponentConfigError, InputMismatchError
-from parametric_insurance_design.evaluate import KpiSubject, evaluate_results, kpis
+from parametric_insurance_design.evaluate import (
+    Allocation,
+    KpiSubject,
+    evaluate_results,
+    kpis,
+)
 from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.interfaces import Pricing, Sample, Scope, SolveResult
 from parametric_insurance_design.records import KPIS, KpiLevel, KpiName
@@ -131,7 +146,7 @@ PORTFOLIO_PAIR_KEY: Final[tuple[str, ...]] = tuple(
     column for column in PAIR_KEY if column != "problem_id"
 )
 """Columns that pair two designs' portfolio-level KPI rows across scopes in
-``paired_difference(..., across_scopes=True)`` (MAR-179): :data:`PAIR_KEY`
+``paired_difference(..., across_scopes=True)``: :data:`PAIR_KEY`
 without ``problem_id``. A portfolio row's ``problem_id`` depends on the
 scope, not on the subject: ``records.ALL_PROBLEMS`` (``"*"``) for a run with
 several design problems (individual, cluster), the problem's own id for a run
@@ -721,7 +736,7 @@ class KpiBootstrap:
         """Keep the portfolio-level rows only, with their replicates.
 
         The input of ``paired_difference(..., across_scopes=True)``, which
-        refuses location-, entity- and problem-level rows (MAR-179). The
+        refuses location-, entity- and problem-level rows. The
         kept rows, their replicates, the resample and the level are
         unchanged; the other levels' rows are left out.
 
@@ -824,6 +839,7 @@ def bootstrap_kpis(
     sample: Sample | None = None,
     pricing: Pricing | None = None,
     level: float = DEFAULT_LEVEL,
+    allocation: Allocation | str = Allocation.NONE,
 ) -> KpiBootstrap:
     """KPIs with block-bootstrap confidence intervals over years.
 
@@ -834,8 +850,15 @@ def bootstrap_kpis(
 
     Parameters
     ----------
-    eventset, scope, results, basis, beta, run_id, sample, pricing
-        As in :func:`~parametric_insurance_design.evaluate.kpis`.
+    eventset, scope, results, basis, beta, run_id, sample, pricing, allocation
+        As in :func:`~parametric_insurance_design.evaluate.kpis`. Under an
+        ``allocation`` rule other than ``"none"`` the table has the
+        per-location rows of ``evaluate.kpis`` (``level =
+        "location_by_value"`` or ``"location_by_loss"``), and they get
+        intervals like every other row: each location's loss and allocated
+        payout are fixed per row, so a replicate reweights them as it
+        reweights the other subjects. Under ``"none"`` (the default) the
+        table has no per-location rows.
     resample : YearResample
         Replicates of the evaluation sample's years: ``resample.years`` must
         equal ``sample.years`` (all years for the full sample). Reuse one
@@ -871,8 +894,11 @@ def bootstrap_kpis(
         run_id=run_id,
         sample=sample,
         pricing=pricing,
+        allocation=allocation,
     )
-    ev = evaluate_results(eventset, scope, results, basis=basis, sample=sample)
+    ev = evaluate_results(
+        eventset, scope, results, basis=basis, sample=sample, allocation=allocation
+    )
     if not np.array_equal(resample.years, ev.sample.years):
         raise BootstrapError(
             f"the resample covers {resample.n_years} years "
@@ -1031,7 +1057,11 @@ def paired_difference(
         The two designs on the same sample, e.g. weighted CVaR (``a``) and
         MSE (``b``) of one scope. Their KPI rows are paired on
         :data:`PAIR_KEY`, so they must describe the same subjects (the same
-        scope and portfolio). With ``across_scopes=True``: the
+        scope and portfolio), and each table must hold one run, so that every
+        row has its own key. Each ``table`` must have every key column of
+        :data:`~parametric_insurance_design.records.KPIS` and ``value``, as
+        the tables of :func:`bootstrap_kpis` do; a hand-built table without
+        one raises :class:`BootstrapError`. With ``across_scopes=True``: the
         portfolio-level rows of two designs of possibly different scopes on
         the same portfolio, e.g. ``a.portfolio_rows()`` and
         ``b.portfolio_rows()``.
@@ -1040,14 +1070,15 @@ def paired_difference(
     across_scopes : bool, default False
         Pair two designs' **portfolio-level** rows across scopes, e.g. a
         joint (portfolio or cluster scope) design against the individual
-        one (MAR-179). Rows are paired on :data:`PORTFOLIO_PAIR_KEY` (the
+        one. Rows are paired on :data:`PORTFOLIO_PAIR_KEY` (the
         KPI, its beta and the subject, with split, fold and basis), and
         ``problem_id`` is ignored: it is ``"*"`` for a run with several
         design problems and the problem's id for a run with one. Every row
         of both tables must be at the portfolio level: location-, entity-
         and problem-level rows are refused, because they aren't comparable
         across scopes and the per-entity values of a joint design aren't
-        unique (MAR-100). Select the portfolio rows with
+        unique (``docs/methodology/payout-allocation.md``). Select the
+        portfolio rows with
         :meth:`KpiBootstrap.portfolio_rows`. The same-resample check applies
         as without the option, and the values, replicates and intervals are
         computed the same way.
@@ -1067,9 +1098,15 @@ def paired_difference(
     Raises
     ------
     BootstrapError
-        If the resamples differ, a KPI row has no partner, or ``level`` is
-        not in ``(0, 1)``; with ``across_scopes=True``, also if a table has a
-        row that is not at the portfolio level, or no rows.
+        If a table lacks a key column of
+        :data:`~parametric_insurance_design.records.KPIS` or ``value``, the
+        resamples differ, a KPI row has no partner, two rows of one
+        table have the same pairing key (e.g. the rows of several runs in one
+        table), or ``level`` is not in ``(0, 1)``; with ``across_scopes=True``,
+        also if a table has a row that is not at the portfolio level, or no
+        rows, or portfolio rows of several problem ids for one KPI (e.g. the
+        ``portfolio_rows()`` of two runs stacked). Every refusal is checked
+        before the rows are paired.
 
     Examples
     --------
@@ -1081,6 +1118,8 @@ def paired_difference(
         )
     """
     ci_level = a.level if level is None else _check_level(level)
+    _check_pair_columns(a, "a")
+    _check_pair_columns(b, "b")
     if not a.resample.same_as(b.resample):
         raise BootstrapError(
             "the two designs were bootstrapped with different resamples; "
@@ -1094,6 +1133,8 @@ def paired_difference(
     else:
         key = list(PAIR_KEY)
         carried = []
+    _check_unique_keys(a, key, "a", across_scopes)
+    _check_unique_keys(b, key, "b", across_scopes)
     left = a.table[[*key, *carried, "run_id", "value"]].copy()
     left["_ia"] = np.arange(len(left))
     right = b.table[[*key, *carried, "run_id", "value"]].copy()
@@ -1134,6 +1175,24 @@ def paired_difference(
     return out.sort_values(key, kind="stable").reset_index(drop=True)
 
 
+def _check_pair_columns(boot: KpiBootstrap, side: str) -> None:
+    """Raise unless ``boot.table`` has every column the pairing reads.
+
+    These are the key columns of
+    :data:`~parametric_insurance_design.records.KPIS` (:data:`PAIR_KEY` and
+    ``run_id``) and ``value``, with or without ``across_scopes``. A table of
+    :func:`bootstrap_kpis` has them all; a hand-built one may not.
+    """
+    needed = [*PAIR_KEY, "run_id", "value"]
+    missing = [column for column in needed if column not in boot.table.columns]
+    if missing:
+        raise BootstrapError(
+            f"design {side}'s table lacks the column(s) {', '.join(missing)}; "
+            f"paired_difference needs {', '.join(needed)}, as in the tables of "
+            "bootstrap_kpis"
+        )
+
+
 def _check_portfolio_only(boot: KpiBootstrap, side: str) -> None:
     """Raise unless ``boot`` has rows and every one is at the portfolio level."""
     levels = boot.table["level"].astype(str)
@@ -1144,9 +1203,44 @@ def _check_portfolio_only(boot: KpiBootstrap, side: str) -> None:
             f"across_scopes pairs portfolio-level rows only; design {side} has "
             f"{int(other.sum())} rows at level {', '.join(found)}, which aren't "
             "comparable across scopes (a joint design's per-entity values "
-            "aren't unique, MAR-100). Pass KpiBootstrap.portfolio_rows()"
+            "aren't unique; see docs/methodology/payout-allocation.md). Pass "
+            "KpiBootstrap.portfolio_rows()"
         )
     if levels.empty:
         raise BootstrapError(
             f"across_scopes: design {side} has no portfolio-level KPI rows"
         )
+
+
+def _check_unique_keys(
+    boot: KpiBootstrap, key: list[str], side: str, across_scopes: bool
+) -> None:
+    """Raise unless every row of ``boot`` has its own pairing ``key``.
+
+    Two rows with the same key can't each have one partner, so the
+    one-to-one pairing is undefined. One run's table never has them (its
+    ``kpis`` key is unique and holds one ``run_id``); a table that stacks
+    the rows of several runs does, and, with ``across_scopes=True``, so
+    does one that stacks portfolio rows of several problem ids, since
+    :data:`PORTFOLIO_PAIR_KEY` has no ``problem_id``.
+    """
+    repeated = boot.table.duplicated(subset=key, keep=False).to_numpy()
+    if not repeated.any():
+        return
+    groups = boot.table.groupby(key, dropna=False, sort=False).ngroup().to_numpy()
+    i = int(np.flatnonzero(repeated)[0])
+    first = boot.table.iloc[i]
+    group = boot.table.loc[groups == groups[i]]
+    shown = ", ".join(f"{column}={first[column]!r}" for column in key)
+    hint = (
+        "across_scopes ignores problem_id, so pass one run's "
+        "KpiBootstrap.portfolio_rows()"
+        if across_scopes
+        else "pass one bootstrap_kpis result per design"
+    )
+    raise BootstrapError(
+        f"design {side} has {int(repeated.sum())} KPI rows whose pairing key "
+        f"repeats, so they can't be paired one to one; e.g. {len(group)} rows "
+        f"with {shown} (run_id {sorted(set(group['run_id'].astype(str)))}, "
+        f"problem_id {sorted(set(group['problem_id'].astype(str)))}). {hint}"
+    )

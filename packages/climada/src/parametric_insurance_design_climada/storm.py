@@ -3,7 +3,7 @@
 STORM (Bloemendaal et al. 2020; dataset "STORM IBTrACS present climate
 synthetic tropical cyclone tracks", version 4, 4TU.ResearchData,
 doi:10.4121/12706085, CC0 1.0) is the second hazard catalogue of the robust
-design (SPEC §6.5 (i), D7, MAR-32). It ships 10,000 synthetic years per basin
+design (SPEC §6.5 (i), D7). It ships 10,000 synthetic years per basin
 as ten 1,000-year text files, ``STORM_DATA_IBTRACS_<basin>_1000_YEARS_<k>.txt``
 with ``k`` = 0 … 9 (file names as in the version-4 archive).
 

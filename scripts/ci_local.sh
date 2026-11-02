@@ -15,7 +15,8 @@
 #   lint                     ruff check, import-boundary negative test,
 #                            ruff format --check, pyright, ruff single
 #                            source check, pre-commit
-#   workspace-3.12           core (coverage >= 85 %), viz + crc, parity tests
+#   workspace-3.12           core (coverage >= 85 %), viz + crc, parity tests,
+#                            examples
 #   workspace-3.13           the same on Python 3.13
 #   core-3.11-highest        core alone on 3.11, newest dependencies
 #   core-3.11-lowest-direct  core alone on 3.11, lowest direct dependencies
@@ -211,6 +212,8 @@ job_workspace() {
     --cov=parametric_insurance_design_viz --cov=parametric_insurance_design_crc \
     --cov-report=term-missing
   uv run --locked --python "$py" pytest parity/tests -v
+  # The runnable examples (examples/, ADR 0004 Q6), as in ci.yml (MAR-196).
+  uv run --locked --python "$py" pytest examples -v
 }
 
 job_core311() {

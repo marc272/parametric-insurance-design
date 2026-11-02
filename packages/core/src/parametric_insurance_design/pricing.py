@@ -1,8 +1,7 @@
 """Pricing components (SPEC §4.2, §6.4).
 
-Owners, in sequence (ADR 0002): MAR-13 implemented :class:`PurePremium`;
-MAR-27 implemented :class:`CostOfCapitalLoad`. The interface is
-:class:`~parametric_insurance_design.interfaces.Pricing`.
+The interface is :class:`~parametric_insurance_design.interfaces.Pricing`
+(ADR 0002).
 
 * :class:`PurePremium`: ``Premium = E[pi]`` under the outcome measure.
 * :class:`CostOfCapitalLoad`: ``Premium = (1 - r) E[pi] + r CVaR_q(pi)``
@@ -17,9 +16,10 @@ the ``event_conditional`` basis). How a run's portfolio premium is formed from
 a pricing is ``evaluate.kpis``'s business; see ``docs/methodology/pricing.md``.
 
 The premium of a solution (``SolveResult.premium``) is ``premium_value`` of
-its realised payout, which ``solve.solve`` computes in numpy when it is given
-the pricing (MAR-143), not the value of the ``premium`` term: no solver runs
-when a premium is read.
+its realised payout, not the value of the ``premium`` term. ``solve.solve``
+computes it in numpy from the pricing the problem was built with
+(``BuiltProblem.pricing``, which ``problem.build_problems`` always sets), so
+no solver runs when a premium is read.
 
 A standard-deviation load (SOCP) is not implemented; it would be another
 class here.
@@ -165,12 +165,9 @@ class CostOfCapitalLoad(Pricing):
     Rockafellar-Uryasev bound at the ``zeta`` the solver returned: at least
     the loaded premium, and equal to it only where the budget binds. The
     premium of a solution is therefore :meth:`premium_value` of its realised
-    payout, exact and without a solver: ``solve.solve(built, policy,
-    pricing=...)`` records it as ``SolveResult.premium`` (MAR-143). Until
-    MAR-143 the term wrapped the minimisation over ``zeta`` in
-    ``cvxpy.transforms.partial_optimize``, so that its value was the CVaR,
-    which solved an inner LP with cvxpy's default solver whenever the value
-    was read.
+    payout, exact and without a solver: ``solve.solve(built)`` records it as
+    ``SolveResult.premium``, from the pricing that ``BuiltProblem.pricing``
+    carries.
     """
 
     name: ClassVar[str] = "cost_of_capital"

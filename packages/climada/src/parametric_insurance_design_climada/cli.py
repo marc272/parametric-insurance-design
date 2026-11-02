@@ -1,4 +1,4 @@
-"""Command line of the track → wind → impact pipeline (MAR-73).
+"""Command line of the track → wind → impact pipeline.
 
 From ``packages/climada``::
 

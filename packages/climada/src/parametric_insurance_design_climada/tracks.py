@@ -1,6 +1,6 @@
 """IRIS track catalogue: reading, proximity filter and conversion to CLIMADA.
 
-This is the track half of the thesis ``src/CLIMADA/engine.py`` (MAR-73):
+This is the track half of the thesis ``src/CLIMADA/engine.py``:
 
 1. :func:`read_iris_catalogue` reads the whitespace-separated IRIS text
    catalogue (e.g. the merged ``IRIS_NA_10000Y_merged.txt`` written by

@@ -1,6 +1,6 @@
 # Individual designs are not unique either: the RQ2 baseline's portfolio KPIs over its optimal set
 
-- Issue: [MAR-198](https://linear.app/marc-prinzing/issue/MAR-198). Internal research note, 2026-11-01. **Observations only**; the interpretation is the owner's.
+- Issue: MAR-198. Internal research note, 2026-11-01. **Observations only**; the interpretation is the owner's.
 - Builds on checkpoint C1 (`research/checkpoints/C1.md`: section 6b, observation 32, T11) and the combination view (`research/notes/c1-combination.md`, MAR-182). Neither is edited here.
 - **Publication rule** (C1.md, "Publication rule"): RQ2 statements are method-only in external outputs. Nothing here is for external use as a comparative claim.
 - Scripts: `research/scripts/individual_nonuniqueness.py` (solves, bootstraps and comparisons; reads the C1 store and never writes to it) and `research/scripts/individual_nonuniqueness_tables.py` (committed CSVs and `tables.md`).

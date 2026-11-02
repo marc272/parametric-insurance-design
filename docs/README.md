@@ -27,6 +27,7 @@ These pages explain how a design is evaluated. Each one names the code and the c
 - [Out-of-sample evaluation](methodology/out-of-sample.md): holdout and k-fold splits by contiguous blocks of simulation years.
 - [Confidence intervals](methodology/bootstrap.md): the block bootstrap over years.
 - [Pricing](methodology/pricing.md): the pure premium and the cost-of-capital load.
+- [Allocating a joint payout to assets](methodology/payout-allocation.md): why per-asset KPIs of a joint design need a rule, and the `value` and `loss` rules.
 - [Vulnerability uncertainty](methodology/vulnerability.md): loss draws from a prior on the `v_half` parameter of the Emanuel impact function, in the CLIMADA adapter.
 
 ### Data

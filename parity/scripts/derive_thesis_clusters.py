@@ -1,4 +1,4 @@
-r"""Derive the thesis cluster assignments for the parity tests (MAR-12).
+r"""Derive the thesis cluster assignments for the parity tests.
 
 Runs the thesis clustering (``ClusterLevelIntegratedOptimizationApproach``
 in ``src/implementation.ipynb`` of ``parametric-insurance-framework``) on the
@@ -251,7 +251,7 @@ def derive(thesis: ThesisCode) -> dict[str, Any]:
             "Thesis cluster assignments (scipy fcluster labels, cluster C<label>) "
             "and clustering features of the 9 Miami assets for n_clusters 1..9, "
             "from the thesis code. Written by "
-            "parity/scripts/derive_thesis_clusters.py (MAR-12)."
+            "parity/scripts/derive_thesis_clusters.py."
         ),
         "thesis_commit": thesis.commit,
         "versions": {

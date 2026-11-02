@@ -1,6 +1,6 @@
 """Sweep figures, premium reallocation and the cluster trade-off (thesis ch. 5).
 
-Owner: MAR-112. Ports the remaining results-chapter figures of the thesis
+Ports the remaining results-chapter figures of the thesis
 ``plotting.py`` and ``sensitivity_analysis.py``
 (parametric-insurance-framework). Every figure reads committed runs from the
 result store (:class:`~parametric_insurance_design_viz.reader.ResultReader`)
@@ -13,7 +13,7 @@ Figures
 :func:`sweep_figures` is the builder the ``figures`` command registers
 (``command.FIGURE_SETS``). For each configured sweep it reads the sweep
 points the command passes in (:class:`~.command.SweepRun`, computed from the
-config's sweeps, MAR-65) and draws, in config order:
+config's sweeps) and draws, in config order:
 
 ============================================  ================================
 Figure                                        Thesis
@@ -37,8 +37,16 @@ Figure                                        Thesis
   weighted-CVaR run, coloured by value, over the baseline run's event data
   and the scope's residual-loss (``mse``) baseline. Below the attachment
   each run pays as its ``below_attachment`` mode says, drawn and tabulated
-  as in the payout grid (MAR-192; ``payout_functions``, "Below the
-  attachment").
+  as in the payout grid (``payout_functions``, "Below the
+  attachment"). If the entity belongs to a joint design problem (the
+  portfolio scope, a joint cluster scope with more than one cluster;
+  ``payout_functions``, "Joint designs"), the figure carries
+  :data:`~.payout_functions.JOINT_CAPTION` above its title and a ``caption``
+  table: its payout functions are one of several
+  optimal designs, chosen by the solver. A cluster scope calibrated cluster
+  by cluster (``joint: false``) has one entity per problem, so no caption.
+  The payout axis is in the money style of the payout grid
+  (:class:`~.style.MoneyFormatter`: ``0.5M``, ``200k``, ``50``).
 * ``sensitivity_<param>``: the portfolio tail basis risk (KPI
   ``cvar_uncovered`` at ``level = "portfolio"``, at the evaluation
   ``beta``) against the swept value, one line per scope x objective except
@@ -57,16 +65,36 @@ Figure                                        Thesis
   cost ``tau`` per contract, and the break-even cost
   ``tau*(C) = Pi(C) / (K - C)`` for ``C < K``. The costs are a figure option,
   not part of the config (as in the thesis): ``FigureContext.transaction_costs``,
-  the ``figures`` command's ``--transaction-costs`` (MAR-120), by default
-  :data:`THESIS_TRANSACTION_COSTS`.
+  the ``figures`` command's ``--transaction-costs``, by default
+  :data:`THESIS_TRANSACTION_COSTS`. They measure what the joint cluster
+  calibration gains, so a cluster scope calibrated cluster by cluster
+  (``joint: false``, ``style.SEPARATE_CLUSTER_SCOPE``) does not get them
+  (:data:`SEPARATE_CLUSTER_REASON`).
 
 The thesis notebook's figure arguments that are not in the config (the
 weighted-CVaR objective as the focus, the excluded combinations, the default
 transaction costs) are the module constants below.
 
 The runs of a sweep are read in bulk, one store read per table for all its
-points (:meth:`~parametric_insurance_design_viz.reader.ResultReader.runs`,
-MAR-120).
+points (:meth:`~parametric_insurance_design_viz.reader.ResultReader.runs`).
+
+Evaluation split
+----------------
+The figures that read KPIs (the premium reallocation, the sensitivity,
+trade-off, net-advantage and break-even figures) read every KPI of one
+figure on one split (:func:`figure_split`, the KPI figures' own function
+:func:`~.kpi_figures.figure_split`, re-exported here with
+:class:`MissingKpiError`): the first of
+:data:`~.kpi_figures.SPLIT_PREFERENCE` that every complete run of the figure
+has, as the KPI figures choose. A holdout run stores KPI rows on its train
+years (``eval_split = "train"``, in sample) and its test years (``"test"``,
+out of sample), so its figures show ``test``; a full-sample run has
+``full`` rows only. On ``test`` or ``train`` the axes title states the split
+(:func:`~.kpi_figures.split_note`, "Out of sample (test years)") and the
+figure data gain the :data:`SPLIT_TABLE` table (``<name>.split.csv``). On
+``full`` neither, so the thesis figures are unchanged byte for byte. The
+payout-sweep figures read no KPI: they show designs, which have no
+evaluation split.
 
 No silent failures
 ------------------
@@ -79,11 +107,12 @@ No silent failures
   and the same name says how many points were left out, so the command
   exits 1 (the thesis dropped such points without a trace).
 * A figure that does not apply (no individual scope for the premium
-  reallocation, no weighted-CVaR objective) is a ``SkippedFigure`` with
-  ``failed=False``. Without sweeps there are no sweep figures.
+  reallocation, no weighted-CVaR objective, the net advantage and
+  break-even cost of a cluster scope with ``joint: false``) is a
+  ``SkippedFigure`` with ``failed=False``. Without sweeps there are no sweep figures.
 * A figure that needs sweep points missing from the store
   (``FigureContext.missing_sweeps``, when the command skips missing points,
-  MAR-120) is not drawn: a ``SkippedFigure`` with ``missing=True`` counts the
+  is not drawn: a ``SkippedFigure`` with ``missing=True`` counts the
   missing points and names the first few. Figures whose points are all in
   the store are drawn as usual.
 * A run that lacks a KPI row the figure needs raises
@@ -121,15 +150,28 @@ from numpy.typing import NDArray
 from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.payout import BelowAttachment
 from parametric_insurance_design_viz import style
-from parametric_insurance_design_viz.errors import InconsistentRunsError, VizError
+from parametric_insurance_design_viz.errors import (
+    InconsistentRunsError,
+)
 from parametric_insurance_design_viz.figure_data import MAIN_TABLE, FigureOutput
+from parametric_insurance_design_viz.kpi_figures import (
+    MissingKpiError,
+    figure_split,
+    split_note,
+)
 from parametric_insurance_design_viz.payout_functions import (
     STEP_COLUMNS,
     AxisLabels,
-    _grid_steps,  # pyright: ignore[reportPrivateUsage]
-    _step_xy,  # pyright: ignore[reportPrivateUsage]
+    JointEntities,
     below_attachment_mode,
+    bin_breakpoints,
+    default_xlim,
+    joint_caption,
     payout_steps,
+    shared_attachment_limit,
+    step_points,
+    with_zero_rows,
+    wrap_joint_caption,
 )
 from parametric_insurance_design_viz.reader import RunResult
 
@@ -151,6 +193,9 @@ __all__ = [
     "REALLOCATION_COLUMNS",
     "SENSITIVITY_COLUMNS",
     "SENSITIVITY_EXCLUDED",
+    "SEPARATE_CLUSTER_REASON",
+    "SPLIT_COLUMNS",
+    "SPLIT_TABLE",
     "SWEEP_STEP_COLUMNS",
     "TAIL_KPI",
     "THESIS_TRANSACTION_COSTS",
@@ -161,6 +206,7 @@ __all__ = [
     "SweepSeries",
     "breakeven_cost",
     "cluster_penalty",
+    "figure_split",
     "kpi_value",
     "net_advantage",
     "parameter_label",
@@ -221,6 +267,13 @@ THESIS_TRANSACTION_COSTS: Final[tuple[float, ...]] = (
 )
 """Transaction costs per contract of the net-advantage figure, loss units
 (thesis ``sweeps.yaml`` ``transaction_costs``)."""
+
+SEPARATE_CLUSTER_REASON: Final[str] = (
+    "the cluster scope is calibrated cluster by cluster (joint: false): the "
+    "net advantage and the break-even cost measure what the joint cluster "
+    "calibration gains against the portfolio scope, so they do not apply"
+)
+"""Why the cluster figures of a ``joint: false`` cluster scope are skipped."""
 
 _PARAMETER_SYMBOLS: Final[dict[str, str]] = {
     "alpha": r"$\alpha$",
@@ -349,6 +402,18 @@ BREAKEVEN_COLUMNS: Final[tuple[str, ...]] = (
 )
 """Main table of :func:`breakeven_cost`: the penalty rows with ``C < K``."""
 
+SPLIT_TABLE: Final[str] = "split"
+"""Key of the table that states a figure's evaluation split.
+
+Written as ``<name>.split.csv`` by the figures that read KPIs, when they
+read the ``test`` or ``train`` rows of holdout runs; see the module
+docstring, "Evaluation split"."""
+
+SPLIT_COLUMNS: Final[tuple[str, ...]] = ("eval_split", "note")
+"""Columns of the :data:`SPLIT_TABLE` table: one row, the split
+(``kpis.eval_split``) and the note the figure shows
+(:func:`~.kpi_figures.split_note`)."""
+
 _FIGSIZE: Final[tuple[float, float]] = (6.0, 6.0)  # thesis sweep cells
 _REALLOCATION_FIGSIZE: Final[tuple[float, float]] = (9.0, 7.0)
 _CLUSTER_FIGSIZE: Final[tuple[float, float]] = (8.0, 8.0)
@@ -365,10 +430,7 @@ _REGIME_ALPHA: Final[float] = 0.12
 _MINUS: Final[str] = "\N{MINUS SIGN}"
 _FLAT_PP: Final[float] = 0.5  # |change| below this many points reads "0"
 _ANNOTATE_OFFSET: Final[float] = 7.0  # points, thesis _tick_dist
-
-
-class MissingKpiError(VizError):
-    """A run lacks the KPI row a figure needs (or has several candidates)."""
+_CAPTION_GAP: Final[float] = 0.01  # figure fraction between title and caption
 
 
 # --------------------------------------------------------------------------
@@ -419,17 +481,6 @@ def _tail_label(labels: AxisLabels) -> str:
 
 def _total_label(labels: AxisLabels) -> str:
     return rf"Total basis risk $E(UL^P)${_unit(labels)}"
-
-
-def _money(value: float, _pos: object = None) -> str:
-    """Compact tick label: ``-200k``, ``1.2M`` (thesis, without the "$")."""
-    sign = "-" if value < 0 else ""
-    size = abs(value)
-    if size >= 1e6:
-        return f"{sign}{size * 1e-6:.1f}M"
-    if size >= 1e3:
-        return f"{sign}{size * 1e-3:.0f}k"
-    return f"{sign}{size:.0f}"
 
 
 def _value_text(value: float) -> str:
@@ -515,6 +566,11 @@ def _scope_style(scope: str) -> style.ScopeStyle:
     return style.SCOPE_STYLES.get(scope, style.ScopeStyle(linestyle="-", marker="o"))
 
 
+def _baseline_scope_label(run: RunResult) -> str:
+    """Lower-case scope label of a run, by its scope name."""
+    return style.scope_label(style.run_scope_name(run)).lower()
+
+
 def _sweep_cmap(start: float, stop: float) -> LinearSegmentedColormap:
     """Viridis truncated to ``[start, stop]`` (thesis)."""
     base = colormaps["viridis"]
@@ -536,13 +592,46 @@ def _evaluation_beta(run: RunResult) -> float:
     return float(run.parameters["evaluation_beta"])
 
 
+def _split_table(split: str) -> pd.DataFrame | None:
+    """Return the :data:`SPLIT_TABLE` table of a figure, or None on ``full``."""
+    note = split_note(split)
+    if note is None:
+        return None
+    return pd.DataFrame(
+        [{"eval_split": split, "note": note}], columns=list(SPLIT_COLUMNS)
+    )
+
+
+def _split_heading(split: str) -> str | None:
+    """Return the split note as an axes title, capitalised; None on ``full``."""
+    note = split_note(split)
+    return None if note is None else note[0].upper() + note[1:]
+
+
+def _split_title(split: str, title: str) -> str:
+    """Return ``title`` with the split note on a second line.
+
+    ``title`` alone on ``full``.
+    """
+    heading = _split_heading(split)
+    return title if heading is None else f"{title}\n{heading}"
+
+
+def _with_split(data: dict[str, pd.DataFrame], split: str) -> dict[str, pd.DataFrame]:
+    """Add the :data:`SPLIT_TABLE` table to a figure's data, unless ``full``."""
+    table = _split_table(split)
+    if table is not None:
+        data[SPLIT_TABLE] = table
+    return data
+
+
 def kpi_value(
     run: RunResult,
     kpi: str,
     *,
     level: str = "portfolio",
     subject_id: str | None = None,
-    eval_split: str = "full",
+    eval_split: str | None = None,
 ) -> float:
     """Return one KPI value of a complete run from its ``kpis`` table.
 
@@ -559,8 +648,10 @@ def kpi_value(
         ``kpis.level``.
     subject_id : str, optional
         ``kpis.subject_id``; needed below the portfolio level.
-    eval_split : str, default "full"
-        ``kpis.eval_split``.
+    eval_split : str, optional
+        ``kpis.eval_split``. Default: the run's preferred split
+        (:func:`figure_split` of the run): ``test`` for a holdout run,
+        ``full`` for a full-sample run.
 
     Returns
     -------
@@ -575,6 +666,8 @@ def kpi_value(
         If there is no such row, or more than one.
     """
     run.require_complete()
+    if eval_split is None:
+        eval_split = figure_split([run])
     kpis = run.kpis
     basis = set(run.runs["basis"])
     mask = (
@@ -616,7 +709,7 @@ class SweepSeries:
         The sweep points of this scope x objective with their runs, in sweep
         order; empty if the parameter does not apply to it.
     missing : tuple of SweepRun, default ()
-        Its sweep points that are not in the store (MAR-120), in sweep order;
+        Its sweep points that are not in the store, in sweep order;
         not in ``points``.
     """
 
@@ -633,8 +726,22 @@ class SweepSeries:
 
     @property
     def scope_kind(self) -> str:
-        """The scope kind (``runs.scope``), e.g. ``"cluster"``."""
+        """The scope kind (``runs.scope``), e.g. ``"cluster"``.
+
+        ``"cluster"`` for both cluster settings; :attr:`scope_name` tells
+        them apart.
+        """
         return self.baseline.scope
+
+    @property
+    def scope_name(self) -> str:
+        """The scope name that labels and styles the series.
+
+        ``style.run_scope_name`` of the baseline run: :attr:`scope_kind`, or
+        ``"cluster_separate"`` for a cluster scope calibrated cluster by
+        cluster (``joint: false``).
+        """
+        return style.run_scope_name(self.baseline)
 
     @property
     def objective(self) -> str:
@@ -670,6 +777,7 @@ def premium_reallocation(
     labels: AxisLabels | None = None,
     figsize: tuple[float, float] = _REALLOCATION_FIGSIZE,
     name: str = "premium_reallocation",
+    eval_split: str | None = None,
 ) -> FigureOutput:
     """Draw each location's premium share under the individual and portfolio scope.
 
@@ -693,11 +801,15 @@ def premium_reallocation(
         Figure size in inches.
     name : str, default "premium_reallocation"
         Figure name.
+    eval_split : str, optional
+        Evaluation split of the premiums; default :func:`figure_split` of
+        the two runs.
 
     Returns
     -------
     FigureOutput
-        Main table :data:`REALLOCATION_COLUMNS`.
+        Main table :data:`REALLOCATION_COLUMNS`; on a ``test`` or ``train``
+        split also :data:`SPLIT_TABLE`, and the axes title states the split.
 
     Raises
     ------
@@ -707,11 +819,13 @@ def premium_reallocation(
         If the runs differ in objective or entities, or the totals are not
         positive.
     MissingKpiError
-        If an entity lacks its ``expected_payout`` row.
+        If an entity lacks its ``expected_payout`` row, or the runs share
+        no split.
     """
     labels = labels or AxisLabels()
     for run in (individual, portfolio):
         run.require_complete()
+    split = figure_split((individual, portfolio), eval_split)
     if individual.objective != portfolio.objective:
         raise InconsistentRunsError(
             f"premium reallocation compares one objective, got "
@@ -734,13 +848,21 @@ def premium_reallocation(
         )
     ind = np.array(
         [
-            kpi_value(individual, PREMIUM_KPI, level="entity", subject_id=e)
+            kpi_value(
+                individual,
+                PREMIUM_KPI,
+                level="entity",
+                subject_id=e,
+                eval_split=split,
+            )
             for e in entities
         ]
     )
     pf = np.array(
         [
-            kpi_value(portfolio, PREMIUM_KPI, level="entity", subject_id=e)
+            kpi_value(
+                portfolio, PREMIUM_KPI, level="entity", subject_id=e, eval_split=split
+            )
             for e in entities
         ]
     )
@@ -835,12 +957,17 @@ def premium_reallocation(
         ax1.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v * 100:.0f}%"))
         top = float(np.nanmax(np.concatenate([ind_share, pf_share])))
         ax1.set_ylim(0, top * 1.18)
+        title = _split_heading(split)
+        if title is not None:
+            ax1.set_title(title, fontsize=style.FONT.label_size)
         _frame(ax1)
         if ax2 is not None:
             _frame(ax2)
         fig.tight_layout()
         _figure_legend(fig, handles, ncol=2)
-    return FigureOutput(name=name, figure=fig, data={MAIN_TABLE: table})
+    return FigureOutput(
+        name=name, figure=fig, data=_with_split({MAIN_TABLE: table}, split)
+    )
 
 
 def _scaled_unit(labels: AxisLabels, prefix: str) -> str:
@@ -852,34 +979,74 @@ def _scaled_unit(labels: AxisLabels, prefix: str) -> str:
 # --------------------------------------------------------------------------
 
 
-def _breakpoints(bins: pd.DataFrame) -> NDArray[np.float64]:
-    lower = bins["lower"].to_numpy(dtype=np.float64)
-    return np.append(lower, float(bins["upper"].iloc[-1]))
-
-
 def _sweep_step_xy(
     bins: pd.DataFrame, xlim: tuple[float, float], mode: BelowAttachment
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     """Step points of one run's bins over the whole axis.
 
-    The payout grid's step points (``payout_functions._step_xy``): above the
-    limit the last level; below the attachment the first level under
-    ``"first_bin"`` and 0 under ``"zero"``, with a step at ``b_0``.
+    The payout grid's step points (:func:`~.payout_functions.step_points`):
+    above the limit the last level; below the attachment the first level
+    under ``"first_bin"`` and 0 under ``"zero"``, with a step at ``b_0``.
     """
     levels = bins["value"].to_numpy(dtype=np.float64)
-    return _step_xy(_breakpoints(bins), levels, xlim, mode)
+    return step_points(bin_breakpoints(bins), levels, xlim, mode)
 
 
-def _attachment_limit(runs: Sequence[RunResult]) -> tuple[float, float]:
-    pairs = {
-        (float(r.parameters["attachment"]), float(r.parameters["limit"])) for r in runs
-    }
-    if len(pairs) != 1:
-        raise InconsistentRunsError(
-            f"the runs of one figure must share attachment and limit, got "
-            f"{sorted(pairs)}"
-        )
-    return pairs.pop()
+def _sweep_caption(
+    series: SweepSeries,
+    runs: Sequence[RunResult],
+    entity_id: str,
+    joint_entities: JointEntities,
+) -> pd.DataFrame | None:
+    """Return the ``caption`` table of a payout sweep, or None.
+
+    Decided for every drawn sweep point
+    (:func:`~.payout_functions.joint_caption`), since a sweep point may in
+    principle change the design problems: one row
+    (:data:`~.payout_functions.CAPTION_COLUMNS`) per distinct joint problem
+    of the entity among the points; None if the entity belongs to a joint
+    problem at no point.
+
+    Raises
+    ------
+    FigureDataError
+        If ``joint_entities`` is not a mode.
+    JointEntitiesError
+        Under ``"refuse"``, if the entity belongs to a joint problem at a
+        point.
+    """
+    figure = f"payout_sweep of the {series.parameter} sweep of {series.scope}"
+    tables = [
+        table
+        for run in runs
+        if (table := joint_caption(run, (entity_id,), joint_entities, figure=figure))
+        is not None
+    ]
+    if not tables:
+        return None
+    return pd.concat(tables, ignore_index=True).drop_duplicates(ignore_index=True)
+
+
+def _draw_sweep_caption(fig: Figure, ax: Axes) -> None:
+    """Draw :data:`~.payout_functions.JOINT_CAPTION` above the axes title.
+
+    The payout grid's wrapped caption
+    (:func:`~.payout_functions.wrap_joint_caption`) in its style. Call after
+    the layout is final; the PNG is saved with a tight bounding box, which
+    takes the caption in.
+    """
+    fig.draw_without_rendering()
+    box = ax.get_tightbbox()
+    top = 1.0 if box is None else fig.transFigure.inverted().transform((0.0, box.y1))[1]
+    fig.text(
+        0.5,
+        float(top) + _CAPTION_GAP,
+        wrap_joint_caption(fig),
+        ha="center",
+        va="bottom",
+        fontsize=style.FONT.subtitle_size,
+        fontstyle="italic",
+    )
 
 
 def payout_sweep(
@@ -891,6 +1058,7 @@ def payout_sweep(
     labels: AxisLabels | None = None,
     figsize: tuple[float, float] = _FIGSIZE,
     name: str | None = None,
+    joint_entities: JointEntities = "caption",
 ) -> FigureOutput:
     """Draw one entity's payout function at every value of a sweep.
 
@@ -900,10 +1068,19 @@ def payout_sweep(
     baseline (red, dashed).
 
     Below the attachment ``b_0`` each run is drawn as its step payout pays
-    there (:func:`~.payout_functions.below_attachment_mode`, MAR-192), as in
+    there (:func:`~.payout_functions.below_attachment_mode`), as in
     :func:`~.payout_functions.payout_grid`: the first bin's level under
     ``"first_bin"`` (the default and the thesis), 0 under ``"zero"``, with a
     step up to the first level at ``b_0``.
+
+    If the entity belongs to a joint design problem (more than one entity:
+    the portfolio scope, a joint cluster scope with more than one cluster;
+    :func:`~.payout_functions.is_joint_design`), its payout functions are
+    one of several optimal designs, chosen by the solver
+    (``docs/methodology/payout-allocation.md``). As in
+    :func:`~.payout_functions.payout_grid`, the figure then
+    carries :data:`~.payout_functions.JOINT_CAPTION` above its title, or is
+    refused. Figures of other entities are unchanged.
 
     Parameters
     ----------
@@ -922,13 +1099,20 @@ def payout_sweep(
         Figure size in inches.
     name : str, optional
         Default ``"payout_sweep_<scope>_<entity>_<parameter>"`` (lowercase).
+    joint_entities : {"caption", "refuse"}, default "caption"
+        If the entity belongs to a joint design problem at any drawn sweep
+        point: draw it under :data:`~.payout_functions.JOINT_CAPTION`, or
+        refuse it (``payout_functions``, "Joint designs").
 
     Returns
     -------
     FigureOutput
         Main table :data:`SWEEP_STEP_COLUMNS` (for a ``"zero"`` run also its
         zero row below the attachment); ``events`` with the scatter when
-        ``events`` is given.
+        ``events`` is given; for an entity of a joint design the ``caption``
+        table (:data:`~.payout_functions.CAPTION_COLUMNS`, one row per
+        distinct joint problem among the drawn points; one row when the
+        sweep leaves the problems unchanged).
 
     Raises
     ------
@@ -936,10 +1120,14 @@ def payout_sweep(
         If no point succeeded, the entity is missing from a drawn run, or the
         runs differ in attachment and limit; or a drawn run's parameters and
         config disagree on what it pays below the attachment, e.g. a
-        ``"zero"`` run written before MAR-178
+        ``"zero"`` run written by an older runner
         (:func:`~.payout_functions.below_attachment_mode`).
     FigureDataError
-        If a drawn run records an unknown ``below_attachment`` mode.
+        If a drawn run records an unknown ``below_attachment`` mode, or
+        ``joint_entities`` is not a mode.
+    JointEntitiesError
+        Under ``joint_entities="refuse"``, if the entity belongs to a joint
+        design problem.
     """
     labels = labels or AxisLabels()
     ok = [(p, r) for p, r in series.sorted_points() if r.complete]
@@ -949,20 +1137,20 @@ def payout_sweep(
             "has no successful point to draw"
         )
     runs = [r for _, r in ok]
+    caption = _sweep_caption(series, runs, entity_id, joint_entities)
     drawn = runs + ([benchmark] if benchmark is not None else [])
-    attachment, limit = _attachment_limit(drawn)
+    attachment, limit = shared_attachment_limit(drawn)
     modes: dict[str, BelowAttachment] = {
         run.run_id: below_attachment_mode(run) for run in drawn
     }
-    margin = 0.2 * (limit - attachment)
-    xlim = (attachment - margin, limit + margin)
+    xlim = default_xlim(attachment, limit)
     steps = payout_steps(drawn)
     steps = _where(steps, steps["entity_id"] == entity_id).reset_index(drop=True)
     lacking = sorted({r.run_id for r in drawn} - set(steps["run_id"]))
     if lacking:
         raise InconsistentRunsError(f"entity {entity_id!r} is not in runs {lacking}")
     value_of = {r.run_id: p.value for p, r in ok}
-    table = _grid_steps(steps, modes)
+    table = with_zero_rows(steps, modes)
     table = table.assign(
         role=[
             "baseline" if benchmark is not None and rid == benchmark.run_id else "sweep"
@@ -1000,7 +1188,7 @@ def payout_sweep(
                 color="red",
                 linestyle="--",
                 linewidth=1.5,
-                label=f"Baseline ({style.scope_label(benchmark.scope).lower()} & "
+                label=f"Baseline ({_baseline_scope_label(benchmark)} & "
                 f"{style.objective_label(benchmark.objective).lower()})",
             )
         cmap = _sweep_cmap(0.0, 0.9)
@@ -1032,7 +1220,7 @@ def payout_sweep(
         ax.set_xlim(*xlim)
         ax.set_xlabel(labels.index(aggregate=aggregate))
         ax.set_ylabel(labels.payout())
-        ax.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
+        ax.yaxis.set_major_formatter(style.MoneyFormatter())
         ax.set_title(parameter_label(series.parameter), fontsize=style.FONT.label_size)
         if colorbar:
             bar = fig.colorbar(
@@ -1054,10 +1242,14 @@ def payout_sweep(
             below = 0.0
         handles, _ = ax.get_legend_handles_labels()
         _figure_legend(fig, handles, ncol=2, y=below)
+        if caption is not None:
+            _draw_sweep_caption(fig, ax)
 
     data = {MAIN_TABLE: table}
     if rows is not None:
         data["events"] = rows
+    if caption is not None:
+        data["caption"] = caption
     entity = entity_id.lower()
     default = f"payout_sweep_{series.scope}_{entity}_{series.parameter}"
     return FigureOutput(name=name or default.lower(), figure=fig, data=data)
@@ -1068,7 +1260,7 @@ def payout_sweep(
 # --------------------------------------------------------------------------
 
 
-def _point_rows(series: SweepSeries, kpi: str) -> list[dict[str, object]]:
+def _point_rows(series: SweepSeries, kpi: str, split: str) -> list[dict[str, object]]:
     """``points`` rows of one series: every sweep run, or its baseline."""
     rows: list[dict[str, object]] = []
     base = {
@@ -1089,7 +1281,9 @@ def _point_rows(series: SweepSeries, kpi: str) -> list[dict[str, object]]:
                 "run_id": run.run_id,
                 "ok": run.complete,
                 "beta": _evaluation_beta(run) if kpi == TAIL_KPI else None,
-                "kpi_value": kpi_value(run, kpi) if run.complete else None,
+                "kpi_value": (
+                    kpi_value(run, kpi, eval_split=split) if run.complete else None
+                ),
             }
         )
         return rows
@@ -1104,7 +1298,9 @@ def _point_rows(series: SweepSeries, kpi: str) -> list[dict[str, object]]:
                 "run_id": run.run_id,
                 "ok": run.complete,
                 "beta": _evaluation_beta(run) if kpi == TAIL_KPI else None,
-                "kpi_value": kpi_value(run, kpi) if run.complete else None,
+                "kpi_value": (
+                    kpi_value(run, kpi, eval_split=split) if run.complete else None
+                ),
             }
         )
     return rows
@@ -1119,6 +1315,7 @@ def sensitivity(
     labels: AxisLabels | None = None,
     figsize: tuple[float, float] = _FIGSIZE,
     name: str | None = None,
+    eval_split: str | None = None,
 ) -> FigureOutput:
     """Draw a portfolio KPI against the swept value, per scope x objective.
 
@@ -1144,12 +1341,17 @@ def sensitivity(
         Figure size in inches.
     name : str, optional
         Default ``"sensitivity_<parameter>"``.
+    eval_split : str, optional
+        Evaluation split of the KPI; default :func:`figure_split` of the
+        runs read.
 
     Returns
     -------
     FigureOutput
         Main table :data:`SENSITIVITY_COLUMNS`; ``points``
-        (:data:`POINT_COLUMNS`), one row per run read.
+        (:data:`POINT_COLUMNS`), one row per run read; on a ``test`` or
+        ``train`` split also :data:`SPLIT_TABLE`, and the axes title states
+        the split.
 
     Raises
     ------
@@ -1158,7 +1360,7 @@ def sensitivity(
     InconsistentRunsError
         If there are no series, or a series is of another parameter.
     MissingKpiError
-        If a run lacks the KPI.
+        If a run lacks the KPI, or the runs share no split.
     """
     labels = labels or AxisLabels()
     if not series:
@@ -1173,7 +1375,10 @@ def sensitivity(
             s.baseline.require_complete()
     if values is None:
         values = sorted({float(p.value) for s in series for p, _ in s.points})
-    point_rows = [row for s in series for row in _point_rows(s, kpi)]
+    read = [s.baseline for s in series if not s.points]
+    read += [r for s in series for _, r in s.points]
+    split = figure_split(read, eval_split)
+    point_rows = [row for s in series for row in _point_rows(s, kpi, split)]
     points = pd.DataFrame(point_rows, columns=list(POINT_COLUMNS))
     lines: list[dict[str, object]] = []
     for s in series:
@@ -1226,7 +1431,7 @@ def sensitivity(
                 table, (table["scope"] == s.scope) & (table["objective"] == s.objective)
             )
             line = line.dropna(subset=["kpi_value"])
-            scope_style = _scope_style(s.scope_kind)
+            scope_style = _scope_style(s.scope_name)
             ax.plot(
                 line["parameter_value"].astype(float),
                 line["kpi_value"].astype(float),
@@ -1243,14 +1448,17 @@ def sensitivity(
             else f"{kpi.replace('_', ' ').capitalize()}{_unit(labels)}"
         )
         ax.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
-        ax.set_title(parameter_label(parameter), fontsize=style.FONT.label_size)
+        ax.set_title(
+            _split_title(split, parameter_label(parameter)),
+            fontsize=style.FONT.label_size,
+        )
         _frame(ax)
         fig.tight_layout()
-        _scope_objective_legend(fig, [(s.scope_kind, s.objective) for s in series])
+        _scope_objective_legend(fig, [(s.scope_name, s.objective) for s in series])
     return FigureOutput(
         name=name or f"sensitivity_{parameter}",
         figure=fig,
-        data={MAIN_TABLE: table, "points": points},
+        data=_with_split({MAIN_TABLE: table, "points": points}, split),
     )
 
 
@@ -1266,6 +1474,7 @@ def tradeoff(
     annotate_every: int = 2,
     figsize: tuple[float, float] = _FIGSIZE,
     name: str | None = None,
+    eval_split: str | None = None,
 ) -> FigureOutput:
     """Draw tail against total basis risk along one sweep.
 
@@ -1286,20 +1495,25 @@ def tradeoff(
         Figure size in inches.
     name : str, optional
         Default ``"tradeoff_<scope>_<parameter>"``.
+    eval_split : str, optional
+        Evaluation split of the KPIs; default :func:`figure_split` of the
+        sweep runs.
 
     Returns
     -------
     FigureOutput
-        Main table :data:`TRADEOFF_COLUMNS`.
+        Main table :data:`TRADEOFF_COLUMNS`; on a ``test`` or ``train`` split
+        also :data:`SPLIT_TABLE`, and the axes title states the split.
 
     Raises
     ------
     InconsistentRunsError
         If no point succeeded.
     MissingKpiError
-        If a run lacks a KPI.
+        If a run lacks a KPI, or the runs share no split.
     """
     labels = labels or AxisLabels()
+    split = figure_split([r for _, r in series.points], eval_split)
     rows = [
         {
             "parameter": series.parameter,
@@ -1309,8 +1523,12 @@ def tradeoff(
             "run_id": run.run_id,
             "ok": run.complete,
             "beta": _evaluation_beta(run),
-            TOTAL_KPI: kpi_value(run, TOTAL_KPI) if run.complete else None,
-            TAIL_KPI: kpi_value(run, TAIL_KPI) if run.complete else None,
+            TOTAL_KPI: (
+                kpi_value(run, TOTAL_KPI, eval_split=split) if run.complete else None
+            ),
+            TAIL_KPI: (
+                kpi_value(run, TAIL_KPI, eval_split=split) if run.complete else None
+            ),
         }
         for point, run in series.sorted_points()
     ]
@@ -1321,7 +1539,7 @@ def tradeoff(
             f"the {series.parameter} sweep of {series.scope} x {series.objective} "
             "has no successful point to draw"
         )
-    scope_style = _scope_style(series.scope_kind)
+    scope_style = _scope_style(series.scope_name)
     color = style.objective_color(series.objective)
 
     with style.style():
@@ -1341,18 +1559,21 @@ def tradeoff(
         ax.set_xlabel(_total_label(labels))
         ax.set_ylabel(_tail_label(labels))
         ax.ticklabel_format(axis="both", style="sci", scilimits=(0, 0))
-        ax.set_title(parameter_label(series.parameter), fontsize=style.FONT.label_size)
+        ax.set_title(
+            _split_title(split, parameter_label(series.parameter)),
+            fontsize=style.FONT.label_size,
+        )
         _frame(ax)
         fig.tight_layout()
         if annotate_every > 0:
             _annotate_curve(
                 ax, xs, ys, drawn["parameter_value"].tolist(), annotate_every
             )
-        _scope_objective_legend(fig, [(series.scope_kind, series.objective)])
+        _scope_objective_legend(fig, [(series.scope_name, series.objective)])
     return FigureOutput(
         name=name or f"tradeoff_{series.scope}_{series.parameter}",
         figure=fig,
-        data={MAIN_TABLE: table},
+        data=_with_split({MAIN_TABLE: table}, split),
     )
 
 
@@ -1396,7 +1617,9 @@ def _n_locations(run: RunResult) -> int:
     return len(set(run.entities["location_id"]))
 
 
-def cluster_penalty(series: SweepSeries, benchmark: RunResult) -> pd.DataFrame:
+def cluster_penalty(
+    series: SweepSeries, benchmark: RunResult, *, eval_split: str | None = None
+) -> pd.DataFrame:
     """Return the tail-risk penalty of clustering at each cluster count.
 
     ``Pi(C) = CVaR(cluster scope at C clusters) - CVaR(benchmark)``, both
@@ -1408,6 +1631,9 @@ def cluster_penalty(series: SweepSeries, benchmark: RunResult) -> pd.DataFrame:
         The ``n_clusters`` sweep of a cluster scope x objective.
     benchmark : RunResult
         The portfolio scope's baseline run of the same objective.
+    eval_split : str, optional
+        Evaluation split of the CVaRs; default :func:`figure_split` of the
+        benchmark and the sweep runs.
 
     Returns
     -------
@@ -1422,6 +1648,8 @@ def cluster_penalty(series: SweepSeries, benchmark: RunResult) -> pd.DataFrame:
     InconsistentRunsError
         If the series is not an ``n_clusters`` sweep, the objectives differ,
         or the runs cover different numbers of locations.
+    MissingKpiError
+        If a run lacks the CVaR, or the runs share no split.
     """
     if series.parameter != "n_clusters":
         raise InconsistentRunsError(
@@ -1434,7 +1662,8 @@ def cluster_penalty(series: SweepSeries, benchmark: RunResult) -> pd.DataFrame:
             f"and {benchmark.objective!r}"
         )
     k = _n_locations(benchmark)
-    port = kpi_value(benchmark, TAIL_KPI)
+    split = _cluster_split(series, benchmark, eval_split)
+    port = kpi_value(benchmark, TAIL_KPI, eval_split=split)
     rows: list[dict[str, object]] = []
     for point, run in series.sorted_points():
         if run.complete and _n_locations(run) != k:
@@ -1442,7 +1671,7 @@ def cluster_penalty(series: SweepSeries, benchmark: RunResult) -> pd.DataFrame:
                 f"run {run.run_id} covers {_n_locations(run)} locations, the "
                 f"benchmark {benchmark.run_id} {k}"
             )
-        cvar = kpi_value(run, TAIL_KPI) if run.complete else None
+        cvar = kpi_value(run, TAIL_KPI, eval_split=split) if run.complete else None
         rows.append(
             {
                 "n_clusters": int(point.value),
@@ -1459,6 +1688,13 @@ def cluster_penalty(series: SweepSeries, benchmark: RunResult) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=list(PENALTY_COLUMNS))
 
 
+def _cluster_split(
+    series: SweepSeries, benchmark: RunResult, eval_split: str | None
+) -> str:
+    """:func:`figure_split` of the benchmark and the sweep runs."""
+    return figure_split([benchmark, *(r for _, r in series.points)], eval_split)
+
+
 def net_advantage(
     series: SweepSeries,
     benchmark: RunResult,
@@ -1467,6 +1703,7 @@ def net_advantage(
     labels: AxisLabels | None = None,
     figsize: tuple[float, float] = _CLUSTER_FIGSIZE,
     name: str | None = None,
+    eval_split: str | None = None,
 ) -> FigureOutput:
     """Draw the net advantage of clustering over the portfolio scope.
 
@@ -1484,19 +1721,23 @@ def net_advantage(
         The portfolio scope's baseline run of the same objective.
     transaction_costs : sequence of float, default :data:`THESIS_TRANSACTION_COSTS`
         Costs per contract, loss units; the ``figures`` command passes
-        ``FigureContext.transaction_costs`` (MAR-120).
+        ``FigureContext.transaction_costs``.
     labels : AxisLabels, optional
         Units.
     figsize : (float, float), default (8, 8)
         Figure size in inches.
     name : str, optional
         Default ``"net_advantage_<scope>"``.
+    eval_split : str, optional
+        See :func:`cluster_penalty`.
 
     Returns
     -------
     FigureOutput
         Main table :data:`NET_ADVANTAGE_COLUMNS` (successful points only);
-        ``penalty`` (:data:`PENALTY_COLUMNS`, every point).
+        ``penalty`` (:data:`PENALTY_COLUMNS`, every point); on a ``test`` or
+        ``train`` split also :data:`SPLIT_TABLE`, and the axes title states
+        the split.
 
     Raises
     ------
@@ -1507,7 +1748,8 @@ def net_advantage(
     costs = sorted(float(c) for c in transaction_costs)
     if not costs:
         raise InconsistentRunsError("the net advantage needs transaction costs")
-    penalty = cluster_penalty(series, benchmark)
+    split = _cluster_split(series, benchmark, eval_split)
+    penalty = cluster_penalty(series, benchmark, eval_split=split)
     ok = _where(penalty, penalty["ok"].astype(bool)).reset_index(drop=True)
     if ok.empty:
         raise InconsistentRunsError(
@@ -1553,7 +1795,10 @@ def net_advantage(
         ax.set_xticks(range(1, k + 1))
         ax.set_xlabel(r"Number of clusters $C$")
         ax.set_ylabel(rf"Net advantage $\Delta(C;\tau)${_unit(labels)}")
-        ax.yaxis.set_major_formatter(FuncFormatter(_money))
+        ax.yaxis.set_major_formatter(style.MoneyFormatter())
+        title = _split_heading(split)
+        if title is not None:
+            ax.set_title(title, fontsize=style.FONT.label_size)
         _frame(ax)
         bar = fig.colorbar(
             ScalarMappable(norm=norm, cmap=cmap),
@@ -1566,7 +1811,7 @@ def net_advantage(
         )
         bar.set_label(rf"Transaction cost $\tau$ per contract{_unit(labels)}")
         bar.set_ticks(costs)
-        bar.set_ticklabels([_money(t) for t in costs])
+        bar.set_ticklabels(style.MoneyFormatter().format_ticks(list(costs)))
         handle = Line2D(
             [0],
             [0],
@@ -1579,7 +1824,7 @@ def net_advantage(
     return FigureOutput(
         name=name or f"net_advantage_{series.scope}",
         figure=fig,
-        data={MAIN_TABLE: table, "penalty": penalty},
+        data=_with_split({MAIN_TABLE: table, "penalty": penalty}, split),
     )
 
 
@@ -1590,6 +1835,7 @@ def breakeven_cost(
     labels: AxisLabels | None = None,
     figsize: tuple[float, float] = _CLUSTER_FIGSIZE,
     name: str | None = None,
+    eval_split: str | None = None,
 ) -> FigureOutput:
     """Draw the break-even transaction cost of clustering.
 
@@ -1609,12 +1855,15 @@ def breakeven_cost(
         Figure size in inches.
     name : str, optional
         Default ``"breakeven_cost_<scope>"``.
+    eval_split : str, optional
+        See :func:`cluster_penalty`.
 
     Returns
     -------
     FigureOutput
         Main table :data:`BREAKEVEN_COLUMNS`, the points with ``C < K``
-        (failed ones with no values).
+        (failed ones with no values); on a ``test`` or ``train`` split also
+        :data:`SPLIT_TABLE`, and the axes title states the split.
 
     Raises
     ------
@@ -1623,7 +1872,8 @@ def breakeven_cost(
         ``K``.
     """
     labels = labels or AxisLabels()
-    penalty = cluster_penalty(series, benchmark)
+    split = _cluster_split(series, benchmark, eval_split)
+    penalty = cluster_penalty(series, benchmark, eval_split=split)
     k = int(penalty["n_locations"].iloc[0])
     table = penalty[penalty["n_clusters"] < k].reset_index(drop=True)
     breakeven = [
@@ -1656,7 +1906,10 @@ def breakeven_cost(
         ax.set_xticks(range(1, k + 1))
         ax.set_xlabel(r"Number of clusters $C$")
         ax.set_ylabel(rf"Break-even cost per contract $\tau^*(C)${_unit(labels)}")
-        ax.yaxis.set_major_formatter(FuncFormatter(_money))
+        ax.yaxis.set_major_formatter(style.MoneyFormatter())
+        title = _split_heading(split)
+        if title is not None:
+            ax.set_title(title, fontsize=style.FONT.label_size)
         _frame(ax)
         fig.tight_layout()
         handles = [
@@ -1675,7 +1928,7 @@ def breakeven_cost(
     return FigureOutput(
         name=name or f"breakeven_cost_{series.scope}",
         figure=fig,
-        data={MAIN_TABLE: table},
+        data=_with_split({MAIN_TABLE: table}, split),
     )
 
 
@@ -1690,7 +1943,7 @@ def _series(
     """Every single run of the config with its points of one sweep.
 
     The runs of the sweep's points are read in bulk, one store read per
-    table (MAR-120). Points in ``context.missing_sweeps`` are not read; each
+    table. Points in ``context.missing_sweeps`` are not read; each
     series lists them as ``missing``.
     """
     absent = {p.run_id for p in context.missing_sweeps}
@@ -1724,7 +1977,7 @@ def _series(
 
 
 def _missing_points(name: str, series: Sequence[SweepSeries]) -> SkippedFigure | None:
-    """Skip a figure whose sweep points are not all in the store (MAR-120)."""
+    """Skip a figure whose sweep points are not all in the store."""
     from parametric_insurance_design_viz.command import SkippedFigure
 
     missing = [(s, p) for s in series for p in s.missing]
@@ -1937,6 +2190,11 @@ def _cluster_figures(
         if (s.scope_kind, s.objective) != ("cluster", FOCUS_OBJECTIVE) or not s.swept:
             continue
         names = (f"net_advantage_{scope.key}", f"breakeven_cost_{scope.key}")
+        if s.scope_name == style.SEPARATE_CLUSTER_SCOPE:
+            yield from (
+                SkippedFigure(n, SEPARATE_CLUSTER_REASON, failed=False) for n in names
+            )
+            continue
         if not portfolio:
             yield from (
                 SkippedFigure(
@@ -1996,7 +2254,7 @@ def _cluster_figures(
 
 
 def sweep_figures(context: FigureContext) -> Iterator[FigureOutput | SkippedFigure]:
-    """Draw the MAR-112 figure set: reallocation, sweeps, trade-off, clusters.
+    """Draw the sweep figure set: reallocation, sweeps, trade-off, clusters.
 
     Registered in ``command.FIGURE_SETS``. See the module docstring for the
     figures and how failures are reported.

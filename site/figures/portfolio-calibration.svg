@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 336" role="img" aria-labelledby="sch-port-title sch-port-desc" class="schematic-svg">
+<title id="sch-port-title">Schematic: calibrating each site on its own, or jointly</title>
+<desc id="sch-port-desc">Top: each of three sites A, B and C of one owner has its own payout and its own budget, calibrated on its own loss. Bottom: each site keeps its own payout on its own index, but the payouts are summed, and one objective and one budget apply to the owner's total. An arrow from A to B marks cross-coverage: within an event, a payout at A can cover a shortfall at B. Schematic, not data.</desc>
+<defs>
+  <marker id="sch-port-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+  </marker>
+  <marker id="sch-port-arr-warm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#d4631c"/>
+  </marker>
+</defs>
+<g fill="currentColor" font-family="inherit" font-size="13">
+  <text x="396" y="14" text-anchor="end" font-size="11" font-style="italic">Schematic, not data</text>
+  <text x="4" y="34" font-weight="600">Each site on its own (individual scope)</text>
+  <text x="4" y="176" font-weight="600">Jointly (portfolio scope)</text>
+</g>
+<!-- Individual: three sites, each with its own payout and budget. -->
+<g fill="none" stroke="currentColor" stroke-width="1.3">
+  <circle cx="70" cy="64" r="14"/>
+  <circle cx="200" cy="64" r="14"/>
+  <circle cx="330" cy="64" r="14"/>
+  <rect x="20" y="100" width="100" height="40" rx="6"/>
+  <rect x="150" y="100" width="100" height="40" rx="6"/>
+  <rect x="280" y="100" width="100" height="40" rx="6"/>
+</g>
+<g stroke="currentColor" stroke-width="1" marker-end="url(#sch-port-arr)">
+  <line x1="70" y1="78" x2="70" y2="99"/>
+  <line x1="200" y1="78" x2="200" y2="99"/>
+  <line x1="330" y1="78" x2="330" y2="99"/>
+</g>
+<g fill="currentColor" font-family="inherit" font-size="12" text-anchor="middle">
+  <text x="70" y="68">A</text><text x="200" y="68">B</text><text x="330" y="68">C</text>
+  <text x="70" y="116">own payout,</text><text x="70" y="132">own budget</text>
+  <text x="200" y="116">own payout,</text><text x="200" y="132">own budget</text>
+  <text x="330" y="116">own payout,</text><text x="330" y="132">own budget</text>
+</g>
+<line x1="4" y1="154" x2="396" y2="154" stroke="currentColor" stroke-opacity="0.35" stroke-width="1"/>
+<!-- Joint: three payouts, summed into one design problem. -->
+<g fill="none" stroke="currentColor" stroke-width="1.3">
+  <circle cx="70" cy="214" r="14"/>
+  <circle cx="200" cy="214" r="14"/>
+  <circle cx="330" cy="214" r="14"/>
+  <rect x="30" y="244" width="80" height="24" rx="6"/>
+  <rect x="160" y="244" width="80" height="24" rx="6"/>
+  <rect x="290" y="244" width="80" height="24" rx="6"/>
+</g>
+<path d="M84,205 Q135,180 186,205" fill="none" stroke="#d4631c" stroke-width="1.8" stroke-dasharray="5 3" marker-end="url(#sch-port-arr-warm)"/>
+<text x="135" y="191" text-anchor="middle" fill="currentColor" font-family="inherit" font-size="11" font-style="italic">cross-coverage</text>
+<g stroke="currentColor" stroke-width="1" marker-end="url(#sch-port-arr)">
+  <line x1="70" y1="228" x2="70" y2="243"/>
+  <line x1="200" y1="228" x2="200" y2="243"/>
+  <line x1="330" y1="228" x2="330" y2="243"/>
+  <line x1="70" y1="268" x2="150" y2="293"/>
+  <line x1="200" y1="268" x2="200" y2="293"/>
+  <line x1="330" y1="268" x2="250" y2="293"/>
+</g>
+<rect x="60" y="294" width="280" height="36" rx="6" fill="#3b82f6" fill-opacity="0.18" stroke="#3b82f6" stroke-width="2"/>
+<g fill="currentColor" font-family="inherit" font-size="12" text-anchor="middle">
+  <text x="70" y="218">A</text><text x="200" y="218">B</text><text x="330" y="218">C</text>
+  <text x="70" y="260">payout A</text><text x="200" y="260">payout B</text><text x="330" y="260">payout C</text>
+  <text x="200" y="317" font-size="13">one objective, one budget, on the total</text>
+</g>
+</svg>

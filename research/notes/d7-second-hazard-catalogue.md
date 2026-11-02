@@ -1,6 +1,6 @@
 # D7: second hazard catalogue, comparison note (for the owner's decision)
 
-- Issue: [MAR-62](https://linear.app/marc-prinzing/issue/MAR-62/p-06-decide-the-second-hazard-catalogue-d7) (Human / Decision). Prepared by a worker agent on 2026-10-25.
+- Issue: MAR-62 (Human / Decision). Prepared by a worker agent on 2026-10-25.
 - Status: **decided.** On 2026-10-25 the owner, Marc Prinzing, chose **STORM** (present climate, v4, North Atlantic, CC0) as the D7 second catalogue, following the recommendation below. Perturbed IBTrACS tracks stay for the K-04 CLIMADA tutorial and, at most, an optional check against history. SPEC §11 D7 records the outcome. The comparison below is kept as written, as the basis for the decision.
 - Location: `research/notes/` is new. The only existing note folder, `research/lit/`, holds the literature review, so this note sits next to it rather than inside it.
 

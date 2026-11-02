@@ -1,6 +1,6 @@
 # Cat-in-a-circle radius sensitivity for the Florida counties (measurements)
 
-- Issue: [MAR-133](https://linear.app/marc-prinzing/issue/MAR-133/p-05-cat-in-a-circle-radius-sensitivity-for-the-florida-counties) (P-05). Written by a worker agent on 2026-10-28.
+- Issue: MAR-133 (P-05). Written by a worker agent on 2026-10-28.
 - Asked for by: the owner's answer to MAR-118 Q3 (2026-10-27): run a sensitivity over the cat-in-a-circle radius before a radius is chosen for the paper portfolio (D2, SPEC §6.6). At 50 km, MAR-114 found 50.2 % of the loss on (event, county) pairs whose circle sees category 0 (`research/notes/d2-florida-eventset.md`).
 - Status: **observations, not conclusions.** The choice of radius is the owner's (MAR-118).
 - Data, hashes and the command that regenerates every number below: `research/data/cat-in-circle-radius-sensitivity/` (`README.md`, `summary.csv`, `counties.csv`, `checksums.json`, `radius_sensitivity.png`).

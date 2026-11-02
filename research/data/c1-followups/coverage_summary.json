@@ -1,0 +1,82 @@
+{
+  "issue": "MAR-205",
+  "family": "coverage",
+  "grid": "research/configs/c1-followups/followups.yaml",
+  "settings": {
+    "scope": "portfolio",
+    "kappa": 1.0,
+    "designs": [
+      {
+        "pricing": "pure",
+        "design": "none"
+      },
+      {
+        "pricing": "pure",
+        "design": "mse"
+      },
+      {
+        "pricing": "pure",
+        "design": "eu"
+      },
+      {
+        "pricing": "pure",
+        "design": "wcvar@0.99"
+      },
+      {
+        "pricing": "coc_r0.06",
+        "design": "mse"
+      },
+      {
+        "pricing": "coc_r0.06",
+        "design": "wcvar@0.99"
+      }
+    ],
+    "paired": [
+      [
+        "pure",
+        "wcvar@0.99",
+        "mse"
+      ],
+      [
+        "pure",
+        "wcvar@0.99",
+        "eu"
+      ],
+      [
+        "coc_r0.06",
+        "wcvar@0.99",
+        "mse"
+      ]
+    ],
+    "kpis": [
+      "cvar_uncovered",
+      "expected_uncovered"
+    ],
+    "eval_betas": [
+      0.95,
+      0.99,
+      0.995
+    ],
+    "n_years": [
+      3000
+    ],
+    "n_replications": 500,
+    "n_bootstrap": 1000,
+    "level": 0.9,
+    "seed": 20261102
+  },
+  "population": {
+    "n_years": 10000,
+    "n_draws": 13,
+    "n_rows": 13897
+  },
+  "config_hashes": {
+    "pure:mse": "sha256:4d63dddd3335f6be8719b0f8f1b93c75dd6a1eae12cc69a0033e9f1ef2ead736",
+    "pure:eu": "sha256:08a569620416f71580b94a7ed9b74285cc0b67fe5284c3e199a494ac80c6f71b",
+    "pure:wcvar@0.99": "sha256:7d700f7bd02d075391e466d95d652df82c2f11f421ef5bce5d95b9628807a54d",
+    "coc_r0.06:mse": "sha256:0ada0ff98fb282d869cc4e205542535bd97e807532219566c9f0f8139507bd54",
+    "coc_r0.06:wcvar@0.99": "sha256:a705dea1563ad5c0077ee1a8d3ecd8229de1c461db509b15f9c54b7c1590b831",
+    "pure:none": "-"
+  },
+  "seconds": 1408.4
+}

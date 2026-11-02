@@ -152,6 +152,7 @@ def test_export_site_help(capsys: pytest.CaptureFixture[str]) -> None:
         "--max-file-bytes N",
         "--max-bundle-bytes N",
         "--label TEXT",
+        "--split S",
     ):
         assert option in out
     assert "Never solves" in out
@@ -168,6 +169,7 @@ def test_export_site_help(capsys: pytest.CaptureFixture[str]) -> None:
         ["export-site", "x.yaml", "--max-bundle-bytes", "many"],
         ["export-site", "x.yaml", "--policy", "fast"],
         ["export-site", "x.yaml", "-v", "-q"],
+        ["export-site", "x.yaml", "--split", "pooled"],
     ],
 )
 def test_export_site_usage_errors(
@@ -381,3 +383,73 @@ def test_kfold_sweeps_and_events_exit_3(
         assert main([*argv, "--events"]) == ExitCode.INPUT_ERROR
     assert "events are not exported" in caplog.text
     assert not (tmp_path / "b").exists()
+
+
+# -- the split filter (MAR-213) -------------------------------------------------------
+
+
+def arrow_frame(path: Path) -> Any:  # noqa: ANN401
+    with pa.memory_map(str(path)) as source:
+        return pa.ipc.open_file(source).read_all().to_pandas()
+
+
+@pytest.fixture(scope="module")
+def holdout(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A holdout config on the parity event set, annual basis, its runs solved."""
+    pytest.importorskip(EXPORT_MODULE)
+    config = parity_config(
+        tmp_path_factory.mktemp("parity-site-holdout"),
+        basis="annual",
+        sample={"kind": "holdout", "train_fraction": 0.7},
+        evaluation={"beta": 0.99},
+        sweeps=[],
+    )
+    assert main(["run", str(config), "-q"]) == ExitCode.OK
+    return config
+
+
+def test_split_test_exports_the_out_of_sample_rows_only(
+    holdout: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    plain, test = tmp_path / "plain", tmp_path / "test"
+    argv = ["export-site", str(holdout), "-q"]
+    assert main([*argv, "--out", str(plain)]) == ExitCode.OK
+    capsys.readouterr()
+    assert main([*argv, "--out", str(test), "--split", "test"]) == ExitCode.OK
+    out = capsys.readouterr().out
+    manifest = json.loads((test / "manifest.json").read_text(encoding="utf-8"))
+    section = manifest["split_filter"]
+    assert section["eval_split"] == "test"
+    removed = sum(section["rows_removed"].values())
+    assert removed > 0
+    assert (
+        f"split filter: eval_split 'test' kept, {removed:,} rows of other splits "
+        "removed (kpis, exceedance, map)"
+    ) in out
+    for name in ("kpis", "exceedance", "map"):
+        rows = arrow_frame(test / f"baseline.{name}.arrow")
+        assert set(rows["eval_split"]) == {"test"}, name
+        assert set(arrow_frame(plain / f"baseline.{name}.arrow")["eval_split"]) == {
+            "train",
+            "test",
+        }, name
+    payouts = "baseline.payouts.arrow"
+    assert (test / payouts).read_bytes() == (plain / payouts).read_bytes()
+    unfiltered = json.loads((plain / "manifest.json").read_text(encoding="utf-8"))
+    assert unfiltered["split_filter"]["eval_split"] is None
+
+
+def test_a_split_without_rows_exits_3(
+    solved: Path, kfold: Path, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    out_dir = tmp_path / "b"
+    with caplog.at_level(logging.ERROR, logger="parametric_insurance_design"):
+        argv = ["export-site", str(solved), "--out", str(out_dir), "--split", "test"]
+        assert main([*argv, "-q"]) == ExitCode.INPUT_ERROR
+    assert "no KPI rows of eval_split 'test'" in caplog.text  # a full sample
+    caplog.clear()
+    with caplog.at_level(logging.ERROR, logger="parametric_insurance_design"):
+        argv = ["export-site", str(kfold), "--out", str(out_dir), "--split", "test"]
+        assert main([*argv, "-q"]) == ExitCode.INPUT_ERROR
+    assert "is k-fold" in caplog.text
+    assert not out_dir.exists()

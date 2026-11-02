@@ -42,6 +42,8 @@ The second idea, [portfolio calibration](../docs/concepts/portfolio-calibration.
 
 The script prints portfolio-level KPIs, on the test years and, labelled in-sample, on the training years, and draws the payout function of every asset (every cluster, in the cluster scope) per scope. A joint design is determined only at the portfolio level, so the script shows no per-asset uncovered-loss KPI for it, and its per-asset payouts are one optimal design of possibly several. The numbers illustrate the method on the fixture. They are not evidence for or against joint calibration.
 
+Its weighted-CVaR designs in the `portfolio` and `cluster` scopes are the two ideas [combined](../docs/concepts/combination.md): the tail objective on the owner's total.
+
 ## Tests and licence
 
 CI runs `test_examples.py` (`uv run pytest examples`) on every pull request. It runs each script in a fresh process and checks that the output states the setup, labels the training-year values as in-sample, and ranks nothing. `ruff.toml` bans imports of the adapter packages here.

@@ -1,0 +1,7 @@
+# The method pages include the repository's concept docs (docs/concepts/*.md)
+# and never copy their text. concepts.lua adapts the GitHub-flavoured files
+# to the site: title, links between the pages, links to other docs, figures.
+filters:
+  - concepts.lua
+toc: true
+toc-depth: 2

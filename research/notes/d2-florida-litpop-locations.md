@@ -1,6 +1,6 @@
 # D2: Florida county locations from LitPop (measurements)
 
-- Issue: [MAR-113](https://linear.app/marc-prinzing/issue/MAR-113/p-05a-florida-county-locations-from-litpop-locations-table-with) (P-05a, part of MAR-31). Written by a worker agent on 2026-10-27.
+- Issue: MAR-113 (P-05a, part of MAR-31). Written by a worker agent on 2026-10-27.
 - Decision this implements: D2 (SPEC §6.6, MAR-30), with the method proposed in `research/notes/d2-paper-portfolio.md`.
 - Status: **observations**, not conclusions. Interpretation (skew, framing, which index) belongs to the owner and to MAR-114/MAR-31.
 

@@ -1,7 +1,7 @@
 """Problem builder: scope x payout x objective x pricing x constraints (SPEC §4.2).
 
-Owner: MAR-14. Replaces the thesis's nine near-duplicate solver methods
-(thesis issue C1) with one assembly, fixed by ADR 0002:
+Replaces the thesis's nine near-duplicate solver methods (SPEC §3.1, C1)
+with one assembly, fixed by ADR 0002:
 
 1. ``data = sample.select(eventset)`` (default :meth:`Sample.full`).
 2. ``measure = outcome_measure(data, basis, years=sample.years)``.
@@ -13,9 +13,9 @@ Owner: MAR-14. Replaces the thesis's nine near-duplicate solver methods
    ``objective_term.constraints`` + ``premium.constraints`` +
    ``c.build(ctx, premium)`` for each extra constraint.
 6. ``cp.Problem(cp.Minimize(objective_term.expression), constraints)``,
-   wrapped in a :class:`BuiltProblem` that also carries ``pricing``
-   (MAR-171), so that ``solve.solve`` records the exact premium of the
-   solution without being given the pricing again.
+   wrapped in a :class:`BuiltProblem` that also carries ``pricing``, so
+   that ``solve.solve`` records the exact premium of the solution without
+   being given the pricing again.
 
 Loss scaling and the payout cap are decided in :func:`build_context` (thesis:
 scale by the maximum objective-level loss, or 1 if it is <= 1e-6; cap each
@@ -26,10 +26,9 @@ convex programming (DCP) rules and raises :class:`ComponentConfigError` if
 not, so a non-convex combination fails when it is built, not when it is
 solved. Solving is :func:`parametric_insurance_design.solve.solve`'s job.
 
-The MAR-14 issue text names a single ``build_problem``; ADR 0002 fixed the
-interface as :func:`build_context` plus :func:`build_problems`, which returns
-one :class:`BuiltProblem` per design problem (one per asset in the individual
-scope).
+The entry points are :func:`build_context` and :func:`build_problems`, which
+returns one :class:`BuiltProblem` per design problem (one per asset in the
+individual scope).
 """
 
 from __future__ import annotations
@@ -88,13 +87,13 @@ class BuiltProblem:
     build_seconds : float
         Wall time of the assembly.
     pricing : Pricing, optional
-        The pricing that built ``premium`` (MAR-171). :func:`build_problems`
+        The pricing that built ``premium``. :func:`build_problems`
         always sets it; ``solve.solve`` then records ``SolveResult.premium``
         as ``pricing.premium_value`` of the solution's realised payout, and
         refuses a ``pricing`` argument that differs from it. Default
-        ``None``: not known, for a problem assembled by hand (e.g. the
-        walking skeleton); ``solve`` then records the premium term's value,
-        or ``premium_value`` under the ``pricing`` it is given.
+        ``None``: not known, for a problem assembled by hand; ``solve``
+        then records the premium term's value, or ``premium_value`` under
+        the ``pricing`` it is given.
 
     Raises
     ------

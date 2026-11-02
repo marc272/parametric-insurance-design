@@ -14,7 +14,6 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
@@ -30,11 +29,11 @@ from parametric_insurance_design_viz.errors import (
 from parametric_insurance_design_viz.figure_data import write_figure
 from parametric_insurance_design_viz.payout_functions import (
     STEP_COLUMNS,
-    _step_xy,
     below_attachment_mode,
     normalised_payout,
     payout_grid,
     payout_steps,
+    step_points,
 )
 from parametric_insurance_design_viz.reader import ResultReader, RunResult
 
@@ -57,12 +56,6 @@ ZERO_PAYOUT = {
 def zero(tmp_path_factory: pytest.TempPathFactory) -> Fixture:
     """The ``toy`` store with ``below_attachment: zero``."""
     return build_fixture(tmp_path_factory.mktemp("zero"), payout=ZERO_PAYOUT)
-
-
-@pytest.fixture(autouse=True)
-def _close_figures() -> object:
-    yield
-    plt.close("all")
 
 
 def scope_runs(fixture: Fixture, scope: str) -> tuple[RunResult, ...]:
@@ -117,9 +110,9 @@ def test_a_zero_run_without_the_key_is_refused(zero: Fixture, toy: Fixture) -> N
     # A "zero" run written before MAR-178: its config says "zero", but its
     # parameters have no key. Its run id is unchanged, so it is a cache hit.
     stale = with_parameters(scope_runs(zero, "individual")[0], below_attachment=None)
-    with pytest.raises(InconsistentRunsError, match="before MAR-178"):
+    with pytest.raises(InconsistentRunsError, match="written by an older runner"):
         below_attachment_mode(stale)
-    with pytest.raises(InconsistentRunsError, match="before MAR-178"):
+    with pytest.raises(InconsistentRunsError, match="written by an older runner"):
         payout_grid((stale,))
     # The other way round: parameters say "zero", the config does not.
     wrong = with_parameters(scope_runs(toy, "individual")[0], below_attachment="zero")
@@ -145,14 +138,14 @@ def test_an_unknown_mode_is_refused(toy: Fixture, bad: object) -> None:
 def test_step_points_in_both_modes() -> None:
     bp = np.array([20.0, 30.0, 40.0])
     levels = np.array([2.0, 5.0])
-    x, y = _step_xy(bp, levels, (10.0, 50.0), "first_bin")
+    x, y = step_points(bp, levels, (10.0, 50.0), "first_bin")
     np.testing.assert_array_equal(x, [10.0, 20.0, 30.0, 40.0, 50.0])
     np.testing.assert_array_equal(y, [2.0, 2.0, 5.0, 5.0, 5.0])
-    x, y = _step_xy(bp, levels, (10.0, 50.0), "zero")
+    x, y = step_points(bp, levels, (10.0, 50.0), "zero")
     np.testing.assert_array_equal(x, [10.0, 20.0, 30.0, 40.0, 50.0])
     np.testing.assert_array_equal(y, [0.0, 2.0, 5.0, 5.0, 5.0])
     # An axis that starts above the attachment leaves no room below it.
-    x, y = _step_xy(bp, levels, (25.0, 35.0), "zero")
+    x, y = step_points(bp, levels, (25.0, 35.0), "zero")
     np.testing.assert_array_equal(x, [20.0, 20.0, 30.0, 40.0, 40.0])
     np.testing.assert_array_equal(y, [0.0, 2.0, 5.0, 5.0, 5.0])
 

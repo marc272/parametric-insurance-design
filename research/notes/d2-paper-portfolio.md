@@ -1,6 +1,6 @@
 # D2: paper portfolio, decision note (for the owner's decision)
 
-- Issue: [MAR-30](https://linear.app/marc-prinzing/issue/MAR-30/p-05-portfolio-spike-choose-the-paper-portfolio-d2) (Human / Decision). Prepared by a worker agent on 2026-10-25.
+- Issue: MAR-30 (Human / Decision). Prepared by a worker agent on 2026-10-25.
 - Status: **open.** The owner, Marc Prinzing, decides D2. This note compares the candidates and proposes one; it does not record a decision. SPEC §11 D2 is unchanged.
 - Location: next to the D7 note, in `research/notes/`.
 - Scope: candidates (b) LitPop and (c) Overture are assessed. Candidate (a) VELO/CDT is **pending MAR-41** (the CRC/VELO stream is deferred), and no CRC/VELO data or credentials were used.

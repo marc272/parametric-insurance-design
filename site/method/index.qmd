@@ -1,0 +1,12 @@
+---
+title: "Method"
+description: "The two ideas of the library, the tail-risk objective and portfolio calibration, and their combination, as the code implements them."
+---
+
+{{< include ../../docs/concepts/README.md >}}
+
+---
+
+::: {.source-note}
+The method pages are the repository's concept docs, [`docs/concepts/`](https://github.com/marc272/parametric-insurance-design/tree/main/docs/concepts), rendered for the site. This page is its `README.md`.
+:::

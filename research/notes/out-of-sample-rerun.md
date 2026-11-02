@@ -1,6 +1,6 @@
 # F-09: the thesis configuration out of sample
 
-- Issue: [MAR-22](https://linear.app/marc-prinzing/issue/MAR-22/f-09-year-block-traintest-splits-and-out-of-sample-kpis) (F-09), SPEC §6.1, thesis issue M1. Written by a worker agent on 2026-10-27.
+- Issue: MAR-22 (F-09), SPEC §6.1, thesis issue M1. Written by a worker agent on 2026-10-27.
 - Status: **observations only.** Interpretation belongs to checkpoint C1 (MAR-29). These are point values. Confidence intervals come with MAR-23. The publication rule applies: these numbers aren't for public use as a claim about the method.
 - Method: `docs/methodology/out-of-sample.md`. Script: `research/scripts/out_of_sample_rerun.py`. Data: `research/data/out-of-sample-rerun/`, with every row's `config_hash` and `run_id`.
 
