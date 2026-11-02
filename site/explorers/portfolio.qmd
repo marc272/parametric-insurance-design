@@ -222,7 +222,7 @@ designLine = objective === "weighted_cvar"
 
 ```{ojs}
 html`<div class="explorer-selection">
-  <p><strong>Shown:</strong> the designs of the ${designLine}, out of sample on the test years ${fmtYears(nTrain)}–${fmtYears(nYears - 1)}.</p>
+  <p><strong>Shown:</strong> the designs calibrated for ${designLine}, out of sample on the test years ${fmtYears(nTrain)}–${fmtYears(nYears - 1)}.</p>
   ${shown.length === 0 ? html`<p class="explorer-note">No design selected: tick at least one under "Designs".</p>` : ""}
 </div>`
 ```
@@ -434,7 +434,10 @@ chartWidthFull = Generators.observe((notify) => {
 radiusRange = [5, 24]
 maxValue = d3.max(locations, (l) => l.value)
 radiusOf = (d) => radiusRange[0] + (radiusRange[1] - radiusRange[0]) * Math.sqrt(d.value / maxValue)
-siteMap = ({fill, label, tip, legendOptions, symbolOf}) => Plot.plot({
+// How far a symbol reaches above its centre, in units of r (Plot gives
+// every symbol the area of a circle of radius r).
+symbolTop = ({circle: 1, square: 0.89, triangle: 1.56, diamond: 1.65})
+siteMap = ({data, fill, label, tip, legendOptions, symbolOf, symbolName}) => Plot.plot({
   width: mapWidth,
   style: {background: "transparent"},
   projection: {type: "mercator", domain: mapDomain, inset: 46},
@@ -442,10 +445,10 @@ siteMap = ({fill, label, tip, legendOptions, symbolOf}) => Plot.plot({
   ...legendOptions,
   marks: [
     Plot.geo(graticule, {stroke: palette.graticule, strokeWidth: 0.75}),
-    Plot.dot(siteCover, {x: "lon", y: "lat", r: "value", fill, symbol: symbolOf, stroke: "currentColor", strokeOpacity: 0.6, strokeWidth: 0.75}),
+    Plot.dot(data, {x: "lon", y: "lat", r: "value", fill, symbol: symbolOf, stroke: "currentColor", strokeOpacity: 0.6, strokeWidth: 0.75}),
     // One label per site, just above its dot (dy is a constant per mark).
-    ...siteCover.map((d) => Plot.text([d], {x: "lon", y: "lat", text: label, dy: -(radiusOf(d) + 3), lineAnchor: "bottom", fill: "currentColor", fontSize: 11, stroke: "var(--plot-background)", strokeWidth: 3})),
-    Plot.tip(siteCover, Plot.pointer({x: "lon", y: "lat", title: tip}))
+    ...data.map((d) => Plot.text([d], {x: "lon", y: "lat", text: label, dy: -(radiusOf(d) * (symbolTop[symbolName?.(d) ?? "circle"] ?? 1.7) + 3), lineAnchor: "bottom", fill: "currentColor", fontSize: 11, stroke: "var(--plot-background)", strokeWidth: 3})),
+    Plot.tip(data, Plot.pointer({x: "lon", y: "lat", title: tip}))
   ]
 })
 ```
@@ -454,6 +457,7 @@ siteMap = ({fill, label, tip, legendOptions, symbolOf}) => Plot.plot({
 
 ```{ojs}
 siteMap({
+  data: siteCover,
   fill: (d) => d.ratio,
   label: (d) => `${d.location_id} ${d.ratio == null ? "" : d3.format(".0f")(d.ratio) + " %"}`,
   tip: (d) => `${d.location_id} · ${siteName(d)}\nInsured value: ${fmtMoney(d.value)}\nExpected loss: ${fmtMoney(d.loss)} a year\nExpected payout: ${fmtMoney(d.payout)} a year\nCover E[π]/E[L]: ${fmtPct(d.ratio)}`,
@@ -515,6 +519,10 @@ clusters = clusterIds.map((c) => {
   return {id: c, total, members: members.map((l) => ({...l, weight: l.value / total}))};
 })
 clusterSymbols = ["circle", "square", "triangle", "diamond", "star", "cross"]
+clusterSymbolOf = (c) => clusterSymbols[clusterIds.indexOf(c)]
+// The sites with their cluster, a named field: Plot draws one legend for the
+// colour and the symbol only when both channels name the same field.
+clusterSites = locations.map((l) => ({...l, cluster: assignment.get(l.location_id)}))
 clusterParams = clusterRuns[0]?.parameters ?? {}
 ```
 
@@ -530,8 +538,10 @@ with $x_i$ the wind speed at site $i$ and $v_i$ its insured value. The weights a
 
 ```{ojs}
 clusterRuns.length === 0 ? html`` : siteMap({
-  fill: (d) => assignment.get(d.location_id),
-  symbolOf: (d) => assignment.get(d.location_id),
+  data: clusterSites,
+  fill: "cluster",
+  symbolOf: "cluster",
+  symbolName: (d) => clusterSymbolOf(d.cluster),
   label: (d) => `${d.location_id} · ${assignment.get(d.location_id)}`,
   tip: (d) => `${d.location_id} · ${siteName(d)}\nCluster ${assignment.get(d.location_id)}\nInsured value: ${fmtMoney(d.value)}\nWeight in the cluster index: ${fmtShare(clusters.find((c) => c.id === assignment.get(d.location_id)).members.find((m) => m.location_id === d.location_id).weight)}`,
   legendOptions: {
