@@ -409,6 +409,10 @@ class StoredSet(sens.JointSet):
         ]
 
 
+WARM_LIMIT: Final[float] = 120.0
+"""Seconds a warm-started HiGHS solve may take before the fresh solve."""
+
+
 class WarmLP:
     """The ranger's linear program ``min cost . theta`` over the set, in HiGHS.
 
@@ -461,6 +465,8 @@ class WarmLP:
         """Minimise ``cost . theta``; return theta (scaled) and the status."""
         c = np.asarray(cost, dtype=np.float64).ravel(order="F")
         self.h.changeColsCost(self.n, self.idx, c)
+        # a warm start can stall on these LPs: cap each solve, then fall back
+        self.h.setOptionValue("time_limit", self.h.getRunTime() + WARM_LIMIT)
         self.h.run()
         status = self.h.modelStatusToString(self.h.getModelStatus())
         if status != "Optimal":
@@ -479,7 +485,8 @@ def _lp_ranger(js: StoredSet, lp: bool) -> sens.JointRanger:
     :func:`_solve_range` as every other program.
     """
     ranger = sens.JointRanger(js)
-    warm = WarmLP(ranger) if lp else None
+    # E[U] sets: warm-started HiGHS was far slower than a fresh solve (MAR-203)
+    warm = WarmLP(ranger) if lp and js.objective.name != "expected_uncovered" else None
 
     def solve_range(prob: cp.Problem) -> str:
         if warm is not None and prob is ranger.lp:
@@ -587,6 +594,7 @@ def joint_worker(
     store_root: str,
     near: bool,
     payouts: bool,
+    program: bool = True,
 ) -> dict[str, Any]:
     """Second optimum, free-bin ends and (optionally) near-optimal ranges.
 
@@ -663,7 +671,11 @@ def joint_worker(
             lab = f"{split}|{sens.klabel(kpi, beta)}"
             t = time.perf_counter()
             ref = sd[split].value(list(theta_stored), kpi, beta)
-            th_ru, st_ru = ranger.minimise_kpi(sd[split], beta, ref)
+            th_ru, st_ru = (
+                ranger.minimise_kpi(sd[split], beta, ref)
+                if program
+                else (None, "skipped")
+            )
             # the smallest KPI over every checked member found: the convex
             # program's end and a Frank-Wolfe descent from the best start
             starts = {"stored": cand["stored"] / scale, "alt": cand["alt"] / scale}
@@ -769,6 +781,7 @@ def joint_worker(
             "objective_alt": js.optimum_values["alt"] * units,
             "rel_tol": RANGE_REL_TOL,
             "near": near,
+            "program": program,
             "payouts": payouts,
             "seconds": round(time.perf_counter() - t0, 1),
             "range_seconds": seconds,
@@ -893,7 +906,16 @@ def run_joint(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any]:
                 (
                     stem,
                     joint_worker,
-                    (key, (scope, design), cfg, rid, str(args.store), near, payouts),
+                    (
+                        key,
+                        (scope, design),
+                        cfg,
+                        rid,
+                        str(args.store),
+                        near,
+                        payouts,
+                        not args.no_program,
+                    ),
                 )
             )
     tasks.sort(key=_cost)
@@ -1362,6 +1384,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--designs", nargs="*", default=None, help="joint phases: only these designs"
+    )
+    parser.add_argument(
+        "--no-program",
+        action="store_true",
+        help="joint phase: smallest KPI by the descent only (no convex program)",
     )
     parser.add_argument(
         "--payout-skip",
