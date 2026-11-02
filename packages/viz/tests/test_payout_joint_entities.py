@@ -23,9 +23,12 @@ from parametric_insurance_design_viz.payout_functions import (
     JOINT_CAPTION,
     JOINT_ENTITIES_MODES,
     JointEntitiesError,
+    default_xlim,
     is_joint_design,
+    joint_caption,
     normalised_payout,
     payout_grid,
+    wrap_joint_caption,
 )
 from parametric_insurance_design_viz.reader import ResultReader, RunResult
 
@@ -47,10 +50,39 @@ def suptitle(out: FigureOutput) -> str | None:
     return " ".join(title.split()) or None
 
 
-@pytest.fixture(autouse=True)
-def _close_figures() -> object:
-    yield
-    plt.close("all")
+def test_joint_caption_is_one_row_per_joint_problem(toy: Fixture) -> None:
+    individual = scope_runs(toy, "individual")[0]
+    assert joint_caption(individual, ("A1", "A2"), figure="f") is None
+    assert joint_caption(individual, ("A1",), "refuse", figure="f") is None
+    portfolio = scope_runs(toy, "portfolio")[0]
+    (spec,) = portfolio.problem_specs()
+    table = joint_caption(portfolio, ("A3", "A1"), figure="f")
+    assert table is not None
+    assert table.to_dict("records") == [
+        {
+            "scope": "portfolio",
+            "problem_id": spec.problem_id,
+            "entity_ids": "A3;A1",
+            "caption": JOINT_CAPTION,
+        }
+    ]
+    with pytest.raises(JointEntitiesError, match=r"^f: scope 'portfolio'"):
+        joint_caption(portfolio, ("A1",), "refuse", figure="f")
+    with pytest.raises(FigureDataError, match="joint_entities"):
+        joint_caption(portfolio, ("A1",), "hide", figure="f")  # pyright: ignore[reportArgumentType]
+
+
+def test_the_wrapped_caption_fits_the_figure_width() -> None:
+    narrow = plt.figure(figsize=(6.0, 4.0))
+    wide = plt.figure(figsize=(15.0, 4.0))
+    for fig in (narrow, wide):
+        text = wrap_joint_caption(fig)
+        assert " ".join(text.split()) == JOINT_CAPTION
+    assert wrap_joint_caption(narrow).count("\n") > wrap_joint_caption(wide).count("\n")
+
+
+def test_default_xlim_is_the_thesis_range() -> None:
+    assert default_xlim(20.0, 70.0) == (10.0, 80.0)
 
 
 def test_joint_design_is_a_problem_with_several_entities(toy: Fixture) -> None:

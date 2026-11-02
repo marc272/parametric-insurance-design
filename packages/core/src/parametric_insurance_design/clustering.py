@@ -1,12 +1,12 @@
 """Clustering strategies for the cluster scope (SPEC §4.2).
 
-Owner: MAR-12. Port of the thesis feature-plus-Ward clustering
+Port of the thesis feature-plus-Ward clustering
 (``ClusterLevelIntegratedOptimizationApproach._compute_features`` and
 ``_cluster_assets`` in the thesis notebook): per location the features log
 value, tail share, tail beta, sigma_L and mu_W, z-scored, then hierarchical
 clustering with Ward linkage, cut into ``n_clusters`` clusters with scipy's
 ``fcluster(..., criterion="maxclust")``. Cluster labels are scipy's labels,
-as in the thesis (scipy 1.17). New clustering methods are parked (SPEC §9).
+as in the thesis (scipy 1.17). New clustering methods are out of scope (SPEC §9).
 
 scipy < 1.15 cuts most trees into too few clusters with ``maxclust`` (seen
 with 1.11 to 1.14), hence the core's ``scipy>=1.15`` floor. :meth:`assign

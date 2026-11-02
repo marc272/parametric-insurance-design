@@ -509,7 +509,7 @@ def test_simulation_sweeps_reproduce_the_committed_reports(tmp_path: Path) -> No
 
 def test_main_report_indexes_the_simulation_reports() -> None:
     text = REPORT.read_text(encoding="utf-8")
-    assert "## Simulation sweeps (MAR-70)" in text
+    assert "\n## Simulation sweeps" in text
     for name in REPORTS:
         assert f"[`reports/{name}.md`](reports/{name}.md)" in text
     assert re.search(

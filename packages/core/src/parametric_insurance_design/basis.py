@@ -58,16 +58,12 @@ objective, premium and KPI agrees on the two bases.
 **MSE on a grouped basis.** :class:`~parametric_insurance_design.objectives.MSE`
 squares each outcome's summed residual, ``(L_y - pi_y)^2`` with
 ``L_y - pi_y = sum_{e in y} (L_e - pi_e)``, not ``sum_{e in y} (L_e -
-pi_e)^2``. Decided in MAR-24 (SPEC §6.2) and explained in
-``docs/methodology/annual-basis.md``: the annual basis measures the risk
+pi_e)^2`` (SPEC §6.2; explained in
+``docs/methodology/annual-basis.md``): the annual basis measures the risk
 owner's net position per year, the premium is annual, and the MSE design then
 minimises exactly the ``rmse_residual`` KPI that evaluation reports on the
 same basis. The per-event sum would make the annual MSE design the
 event-basis design for any year structure.
-
-Owner: MAR-61 wrote ``event_conditional``; MAR-24 owns this file afterwards
-and added ``event``, ``annual`` and the grouped case of
-:meth:`OutcomeMeasure.aggregate_expression`.
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 """KPI figures: heatmaps, the performance overview and exceedance curves.
 
-Owner: MAR-111. Ports three figures of the thesis ``plotting.py``
+Ports three figures of the thesis ``plotting.py``
 (parametric-insurance-framework):
 
 * :func:`kpi_heatmap` (thesis ``plot_kpi_heatmap``; notebook cells
@@ -27,18 +27,24 @@ Which rows are read
 -------------------
 * **Evaluation split:** the ``test`` rows where every run has them (holdout
   samples, out of sample), else ``full`` (in sample), else ``train``. The
-  figure data record the split.
+  figure data record the split (``eval_split``). A figure on the ``test``
+  or ``train`` rows also states it, in its subtitle (heatmaps, overview)
+  or axes title (exceedance): "out of sample (test years)" or "in sample
+  (train years)" (:func:`split_note`). A figure on the ``full`` rows
+  carries no note, so the thesis figures are unchanged. The sweep figures
+  choose their split with the same function, :func:`figure_split`.
 * **Samples:** ``full`` and ``holdout`` runs. The functions that take runs
   (:func:`kpi_table`, :func:`kpi_heatmap`, :func:`performance_overview`,
   :func:`exceedance_curves`) refuse runs of a ``kfold`` sample with
-  :class:`KFoldRunsError` (MAR-137): a k-fold experiment is a run per fold
-  (MAR-22), so one scope x objective has ``k`` test values, and a figure
-  that drew one of them, or their mean, would misstate the result.
-* **k-fold configs** (MAR-151): :func:`kpi_figures` draws the heatmaps and
-  the performance overview from the **pooled** out-of-sample KPIs that the
-  core computes on demand (``experiment.kfold.pooled_kpis``; every year
-  evaluated by the design of the fold that held it out, one bootstrap
-  resample of all years shared by every design). The ``figures`` command
+  :class:`KFoldRunsError`: a k-fold experiment is a run per fold, so one
+  scope x objective has ``k`` test values, and a figure that drew one of
+  them, or their mean, would misstate the result.
+* **k-fold configs** (``docs/methodology/out-of-sample.md``):
+  :func:`kpi_figures` draws the heatmaps and the performance overview from
+  the **pooled** out-of-sample KPIs that the core computes on demand
+  (``experiment.kfold.pooled_kpis``; every year evaluated by the design of
+  the fold that held it out, one bootstrap resample of all years shared by
+  every design). The ``figures`` command
   passes them as ``FigureContext.pooled_kpis``; :func:`pooled_kpi_table`
   reads them. One pooled row per scope x objective, ``eval_split =
   "pooled"``, and the subtitle names ``k``. The exceedance figures are
@@ -47,16 +53,17 @@ Which rows are read
   re-evaluate payouts.
 * **VaR/CVaR level:** the rows at the runs' ``evaluation_beta`` parameter.
 * **Curve:** ``event`` on the event bases, ``aep`` on the ``annual`` basis.
-  The return-period axis is labelled per basis (MAR-139): years on
+  The return-period axis is labelled per basis
+  (``docs/methodology/annual-basis.md``): years on
   ``annual`` and ``event``, **events** on ``event_conditional`` (the thesis
   convention: ``1 / T`` is a share of the given events).
 
 Confidence intervals
 --------------------
-A run whose config has a ``bootstrap`` section (MAR-23) stores a
+A run whose config has a ``bootstrap`` section stores a
 block-bootstrap interval over years with every KPI (``kpis.ci_low``,
 ``ci_high``, ``ci_level``, ``n_bootstrap``; ``docs/methodology/bootstrap.md``).
-The figures draw it where it exists (MAR-148):
+The figures draw it where it exists:
 
 * :func:`performance_overview`: an interval bar from ``ci_low`` to
   ``ci_high`` on each bar, and a legend entry with the level and ``B``.
@@ -64,8 +71,8 @@ The figures draw it where it exists (MAR-148):
   brackets, and a footnote with the level and ``B``.
 * A row with null bounds (no bootstrap in the config, or a KPI undefined in
   some replicate) is drawn without an interval, and the figure data say so
-  (``ci_drawn``). Without any bounds the figures are the figures drawn
-  before MAR-148. Runs whose intervals differ in level or ``B`` are refused
+  (``ci_drawn``). Without any bounds the figures have no intervals at
+  all. Runs whose intervals differ in level or ``B`` are refused
   with :class:`~parametric_insurance_design_viz.errors.InconsistentRunsError`
   (:func:`interval_note`): one legend cannot describe both.
 * The interval is drawn as stored. It need not contain the point estimate:
@@ -73,6 +80,15 @@ The figures draw it where it exists (MAR-148):
   it.
 * :func:`exceedance_curves` draws no intervals: the ``exceedance`` table
   has no interval columns (``records.EXCEEDANCE``).
+
+Scope labels: rows and legends are labelled by the scope name,
+``style.run_scope_name`` of the runs (or ``style.config_scope_name`` of the
+configured scope for the pooled k-fold table). A cluster scope calibrated
+cluster by cluster (``joint: false``) has ``runs.scope =
+"cluster"`` like the joint cluster scope; it is labelled "Cluster scope,
+calibrated per cluster" and drawn in its own line style, and a scope grid
+never mixes it with joint cluster runs. The ``scope`` column of the figure
+data stays ``runs.scope``; ``scope_key`` tells the two apart.
 
 Differences from the thesis code, all deliberate:
 
@@ -146,10 +162,14 @@ __all__ = [
     "OVERVIEW_KPIS",
     "POOLED_EXCEEDANCE_REASON",
     "POOLED_KPI_COLUMNS",
+    "SPLIT_NOTES",
     "SPLIT_PREFERENCE",
     "Baseline",
     "KFoldRunsError",
+    "MissingKpiError",
     "exceedance_curves",
+    "figure_split",
+    "heatmap_figsize",
     "interval_note",
     "kpi_figures",
     "kpi_heatmap",
@@ -158,6 +178,7 @@ __all__ = [
     "performance_overview",
     "pooled_kpi_table",
     "return_period_label",
+    "split_note",
 ]
 
 ScopeGrid = Mapping[str, Sequence[RunResult]]
@@ -170,18 +191,39 @@ SPLIT_PREFERENCE: Final[tuple[str, ...]] = (
 )
 """Evaluation split read when every run has it, in order of preference."""
 
+SPLIT_NOTES: Final[Mapping[str, str]] = {
+    Split.TEST.value: "out of sample (test years)",
+    Split.TRAIN.value: "in sample (train years)",
+}
+"""What a figure on a split of a holdout run says about it.
+
+A figure on the ``test`` or ``train`` rows states the split in its title or
+subtitle, and its figure data record it. A figure on the ``full`` rows (every
+year, in sample) states nothing, so the thesis figures stay byte-identical;
+:func:`split_note` returns None for it."""
+
 KFOLD_SAMPLE: Final[str] = "kfold"
 """``runs.parameters["sample"]`` of a k-fold run, which the figures refuse."""
+
+
+class MissingKpiError(InconsistentRunsError):
+    """A run lacks the KPI row a figure needs (or has several candidates).
+
+    Raised by :func:`figure_split` and the sweep figures (``sweep_figures``
+    re-exports it). It is an :class:`~.errors.InconsistentRunsError`, so a
+    caller can catch it with the other run-consistency errors.
+    """
 
 
 class KFoldRunsError(InconsistentRunsError):
     """The runs are folds of a k-fold sample, which a run-level figure refuses.
 
-    A k-fold experiment stores a run per fold (MAR-22), so one scope x
-    objective has ``k`` out-of-sample values. The figure functions that take
-    runs refuse them (MAR-137); a k-fold config's KPI figures are drawn from
-    the pooled out-of-sample KPIs instead (MAR-151, :func:`kpi_figures`), and
-    a k-fold config without them is refused.
+    A k-fold experiment stores a run per fold, so one scope x objective has
+    ``k`` out-of-sample values. The figure functions that take runs refuse
+    them; a k-fold config's KPI figures are drawn from the pooled
+    out-of-sample KPIs instead (:func:`kpi_figures`;
+    ``docs/methodology/out-of-sample.md``), and a k-fold config without them
+    is refused.
     """
 
 
@@ -230,7 +272,7 @@ KPI_COLUMNS: Final[tuple[str, ...]] = (
     "n_bootstrap",
 )
 """Columns of :func:`kpi_table`. The interval columns are the store's: null
-without a bootstrap (MAR-23)."""
+without a bootstrap."""
 
 CURVE_COLUMNS: Final[tuple[str, ...]] = (
     "scope_key",
@@ -251,7 +293,7 @@ CURVE_COLUMNS: Final[tuple[str, ...]] = (
 """Columns of the exceedance figure data. ``source`` names the store table."""
 
 POOLED_KPI_COLUMNS: Final[tuple[str, ...]] = (*KPI_COLUMNS, "k")
-"""Columns of :func:`pooled_kpi_table` (MAR-151): :data:`KPI_COLUMNS` with
+"""Columns of :func:`pooled_kpi_table`: :data:`KPI_COLUMNS` with
 ``eval_split = "pooled"``, ``run_id`` the fold runs joined by ``";"``, a null
 ``fold``, and the number of folds ``k``."""
 
@@ -263,6 +305,9 @@ _HEATMAP_TITLE: Final[str] = "Portfolio-level performance comparison"
 _CELL_INSET: Final[float] = 0.015
 _CORNER_RADIUS: Final[float] = 0.05
 _HEATMAP_FONT: Final[float] = 10  # thesis plot_kpi_heatmap label_size default
+_HEATMAP_SIZE: Final[float] = 8.0  # inches, square: the thesis 3 x 3 heatmap
+_HEATMAP_ROWS: Final[int] = 3  # the rows the square heatmap is laid out for
+_HEATMAP_GRID: Final[float] = 0.62  # height share of the cells (top 0.80, bottom 0.18)
 _AXIS_TEXT_COLOR: Final[str] = "#444"
 _DARK_TEXT: Final[str] = "#0a2540"
 _BAR_WIDTH: Final[float] = 0.1
@@ -308,6 +353,31 @@ def kpi_label(kpi: str, *, unit: str | None = None) -> str:
     return f"{text} [{unit}]" if unit else text
 
 
+def split_note(split: str) -> str | None:
+    """Return what a figure says about its evaluation split.
+
+    Parameters
+    ----------
+    split : str
+        ``kpis.eval_split`` of the rows a figure shows.
+
+    Returns
+    -------
+    str or None
+        :data:`SPLIT_NOTES` of ``split``, e.g. ``"out of sample (test
+        years)"``; None for ``full`` (and any other split), whose figures
+        carry no note.
+    """
+    return SPLIT_NOTES.get(split)
+
+
+def _split_subtitle(text: str, table: pd.DataFrame) -> str | None:
+    """``text`` with the split note of a KPI table, or None without a note."""
+    splits = sorted({str(x) for x in table["eval_split"]})
+    note = split_note(splits[0]) if len(splits) == 1 else None
+    return f"{text}, {note}" if note else None
+
+
 def _refuse_kfold(runs: Sequence[RunResult]) -> None:
     """Raise :class:`KFoldRunsError` if a run is a fold of a k-fold sample."""
     folds = [r for r in runs if r.parameters.get("sample") == KFOLD_SAMPLE]
@@ -318,10 +388,11 @@ def _refuse_kfold(runs: Sequence[RunResult]) -> None:
             for r in folds
         )
         raise KFoldRunsError(
-            f"the KPI figures refuse k-fold runs (MAR-137): {names}. A k-fold "
+            f"the KPI figures refuse k-fold runs: {names}. A k-fold "
             "experiment has a run per fold; its figures show the pooled "
-            "out-of-sample KPIs (MAR-151: experiment.kfold.pooled_kpis, "
-            "pooled_kpi_table, or the figures command)"
+            "out-of-sample KPIs (experiment.kfold.pooled_kpis, "
+            "pooled_kpi_table, or the figures command; see "
+            "docs/methodology/out-of-sample.md)"
         )
 
 
@@ -343,7 +414,7 @@ def _grid(scopes: ScopeGrid) -> tuple[list[str], list[str]]:
             raise InconsistentRunsError(f"scope {key!r} has no runs")
         for run in runs:
             run.require_complete()
-        kinds = sorted({r.scope for r in runs})
+        kinds = sorted({style.run_scope_name(r) for r in runs})
         if len(kinds) != 1:
             raise InconsistentRunsError(
                 f"scope {key!r} mixes runs of the scopes {kinds}"
@@ -373,13 +444,18 @@ class _Layout:
     def of_runs(cls, scopes: ScopeGrid) -> _Layout:
         """Return the layout of a checked scope grid (:func:`_grid`)."""
         keys, objectives = _grid(scopes)
-        return cls(
-            tuple(keys), tuple(objectives), {k: scopes[k][0].scope for k in keys}
-        )
+        names = {k: style.run_scope_name(scopes[k][0]) for k in keys}
+        return cls(tuple(keys), tuple(objectives), names)
 
     @classmethod
-    def of_table(cls, table: pd.DataFrame) -> _Layout:
+    def of_table(
+        cls, table: pd.DataFrame, names: Mapping[str, str] | None = None
+    ) -> _Layout:
         """Return the layout of a KPI table: every scope key with every objective.
+
+        ``names`` maps each scope key to its scope name
+        (``style.config_scope_name``); default the table's ``scope`` column
+        (``runs.scope``), which reads ``"cluster"`` for both cluster settings.
 
         Raises
         ------
@@ -397,7 +473,8 @@ class _Layout:
                 f"the KPI table is not a complete scope x objective grid; "
                 f"missing {absent}"
             )
-        names = dict(zip(table["scope_key"], table["scope"], strict=True))
+        if names is None:
+            names = dict(zip(table["scope_key"], table["scope"], strict=True))
         return cls(keys, objectives, {k: str(names[k]) for k in keys})
 
     def scope_text(self, key: str) -> str:
@@ -425,22 +502,68 @@ def _runs(scopes: ScopeGrid) -> list[tuple[str, RunResult]]:
     return [(key, run) for key in scopes for run in scopes[key]]
 
 
-def _eval_split(runs: Sequence[RunResult], eval_split: str | None) -> str:
-    """Return the split every run has: ``eval_split`` or the preferred one."""
-    have = [set(r.kpis["eval_split"]) | set(r.exceedance["eval_split"]) for r in runs]
-    common = set.intersection(*have) if have else set()
+def figure_split(
+    runs: Sequence[RunResult],
+    eval_split: str | None = None,
+    *,
+    tables: Sequence[str] = ("kpis",),
+) -> str:
+    """Return the evaluation split a figure reads from its runs.
+
+    The one rule of the KPI figures and the sweep figures (``sweep_figures``
+    re-exports it). Every row of one figure is read on one split:
+    ``eval_split`` if given, else the first of :data:`SPLIT_PREFERENCE`
+    (``test``, ``full``, ``train``) on which every complete run has rows. A
+    holdout run has ``train`` and ``test`` rows, so its figures read
+    ``test`` (out of sample); a full-sample run has ``full`` rows only.
+
+    Parameters
+    ----------
+    runs : sequence of RunResult
+        The figure's runs. Failed runs have no rows and are not considered.
+    eval_split : str, optional
+        The split to read; it must be one every complete run has.
+    tables : sequence of str, default ("kpis",)
+        The run tables whose ``eval_split`` column counts: a run has a split
+        if one of them has a row on it. The KPI figures pass ``("kpis",
+        "exceedance")``.
+
+    Returns
+    -------
+    str
+        The split. Without a complete run no row is read, and it is
+        ``eval_split`` or ``"full"``.
+
+    Raises
+    ------
+    MissingKpiError
+        If a complete run lacks ``eval_split``, or the complete runs share
+        no split.
+    """
+    have = [
+        (r, set().union(*(set(getattr(r, t)["eval_split"]) for t in tables)))
+        for r in runs
+        if r.complete
+    ]
+    common = set.intersection(*(h for _, h in have)) if have else set()
     if eval_split is not None:
-        if eval_split not in common:
-            raise InconsistentRunsError(
-                f"not every run has KPI rows on the {eval_split!r} split"
+        lacking = [(r, h) for r, h in have if eval_split not in h]
+        if lacking:
+            run, splits = lacking[0]
+            raise MissingKpiError(
+                f"{len(lacking)} of {len(have)} runs have no KPI rows on the "
+                f"{eval_split!r} split, e.g. run {run.run_id} ({run.scope} x "
+                f"{run.objective}) has the splits {sorted(splits)}"
             )
         return eval_split
+    if not have:
+        return "full"
     for split in SPLIT_PREFERENCE:
         if split in common:
             return split
-    raise InconsistentRunsError(
-        "the runs share no evaluation split with KPI rows; "
-        f"splits per run: {[sorted(h) for h in have]}"
+    raise MissingKpiError(
+        "the runs of the figure share no evaluation split with KPI rows; "
+        f"splits per run: {[(r.run_id, sorted(h)) for r, h in have]}"
     )
 
 
@@ -524,7 +647,7 @@ def kpi_table(
     _grid(scopes)
     pairs = _runs(scopes)
     runs = [r for _, r in pairs]
-    split = _eval_split(runs, eval_split)
+    split = figure_split(runs, eval_split, tables=("kpis", "exceedance"))
     level = _beta(runs, beta)
     rows: list[dict[str, object]] = []
     for key, run in pairs:
@@ -560,7 +683,7 @@ def kpi_table(
 def pooled_kpi_table(
     pooled: pd.DataFrame, scope_keys: Sequence[str], kpis: Sequence[str]
 ) -> pd.DataFrame:
-    """Return pooled k-fold KPIs as a figure table (MAR-151).
+    """Return pooled k-fold KPIs as a figure table.
 
     Reads the table of the core's ``experiment.kfold.pooled_kpis`` (columns
     ``experiment.kfold.POOLED_COLUMNS``), which the ``figures`` command
@@ -573,7 +696,7 @@ def pooled_kpi_table(
         ``PooledKpis.table``: one row per pooled design and KPI.
     scope_keys : sequence of str
         Figure key of each configured scope, by position in
-        ``config.scopes`` (``command._scope_keys``).
+        ``config.scopes`` (``style.config_scope_keys``).
     kpis : sequence of str
         KPI names (``records.KpiName`` values).
 
@@ -758,11 +881,17 @@ class Baseline:
 
 def _scope_text(key: str, scopes: ScopeGrid) -> str:
     """Label of a scope key; repeated kinds keep their key, e.g. "(cluster_2)"."""
-    return _scope_label(key, scopes[key][0].scope)
+    return _scope_label(key, style.run_scope_name(scopes[key][0]))
 
 
 def _scope_label(key: str, scope: str) -> str:
-    """Label of a scope key whose scope is ``scope``."""
+    """Label of a scope key whose scope name is ``scope``.
+
+    ``scope`` is ``style.run_scope_name`` (or ``style.config_scope_name``):
+    a cluster scope calibrated cluster by cluster is
+    ``"cluster_separate"``, "Cluster scope, calibrated per cluster",
+    never the joint cluster scope's label.
+    """
     label = style.scope_label(scope)
     return label if key == scope else f"{label} ({key})"
 
@@ -836,12 +965,23 @@ def _box(ax: Axes) -> None:
         spine.set_color("black")
 
 
-def _titles(fig: Figure, title: str | None, subtitle: str | None) -> None:
-    """Centred title and subtitle at the top of the figure (thesis)."""
+def _titles(
+    fig: Figure,
+    title: str | None,
+    subtitle: str | None,
+    *,
+    top: float = 0.985,
+    second: float = 0.95,
+) -> None:
+    """Centred title and subtitle at the top of the figure (thesis).
+
+    ``top`` and ``second`` are the heights of the first and second line in
+    figure fractions.
+    """
     if title:
         fig.text(
             0.5,
-            0.985,
+            top,
             title,
             ha="center",
             va="top",
@@ -851,7 +991,7 @@ def _titles(fig: Figure, title: str | None, subtitle: str | None) -> None:
     if subtitle:
         fig.text(
             0.5,
-            0.95 if title else 0.985,
+            second if title else top,
             subtitle,
             ha="center",
             va="top",
@@ -864,6 +1004,38 @@ def _titles(fig: Figure, title: str | None, subtitle: str | None) -> None:
 # --------------------------------------------------------------------------
 
 
+def heatmap_figsize(n_rows: int) -> tuple[float, float]:
+    """Return the default size of a KPI heatmap with ``n_rows`` scope rows.
+
+    The thesis heatmap is 8 x 8 inches for three scopes. With fewer rows the
+    figure is less high by the rows it lacks, so the cells keep their size
+    and the figure has no empty bands above and below them; the
+    titles, axis captions and legend bar keep their distances in inches.
+    From three rows on it stays 8 x 8, as before.
+
+    Parameters
+    ----------
+    n_rows : int
+        Scope rows, at least 1.
+
+    Returns
+    -------
+    (float, float)
+        Width and height in inches.
+
+    Raises
+    ------
+    FigureDataError
+        If ``n_rows`` is less than 1.
+    """
+    if n_rows < 1:
+        raise FigureDataError(f"a heatmap needs at least one row, got {n_rows}")
+    if n_rows >= _HEATMAP_ROWS:
+        return (_HEATMAP_SIZE, _HEATMAP_SIZE)
+    row = _HEATMAP_GRID * _HEATMAP_SIZE / _HEATMAP_ROWS
+    return (_HEATMAP_SIZE, _HEATMAP_SIZE - (_HEATMAP_ROWS - n_rows) * row)
+
+
 def kpi_heatmap(
     scopes: ScopeGrid,
     kpi: str,
@@ -872,7 +1044,7 @@ def kpi_heatmap(
     eval_split: str | None = None,
     lower_is_better: bool = True,
     n_legend_bins: int = 7,
-    figsize: tuple[float, float] = (8.0, 8.0),
+    figsize: tuple[float, float] | None = None,
     title: str | None = _HEATMAP_TITLE,
     subtitle: str | None = None,
     name: str | None = None,
@@ -900,11 +1072,16 @@ def kpi_heatmap(
         Colour decreases green (uncovered-loss KPIs). False flips the scale.
     n_legend_bins : int, default 7
         Colour classes of the legend bar.
-    figsize : (float, float), default (8, 8)
-        Figure size in inches (thesis notebook).
+    figsize : (float, float), optional
+        Figure size in inches. Default :func:`heatmap_figsize`: 8 x 8 (the
+        thesis notebook) for three or more scope rows, less high for fewer,
+        so a one-row heatmap has no empty bands. A given size is
+        laid out as the 8 x 8 one, in figure fractions.
     title, subtitle : str, optional
         Figure titles. Default title "Portfolio-level performance
-        comparison"; default subtitle the KPI's name and symbol.
+        comparison"; default subtitle the KPI's name and symbol, followed
+        by the split note (:func:`split_note`) on a ``test`` or ``train``
+        split.
     name : str, optional
         Figure name; default ``"kpi_heatmap_<kpi>"``.
 
@@ -927,9 +1104,12 @@ def kpi_heatmap(
     if n_legend_bins < 1:
         raise FigureDataError(f"n_legend_bins must be >= 1, got {n_legend_bins}")
     layout = _Layout.of_runs(scopes)
+    table = kpi_table(scopes, [kpi], eval_split=eval_split)
+    if subtitle is None:
+        subtitle = _split_subtitle(kpi_label(kpi), table)
     return _draw_heatmap(
         layout,
-        kpi_table(scopes, [kpi], eval_split=eval_split),
+        table,
         kpi,
         baseline=baseline or layout.default_baseline(),
         lower_is_better=lower_is_better,
@@ -949,7 +1129,7 @@ def _draw_heatmap(
     baseline: Baseline,
     lower_is_better: bool = True,
     n_legend_bins: int = 7,
-    figsize: tuple[float, float] = (8.0, 8.0),
+    figsize: tuple[float, float] | None = None,
     title: str | None = _HEATMAP_TITLE,
     subtitle: str | None = None,
     name: str | None = None,
@@ -982,6 +1162,20 @@ def _draw_heatmap(
     symbol = label.symbol if label else kpi.replace("_", " ")
     if subtitle is None:
         subtitle = kpi_label(kpi)
+
+    if figsize is None:
+        figsize = heatmap_figsize(n_rows)
+        scale = _HEATMAP_SIZE / figsize[1]  # the 8-inch layout's inches kept
+    else:
+        scale = 1.0
+
+    def up(fraction: float) -> float:
+        """Return a figure fraction at the 8-inch layout's inches above the bottom."""
+        return fraction if scale == 1.0 else fraction * scale
+
+    def down(fraction: float) -> float:
+        """Return a figure fraction at the 8-inch layout's inches below the top."""
+        return fraction if scale == 1.0 else 1.0 - (1.0 - fraction) * scale
 
     with style.style():
         fig, ax = plt.subplots(figsize=figsize)
@@ -1065,7 +1259,7 @@ def _draw_heatmap(
                 zorder=10,
             )
         )
-        fig.subplots_adjust(left=0.24, right=0.96, top=0.80, bottom=0.18)
+        fig.subplots_adjust(left=0.24, right=0.96, top=down(0.80), bottom=up(0.18))
 
         # Axis captions beside the tick labels, placed from their extents.
         fig.canvas.draw()
@@ -1078,7 +1272,7 @@ def _draw_heatmap(
         box = ax.get_position()
         fig.text(
             (box.x0 + box.x1) / 2,
-            x_top_fig + 0.025,
+            x_top_fig + up(0.025),
             r"Optimization objective $\rightarrow$",
             ha="center",
             va="bottom",
@@ -1101,7 +1295,7 @@ def _draw_heatmap(
         # Legend bar under the first two columns (thesis).
         left = to_fig.transform(ax.transData.transform((-0.5, 0)))[0]
         right = to_fig.transform(ax.transData.transform((min(1.5, n_cols - 0.5), 0)))[0]
-        cax = fig.add_axes((left, 0.08, right - left, 0.022))
+        cax = fig.add_axes((left, up(0.08), right - left, up(0.022)))
         mappable = ScalarMappable(
             norm=BoundaryNorm(bounds, legend_cmap.N), cmap=legend_cmap
         )
@@ -1127,14 +1321,14 @@ def _draw_heatmap(
         if note:
             fig.text(
                 0.5,
-                0.015,
+                up(0.015),
                 f"In brackets: {note}",
                 ha="center",
                 va="bottom",
                 fontsize=_HEATMAP_FONT - 1,
                 color=_AXIS_TEXT_COLOR,
             )
-        _titles(fig, title, subtitle)
+        _titles(fig, title, subtitle, top=down(0.985), second=down(0.95))
 
     legend = pd.DataFrame(
         {
@@ -1166,7 +1360,8 @@ def performance_overview(
     scope group one bar per objective in its colour; a dotted line marks the
     baseline's value. A bar whose KPI row has bootstrap bounds carries an
     interval bar from ``ci_low`` to ``ci_high`` (module docstring,
-    "Confidence intervals").
+    "Confidence intervals"). On a ``test`` or ``train`` split a subtitle
+    states it ("Portfolio KPIs, out of sample (test years)").
 
     Parameters
     ----------
@@ -1201,14 +1396,16 @@ def performance_overview(
         not in the grid.
     """
     layout = _Layout.of_runs(scopes)
+    table = kpi_table(scopes, kpis, eval_split=eval_split)
     return _draw_overview(
         layout,
-        kpi_table(scopes, kpis, eval_split=eval_split),
+        table,
         kpis,
         baseline=baseline or layout.default_baseline(),
         labels=labels,
         figsize=figsize,
         name=name,
+        subtitle=_split_subtitle("Portfolio KPIs", table),
     )
 
 
@@ -1338,7 +1535,7 @@ def _default_curve(basis: str) -> str:
 
 
 def _return_period_unit(basis: str) -> str:
-    """Return the unit of the return period on a basis (core ``evaluate``, MAR-139).
+    """Return the unit of the return period on a basis (core ``evaluate``).
 
     ``events`` on ``event_conditional`` (``1 / T`` is a share of the given
     events), ``years`` on ``annual`` (exactly) and ``event`` (the mean
@@ -1348,7 +1545,7 @@ def _return_period_unit(basis: str) -> str:
 
 
 def return_period_label(basis: str) -> str:
-    """Axis label of the return period on a basis (MAR-117, MAR-139).
+    """Axis label of the return period on a basis.
 
     Parameters
     ----------
@@ -1438,13 +1635,17 @@ def exceedance_curves(
     "kpis"``) when that return period lies inside the stored range but is
     not one of the stored points.
 
+    On a ``test`` or ``train`` split the axes title states it
+    (:func:`split_note`); the ``eval_split`` column of the figure
+    data records it on every split.
+
     Parameters
     ----------
     runs : sequence of RunResult
         Complete runs of one scope, one per objective, in legend order.
     scope_key : str, optional
         Scope key for the figure data and the default name; default the
-        runs' scope.
+        runs' scope name (``style.run_scope_name``).
     quantity : str, default "uncovered"
         ``records.CurveQuantity`` value.
     curve : str, optional
@@ -1459,8 +1660,7 @@ def exceedance_curves(
         Its ``payout_unit`` labels the value axis, after the prefix of the
         axis range: ``[M USD]`` from one million (the thesis), ``[k USD]``
         from one thousand, else ``[USD]``. The ticks are labelled in that
-        prefix with the decimals they need (``style.MoneyFormatter``,
-        MAR-197).
+        prefix with the decimals they need (``style.MoneyFormatter``).
     figsize : (float, float), default (8, 6)
         Figure size in inches (thesis notebook).
     name : str, optional
@@ -1485,10 +1685,10 @@ def exceedance_curves(
     runs = tuple(runs)
     if not runs:
         raise InconsistentRunsError("an exceedance figure needs at least one run")
-    key = scope_key or runs[0].scope
+    key = scope_key or style.run_scope_name(runs[0])
     _grid({key: runs})
     labels = labels or AxisLabels()
-    split = _eval_split(runs, eval_split)
+    split = figure_split(runs, eval_split, tables=("kpis", "exceedance"))
     level = _beta(runs, beta)
     # rounded so that e.g. beta 0.95 gives 20, not 19.999999999999982
     var_period = float(f"{1.0 / (1.0 - level):.12g}") if level < 1.0 else math.inf
@@ -1532,7 +1732,7 @@ def exceedance_curves(
     unit = _return_period_unit(bases[0])
     all_periods = np.unique(table["return_period"].to_numpy(dtype=np.float64))
     lo, hi = float(all_periods[0]), float(all_periods[-1])
-    scope = runs[0].scope
+    scope = style.run_scope_name(runs[0])
     linestyle = style.SCOPE_STYLES.get(scope, style.ScopeStyle("-", "o"))
 
     with style.style():
@@ -1571,7 +1771,7 @@ def exceedance_curves(
         ax.set_xlabel(return_period_label(bases[0]))
         ax.set_ylim(bottom=0)
         # Thesis ``format_millions`` (``1.5M``) in millions; k or plain units
-        # below, with the decimals the ticks need (MAR-197).
+        # below, with the decimals the ticks need.
         prefix = style.money_prefix(max(abs(v) for v in ax.get_ylim()))
         value_unit = " ".join(u for u in (prefix, labels.payout_unit) if u)
         ax.set_ylabel(
@@ -1579,6 +1779,9 @@ def exceedance_curves(
         )
         ax.yaxis.set_major_formatter(style.MoneyFormatter(prefix))
         _box(ax)
+        note = split_note(split)
+        if note is not None:
+            ax.set_title(note[0].upper() + note[1:], fontsize=style.FONT.label_size)
         fig.tight_layout()
         objectives = [str(f["objective"].iloc[0]) for f in frames]
         handles = [  # lines without markers, as the thesis legend
@@ -1648,7 +1851,7 @@ def kpi_figures(context: FigureContext) -> list[FigureOutput | SkippedFigure]:
         ``performance_overview``, then ``exceedance_<scope key>`` per scope.
         A cross-scope figure is skipped (``failed=True``) if any run failed;
         an exceedance figure if a run of its scope failed. For a k-fold
-        config (MAR-151) the cross-scope figures show the pooled KPIs of
+        config the cross-scope figures show the pooled KPIs of
         ``context.pooled_kpis`` and every exceedance figure is skipped
         (``failed=False``, or ``True`` if a fold of its scope failed).
 
@@ -1691,7 +1894,7 @@ def kpi_figures(context: FigureContext) -> list[FigureOutput | SkippedFigure]:
 
 
 POOLED_EXCEEDANCE_REASON: Final[str] = (
-    "k-fold config: the exceedance curves are not pooled (MAR-151). The pooled "
+    "k-fold config: the exceedance curves are not pooled. The pooled "
     "rule covers the portfolio KPIs; the exceedance table holds one curve per "
     "fold, over 1/k of the years, and the figures never re-evaluate payouts"
 )
@@ -1701,16 +1904,17 @@ POOLED_EXCEEDANCE_REASON: Final[str] = (
 def _pooled_figures(
     context: FigureContext, k: int
 ) -> list[FigureOutput | SkippedFigure]:
-    """Draw the KPI figures of a k-fold config from its pooled KPIs (MAR-151)."""
+    """Draw the KPI figures of a k-fold config from its pooled KPIs."""
     from parametric_insurance_design_viz.command import SkippedFigure
 
     pooled = context.pooled_kpis
     if pooled is None:
         raise KFoldRunsError(
             f"config {context.config.name!r} has a k-fold sample (k={k}): its KPI "
-            "figures show the pooled out-of-sample KPIs (MAR-151), and none were "
-            "given. Compute them with experiment.kfold.pooled_kpis and pass "
-            "pooled_kpis=...table (the figures command does this)"
+            "figures show the pooled out-of-sample KPIs, and none were given. "
+            "Compute them with experiment.kfold.pooled_kpis and pass "
+            "pooled_kpis=...table (the figures command does this; see "
+            "docs/methodology/out-of-sample.md)"
         )
     out: list[FigureOutput | SkippedFigure] = []
     failed = [s for s in context.scopes if s.failed]
@@ -1722,7 +1926,8 @@ def _pooled_figures(
         keys = [s.key for s in context.scopes]
         kpis = list(dict.fromkeys([*HEATMAP_KPIS, *OVERVIEW_KPIS]))
         table = pooled_kpi_table(pooled, keys, kpis)
-        layout = _Layout.of_table(table)
+        names = [style.config_scope_name(c) for c in context.config.scopes]
+        layout = _Layout.of_table(table, dict(zip(keys, names, strict=True)))
         if layout.keys != tuple(keys):
             raise InconsistentRunsError(
                 f"the pooled KPIs cover the scopes {list(layout.keys)}; the "

@@ -1,6 +1,6 @@
 """Payout-function figures: the per-entity grid and the normalised view.
 
-Owner: MAR-110. Ports two figures of the thesis ``plotting.py``
+Ports two figures of the thesis ``plotting.py``
 (parametric-insurance-framework):
 
 * :func:`payout_grid` (thesis ``plot_payout_functions_grid``, view
@@ -32,18 +32,23 @@ Differences from the thesis code, all deliberate:
 * Axis labels name the index generically ("Index") with its unit from the
   EventSet metadata, as the core is hazard-agnostic; the thesis wrote "Wind
   speed".
+* The payout axis of :func:`payout_grid` labels its ticks in the money style
+  of the other figures (:class:`~.style.MoneyFormatter`: ``0.5M``, ``200k``,
+  ``50``). The thesis wrote scientific ticks with an offset text
+  such as ``1e7``.
 
-Below the attachment (MAR-178)
-------------------------------
+Below the attachment
+--------------------
 :func:`payout_grid` draws each run's payout below the attachment ``b_0`` as
 the run's :class:`~parametric_insurance_design.payout.StepPayout` pays it
 (:func:`below_attachment_mode`):
 
 * ``"first_bin"`` (the default and the thesis code): the first bin's level,
   so the step extends to the left edge of the axis, as in the thesis. Runs
-  whose ``runs.parameters`` have no ``below_attachment`` key, every run
-  written before MAR-178 among them, are drawn this way.
-* ``"zero"`` (MAR-170, recorded in ``runs.parameters`` since MAR-178): 0, with
+  whose ``runs.parameters`` have no ``below_attachment`` key are drawn
+  this way.
+* ``"zero"`` (recorded in ``runs.parameters``;
+  ``docs/concepts/tail-risk-objective.md``, "Below the attachment"): 0, with
   a step up to the first level at ``b_0``. The figure data show it as one
   more row per entity, before its bins: ``param_index`` is
   :data:`~parametric_insurance_design.payout.NO_BIN` (-1), ``lower`` is
@@ -53,11 +58,14 @@ the run's :class:`~parametric_insurance_design.payout.StepPayout` pays it
 as in the thesis; under ``"zero"`` both payouts are 0 there, so their ratio
 is undefined anyway.
 
-Joint designs (MAR-218, design review F8)
------------------------------------------
+Joint designs
+-------------
 A run is a joint design (:func:`is_joint_design`) when one of its design
 problems calibrates more than one payout entity: the portfolio scope, and
-the cluster scope with more than one cluster. Such a problem is identified
+the joint cluster scope with more than one cluster. The decision is made per
+design problem, not per scope kind: a cluster scope calibrated cluster by
+cluster (``Cluster(joint=False)``) has one entity per problem, so
+it is not joint. Such a problem is identified
 only through the sum over its entities, so its per-entity payout functions
 are one of several optimal designs, the one the solver returned (see
 ``docs/concepts/portfolio-calibration.md``, "Per-asset results of joint
@@ -74,12 +82,19 @@ whenever a drawn entity belongs to a joint problem:
 Figures of runs without a joint problem (the individual scope) are unchanged
 in both modes. External outputs (website, posts, examples) show per-entity
 payout functions of a joint design only with the caption.
+
+Shared helpers
+--------------
+:func:`step_points`, :func:`bin_breakpoints`, :func:`with_zero_rows`,
+:func:`shared_attachment_limit`, :func:`default_xlim`, :func:`joint_caption`
+and :func:`wrap_joint_caption` are public, so the payout sweep
+(``sweep_figures``) draws and tabulates its step payouts, its axis range and
+its joint-design caption with the same code as :func:`payout_grid`.
 """
 
 from __future__ import annotations
 
 import math
-import re
 import textwrap
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -90,7 +105,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
-from matplotlib.ticker import FuncFormatter, ScalarFormatter
+from matplotlib.ticker import FuncFormatter
 from numpy.typing import NDArray
 from scipy.stats import gaussian_kde
 
@@ -120,11 +135,18 @@ __all__ = [
     "JointEntities",
     "JointEntitiesError",
     "below_attachment_mode",
+    "bin_breakpoints",
+    "default_xlim",
     "is_joint_design",
+    "joint_caption",
     "normalised_payout",
     "payout_grid",
     "payout_steps",
+    "shared_attachment_limit",
+    "step_points",
     "weighted_quantile",
+    "with_zero_rows",
+    "wrap_joint_caption",
 ]
 
 BENCHMARK_ZERO_RTOL: Final[float] = 1e-6
@@ -166,7 +188,7 @@ JOINT_CAPTION: Final[str] = (
     "per-entity payout functions are one of several optimal designs, chosen "
     "by the solver; read the portfolio level."
 )
-"""Caption of the per-entity payout panels of a joint design (MAR-218)."""
+"""Caption of the per-entity payout panels of a joint design."""
 
 CAPTION_COLUMNS: Final[tuple[str, ...]] = (
     "scope",
@@ -183,7 +205,6 @@ _SCATTER_SIZE: Final[float] = 8
 _DENSITY_ALPHA: Final[float] = 0.25
 _PANEL_FONT: Final[float] = 9  # thesis _plot_payout_subfigure axis labels
 _LABEL_Y: Final[float] = 0.05  # height of vertical-line labels, axes fraction
-_SCI_OFFSET: Final[re.Pattern[str]] = re.compile(r"1e([+-]?\d+)")
 _CAPTION_CHAR_WIDTH: Final[float] = 0.55  # mean glyph width, in font sizes
 
 
@@ -236,13 +257,17 @@ def _where(frame: pd.DataFrame, mask: object) -> pd.DataFrame:
 
 
 def _scope_runs(runs: Sequence[RunResult]) -> tuple[RunResult, ...]:
-    """Check that runs are complete, share one scope and differ in objective."""
+    """Check that runs are complete, share one scope and differ in objective.
+
+    One scope by :func:`~.style.run_scope_name`, so the joint and the
+    separately calibrated cluster scope are not mixed.
+    """
     runs = tuple(runs)
     if not runs:
         raise InconsistentRunsError("a payout figure needs at least one run")
     for run in runs:
         run.require_complete()
-    scopes = sorted({r.scope for r in runs})
+    scopes = sorted({style.run_scope_name(r) for r in runs})
     if len(scopes) != 1:
         raise InconsistentRunsError(
             f"a payout figure shows one scope, got runs of scopes {scopes}"
@@ -272,8 +297,28 @@ def _membership(run: RunResult) -> dict[str, tuple[str, ...]]:
     }
 
 
-def _attachment_limit(runs: Sequence[RunResult]) -> tuple[float, float]:
-    """Return the attachment and limit the runs share (``runs.parameters``)."""
+def shared_attachment_limit(runs: Sequence[RunResult]) -> tuple[float, float]:
+    """Return the attachment and limit that the runs of one figure share.
+
+    Used by every payout-function figure, the payout grid, the normalised
+    payout and the payout sweep (``sweep_figures``), to place the reference
+    lines and the default axis range.
+
+    Parameters
+    ----------
+    runs : sequence of RunResult
+        The runs drawn into one figure.
+
+    Returns
+    -------
+    (float, float)
+        ``(attachment, limit)`` from the runs' ``runs.parameters``.
+
+    Raises
+    ------
+    InconsistentRunsError
+        If the runs differ in attachment or limit, or ``runs`` is empty.
+    """
     pairs = {
         (float(r.parameters["attachment"]), float(r.parameters["limit"])) for r in runs
     }
@@ -289,11 +334,12 @@ def below_attachment_mode(run: RunResult) -> BelowAttachment:
     """Return what a run's step payout pays below the attachment.
 
     Read from ``runs.parameters``: the runner records ``below_attachment``
-    only when it is not the default ``"first_bin"`` (MAR-178), so a run
-    without the key pays the first bin's level there. The run's manifest
-    config must agree. A ``"zero"`` run written before MAR-178 has the mode
-    in its config but not in its parameters; its run id did not change, so
-    re-running it is a cache hit and keeps the old parameters. Drawing it as
+    only when it is not the default ``"first_bin"``, so a run without the
+    key pays the first bin's level there. The run's manifest config must
+    agree. A ``"zero"`` run written by an older runner, which did not record
+    the mode, has it in its config but not in its parameters; its run id is
+    the same, so re-running it is a cache hit and keeps the old parameters.
+    Drawing it as
     ``"first_bin"`` would be wrong, so it raises instead.
 
     Parameters
@@ -313,7 +359,7 @@ def below_attachment_mode(run: RunResult) -> BelowAttachment:
         If the recorded value is not a mode.
     InconsistentRunsError
         If ``runs.parameters`` and the payout of the manifest's config
-        disagree, e.g. a ``"zero"`` run written before MAR-178.
+        disagree, e.g. a ``"zero"`` run written by an older runner.
     """
     recorded = run.parameters.get("below_attachment", "first_bin")
     if recorded not in BELOW_ATTACHMENT_MODES:
@@ -329,7 +375,7 @@ def below_attachment_mode(run: RunResult) -> BelowAttachment:
             raise InconsistentRunsError(
                 f"run {run.run_id}: its config pays {configured!r} below the "
                 f"attachment, but runs.parameters says {recorded!r}. A run "
-                "written before MAR-178 does not record 'zero' in its "
+                "written by an older runner does not record 'zero' in its "
                 "parameters; recompute it (`parametric-insurance-design run "
                 "--force`, or a new result store) to draw it"
             )
@@ -340,7 +386,8 @@ def is_joint_design(run: RunResult) -> bool:
     """Return whether a run has a design problem with several payout entities.
 
     The per-entity payout functions of such a problem are one of several
-    optimal designs (design review F8; module docstring, "Joint designs").
+    optimal designs (module docstring, "Joint designs").
+    The answer comes from the run's design problems, not its scope kind.
 
     Parameters
     ----------
@@ -350,8 +397,11 @@ def is_joint_design(run: RunResult) -> bool:
     Returns
     -------
     bool
-        True for the portfolio scope and a cluster scope with more than one
-        cluster; False for the individual scope.
+        True for the portfolio scope and a joint cluster scope with more
+        than one cluster. False for the individual scope and for a cluster
+        scope calibrated cluster by cluster (``Cluster(joint=False)``),
+        whose problems have one entity each; also False for a
+        joint cluster scope with one cluster.
     """
     return any(len(spec.entities) > 1 for spec in run.problem_specs())
 
@@ -365,24 +415,46 @@ def _check_joint_mode(joint_entities: str) -> None:
         )
 
 
-def _joint_caption(
+def joint_caption(
     run: RunResult,
     entity_ids: Sequence[str],
-    joint_entities: JointEntities,
+    joint_entities: JointEntities = "caption",
     *,
     figure: str,
 ) -> pd.DataFrame | None:
-    """Return the ``caption`` table of the drawn entities, or None.
+    """Return the ``caption`` table of a payout figure's drawn entities.
 
-    One row per joint problem (more than one entity) with a drawn entity;
-    None if no drawn entity belongs to one. Under ``"refuse"`` such entities
-    raise instead.
+    The payout grid, the normalised payout and the payout sweep
+    (``sweep_figures``) all decide with this function whether their panels
+    need :data:`JOINT_CAPTION` (module docstring, "Joint designs").
+
+    Parameters
+    ----------
+    run : RunResult
+        A drawn run.
+    entity_ids : sequence of str
+        The run's entities the figure draws, in panel order.
+    joint_entities : {"caption", "refuse"}, default "caption"
+        What to do with a drawn entity of a joint design problem.
+    figure : str
+        The figure, for the error message, e.g. ``"payout_grid"``.
+
+    Returns
+    -------
+    pandas.DataFrame or None
+        One row (:data:`CAPTION_COLUMNS`) per design problem of ``run`` that
+        has more than one entity and a drawn entity; ``entity_ids`` joins
+        its drawn entities with ``";"``. None if no drawn entity belongs to
+        such a problem.
 
     Raises
     ------
+    FigureDataError
+        If ``joint_entities`` is not one of :data:`JOINT_ENTITIES_MODES`.
     JointEntitiesError
         Under ``"refuse"``, if a drawn entity belongs to a joint problem.
     """
+    _check_joint_mode(joint_entities)
     rows: list[dict[str, str]] = []
     for spec in run.problem_specs():
         if len(spec.entities) < 2:
@@ -394,11 +466,11 @@ def _joint_caption(
         if joint_entities == "refuse":
             raise JointEntitiesError(
                 f"{figure}: scope {run.scope!r} is a joint design (problem "
-                f"{spec.problem_id!r} calibrates {len(spec.entities)} entities "
-                "jointly), so its per-entity payout functions are one of "
-                "several optimal designs, chosen by the solver. Pass "
-                "joint_entities='caption' to draw them with a caption that "
-                "says so, or read the portfolio-level KPIs"
+                f"{spec.problem_id!r} of run {run.run_id} calibrates "
+                f"{len(spec.entities)} entities jointly), so its per-entity "
+                "payout functions are one of several optimal designs, chosen "
+                "by the solver. Pass joint_entities='caption' to draw them "
+                "with a caption that says so, or read the portfolio-level KPIs"
             )
         rows.append(
             {
@@ -462,16 +534,41 @@ def payout_steps(runs: Sequence[RunResult]) -> pd.DataFrame:
     return steps
 
 
-def _grid_steps(
+def with_zero_rows(
     steps: pd.DataFrame, modes: Mapping[str, BelowAttachment]
 ) -> pd.DataFrame:
-    """Return the grid's figure data: ``steps`` plus the zero rows.
+    """Return step figure data with the zero rows below the attachment.
 
-    Each entity of a run whose mode is ``"zero"`` gets one row before its
-    bins, a copy of its first bin with ``param_index = NO_BIN``,
-    ``lower = -inf``, ``upper = b_0`` and ``value = 0``. Without such runs
-    ``steps`` is returned unchanged.
+    The figure data of the payout grid and the payout sweep (module
+    docstring, "Below the attachment"). Each entity of a run
+    whose mode is ``"zero"`` gets one row before its bins, a copy of its
+    first bin with ``param_index = NO_BIN``, ``lower = -inf``,
+    ``upper = b_0`` and ``value = 0``.
+
+    Parameters
+    ----------
+    steps : pandas.DataFrame
+        Step table with at least the columns ``run_id``, ``entity_id``,
+        ``param_index``, ``lower``, ``upper`` and ``value``, each entity's
+        bins in order (e.g. from :func:`payout_steps`).
+    modes : mapping of str to BelowAttachment
+        Each run's ``below_attachment`` mode by ``run_id``
+        (:func:`below_attachment_mode`); must cover every run in ``steps``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        ``steps`` itself when every mode is ``"first_bin"``; otherwise a new
+        table with the zero rows inserted and a fresh ``RangeIndex``.
+
+    Raises
+    ------
+    FigureDataError
+        If a run in ``steps`` has no mode in ``modes``.
     """
+    unknown = sorted(set(steps["run_id"]) - set(modes))
+    if unknown:
+        raise FigureDataError(f"no below_attachment mode for runs {unknown}")
     if all(mode == "first_bin" for mode in modes.values()):
         return steps
     parts: list[pd.DataFrame] = []
@@ -490,8 +587,28 @@ def _grid_steps(
     return pd.concat(parts, ignore_index=True)
 
 
-def _breakpoints(bins: pd.DataFrame) -> NDArray[np.float64]:
-    """Breakpoints ``b_0 .. b_n`` of one entity's bins (in order)."""
+def bin_breakpoints(bins: pd.DataFrame) -> NDArray[np.float64]:
+    """Return the breakpoints ``b_0 .. b_n`` of one entity's bins.
+
+    Parameters
+    ----------
+    bins : pandas.DataFrame
+        The ``n`` bins of one run's entity, in ``param_index`` order, with
+        columns ``lower`` and ``upper`` (rows of :func:`payout_steps`).
+
+    Returns
+    -------
+    ndarray of float
+        ``n + 1`` breakpoints: every bin's ``lower``, then the last
+        ``upper``.
+
+    Raises
+    ------
+    FigureDataError
+        If ``bins`` is empty.
+    """
+    if bins.empty:
+        raise FigureDataError("an entity needs at least one bin for its breakpoints")
     lower = bins["lower"].to_numpy(dtype=np.float64)
     return np.append(lower, float(bins["upper"].iloc[-1]))
 
@@ -551,26 +668,71 @@ def _entity_events(events: pd.DataFrame | None, entity_id: str) -> pd.DataFrame 
 # --------------------------------------------------------------------------
 
 
-def _default_xlim(attachment: float, limit: float) -> tuple[float, float]:
-    """Thesis axis range: 20 % of the payout range on either side (10 to 80)."""
+def default_xlim(attachment: float, limit: float) -> tuple[float, float]:
+    """Return the thesis index-axis range of the payout figures.
+
+    20 % of the payout range on either side of attachment and limit: the
+    thesis 10 to 80 for 20 and 70. The default of :func:`payout_grid`,
+    :func:`normalised_payout` and the payout sweep (``sweep_figures``).
+
+    Parameters
+    ----------
+    attachment, limit : float
+        The payout range (:func:`shared_attachment_limit`).
+
+    Returns
+    -------
+    (float, float)
+        The axis range.
+    """
     margin = 0.2 * (limit - attachment)
     return attachment - margin, limit + margin
 
 
-def _step_xy(
+def step_points(
     breakpoints: NDArray[np.float64],
     levels: NDArray[np.float64],
     xlim: tuple[float, float],
     mode: BelowAttachment,
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    """Points for ``ax.step(where="post")`` over the whole axis.
+    """Return the points of a step payout for ``ax.step(where="post")``.
 
-    Above the limit the payout is the last level (``StepPayout`` clips the
-    index into the last bin). Below the attachment it is the first level
-    under ``mode="first_bin"`` (clipped into the first bin, as in the thesis)
-    and 0 under ``"zero"``, which draws a step at the attachment ``b_0``. The
-    steps extend to the axis edges.
+    The payout grid and the payout sweep (``sweep_figures``) draw every
+    step payout function with these points. Above the limit the payout is
+    the last level (``StepPayout`` clips the index into the last bin).
+    Below the attachment it is the first level under ``mode="first_bin"``
+    (clipped into the first bin, as in the thesis) and 0 under ``"zero"``,
+    which draws a step at the attachment ``b_0``. The steps extend to the
+    axis edges, or to the outer breakpoints if those lie outside ``xlim``.
+
+    Parameters
+    ----------
+    breakpoints : ndarray of float
+        ``b_0 .. b_n``, increasing (:func:`bin_breakpoints`).
+    levels : ndarray of float
+        The ``n`` payout levels, one per bin.
+    xlim : (float, float)
+        The axis range.
+    mode : {"first_bin", "zero"}
+        What the step payout pays below the attachment
+        (:func:`below_attachment_mode`).
+
+    Returns
+    -------
+    x, y : ndarray of float
+        ``n + 3`` points each: the left edge, the breakpoints and the right
+        edge, with the payout from each point to the next.
+
+    Raises
+    ------
+    FigureDataError
+        If ``levels`` is empty or ``breakpoints`` does not have one more
+        element than ``levels``.
     """
+    if len(levels) == 0 or len(breakpoints) != len(levels) + 1:
+        raise FigureDataError(
+            f"{len(breakpoints)} breakpoints do not bound {len(levels)} levels"
+        )
     left = min(xlim[0], float(breakpoints[0]))
     right = max(xlim[1], float(breakpoints[-1]))
     below = 0.0 if mode == "zero" else levels[0]
@@ -602,16 +764,6 @@ def _reference_lines(
         )
 
 
-class _SciOffsetFormatter(ScalarFormatter):
-    """Scientific y ticks with a compact offset text such as ``e+07``."""
-
-    def get_offset(self) -> str:
-        """Return ``e+NN`` instead of matplotlib's ``1eN`` multiplier text."""
-        text = super().get_offset()
-        match = _SCI_OFFSET.fullmatch(text)
-        return f"e{int(match.group(1)):+03d}" if match else text
-
-
 def _figure_legend(fig: Figure, handles: list, labels: list[str], *, ncol: int) -> None:
     """Legend centred below the axes, without a frame (thesis)."""
     if not handles:
@@ -627,18 +779,39 @@ def _figure_legend(fig: Figure, handles: list, labels: list[str], *, ncol: int) 
     )
 
 
-def _draw_caption(fig: Figure) -> None:
-    """Draw :data:`JOINT_CAPTION` as the figure title, wrapped to its width.
+def wrap_joint_caption(fig: Figure) -> str:
+    """Return :data:`JOINT_CAPTION` wrapped to a figure's width.
 
-    Lines of about equal length, as few as fit the figure width. Call before
-    ``tight_layout``, which leaves room for it.
+    Lines of about equal length, as few as fit the figure width at the
+    caption's font size (``style.FONT.subtitle_size``). The payout grid, the
+    normalised payout and the payout sweep (``sweep_figures``) draw their
+    caption with this text.
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        The figure the caption is drawn on.
+
+    Returns
+    -------
+    str
+        The caption with line breaks.
     """
     size = style.FONT.subtitle_size
     fits = max(20, int(fig.get_figwidth() * 72.0 / (size * _CAPTION_CHAR_WIDTH)))
     n_lines = math.ceil(len(JOINT_CAPTION) / fits)
+    width = math.ceil(len(JOINT_CAPTION) / n_lines) + 8
+    return textwrap.fill(JOINT_CAPTION, width=width)
+
+
+def _draw_caption(fig: Figure) -> None:
+    """Draw :data:`JOINT_CAPTION` as the figure title, wrapped to its width.
+
+    Call before ``tight_layout``, which leaves room for it.
+    """
     fig.suptitle(
-        textwrap.fill(JOINT_CAPTION, width=math.ceil(len(JOINT_CAPTION) / n_lines) + 8),
-        fontsize=size,
+        wrap_joint_caption(fig),
+        fontsize=style.FONT.subtitle_size,
         fontstyle="italic",
     )
 
@@ -694,7 +867,9 @@ def payout_grid(
         Index axis range. Default: 20 % of the payout range on either side
         of attachment and limit (the thesis 10 to 80 for 20 and 70).
     name : str, optional
-        Figure name. Default ``"payout_grid_<scope>"``.
+        Figure name. Default ``"payout_grid_<scope>"``, with the scope name
+        of :func:`~.style.run_scope_name` (``cluster_separate`` for a cluster
+        scope calibrated cluster by cluster).
     joint_entities : {"caption", "refuse"}, default "caption"
         Panels of a joint design's entities (:func:`is_joint_design`):
         draw them under :data:`JOINT_CAPTION`, or refuse them (module
@@ -729,11 +904,11 @@ def payout_grid(
     _check_joint_mode(joint_entities)
     runs = _scope_runs(runs)
     labels = labels or AxisLabels()
-    attachment, limit = _attachment_limit(runs)
+    attachment, limit = shared_attachment_limit(runs)
     modes: dict[str, BelowAttachment] = {
         run.run_id: below_attachment_mode(run) for run in runs
     }
-    xlim = xlim or _default_xlim(attachment, limit)
+    xlim = xlim or default_xlim(attachment, limit)
     members = _membership(runs[0])
     order = runs[0].entity_order()
     if entity_ids is None:
@@ -744,10 +919,9 @@ def payout_grid(
             f"entities {unknown or '(none)'} are not entities of the runs ({order})"
         )
     entity_ids = tuple(entity_ids)
-    caption = _joint_caption(runs[0], entity_ids, joint_entities, figure="payout_grid")
+    caption = joint_caption(runs[0], entity_ids, joint_entities, figure="payout_grid")
     steps = payout_steps(runs)
     steps = _where(steps, steps["entity_id"].isin(entity_ids)).reset_index(drop=True)
-    scope = runs[0].scope
     ncols = max(1, min(ncols, len(entity_ids)))
     nrows = math.ceil(len(entity_ids) / ncols)
 
@@ -781,8 +955,8 @@ def payout_grid(
                     steps,
                     (steps["run_id"] == run.run_id) & (steps["entity_id"] == entity_id),
                 )
-                x, y = _step_xy(
-                    _breakpoints(bins),
+                x, y = step_points(
+                    bin_breakpoints(bins),
                     bins["value"].to_numpy(dtype=np.float64),
                     xlim,
                     modes[run.run_id],
@@ -815,11 +989,7 @@ def payout_grid(
             )
             ax.set_xlabel(labels.index(aggregate=aggregate), fontsize=_PANEL_FONT)
             ax.set_ylabel(labels.payout(), fontsize=_PANEL_FONT)
-            formatter = _SciOffsetFormatter(useMathText=False)
-            formatter.set_scientific(True)
-            formatter.set_powerlimits((0, 0))
-            ax.yaxis.set_major_formatter(formatter)
-            ax.yaxis.get_offset_text().set_fontsize(style.FONT.tick_size)
+            ax.yaxis.set_major_formatter(style.MoneyFormatter())
         for j in range(len(entity_ids), nrows * ncols):
             axes[divmod(j, ncols)].set_axis_off()
         if caption is not None:
@@ -837,7 +1007,7 @@ def payout_grid(
         columns=list(MARKER_COLUMNS),
     )
     data: dict[str, pd.DataFrame] = {
-        MAIN_TABLE: _grid_steps(steps, modes),
+        MAIN_TABLE: with_zero_rows(steps, modes),
         "markers": markers,
     }
     if events is not None:
@@ -846,7 +1016,8 @@ def payout_grid(
         ).reset_index(drop=True)
     if caption is not None:
         data["caption"] = caption
-    return FigureOutput(name=name or f"payout_grid_{scope}", figure=fig, data=data)
+    default = f"payout_grid_{style.run_scope_name(runs[0])}"
+    return FigureOutput(name=name or default, figure=fig, data=data)
 
 
 def _normalised_levels(
@@ -939,7 +1110,7 @@ def normalised_payout(
         Index axis range; default as :func:`payout_grid`.
     name : str, optional
         Figure name. Default ``"normalised_payout_<scope>_<entity>"``
-        (lowercase).
+        (lowercase), with the scope name of :func:`~.style.run_scope_name`.
     joint_entities : {"caption", "refuse"}, default "caption"
         If the entity belongs to a joint design problem
         (:func:`is_joint_design`): draw it under :data:`JOINT_CAPTION`, or
@@ -981,11 +1152,11 @@ def normalised_payout(
         raise InconsistentRunsError(
             f"{entity_id!r} is not an entity of the runs ({runs[0].entity_order()})"
         )
-    caption = _joint_caption(
+    caption = joint_caption(
         runs[0], (entity_id,), joint_entities, figure="normalised_payout"
     )
-    attachment, limit = _attachment_limit(runs)
-    xlim = xlim or _default_xlim(attachment, limit)
+    attachment, limit = shared_attachment_limit(runs)
+    xlim = xlim or default_xlim(attachment, limit)
     if tail_level is None:
         levels = {float(r.parameters["evaluation_beta"]) for r in runs}
         if len(levels) != 1:
@@ -996,7 +1167,7 @@ def normalised_payout(
     steps = payout_steps(runs)
     steps = _where(steps, steps["entity_id"] == entity_id).reset_index(drop=True)
     bench_bins = _where(steps, steps["run_id"] == by_objective[benchmark].run_id)
-    bench_bp = _breakpoints(bench_bins)
+    bench_bp = bin_breakpoints(bench_bins)
     bench_levels = bench_bins["value"].to_numpy(dtype=np.float64)
     rows = _entity_events(events, entity_id)
     aggregate = len(members[entity_id]) > 1
@@ -1028,7 +1199,7 @@ def normalised_payout(
 
         for run in runs:
             bins = _where(steps, steps["run_id"] == run.run_id)
-            bp = _breakpoints(bins)
+            bp = bin_breakpoints(bins)
             bench, relative = _normalised_levels(
                 bp, bins["value"].to_numpy(dtype=np.float64), bench_bp, bench_levels
             )
@@ -1091,7 +1262,7 @@ def normalised_payout(
 
     main = pd.concat(tables, ignore_index=True)
     markers = pd.DataFrame(marker_rows, columns=list(MARKER_COLUMNS))
-    scope = runs[0].scope
+    scope = style.run_scope_name(runs[0])
     data = {MAIN_TABLE: main, "density": density, "markers": markers}
     if caption is not None:
         data["caption"] = caption

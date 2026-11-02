@@ -1,5 +1,5 @@
 {
-  "description": "Thesis cluster assignments (scipy fcluster labels, cluster C<label>) and clustering features of the 9 Miami assets for n_clusters 1..9, from the thesis code. Written by parity/scripts/derive_thesis_clusters.py (MAR-12).",
+  "description": "Thesis cluster assignments (scipy fcluster labels, cluster C<label>) and clustering features of the 9 Miami assets for n_clusters 1..9, from the thesis code. Written by parity/scripts/derive_thesis_clusters.py.",
   "thesis_commit": "ec9c782d8687af519acef7e81c07b727844ea9a2",
   "versions": {
     "python": "3.12.11",

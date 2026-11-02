@@ -39,7 +39,7 @@ strict = true
 # TID251 bans any static import, at any scope, of the package below. This
 # package is not a uv member, but the root `ruff check` (CI job lint, and
 # scripts/ci_local.sh lint) lints it with this config.
-# scripts/check_import_boundaries.sh proves the ban fires (MAR-76).
+# scripts/check_import_boundaries.sh (CI, job lint) proves the ban fires.
 [tool.ruff]
 extend = "../../pyproject.toml"
 
@@ -47,7 +47,7 @@ extend = "../../pyproject.toml"
 extend-select = ["TID251"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
-"parametric_insurance_design_crc".msg = "the CLIMADA stream is CRC-free: never import the CRC adapter (AGENTS.md, MAR-76)"
+"parametric_insurance_design_crc".msg = "the CLIMADA stream is CRC-free: never import the CRC adapter (AGENTS.md \"Hard boundaries\")"
 
 [build-system]
 requires = ["uv_build>=0.13.5,<0.14"]

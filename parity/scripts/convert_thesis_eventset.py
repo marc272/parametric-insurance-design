@@ -1,4 +1,4 @@
-r"""Convert the thesis event-loss table into the EventSet parity fixture (MAR-9).
+r"""Convert the thesis event-loss table into the EventSet parity fixture.
 
 The thesis repository (``parametric-insurance-framework``, the parity source)
 holds the CLIMADA output ``data/output/climada_transformed_loss_data.csv``: a
@@ -7,7 +7,7 @@ of the 9 Miami assets, and the columns ``Event_ID``, ``Year``,
 ``Portfolio_Total_Loss``, ``Portfolio_Max_Wind`` and ``A<k>_Wind``,
 ``A<k>_Loss`` for every asset. This script turns it into an EventSet (schema
 v1, ``docs/SPEC.md`` §5) and copies the thesis result tables that the parity
-gate (MAR-18) compares against.
+gate compares against.
 
 Outputs, relative to the repository root:
 
@@ -602,7 +602,7 @@ def build_manifest(
     }
     return {
         "description": (
-            "Thesis parity fixture (MAR-9). Written by "
+            "Thesis parity fixture. Written by "
             "parity/scripts/convert_thesis_eventset.py; checked by parity/tests."
         ),
         "thesis_repo": THESIS_REPO_URL,

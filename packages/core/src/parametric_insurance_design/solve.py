@@ -1,10 +1,10 @@
 """Solver policy (SPEC §4.2, §3.1 C3).
 
-Owner: MAR-14. :func:`solve` tries the policy's solvers in order and returns
+:func:`solve` tries the policy's solvers in order and returns
 a :class:`~parametric_insurance_design.interfaces.SolveResult` for the first
 acceptable status. If none is acceptable it raises
 :class:`~parametric_insurance_design.errors.SolveError` (or a subclass) with
-every attempt attached. Nothing is swallowed or skipped (thesis issue C3).
+every attempt attached. Nothing is swallowed or skipped (SPEC §3.1, C3).
 
 The result types are defined in ``interfaces.py`` and re-exported here.
 
@@ -15,10 +15,10 @@ Default policy (:data:`DEFAULT_POLICY`)
     * QPs (MSE): ``OSQP``, then ``CLARABEL``, as in the thesis. OSQP runs
       with :data:`OSQP_OPTIONS` (``eps_abs = eps_rel = 1e-8``, ``max_iter =
       100000``), not with cvxpy's defaults (``1e-5`` and ``10000``) that the
-      thesis used (MAR-98, below).
+      thesis used ("OSQP accuracy", below).
     * ``optimal_inaccurate`` is accepted (thesis).
 
-OSQP accuracy (MAR-98)
+OSQP accuracy
     OSQP is a first-order (ADMM) solver. With cvxpy's default ``eps = 1e-5``
     its solutions violate ``theta >= 0``, monotonicity, the cap and the
     budget by up to about ``1e-5`` in scaled units, and miss the optimal
@@ -39,7 +39,7 @@ A problem is a QP when its objective is quadratic but not piecewise linear
 and cvxpy recognises the whole problem as a QP; every other problem goes to
 the LP list.
 
-The premium of a solution (MAR-143, MAR-171)
+The premium of a solution
     :func:`solve` records ``SolveResult.premium`` as ``pricing.premium_value``
     of the realised payout, with the pricing the problem was built with
     (``BuiltProblem.pricing``, which ``problem.build_problems`` sets):
@@ -47,7 +47,7 @@ The premium of a solution (MAR-143, MAR-171)
     the entities as ``evaluate.kpis`` sums them, under the problem's
     measure. That is exact, needs no solver, and equals the in-sample
     ``premium`` KPI of the design problem bit for bit. ``solve(built)`` is
-    enough; the ``pricing`` keyword (MAR-143) stays for compatibility, and a
+    enough. The optional ``pricing`` keyword is checked against it: a
     pricing that differs from the built one (``!=``: the pricing components
     are frozen dataclasses, equal when their class and fields are) raises
     :class:`~parametric_insurance_design.errors.ComponentConfigError` before
@@ -158,7 +158,7 @@ _UNBOUNDED: Final = frozenset({SolveStatus.UNBOUNDED, SolveStatus.UNBOUNDED_INAC
 OSQP_OPTIONS: Final[Mapping[str, Any]] = MappingProxyType(
     {"eps_abs": 1e-8, "eps_rel": 1e-8, "max_iter": 100_000}
 )
-"""Default OSQP options (MAR-98): interior-point accuracy for MSE solutions.
+"""Default OSQP options: interior-point accuracy for MSE solutions.
 
 cvxpy's defaults are ``eps_abs = eps_rel = 1e-5`` and ``max_iter = 10000``.
 The parity MSE problems need up to about 15,000 iterations at ``1e-8`` and the
@@ -177,8 +177,6 @@ def _default_options() -> Mapping[str, Mapping[str, Any]]:
 class SolverPolicy:
     """Which solvers to try, in which order.
 
-    MAR-14 sets the default values; the fields are fixed by ADR 0002.
-
     Parameters
     ----------
     lp_solvers : tuple of str
@@ -189,7 +187,7 @@ class SolverPolicy:
         Whether ``optimal_inaccurate`` counts as success (thesis: yes).
     solver_options : mapping of str to mapping, optional
         Keyword arguments per solver name, e.g. ``{"SCS": {"max_iters":
-        20000}}``. Default: :data:`OSQP_OPTIONS` for OSQP (MAR-98) and that
+        20000}}``. Default: :data:`OSQP_OPTIONS` for OSQP (module docstring) and that
         SCS limit (thesis). Passing a mapping replaces the default as a
         whole, so a solver left out runs with cvxpy's defaults. Stored
         read-only.
@@ -203,7 +201,7 @@ class SolverPolicy:
 
     Notes
     -----
-    A policy can be pickled (MAR-124), e.g. to send it to a worker process:
+    A policy can be pickled, e.g. to send it to a worker process:
     it is pickled as its class and fields, with the options as plain dicts,
     and unpickling calls the class again, so the copy is validated and its
     options are read-only again. The copy is equal to the original and has
@@ -292,8 +290,8 @@ DEFAULT_POLICY: SolverPolicy = SolverPolicy()
 THESIS_POLICY: SolverPolicy = SolverPolicy(solver_options={"SCS": {"max_iters": 20000}})
 """Solver policy that reproduces the thesis solves; for the parity gate only.
 
-The default policy before MAR-98, field for field: the same solver lists and
-acceptance rule, with OSQP at cvxpy's defaults (``eps_abs = eps_rel =
+The same solver lists and acceptance rule as :data:`DEFAULT_POLICY`, with
+OSQP at cvxpy's defaults (``eps_abs = eps_rel =
 1e-5``, ``max_iter = 10000``) as in the thesis. Its MSE solutions carry
 that inaccuracy (module docstring, "OSQP accuracy"); use
 :data:`DEFAULT_POLICY` for everything but comparing with the thesis."""
@@ -484,11 +482,10 @@ def solve(
     policy : SolverPolicy, optional
         Solver order and acceptance rule.
     pricing : Pricing, optional
-        Not needed (MAR-171): the premium is ``premium_value`` of the
-        solution's realised payout under ``built.pricing``, the pricing
+        Not needed: the premium is ``premium_value`` of the solution's
+        realised payout under ``built.pricing``, the pricing
         ``build_problems`` built it with, exact and without a solver call.
-        Kept for compatibility (MAR-143); if given, it must equal
-        ``built.pricing``. For a problem without a pricing
+        If given, it must equal ``built.pricing``. For a problem without a pricing
         (``built.pricing is None``, assembled by hand) it is the pricing of
         the premium, unchecked; without either, the premium is the premium
         term's value (module docstring, "The premium of a solution").

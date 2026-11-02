@@ -1,6 +1,7 @@
 # Reduced thesis-fixture config of the committed test bundle
-# site/fixtures/thesis-explorer/ (MAR-201; a test fixture only since MAR-210:
-# no page reads it, and it is not copied into the site).
+# site/fixtures/thesis-explorer/ (it was the bundle of the former placeholder
+# explorer page; now a test fixture only: no page reads it, and it is not
+# copied into the site).
 #
 # The thesis experiment (parity/configs/thesis.yaml) cut down to what the
 # former placeholder alpha/beta explorer page needed: one location of the thesis
@@ -19,8 +20,8 @@
 # directory.
 schema_version: 1
 name: thesis-explorer
-description: Reduced thesis experiment for the site's explorer check (MAR-201)
-  - location A1 only, individual scope, weighted CVaR, alpha and beta sweeps -
+description: Reduced thesis experiment for the site's explorer check - location
+  A1 only, individual scope, weighted CVaR, alpha and beta sweeps -
   on the thesis parity event set.
 eventset:
   path: ../../parity/tests/data/thesis_eventset

@@ -1,4 +1,4 @@
-"""Configuration of the track → wind → impact pipeline (MAR-73).
+"""Configuration of the track → wind → impact pipeline.
 
 One YAML file configures one EventSet build (``pixi run build-eventset
 --config <file>``). Every model forbids unknown keys. Relative paths in the
@@ -23,7 +23,7 @@ The defaults reproduce the thesis ``engine.py``, except where
 :class:`WindConfig` says otherwise.
 
 The track catalogue is IRIS by default. ``tracks: {kind: storm}`` selects
-STORM (D7, MAR-32): ``catalogue`` is then the directory of the ten STORM
+STORM (D7): ``catalogue`` is then the directory of the ten STORM
 1,000-year files of the basin (see :mod:`.storm`), and ``hazard_release`` and
 ``licence`` must be given.
 """
@@ -207,7 +207,7 @@ class CentroidWindIndexConfig(_Model):
 
 
 class CatInCircleIndexConfig(_Model):
-    """Cat-in-a-circle index from the tracks (MAR-26, SPEC §6.3 index (b)).
+    """Cat-in-a-circle index from the tracks (SPEC §6.3 index (b)).
 
     Selects :class:`.cat_in_circle.CatInCircleIndex`;
     the attributes are its parameters.
@@ -277,9 +277,10 @@ class NoVulnerabilityDrawsConfig(_Model):
 class ExcessRecentreConfig(_Model):
     """Recentre the Eberenz prior by the excess form, matched to the base loss.
 
-    ``{kind: excess, match: expected_loss}`` (MAR-160, the form decided on
-    2026-11-01): the prior draws from ``v_thresh + s * (v_half_i - v_thresh)``,
-    one factor ``s`` for every calibrated value, so the values keep their
+    ``{kind: excess, match: expected_loss}`` (the form decided on
+    2026-11-01; ``docs/methodology/vulnerability.md``): the prior draws from
+    ``v_thresh + s * (v_half_i - v_thresh)``, one factor ``s`` for every
+    calibrated value, so the values keep their
     order and stay above ``v_thresh``. ``s`` is solved at build time so that
     the expected annual loss of the draws equals that of the **base build**,
     the same config with ``vulnerability: {kind: none}``, to within
@@ -317,21 +318,21 @@ class EberenzEdrPriorConfig(_Model):
         Calibration region; default ``NA2`` (USA and Canada).
     wind_only : bool
         Leave out events whose EM-DAT record lists an associated disaster
-        (surge, rain, flood, slide, other). Default True, the MAR-103 decision
-        (2026-10-27): the index and the loss are wind only, so the prior uses
+        (surge, rain, flood, slide, other). Default True, the owner's decision
+        of 2026-10-27: the index and the loss are wind only, so the prior uses
         the wind-only events. False keeps all events, the sensitivity option.
     basins : tuple of str or None
         Keep only the events whose IBTrACS genesis basin is listed (codes
         ``NA``, ``SA``, ``EP``, ``WP``, ``NI``, ``SI``, ``SP``). Default
-        ``[NA]``, the MAR-132 decision (2026-10-27): NA2 is defined by the
+        ``[NA]``, the owner's decision of 2026-10-27: NA2 is defined by the
         affected country and also holds East Pacific storms that hit Hawaii.
         With both defaults NA2 keeps 17 events. ``null`` keeps every basin,
         the sensitivity option; with ``wind_only: false`` too it is the
         published distribution (43 NA2 events). A region event with no known
         basin raises :class:`.vulnerability.UnknownBasinError` at build time.
     recentre : ExcessRecentreConfig or None
-        Recentre the prior on the base impact function (MAR-160, the owner's
-        answer to MAR-118 Q5): ``{kind: excess, match: expected_loss}``
+        Recentre the prior on the base impact function (the owner's decision;
+        ``docs/methodology/vulnerability.md``): ``{kind: excess, match: expected_loss}``
         rescales every value's excess over ``v_thresh`` by one factor, solved
         at build time so that the expected annual loss of the draws equals
         that of the same config without draws (see
@@ -389,7 +390,7 @@ VHalfPriorConfig = Annotated[
 
 
 class EmanuelVHalfDrawsConfig(_Model):
-    """Vulnerability draws of the Emanuel ``v_half`` (MAR-25, SPEC §6.3).
+    """Vulnerability draws of the Emanuel ``v_half`` (SPEC §6.3).
 
     Selects :class:`.vulnerability.EmanuelVHalfDraws`, with ``v_thresh`` and
     ``scale`` from ``impact_function``.
@@ -491,12 +492,13 @@ class CentroidLossConfig(_Model):
 
 
 class CellLossConfig(_Model):
-    """Loss summed over each location's gridded cells (MAR-114, D2).
+    """Loss summed over each location's gridded cells (D2).
 
     For an aggregated location, such as a county made of LitPop cells
-    (MAR-113), the loss of the unit is the sum of the CLIMADA impacts on its
-    cells (SPEC §6.6: "the modelled LitPop asset loss in its territory"). The
-    index stays at the location's ``lat``/``lon``.
+    (:mod:`.portfolio_litpop`), the loss of the unit is the sum of the
+    CLIMADA impacts on its cells (SPEC §6.6: "the modelled LitPop asset
+    loss in its territory"). The index stays at the location's
+    ``lat``/``lon``.
 
     Attributes
     ----------
@@ -538,7 +540,7 @@ class IrisTracksConfig(_Model):
 
 
 class StormTracksConfig(_Model):
-    """STORM tracks (D7, MAR-32): ``catalogue`` is a directory of STORM files.
+    """STORM tracks (D7): ``catalogue`` is a directory of STORM files.
 
     Read by :func:`.storm.read_storm_catalogue`, which rebuilds the simulation
     year as ``1000 * file index + year in file`` and converts the 10-minute
@@ -572,7 +574,7 @@ def iris_licence() -> str:
     str
         ``licence_applied`` of the packaged IRIS manifest: ``"CC-BY-4.0"``,
         the stricter of the two IRIS licence records, by owner decision of
-        2026-10-27 (MAR-94; ``docs/data-sources.md``, IRIS licence check).
+        2026-10-27 (``docs/data-sources.md``, IRIS licence check).
     """
     return load_manifest().licence_applied
 
@@ -625,7 +627,7 @@ class PipelineConfig(_Model):
     licence : str
         Licence of the data, written into the EventSet's ``licence``.
         Default: the IRIS licence applied by owner decision, ``CC-BY-4.0``
-        (MAR-94; ``licence_applied`` in ``iris_manifest.json``). A build that
+        (``licence_applied`` in ``iris_manifest.json``). A build that
         adds sources with stricter terms must say so here. Required with
         STORM tracks.
     output : pathlib.Path

@@ -4,8 +4,10 @@ Two checks:
 
 * **Static:** no viz module imports the solver, the problem builder, the
   run executor or the sweeps (which call them), cvxpy, or an adapter
-  (ADR 0001). Importing core's ``__init__`` loads every core module, so a
-  ``sys.modules`` check cannot tell; the source is parsed instead. Any
+  (ADR 0001). Importing core's ``__init__`` loads the solver and the problem
+  builder (every core module but ``noise``, ``robust``, ``cli`` and
+  ``experiment/``, MAR-184), so a ``sys.modules`` check cannot tell; the
+  source is parsed instead. Any
   dynamic import (``importlib.import_module``, ``__import__``, or a name
   bound by ``from importlib import import_module [as alias]``) is rejected,
   as viz has no reason for one. The alias logic is a copy of the core's

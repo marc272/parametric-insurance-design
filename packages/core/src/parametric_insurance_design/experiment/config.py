@@ -1,7 +1,7 @@
 """Experiment configuration schema (SPEC §4.2, thesis issues C2, C4, C8).
 
-Owner: MAR-63. Typed, validated configuration of one experiment: the EventSet,
-the portfolio subset, the noise layer, the threshold filter, the outcome
+Typed, validated configuration of one experiment: the EventSet, the
+portfolio subset, the noise layer, the threshold filter, the outcome
 basis, the sample, the payout structure, the scopes, the objectives, the
 pricing, the extra constraints, the evaluation, the one-factor-at-a-time
 sweeps and the output location. It replaces the thesis' four YAML files and
@@ -19,7 +19,8 @@ parameters are checked by building the component at load time, so the
 component's own checks (e.g. the last-bin width of
 :class:`~parametric_insurance_design.payout.StepPayout`) also fail at load time.
 
-Pipeline order (what the runner, MAR-64, does with a config; thesis order):
+Pipeline order (what :mod:`~parametric_insurance_design.experiment.runner`
+does with a config; thesis order):
 
 1. read the EventSet at ``eventset.path`` (and check ``eventset.checksum``);
 2. keep the locations in ``portfolio.location_ids``;
@@ -169,7 +170,7 @@ SweepParameter = Literal[
 every ``budget`` constraint, ``n_bins`` the step payout, ``n_clusters`` every
 ``cluster`` scope, ``noise_level`` the noise level (EventSet-rebuilding), and
 ``n_assets`` the size of the location subsets (EventSet-rebuilding; the
-subsets are chosen by the sweep, MAR-65). The thesis name of ``noise_level``
+subsets are chosen by the sweep). The thesis name of ``noise_level``
 is ``noise_value``.
 """
 
@@ -204,7 +205,7 @@ ReturnPeriod = Annotated[float, Field(strict=True, allow_inf_nan=False, gt=1.0)]
 IndexKind = Literal["point", "value_weighted"]
 """Entity index: ``PointIndex`` or ``ValueWeightedIndex``."""
 AllocationRule = Literal["none", "value", "loss"]
-"""Allocation rule of the evaluation (``evaluate.Allocation`` values, MAR-217)."""
+"""Allocation rule of the evaluation (``evaluate.Allocation`` values)."""
 
 ALLOCATION_RULES: Final[tuple[str, ...]] = get_args(AllocationRule)
 """The values of :data:`AllocationRule`, in order: the ``evaluate.Allocation``
@@ -315,7 +316,7 @@ class NoiseConfig(_Model):
         Seed of the generator, >= 0 (thesis ``RANDOM_SEED``).
     bounds : tuple of float, default (20.0, 70.0)
         Index range of the heteroscedastic ramp, ``low < high``. The thesis
-        hard-coded its attachment and limit (issue C4).
+        hard-coded its attachment and limit (SPEC §3.1, C4).
     """
 
     kind: NoiseKind
@@ -389,7 +390,7 @@ class KFoldSampleConfig(_Model):
     """Year-block k-fold (:func:`~parametric_insurance_design.splits.year_block_kfold`).
 
     A k-fold experiment calibrates once per fold. Each fold is a run of its
-    own (MAR-22): :meth:`ExperimentConfig.single_runs` expands a config
+    own: :meth:`ExperimentConfig.single_runs` expands a config
     without ``fold`` into one config per fold, so the fold is part of the
     :func:`config_hash` and of the ``run_id``, and the ``runs`` key
     ``(run_id, problem_id)`` stays unique without a ``fold`` column.
@@ -446,7 +447,7 @@ class StepPayoutConfig(_Model):
         Explicit breakpoints (``n_bins + 1`` values from ``attachment`` to
         ``limit``); uniform if None.
     below_attachment : {"first_bin", "zero"}, default "first_bin"
-        What an index below ``attachment`` pays (MAR-170): the first bin's
+        What an index below ``attachment`` pays: the first bin's
         level (``"first_bin"``, the thesis code) or nothing (``"zero"``, the
         thesis text). ``"zero"`` makes a threshold filter at the attachment
         exact on the ``event`` and ``annual`` bases; see
@@ -457,9 +458,9 @@ class StepPayoutConfig(_Model):
     ``below_attachment`` is left out of :func:`to_dict`, :func:`dump_config`
     and :func:`canonical_json` when it is ``"first_bin"``, its default,
     whether unset or written out. A config that does not set ``"zero"``
-    therefore dumps and hashes exactly as before MAR-170 (the parity config
-    and its config hashes and run ids are unchanged); a config that sets
-    ``"zero"`` has a hash of its own.
+    therefore dumps and hashes exactly as one without the field (so the
+    parity config's hashes and run ids don't depend on it); a config that
+    sets ``"zero"`` has a hash of its own.
     """
 
     kind: Literal["step"] = "step"
@@ -578,7 +579,7 @@ class ClusterScopeConfig(_Model):
     cap_n_clusters : bool, default False
         In an ``n_assets`` sweep, give a location subset smaller than
         ``n_clusters`` the effective count ``min(n_clusters, n_locations)``
-        (:meth:`effective_n_clusters`, MAR-131). The sweep writes it into the
+        (:meth:`effective_n_clusters`). The sweep writes it into the
         point's config, so the run's manifest, ``runs.parameters`` and its
         config hash carry the count the run used, and the sweep manifest
         records the requested and the effective count. False is the thesis
@@ -587,16 +588,16 @@ class ClusterScopeConfig(_Model):
         asks for more clusters than it has locations fails.
     joint : bool, default True
         Calibrate the clusters jointly, in one design problem (True, the
-        thesis), or each cluster on its own, with its own budget (False,
-        MAR-180); see :class:`~parametric_insurance_design.scopes.Cluster`.
+        thesis), or each cluster on its own, with its own budget (False);
+        see :class:`~parametric_insurance_design.scopes.Cluster`.
 
     Notes
     -----
     ``cap_n_clusters`` is left out of :func:`to_dict`, :func:`dump_config`
     and :func:`canonical_json` when it is False, its default, and ``joint``
     when it is True, its default, whether unset or written out. A config
-    that sets neither therefore dumps and hashes exactly as before MAR-131
-    and MAR-180 (the parity config and its config hashes are unchanged); a
+    that sets neither therefore dumps and hashes exactly as one without the
+    two fields (so the parity config's hashes don't depend on them); a
     config that sets ``cap_n_clusters: true`` or ``joint: false`` has a
     hash of its own.
     """
@@ -749,7 +750,7 @@ class CostOfCapitalConfig(_Model):
     q: UnitOpen
 
     def build(self) -> CostOfCapitalLoad:
-        """Return the :class:`CostOfCapitalLoad` pricing (MAR-27)."""
+        """Return the :class:`CostOfCapitalLoad` pricing."""
         return CostOfCapitalLoad(rate=self.rate, q=self.q)
 
 
@@ -798,8 +799,8 @@ class EvaluationConfig(_Model):
         objectives only, as in the thesis.
     return_periods : tuple of float, default ``evaluate.DEFAULT_RETURN_PERIODS``
         Return periods of the ``exceedance`` table
-        (:func:`~parametric_insurance_design.evaluate.exceedance_curves`,
-        MAR-117): at least one, each finite and > 1, in strictly increasing
+        (:func:`~parametric_insurance_design.evaluate.exceedance_curves`):
+        at least one, each finite and > 1, in strictly increasing
         order. Integers are read as floats. Their unit follows the basis
         (years on ``annual`` and ``event``, events on ``event_conditional``;
         see ``exceedance_curves``). The default is
@@ -811,7 +812,7 @@ class EvaluationConfig(_Model):
         in the stored ``kpis`` and ``exceedance`` tables (the ``allocation``
         argument of :func:`~parametric_insurance_design.evaluate.kpis`,
         :func:`~parametric_insurance_design.evaluate.exceedance_curves` and
-        ``bootstrap.bootstrap_kpis``; MAR-100, MAR-217). ``"none"`` writes no
+        ``bootstrap.bootstrap_kpis``). ``"none"`` writes no
         per-location rows. ``"value"`` adds rows at ``level =
         "location_by_value"``, ``"loss"`` at ``level = "location_by_loss"``:
         the eight KPIs of every location (no ``premium``), with bootstrap
@@ -826,14 +827,14 @@ class EvaluationConfig(_Model):
     ``return_periods`` is left out of :func:`to_dict`, :func:`dump_config`
     and :func:`canonical_json` when it equals the default, whether unset or
     written out. A config that does not set another grid therefore dumps and
-    hashes exactly as before MAR-117 and keeps its run ids; a config with
+    hashes exactly as one without the field, with the same run ids; a config
+    with
     another grid has a hash of its own, since the grid is part of the run's
     stored ``exceedance`` table.
 
-    ``allocation`` is left out the same way while it is ``"none"`` (the
-    MAR-131 pattern), so every config that does not set a rule dumps and
-    hashes exactly as before MAR-217, with no :data:`CONFIG_HASH_DOMAIN`
-    change. A config with a rule has a hash, and so a run id, of its own: the
+    ``allocation`` is left out the same way while it is ``"none"``, so every
+    config that does not set a rule dumps and hashes exactly as one without
+    the field. A config with a rule has a hash, and so a run id, of its own: the
     location rows are part of the run's stored tables. Such a run is a cache
     entry of its own, never a hit on the stored ``"none"`` run of the same
     design, and the runner solves it again (deterministically: the same
@@ -873,7 +874,7 @@ class EvaluationConfig(_Model):
 
 
 class BootstrapConfig(_Model):
-    """Block-bootstrap confidence intervals of the KPIs (MAR-23, SPEC §6.1).
+    """Block-bootstrap confidence intervals of the KPIs (SPEC §6.1).
 
     The runner resamples the years of every evaluation sample
     (``bootstrap.resample_years``) and fills the ``ci_*`` columns of the
@@ -970,7 +971,7 @@ class OutputConfig(_Model):
     Parameters
     ----------
     directory : pathlib.Path
-        Result-store directory (MAR-64). A relative path is relative to the
+        Result-store directory. A relative path is relative to the
         config file's directory when read with :func:`load_config`.
     """
 
@@ -1518,9 +1519,9 @@ OMITTED_WHEN_ABSENT: Final[tuple[str, ...]] = ("bootstrap",)
 """Optional top-level sections left out of :func:`canonical_json` and
 :func:`to_dict` when they are None.
 
-They were added after configs were hashed and cached (``bootstrap``: MAR-23).
-Leaving an absent section out keeps the hash, and the YAML, of every config
-without it exactly as before; a config that sets it hashes the section.
+Leaving an absent section out makes the hash, and the YAML, of a config
+without it the same as if the section did not exist; a config that sets it
+hashes the section.
 """
 
 
@@ -1599,8 +1600,8 @@ def config_hash(config: ExperimentConfig) -> str:
     Left out (:data:`CONFIG_HASH_EXCLUDED`): ``name``, ``description``,
     ``eventset.path``, ``output`` and ``sweeps``. Two configs that differ only
     there have the same hash. An absent ``bootstrap`` section (None) is also
-    left out (:data:`OMITTED_WHEN_ABSENT`), so the opt-in bootstrap did not
-    change the hash of any existing config. A set ``bootstrap`` section is
+    left out (:data:`OMITTED_WHEN_ABSENT`), so a config without it hashes
+    as if the section did not exist. A set ``bootstrap`` section is
     hashed: the confidence intervals are part of the run's stored ``kpis``
     table, so a run with other (or no) intervals is another cache entry.
     ``eventset.checksum`` is included, so a run pinned to a checksum has a
@@ -1609,13 +1610,13 @@ def config_hash(config: ExperimentConfig) -> str:
     ``EventSet.content_hash()``).
 
     Any change to the canonical form or the exclusions changes
-    :data:`CONFIG_HASH_DOMAIN`. (Omitting an absent ``bootstrap``, a False
-    ``cap_n_clusters``, a True cluster ``joint`` (MAR-180), a default
-    ``evaluation.return_periods``, a ``"none"`` ``evaluation.allocation``
-    (MAR-217) or a
-    ``"first_bin"`` ``payout.below_attachment`` did not:
-    the canonical JSON of every config that existed before them is
-    unchanged.) Adding a schema field with a default that is hashed changes
+    :data:`CONFIG_HASH_DOMAIN`. Omitting an optional field at its default
+    does not: an absent ``bootstrap``, a False ``cap_n_clusters``, a True
+    cluster ``joint``, a default ``evaluation.return_periods``, a ``"none"``
+    ``evaluation.allocation`` and a ``"first_bin"``
+    ``payout.below_attachment`` are left out of the canonical JSON, so a
+    config that doesn't use them has the canonical JSON it would have
+    without the fields. Adding a schema field with a default that is hashed changes
     the hash of every config, because defaults are hashed; that is a schema
     version change.
     """

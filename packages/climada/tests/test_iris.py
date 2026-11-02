@@ -139,7 +139,8 @@ def test_shipped_manifest_applies_the_owner_licence_decision() -> None:
     assert m.licence_applied == "CC-BY-4.0"
     assert "CC0-1.0" in m.licence
     assert "CC-BY-4.0" in m.licence
-    assert "MAR-94" in m.licence_resolution
+    assert "owner decision" in m.licence_resolution
+    assert "docs/data-sources.md" in m.licence_resolution
 
 
 @pytest.mark.parametrize("key", ["licence_applied", "licence_resolution"])

@@ -965,9 +965,9 @@ class EventSet:
         * The metadata is :meth:`EventSetMetadata.to_dict` without
           ``provenance.created_at``, and without ``transforms`` when it is
           empty, as JSON with sorted keys, ``(",", ":")`` separators and
-          ASCII escapes. Omitting an empty ``transforms`` keeps the hash of
-          every EventSet without transforms what it was before
-          :attr:`EventSetMetadata.transforms` existed (MAR-88).
+          ASCII escapes. Omitting an empty ``transforms`` gives an EventSet
+          without transforms the hash it would have without the
+          :attr:`EventSetMetadata.transforms` field.
 
         Any change to this format must change the version in the domain tag.
 
@@ -1323,8 +1323,12 @@ class EventSet:
             Finite threshold.
         column : {"index", "loss"}, default "index"
             Matrix to compare with the threshold. The thesis filter is
-            ``column="index"`` with the attachment point as threshold, which
-            keeps every row that can trigger a payout.
+            ``column="index"`` with the attachment point as threshold. Under
+            a step payout with ``below_attachment="zero"`` that keeps every
+            row that can trigger a payout. Under the default ``"first_bin"``
+            an index below the attachment falls into the first bin, so a
+            dropped row would have paid that bin's level (see
+            :mod:`~parametric_insurance_design.payout`).
 
         Returns
         -------

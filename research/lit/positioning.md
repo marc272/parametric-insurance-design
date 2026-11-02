@@ -21,12 +21,12 @@
   - With a binding budget, the tail term then equals, up to a constant, the hedged-loss CVaR the thesis attributes to Fan et al.
   - The one-sidedness only matters in the E[U] term and on the annual basis.
 
-**B. Scenario-robust calibration across hazard, vulnerability and climate scenarios.** Scenario-robust (R1, min–max) calibration of tail-objective step payouts for one owner's assets, jointly over hazard-catalogue, vulnerability and climate-scenario event sets, as one LP, with leave-one-scenario-out tests and the price of robustness. A distributionally robust variant over year weights (R2) stays optional (D6).
+**B. Scenario-robust calibration across vulnerability and climate scenarios.** Scenario-robust (R1, min–max) calibration of tail-objective step payouts for one owner's assets, jointly over vulnerability and climate-scenario event sets, as one LP, with leave-one-scenario-out tests and the price of robustness. Hazard-model uncertainty is a stated limitation: there is no second hazard catalogue (D7 revisited 2026-10-31, MAR-62). A distributionally robust variant over year weights (R2) is included, conditionally (D6, decided 2026-11-01 at checkpoint C1): MAR-35 starts with a short relevance check, and if R2 doesn't add value or isn't tractable, the fallback is a short appendix or leaving it out.
 - *Closest prior work:*
   - Steinmann et al. stress-test an already-chosen product under Knutson-scaled projections, but do not *design* against those scenarios.
   - Birghila & Pflug (2019) solve a distributionally robust AVaR design for *indemnity* contracts, with the premium set on the baseline distribution. Their setting has no index and no basis risk.
   - Zhu & Fukushima (2009) minimise worst-case CVaR over a set of candidate distributions as an LP, applied to investment portfolios.
-- *What is new:* the contribution is the computational, multi-asset and empirical setting, not robust parametric design as such. The robust technique is standard. What is new is applying it as one LP over explicit hazard-catalogue, vulnerability and climate-scenario event sets, for several assets of one owner, and evaluating it with leave-one-scenario-out tests and the price of robustness.
+- *What is new:* the contribution is the computational, multi-asset and empirical setting, not robust parametric design as such. The robust technique is standard. What is new is applying it as one LP over explicit vulnerability and climate-scenario event sets, for several assets of one owner, and evaluating it with leave-one-scenario-out tests and the price of robustness.
 
 **C. How we evaluate.** A supporting contribution, not a claim.
 - *What it covers:*

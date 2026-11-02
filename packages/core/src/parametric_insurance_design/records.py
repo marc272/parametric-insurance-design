@@ -93,19 +93,20 @@ class KpiLevel(StrEnum):
     LOCATION : str
         One location (asset): its loss against the payout it receives.
         Reserved: ``evaluate.kpis`` doesn't write it, because the payout a
-        location receives from a joint design isn't identified (MAR-100).
+        location receives from a joint design isn't identified
+        (``docs/methodology/payout-allocation.md``).
         Per-location rows carry the allocation rule in their level, below.
     LOCATION_BY_VALUE : str
         One location: its loss against its share of its design problem's
         payout, pro rata to insured value (``evaluate`` allocation
-        ``"value"``, MAR-100).
+        ``"value"``).
     LOCATION_BY_LOSS : str
         One location: its loss against its share of its design problem's
         payout, pro rata to its loss in each row (``evaluate`` allocation
-        ``"loss"``, MAR-100).
+        ``"loss"``).
     ENTITY : str
         One payout entity (an asset or a cluster). For a joint scope, one
-        member of the set of optimal designs (MAR-100).
+        member of the set of optimal designs.
     PROBLEM : str
         The objective level of one design problem.
     PORTFOLIO : str
@@ -165,7 +166,7 @@ def _values(enum: type[StrEnum]) -> frozenset[str]:
     return frozenset(member.value for member in enum)
 
 
-# -- value-type checks (MAR-130) ----------------------------------------------
+# -- value-type checks -------------------------------------------------------
 #
 # ``_is_kind`` is the reference definition of which Python values a column
 # kind holds. ``_holds_only`` gives the same answer for a whole column, but

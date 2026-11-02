@@ -23,6 +23,8 @@ def test_palette_is_the_thesis_colour_palette() -> None:
         "individual": (":", "^"),
         "cluster": ("--", "s"),
         "portfolio": ("-", "o"),
+        # not in the thesis: a cluster scope calibrated per cluster (MAR-225)
+        "cluster_separate": ("-.", "D"),
     }
 
 

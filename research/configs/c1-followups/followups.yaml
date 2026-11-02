@@ -1,0 +1,73 @@
+# C1 follow-ups on the thesis portfolio (MAR-205, split from MAR-152 items
+# 1, 2, 3 and 5). Read by research/scripts/c1_followups.py.
+#
+# Every run derives from the C1 base config research/configs/c1/c1_main.yaml
+# exactly as C1's own runs do (research/scripts/c1_checkpoint.py,
+# single_config): one scope x one objective per run, with the pricing, the
+# budget loading kappa, the weighted-CVaR beta and (for the F-12 EventSets) the
+# EventSet, noise, threshold and payout set from this file. A run whose config
+# equals a C1 run's (same config hash, hence the same run id) is read from the
+# C1 store instead of being solved again. Each run's config_hash is recorded
+# in research/data/c1-followups/.
+
+# Family "budget" (MAR-152 item 3): no new runs. Budget use next to the tail
+# KPI in C1's kappa sweep (family main), read from research/data/c1/.
+budget:
+  family: main
+  eval_beta: 0.99
+
+# Family "coc_q" (item 1): cost of capital with q different from the KPI beta.
+# C1 ran q 0.99 only (KPI beta 0.99: the tie of C1 observation 4).
+coc_q:
+  kappa: 1.0
+  pricings:
+    coc_r0.06_q0.95: {kind: cost_of_capital, rate: 0.06, q: 0.95}
+    coc_r0.06_q0.995: {kind: cost_of_capital, rate: 0.06, q: 0.995}
+    coc_r0.10_q0.95: {kind: cost_of_capital, rate: 0.10, q: 0.95}
+    coc_r0.10_q0.995: {kind: cost_of_capital, rate: 0.10, q: 0.995}
+  wcvar_betas: [0.99, 0.995]
+  eval_betas: [0.95, 0.99, 0.995]
+
+# Family "beta_draws" (item 2): weighted-CVaR design beta above 0.99 on the
+# F-12 EventSets with vulnerability draws (C1 ran beta 0.95 and 0.99 there).
+# The MSE, E[U] and beta 0.99 designs are C1's runs (read from its store).
+beta_draws:
+  kappa: 1.0
+  eventsets: [vuln, cic50_vuln, vuln_basins_null]
+  pricings:
+    pure: {kind: pure}
+    coc_r0.06: {kind: cost_of_capital, rate: 0.06, q: 0.99}
+  wcvar_betas: [0.99, 0.995, 0.998, 0.999]
+  eval_betas: [0.95, 0.99, 0.995, 0.998]
+
+# Family "coverage" (item 4): a simulation study of the percentile
+# year-block bootstrap interval for CVaR on the annual basis. Fixed designs
+# (C1 main line, portfolio scope, kappa 1, read from the C1 store) evaluated
+# on the full 10,000-year thesis EventSet (noise layer as in C1), which is the
+# population: the true KPI is its value on all 10,000 years x 13 copies. Each
+# replication draws n_years years with replacement from the 10,000 (all 13
+# copies of a drawn year come along), computes the KPI and its percentile
+# interval from n_bootstrap year-block replicates (the library's
+# kpi_replicates and percentile_interval), and records whether the interval
+# contains the true value. "none" is no cover (payout 0): U = L.
+coverage:
+  scope: portfolio
+  kappa: 1.0
+  designs:
+    - {pricing: pure, design: none}
+    - {pricing: pure, design: mse}
+    - {pricing: pure, design: eu}
+    - {pricing: pure, design: wcvar@0.99}
+    - {pricing: coc_r0.06, design: mse}
+    - {pricing: coc_r0.06, design: wcvar@0.99}
+  paired:
+    - [pure, wcvar@0.99, mse]
+    - [pure, wcvar@0.99, eu]
+    - [coc_r0.06, wcvar@0.99, mse]
+  kpis: [cvar_uncovered, expected_uncovered]
+  eval_betas: [0.95, 0.99, 0.995]
+  n_years: [3000]
+  n_replications: 500
+  n_bootstrap: 1000
+  level: 0.9
+  seed: 20261102

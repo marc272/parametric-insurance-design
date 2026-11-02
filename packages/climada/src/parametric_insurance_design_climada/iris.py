@@ -72,7 +72,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 MANIFEST_RESOURCE = "iris_manifest.json"
-USER_AGENT = "parametric-insurance-design-climada (IRIS download; MAR-72)"
+USER_AGENT = "parametric-insurance-design-climada (IRIS download)"
 _CHUNK = 1 << 20
 _MEMBER_INDEX = re.compile(r"_1000Y_n(\d+)\.txt$")
 
@@ -141,11 +141,11 @@ class IrisManifest:
     ----------
     dataset, version, collection_doi, article_doi, licence, citation : str
         Provenance, as recorded in ``docs/data-sources.md``. ``licence``
-        states what the source records say (they differ, MAR-72).
+        states what the source records say (they differ).
     licence_applied : str
         The licence identifier written into every EventSet built from IRIS:
         ``"CC-BY-4.0"``, the stricter of the two records, by owner decision
-        (MAR-94).
+        (``docs/data-sources.md``, IRIS licence check).
     licence_resolution : str
         That decision, in words.
     archive : RemoteFile
