@@ -630,7 +630,7 @@ def pooled_kpi_table(
         ``PooledKpis.table``: one row per pooled design and KPI.
     scope_keys : sequence of str
         Figure key of each configured scope, by position in
-        ``config.scopes`` (``command._scope_keys``).
+        ``config.scopes`` (``style.config_scope_keys``).
     kpis : sequence of str
         KPI names (``records.KpiName`` values).
 

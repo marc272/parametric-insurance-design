@@ -28,7 +28,7 @@ from parametric_insurance_design.experiment import runner
 from parametric_insurance_design.experiment.config import parse_config
 from parametric_insurance_design.records import ALL_PROBLEMS
 from parametric_insurance_design_viz import site_export, style
-from parametric_insurance_design_viz.command import _scope_keys, write_figures
+from parametric_insurance_design_viz.command import write_figures
 from parametric_insurance_design_viz.errors import (
     FigureDataError,
     InconsistentRunsError,
@@ -88,7 +88,7 @@ def grid(fixture: Fixture) -> dict[str, tuple[RunResult, ...]]:
     """Runs per scope key, as the figures command passes them."""
     runs = ResultReader(fixture.store).runs(fixture.run_ids)
     per = len(fixture.config.objectives)
-    keys = _scope_keys(fixture.config)
+    keys = style.config_scope_keys(fixture.config)
     return {k: tuple(runs[i * per : (i + 1) * per]) for i, k in enumerate(keys)}
 
 
@@ -121,8 +121,7 @@ def test_the_separate_cluster_scope_has_its_own_label_and_style() -> None:
 
 
 def test_four_scopes_have_four_keys(four: Fixture) -> None:
-    assert _scope_keys(four.config) == KEYS
-    assert site_export._scope_keys(four.config) == KEYS
+    assert style.config_scope_keys(four.config) == KEYS
     runs = grid(four)
     for key, scope_runs in runs.items():
         assert {style.run_scope_name(r) for r in scope_runs} == {key}

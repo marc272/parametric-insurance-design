@@ -423,25 +423,6 @@ def _n_folds(config: ExperimentConfig) -> int:
     return sample.k if sample.kind == "kfold" else 1  # KFOLD_SAMPLE, literal
 
 
-def _scope_keys(config: ExperimentConfig) -> list[str]:
-    """Figure-name stem per configured scope: its name, numbered on repeats.
-
-    The name is ``style.config_scope_name``: the kind, or
-    ``"cluster_separate"`` for a cluster scope with ``joint: false``
-    (MAR-225).
-    """
-    kinds = [style.config_scope_name(s) for s in config.scopes]
-    total = Counter(kinds)
-    seen: Counter[str] = Counter()
-    keys: list[str] = []
-    for kind in kinds:
-        seen[kind] += 1
-        keys.append(
-            kind if total[kind] == 1 or seen[kind] == 1 else f"{kind}_{seen[kind]}"
-        )
-    return keys
-
-
 def _labels(eventset: EventSet | None) -> AxisLabels:
     """Axis labels with the EventSet's index and loss units."""
     if eventset is None:
@@ -654,7 +635,7 @@ def write_figures(
     eventset_hash = eventset.content_hash() if eventset is not None else None
     scopes: list[ScopeRuns] = []
     for i, (key, scope_config) in enumerate(
-        zip(_scope_keys(config), config.scopes, strict=True)
+        zip(style.config_scope_keys(config), config.scopes, strict=True)
     ):
         runs = results[i * per_scope : (i + 1) * per_scope]
         events = None

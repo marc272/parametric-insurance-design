@@ -32,14 +32,13 @@ from parametric_insurance_design.experiment.runner import (
     run_key,
 )
 from parametric_insurance_design.experiment.store import ResultStore
-from parametric_insurance_design_viz import command
+from parametric_insurance_design_viz import command, style
 from parametric_insurance_design_viz.command import (
     FIGURE_SETS,
     KFOLD_PAYOUT_REASON,
     KFOLD_SET_REASON,
     FigureContext,
     SkippedFigure,
-    _scope_keys,
     payout_figures,
     write_figures,
 )
@@ -195,7 +194,17 @@ def test_figure_sets_are_extensible(toy: Fixture, tmp_path: Path) -> None:
 def test_scope_keys_number_repeated_kinds(toy: Fixture) -> None:
     scopes = toy.config.scopes
     config = toy.config.model_copy(update={"scopes": (scopes[1], scopes[0], scopes[1])})
-    assert _scope_keys(config) == ["cluster", "individual", "cluster_2"]
+    assert style.config_scope_keys(config) == ["cluster", "individual", "cluster_2"]
+    separate = scopes[1].model_copy(update={"joint": False})
+    config = toy.config.model_copy(
+        update={"scopes": (scopes[1], separate, separate, scopes[1])}
+    )
+    assert style.config_scope_keys(config) == [
+        "cluster",
+        "cluster_separate",
+        "cluster_separate_2",
+        "cluster_2",
+    ]
 
 
 # -- k-fold configs: pooled KPIs (MAR-151); refused without them (MAR-142) --------

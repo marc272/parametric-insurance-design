@@ -1080,25 +1080,6 @@ def _check_split(
         )
 
 
-def _scope_keys(config: ExperimentConfig) -> list[str]:
-    """Name per configured scope: its name, numbered on repeats (as figures).
-
-    The name is ``style.config_scope_name``: the kind, or
-    ``"cluster_separate"`` for a cluster scope with ``joint: false``
-    (MAR-225), so the two cluster settings never share a key.
-    """
-    kinds = [style.config_scope_name(s) for s in config.scopes]
-    total = Counter(kinds)
-    seen: Counter[str] = Counter()
-    keys: list[str] = []
-    for kind in kinds:
-        seen[kind] += 1
-        keys.append(
-            kind if total[kind] == 1 or seen[kind] == 1 else f"{kind}_{seen[kind]}"
-        )
-    return keys
-
-
 def _frame(parts: Iterable[pd.DataFrame], columns: Sequence[_Col]) -> pd.DataFrame:
     frames = [p for p in parts if len(p)]
     if not frames:
@@ -1591,7 +1572,7 @@ def export_site(
         parameters, sweeps = [], ()
     budget = SizeBudget() if budget is None else budget
     ids, chosen, not_exported, points = _plan(config, run_ids, sweeps, parameters)
-    keys = _scope_keys(config)
+    keys = style.config_scope_keys(config)
     per_scope = len(config.objectives) * (1 if k is None else k)
     scope_key = {r: keys[i // per_scope] for i, r in enumerate(ids)}
     for point in points:
@@ -1944,7 +1925,7 @@ def _add_kfold(
         (*_RUN_COLUMNS, _FOLD, *_PAYOUT_COLUMNS),
         group=_BASELINE,
     )
-    keys = _scope_keys(config)
+    keys = style.config_scope_keys(config)
     designs: list[dict[str, Any]] = []
     for d in range(len(ids) // k):
         run_ids = list(ids[d * k : (d + 1) * k])
