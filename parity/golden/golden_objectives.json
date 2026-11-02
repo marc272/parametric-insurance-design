@@ -4,7 +4,7 @@
     "a_golden_kpis": "from the committed golden KPI row of the problem's subject (KPI_Source golden:<subject>)",
     "b_thesis_code": "KPIs recomputed by the thesis benchmarking code at the record's Beta on the golden payouts and the thesis-prepared data (KPI_Source thesis_kpis:<subject>@beta=<b> from calculate_benchmarking_kpis, or thesis_entity_kpis:<subject>@beta=<b> from _build_standard_group_outputs + _calculate_entity_kpis for records the thesis dropped from its KPI table)"
   },
-  "description": "Golden objective values of the thesis design problems (MAR-68). Written by parity/scripts/derive_golden_objectives.py; the thesis wrote none, so each is derived (module docstring).",
+  "description": "Golden objective values of the thesis design problems. Written by parity/scripts/derive_golden_objectives.py; the thesis wrote none, so each is derived (module docstring).",
   "formulas": {
     "pure_basis_risk_minimization": "E_Residual^2",
     "pure_uncovered_loss_minimization": "E_Uncovered",

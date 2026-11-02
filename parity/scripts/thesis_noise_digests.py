@@ -1,4 +1,4 @@
-r"""Run the thesis noise layer on the parity fixture and record digests (MAR-10).
+r"""Run the thesis noise layer on the parity fixture and record digests.
 
 The thesis function ``add_noise_to_asset_losses`` lives in
 ``src/utils/data_processing.py`` of the thesis repository
@@ -322,7 +322,7 @@ def build_digests(repo: Path) -> dict[str, Any]:
             f"sums and sampled entries) is the cross-platform check, at rtol "
             f"{SUMMARY_RTOL}. Written by "
             "parity/scripts/thesis_noise_digests.py; checked by "
-            "parity/tests/test_noise_parity.py (MAR-10)."
+            "parity/tests/test_noise_parity.py."
         ),
         "thesis_repo": conv.THESIS_REPO_URL,
         "thesis_commit": conv.thesis_commit(repo),
