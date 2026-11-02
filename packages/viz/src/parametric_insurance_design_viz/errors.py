@@ -2,7 +2,7 @@
 
 Every error derives from the core's
 :class:`~parametric_insurance_design.errors.ParametricInsuranceDesignError`
-(ADR 0002 §6: new subclasses live in the owning module), so callers, and the
+(viz adds its own subclasses under it, in this module), so callers, and the
 ``parametric-insurance-design`` command, can catch the whole library with one
 class.
 """
@@ -28,7 +28,7 @@ class VizError(ParametricInsuranceDesignError, ValueError):
 class MissingRunError(VizError):
     """A requested run is not committed in the result store.
 
-    Figures read the store and never re-run an optimisation (SPEC §3.1 C6), so
+    Figures read the store and never re-run an optimisation, so
     the run has to be computed first, e.g. with
     ``parametric-insurance-design run CONFIG``.
     """

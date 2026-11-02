@@ -1,7 +1,8 @@
 """Figures for parametric-insurance-design.
 
 Plotting reads results from the core's result store and never re-runs an
-optimisation (SPEC §3.1 C6). This package must never import an adapter
+optimisation: computation, then the store, then plotting, as strictly
+separate layers. This package must never import an adapter
 (``parametric_insurance_design_crc`` or ``parametric_insurance_design_climada``),
 nor the core's solver or problem builder.
 
