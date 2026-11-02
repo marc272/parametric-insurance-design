@@ -47,7 +47,9 @@ def test_pricing_does_not_import_evaluate() -> None:
 
 def test_riskmeasures_imports_no_problem_or_evaluation_module() -> None:
     package = {m for m in imported_modules(riskmeasures) if m.startswith("parametric_")}
+    # ``_validation`` imports only ``errors`` (MAR-177).
     assert package == {
+        "parametric_insurance_design._validation",
         "parametric_insurance_design.basis",
         "parametric_insurance_design.errors",
     }

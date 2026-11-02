@@ -10,13 +10,12 @@ come from ``PayoutStructure.constraints``.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
-from numbers import Real
 from typing import ClassVar
 
 import cvxpy as cp
 
+from parametric_insurance_design._validation import check_real
 from parametric_insurance_design.errors import ComponentConfigError
 from parametric_insurance_design.interfaces import Constraint, ProblemContext, Term
 
@@ -49,16 +48,8 @@ class Budget(Constraint):
 
     def __post_init__(self) -> None:
         """Validate ``loading``."""
-        loading = self.loading
-        if isinstance(loading, bool) or not isinstance(loading, Real):
-            raise ComponentConfigError(
-                f"budget loading must be a real number, got {loading!r}"
-            )
-        if not (math.isfinite(float(loading)) and float(loading) >= 0.0):
-            raise ComponentConfigError(
-                f"budget loading must be finite and >= 0, got {loading!r}"
-            )
-        object.__setattr__(self, "loading", float(loading))
+        loading = check_real("budget loading", self.loading, low=0.0)
+        object.__setattr__(self, "loading", loading)
 
     def build(self, ctx: ProblemContext, premium: Term) -> tuple[cp.Constraint, ...]:
         """Build ``premium <= loading * E[L]``.
