@@ -836,6 +836,36 @@ def test_paired_difference_needs_the_same_resample(toy_eventset: EventSet) -> No
         paired_difference(a, fewer)
 
 
+@pytest.mark.parametrize("across_scopes", [False, True])
+def test_paired_difference_names_missing_columns(
+    toy_eventset: EventSet, across_scopes: bool
+) -> None:
+    # A hand-built table without a column the pairing reads raises a typed
+    # error naming every missing column, not pandas' bare KeyError, and before
+    # any other check reads the table (across_scopes reads ``level`` first).
+    a, b, _ = two_designs(toy_eventset)
+    if across_scopes:
+        a, b = a.portfolio_rows(), b.portfolio_rows()
+    expected = paired_difference(a, b, across_scopes=across_scopes)
+    for dropped in (["level"], ["value", "run_id"]):
+        bare = dataclasses.replace(b, table=b.table.drop(columns=dropped))
+        missing = ", ".join(c for c in (*PAIR_KEY, "run_id", "value") if c in dropped)
+        with pytest.raises(
+            BootstrapError, match=rf"design b's .* column\(s\) {missing};"
+        ):
+            paired_difference(a, bare, across_scopes=across_scopes)
+        bare = dataclasses.replace(a, table=a.table.drop(columns=dropped))
+        with pytest.raises(
+            BootstrapError, match=rf"design a's .* column\(s\) {missing};"
+        ):
+            paired_difference(bare, b, across_scopes=across_scopes)
+    # A table with every column (extra ones included) pairs as before.
+    extra = dataclasses.replace(b, table=b.table.assign(note="hand-built"))
+    pd.testing.assert_frame_equal(
+        paired_difference(a, extra, across_scopes=across_scopes), expected
+    )
+
+
 # --------------------------------------------------------------------------
 # Paired differences across scopes (MAR-179)
 # --------------------------------------------------------------------------

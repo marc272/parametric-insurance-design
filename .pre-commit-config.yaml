@@ -23,7 +23,8 @@ repos:
         args: [--markdown-linebreak-ext=md]
 
   # ruff runs from uv.lock, not from a pinned hook repo, so pre-commit and
-  # `uv run ruff` can never use different ruff versions (MAR-77). The hooks
+  # `uv run ruff` can never use different ruff versions (a hook pinned
+  # separately can drift from the lock and pass what CI fails). The hooks
   # mirror astral-sh/ruff-pre-commit's; they need uv on PATH, as the rest of
   # the repository does. scripts/check_ruff_single_source.py (CI, job lint)
   # fails if a hook runs ruff any other way.
@@ -43,8 +44,8 @@ repos:
         types_or: [python, pyi, jupyter, markdown]
         require_serial: true
 
-  # Publication rule (AGENTS.md): public files link no private Linear pages
-  # (MAR-191). Readers outside the workspace can't open them; write the plain
+  # Publication rule (AGENTS.md): public files link no private Linear pages.
+  # Readers outside the workspace can't open them; write the plain
   # issue ID (MAR-n) instead. Only the agents' working instructions may keep
   # their links (ADR 0004 Q1 = 1A): AGENTS.md, CLAUDE.md, docs/ORCHESTRATION.md,
   # .claude/ and the pull request template.
@@ -57,7 +58,8 @@ repos:
         types: [text]
         exclude: ^(AGENTS\.md|CLAUDE\.md|docs/ORCHESTRATION\.md|\.github/pull_request_template\.md|\.claude/.*)$
       # docs/README.md links every Markdown page under docs/ directly, and
-      # every figure directly or through a page it links (MAR-186, MAR-191).
+      # every figure directly or through a page it links, so no page or
+      # figure is orphaned from the docs index.
       # --self-test first proves the rules fire on built-in probe trees.
       - id: docs-index
         name: docs/README.md indexes every file under docs/

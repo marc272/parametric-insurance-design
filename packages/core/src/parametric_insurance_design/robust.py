@@ -84,7 +84,10 @@ def build_scenario_robust(
         One per design problem, solvable with ``solve.solve``. With one
         scenario the solution equals the nominal one.
     """
-    raise NotImplementedError("MAR-34")  # pragma: no cover
+    raise NotImplementedError(  # pragma: no cover
+        "build_scenario_robust (R1, scenario-robust design) is not implemented "
+        "yet; see docs/SPEC.md §6.5 for the planned method"
+    )
 
 
 @dataclass(frozen=True)
@@ -109,4 +112,7 @@ class DistributionallyRobust(Objective):
 
     def build(self, ctx: ProblemContext) -> ObjectiveTerm:
         """See ``Objective.build``."""
-        raise NotImplementedError("MAR-35")  # pragma: no cover
+        raise NotImplementedError(  # pragma: no cover
+            "DistributionallyRobust (R2, distributionally robust design) is not "
+            "implemented yet; see docs/SPEC.md §6.5 for the planned method"
+        )

@@ -11,7 +11,7 @@ Paper P-03) can be added without changing the pipeline:
     :class:`CentroidWindIndex`, is the thesis index: the storm's maximum
     sustained wind at the location's centroid.
     :class:`~parametric_insurance_design_climada.cat_in_circle.CatInCircleIndex`
-    (MAR-26) is the cat-in-a-circle builder: it reads the tracks and the
+    is the cat-in-a-circle builder: it reads the tracks and the
     locations, not the wind field. The config's ``index`` section selects the
     builder (:func:`~parametric_insurance_design_climada.pipeline.make_index_builder`).
 :class:`VulnerabilityDraws`
@@ -19,7 +19,7 @@ Paper P-03) can be added without changing the pipeline:
     (``draw_id``). The default, :class:`NoDraws`, keeps the base loss as the
     single draw 0.
     :class:`~parametric_insurance_design_climada.vulnerability.EmanuelVHalfDraws`
-    (MAR-25) recomputes the loss with the Emanuel ``v_half`` drawn from a
+    recomputes the loss with the Emanuel ``v_half`` drawn from a
     prior per storm and draw; the config's ``vulnerability`` section selects
     it (:func:`~parametric_insurance_design_climada.pipeline.make_vulnerability_draws`).
     The pipeline expands the rows, gives each draw ``rate / n_draws``
