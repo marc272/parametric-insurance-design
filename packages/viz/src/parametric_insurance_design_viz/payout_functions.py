@@ -61,7 +61,10 @@ Joint designs (MAR-218, design review F8)
 -----------------------------------------
 A run is a joint design (:func:`is_joint_design`) when one of its design
 problems calibrates more than one payout entity: the portfolio scope, and
-the cluster scope with more than one cluster. Such a problem is identified
+the joint cluster scope with more than one cluster. The decision is made per
+design problem, not per scope kind: a cluster scope calibrated cluster by
+cluster (``Cluster(joint=False)``, MAR-180) has one entity per problem, so
+it is not joint. Such a problem is identified
 only through the sum over its entities, so its per-entity payout functions
 are one of several optimal designs, the one the solver returned (see
 ``docs/concepts/portfolio-calibration.md``, "Per-asset results of joint
@@ -374,6 +377,7 @@ def is_joint_design(run: RunResult) -> bool:
 
     The per-entity payout functions of such a problem are one of several
     optimal designs (design review F8; module docstring, "Joint designs").
+    The answer comes from the run's design problems, not its scope kind.
 
     Parameters
     ----------
@@ -383,8 +387,11 @@ def is_joint_design(run: RunResult) -> bool:
     Returns
     -------
     bool
-        True for the portfolio scope and a cluster scope with more than one
-        cluster; False for the individual scope.
+        True for the portfolio scope and a joint cluster scope with more
+        than one cluster. False for the individual scope and for a cluster
+        scope calibrated cluster by cluster (``Cluster(joint=False)``,
+        MAR-180), whose problems have one entity each; also False for a
+        joint cluster scope with one cluster.
     """
     return any(len(spec.entities) > 1 for spec in run.problem_specs())
 
