@@ -908,10 +908,26 @@ def pooled_markdown(wide: pd.DataFrame, c: pd.DataFrame, kd: pd.DataFrame) -> st
     return "\n".join(out)
 
 
+def _computed_version(full: Path) -> str:
+    """Return the core version the ranges were computed with (phase summaries).
+
+    Raises
+    ------
+    RuntimeError
+        If the phases recorded different versions.
+    """
+    versions = {
+        json.loads(p.read_text())["package_versions"]["parametric-insurance-design"]
+        for name in ("joint", "contrasts", "kfold_pooled")
+        if (p := full / f"summary_{name}.json").is_file()
+    }
+    if len(versions) != 1:
+        raise RuntimeError(f"the phases ran on core versions {sorted(versions)}")
+    return versions.pop()
+
+
 def write(full: Path, out: Path) -> dict[str, Any]:
     """Write the committed tables; return summary entries."""
-    from parametric_insurance_design.experiment.runner import package_versions
-
     results = frg.load_results(full)
     k = kpi_rows(results)
     d = design_rows(results)
@@ -923,7 +939,7 @@ def write(full: Path, out: Path) -> dict[str, Any]:
     pwide, pflips, pc = contrast_frames(pcon)
     kd = kfold_design_rows(full)
     summary = {
-        "core_version": package_versions()["parametric-insurance-design"],
+        "core_version": _computed_version(full),
         "designs": len(results),
         "contrast_rows": len(con),
         "flips": len(flips),
