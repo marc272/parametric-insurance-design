@@ -1,24 +1,25 @@
-"""Parquet result store (SPEC §4.2, thesis issue C5).
+"""Parquet result store.
 
 Persists and reads the tables defined in
 :mod:`parametric_insurance_design.records` (``runs``, ``entities``,
 ``payouts``, ``kpis``, ``exceedance``), one Parquet file per run and table,
 written with ``TableSchema.arrow_schema``, plus one provenance manifest per
 run (config hash, package versions, input checksum, solver attempts, status
-and timings). Tidy tables only: no arrays stored as strings.
+and timings). Tidy tables only: no arrays stored as strings, as in the
+thesis's wide CSV files.
 
 Layout
 ------
-::
-
-    <root>/
-        STORE.json                 store format and version
-        runs/<hex>.parquet         one file per run and table, <hex> being the
-        entities/<hex>.parquet     64 hex digits of the run_id "sha256:<hex>"
-        payouts/<hex>.parquet
-        kpis/<hex>.parquet
-        exceedance/<hex>.parquet
-        manifests/<hex>.json       provenance; written last (commit marker)
+```text
+<root>/
+    STORE.json                 store format and version
+    runs/<hex>.parquet         one file per run and table, <hex> being the
+    entities/<hex>.parquet     64 hex digits of the run_id "sha256:<hex>"
+    payouts/<hex>.parquet
+    kpis/<hex>.parquet
+    exceedance/<hex>.parquet
+    manifests/<hex>.json       provenance; written last (commit marker)
+```
 
 A run is **committed** once its manifest exists. :meth:`ResultStore.write_run`
 writes every table file first (each atomically: a temporary file, then
