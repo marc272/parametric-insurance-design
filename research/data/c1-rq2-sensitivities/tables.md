@@ -217,3 +217,295 @@ C1 (per-asset noise): C1 = A1 A2, C2 = A3 A4 A5 A6, C3 = A7 A8 A9.
 | none | cluster_sep | 8 | optimal | CLARABEL,OSQP |
 | none | individual | 8 | optimal | CLARABEL,OSQP |
 | none | portfolio | 8 | optimal | CLARABEL,OSQP |
+
+
+## D (pure, MSE). Cluster count sweep, CVaR₀.₉₉(U), κ 1
+
+`joint`: the cluster scope calibrated jointly (one design problem); `sep`: `joint: false` (one problem per cluster, same clusters and index). Individual and portfolio: C1's runs. Relative to the second scope; train in sample, test with the paired 90 % interval.
+
+| n | joint − individual: train | test | sep − individual (index): train | test | joint − sep (joint part): train | test | joint − portfolio: train | test |
+|---|---|---|---|---|---|---|---|---|
+| 1 | +40.0 % | +47.6 %* [+19.5, +76.3] | +40.0 % | +47.6 %* [+19.5, +76.3] | +0.0 % | +0.0 % [+0.0, +0.0] | +62.2 % | +48.9 %* [+22.6, +75.4] |
+| 2 | +9.6 % | +11.4 % [−14.7, +38.1] | +15.1 % | +15.7 % [−7.8, +39.1] | −4.8 % | −3.7 % [−9.1, +1.7] | +27.0 % | +12.4 % [−14.1, +37.9] |
+| 3 | +2.4 % | +22.7 % [−3.7, +52.7] | +11.5 % | +15.6 % [−4.0, +37.9] | −8.2 % | +6.1 % [−4.3, +16.7] | +18.6 % | +23.8 % [−1.2, +52.5] |
+| 4 | −0.8 % | +36.7 %* [+10.4, +66.6] | +10.9 % | +22.7 %* [+2.8, +44.5] | −10.6 % | +11.4 %* [+0.4, +23.0] | +14.9 % | +38.0 %* [+12.7, +67.0] |
+| 5 | −3.9 % | +36.4 %* [+12.6, +62.9] | +10.9 % | +15.8 % [−0.7, +33.7] | −13.4 % | +17.8 %* [+4.4, +32.9] | +11.3 % | +37.7 %* [+13.4, +64.7] |
+| 6 | −7.6 % | +24.2 %* [+1.2, +47.7] | +10.4 % | +11.9 % [−4.6, +29.5] | −16.3 % | +10.9 % [−2.4, +25.1] | +7.1 % | +25.3 %* [+5.1, +47.7] |
+| 7 | −9.4 % | +28.5 %* [+4.3, +53.6] | +10.0 % | +11.5 % [−5.1, +29.6] | −17.6 % | +15.2 %* [+2.0, +29.6] | +5.0 % | +29.7 %* [+9.5, +52.7] |
+| 8 | −10.3 % | +22.7 %* [+1.0, +45.6] | +10.1 % | +8.9 % [−7.6, +27.2] | −18.5 % | +12.6 % [−0.2, +26.4] | +3.9 % | +23.8 %* [+7.3, +42.9] |
+| 9 | −13.7 % | −0.9 % [−15.0, +11.1] | +0.0 % | +0.0 % [+0.0, +0.0] | −13.7 % | −0.9 % [−15.0, +11.1] | +0.0 % | +0.0 % [+0.0, +0.0] |
+
+## D (pure, E[U]). Cluster count sweep, CVaR₀.₉₉(U), κ 1
+
+`joint`: the cluster scope calibrated jointly (one design problem); `sep`: `joint: false` (one problem per cluster, same clusters and index). Individual and portfolio: C1's runs. Relative to the second scope; train in sample, test with the paired 90 % interval.
+
+| n | joint − individual: train | test | sep − individual (index): train | test | joint − sep (joint part): train | test | joint − portfolio: train | test |
+|---|---|---|---|---|---|---|---|---|
+| 1 | +42.2 % | +50.7 %* [+21.3, +81.5] | +42.2 % | +50.7 %* [+21.3, +81.5] | +0.0 % | +0.0 % [+0.0, +0.0] | +65.1 % | +52.2 %* [+23.2, +79.8] |
+| 2 | +9.3 % | +10.5 % [−16.9, +38.0] | +15.5 % | +14.9 % [−8.7, +37.4] | −5.4 % | −3.8 % [−11.0, +3.8] | +26.9 % | +11.6 % [−18.7, +38.2] |
+| 3 | +1.5 % | +21.7 % [−2.2, +49.9] | +10.2 % | +12.7 % [−7.3, +34.7] | −7.9 % | +8.0 % [−2.4, +19.0] | +17.9 % | +22.9 % [−3.0, +53.7] |
+| 4 | −0.7 % | +30.3 %* [+5.1, +60.5] | +10.7 % | +20.4 %* [+1.1, +42.5] | −10.3 % | +8.2 % [−1.3, +18.4] | +15.3 % | +31.6 %* [+6.2, +60.7] |
+| 5 | −3.9 % | +26.9 %* [+7.5, +48.1] | +11.0 % | +15.1 % [−2.3, +33.3] | −13.4 % | +10.2 %* [+0.6, +20.8] | +11.7 % | +28.1 %* [+6.6, +52.0] |
+| 6 | −7.6 % | +17.1 % [−2.6, +38.9] | +10.9 % | +11.1 % [−6.3, +29.0] | −16.7 % | +5.4 % [−6.2, +17.3] | +7.3 % | +18.2 % [−2.7, +40.6] |
+| 7 | −10.0 % | +19.0 % [−1.1, +41.4] | +10.5 % | +10.9 % [−6.3, +28.8] | −18.5 % | +7.4 % [−5.1, +19.9] | +4.6 % | +20.2 %* [+0.8, +41.0] |
+| 8 | −11.2 % | +14.2 % [−4.8, +34.6] | +10.2 % | +8.5 % [−8.9, +27.1] | −19.4 % | +5.3 % [−8.9, +19.9] | +3.2 % | +15.3 % [−2.7, +34.1] |
+| 9 | −13.9 % | −1.0 % [−15.1, +12.7] | +0.0 % | +0.0 % [+0.0, +0.0] | −13.9 % | −1.0 % [−15.1, +12.7] | +0.0 % | +0.0 % [+0.0, +0.0] |
+
+## D (pure, wCVaR β 0.99). Cluster count sweep, CVaR₀.₉₉(U), κ 1
+
+`joint`: the cluster scope calibrated jointly (one design problem); `sep`: `joint: false` (one problem per cluster, same clusters and index). Individual and portfolio: C1's runs. Relative to the second scope; train in sample, test with the paired 90 % interval.
+
+| n | joint − individual: train | test | sep − individual (index): train | test | joint − sep (joint part): train | test | joint − portfolio: train | test |
+|---|---|---|---|---|---|---|---|---|
+| 1 | +43.6 % | +53.2 %* [+25.2, +83.4] | +43.6 % | +53.2 %* [+25.2, +83.4] | +0.0 % | +0.0 % [+0.0, +0.0] | +73.7 % | +54.7 %* [+29.9, +79.1] |
+| 2 | +8.6 % | +14.3 % [−9.2, +37.2] | +13.9 % | +18.2 % [−1.9, +38.4] | −4.6 % | −3.4 % [−11.4, +6.1] | +31.4 % | +15.3 % [−11.8, +40.5] |
+| 3 | −0.1 % | +25.5 % [−2.4, +58.5] | +8.9 % | +14.2 % [−3.0, +33.6] | −8.3 % | +9.9 % [−3.5, +24.6] | +20.8 % | +26.7 % [−0.8, +57.3] |
+| 4 | −2.8 % | +42.2 %* [+13.0, +75.5] | +8.7 % | +22.0 %* [+4.2, +41.8] | −10.6 % | +16.6 %* [+1.4, +32.6] | +17.5 % | +43.6 %* [+16.9, +73.1] |
+| 5 | −6.7 % | +36.1 %* [+10.5, +66.3] | +9.4 % | +13.4 % [−1.2, +28.4] | −14.7 % | +19.9 %* [+2.3, +38.5] | +12.9 % | +37.4 %* [+13.4, +64.6] |
+| 6 | −11.4 % | +22.8 %* [+0.4, +46.6] | +9.9 % | +10.3 % [−4.2, +25.0] | −19.4 % | +11.3 % [−3.3, +26.7] | +7.2 % | +23.9 %* [+5.3, +44.9] |
+| 7 | −13.3 % | +29.2 %* [+3.7, +56.6] | +9.3 % | +9.5 % [−4.9, +24.4] | −20.7 % | +18.0 %* [+0.2, +36.8] | +4.8 % | +30.4 %* [+10.0, +52.2] |
+| 8 | −14.3 % | +24.9 %* [+2.6, +49.3] | +8.8 % | +7.6 % [−6.5, +22.9] | −21.2 % | +16.1 %* [+0.4, +34.1] | +3.7 % | +26.1 %* [+9.7, +44.5] |
+| 9 | −17.3 % | −0.9 % [−14.5, +13.7] | +0.0 % | +0.0 % [+0.0, +0.0] | −17.3 % | −0.9 % [−14.5, +13.7] | +0.0 % | +0.0 % [+0.0, +0.0] |
+
+## D (pure, wCVaR β 0.995). Cluster count sweep, CVaR₀.₉₉(U), κ 1
+
+`joint`: the cluster scope calibrated jointly (one design problem); `sep`: `joint: false` (one problem per cluster, same clusters and index). Individual and portfolio: C1's runs. Relative to the second scope; train in sample, test with the paired 90 % interval.
+
+| n | joint − individual: train | test | sep − individual (index): train | test | joint − sep (joint part): train | test | joint − portfolio: train | test |
+|---|---|---|---|---|---|---|---|---|
+| 1 | +21.8 % | +30.1 %* [+8.1, +51.8] | +21.8 % | +30.1 %* [+8.1, +51.8] | +0.0 % | +0.0 % [+0.0, +0.0] | +60.6 % | +43.8 %* [+21.9, +65.7] |
+| 2 | −4.4 % | +2.0 % [−12.0, +17.0] | +1.9 % | +6.0 % [−7.3, +20.0] | −6.2 % | −3.7 % [−11.4, +4.3] | +26.0 % | +12.7 % [−8.3, +34.1] |
+| 3 | −9.7 % | +13.0 % [−5.5, +34.7] | +0.1 % | +1.3 % [−9.2, +13.2] | −9.8 % | +11.6 % [−2.3, +27.0] | +19.1 % | +24.8 %* [+5.4, +47.2] |
+| 4 | −10.6 % | +22.8 % [−1.1, +52.0] | +1.1 % | +6.6 % [−3.6, +18.2] | −11.6 % | +15.2 % [−2.8, +36.6] | +17.8 % | +35.7 %* [+13.8, +60.6] |
+| 5 | −17.7 % | +13.1 % [−6.0, +35.3] | +2.8 % | +3.5 % [−4.6, +12.2] | −20.0 % | +9.2 % [−7.1, +27.6] | +8.5 % | +24.9 %* [+7.2, +44.7] |
+| 6 | −19.9 % | +9.7 % [−9.6, +31.3] | +3.4 % | +0.9 % [−7.4, +9.6] | −22.5 % | +8.7 % [−8.1, +27.1] | +5.6 % | +21.2 %* [+4.2, +40.4] |
+| 7 | −20.8 % | +11.9 % [−7.4, +33.7] | +3.0 % | +0.3 % [−7.4, +8.7] | −23.1 % | +11.6 % [−5.5, +29.6] | +4.4 % | +23.6 %* [+7.5, +42.6] |
+| 8 | −20.3 % | +9.7 % [−9.1, +31.3] | +3.4 % | −0.6 % [−8.4, +7.8] | −23.0 % | +10.3 % [−6.9, +29.3] | +5.0 % | +21.2 %* [+8.0, +37.0] |
+| 9 | −24.1 % | −9.5 % [−20.8, +3.4] | +0.0 % | +0.0 % [+0.0, +0.0] | −24.1 % | −9.5 % [−20.8, +3.4] | +0.0 % | +0.0 % [+0.0, +0.0] |
+
+## D (CoC r 0.06, MSE). Cluster count sweep, CVaR₀.₉₉(U), κ 1
+
+`joint`: the cluster scope calibrated jointly (one design problem); `sep`: `joint: false` (one problem per cluster, same clusters and index). Individual and portfolio: C1's runs. Relative to the second scope; train in sample, test with the paired 90 % interval.
+
+| n | joint − individual: train | test | sep − individual (index): train | test | joint − sep (joint part): train | test | joint − portfolio: train | test |
+|---|---|---|---|---|---|---|---|---|
+| 1 | −0.0 % | +0.8 % [−1.2, +2.9] | −0.0 % | +0.8 % [−1.2, +2.9] | +0.0 % | +0.0 % [+0.0, +0.0] | +0.0 % | +1.2 % [−1.5, +4.1] |
+| 2 | −0.0 % | −2.1 % [−5.3, +1.0] | −0.0 % | −2.1 %* [−4.3, −0.2] | +0.0 % | +0.0 % [−1.6, +1.6] | +0.0 % | −1.6 % [−4.6, +0.6] |
+| 3 | −0.0 % | −0.1 % [−3.2, +3.1] | −0.0 % | −0.9 % [−2.5, +0.8] | +0.0 % | +0.7 % [−1.4, +2.9] | +0.0 % | +0.3 % [−2.5, +2.8] |
+| 4 | −0.0 % | +1.4 % [−1.4, +4.5] | −0.0 % | −0.1 % [−1.3, +1.3] | −0.0 % | +1.6 % [−0.8, +3.9] | +0.0 % | +1.9 % [−1.0, +5.0] |
+| 5 | −0.0 % | +1.1 % [−1.4, +3.9] | −0.0 % | −0.2 % [−1.4, +0.8] | −0.0 % | +1.4 % [−0.8, +3.6] | +0.0 % | +1.6 % [−0.8, +4.1] |
+| 6 | −0.0 % | −1.0 % [−3.7, +1.6] | −0.0 % | −0.7 % [−2.3, +0.6] | −0.0 % | −0.2 % [−2.0, +1.5] | +0.0 % | −0.5 % [−2.3, +0.9] |
+| 7 | −0.0 % | −1.3 % [−4.1, +1.3] | +0.0 % | −0.7 % [−2.3, +0.6] | −0.0 % | −0.6 % [−2.3, +1.1] | +0.0 % | −0.9 % [−2.8, +0.7] |
+| 8 | −0.0 % | −1.8 % [−5.2, +1.5] | +0.0 % | −0.9 % [−2.6, +0.5] | −0.0 % | −0.9 % [−3.1, +1.3] | +0.0 % | −1.4 % [−3.6, +0.5] |
+| 9 | −0.0 % | −0.4 % [−2.9, +2.0] | +0.0 % | +0.0 % [+0.0, +0.0] | −0.0 % | −0.4 % [−2.9, +2.0] | +0.0 % | +0.0 % [+0.0, +0.0] |
+
+## D (CoC r 0.06, E[U]). Cluster count sweep, CVaR₀.₉₉(U), κ 1
+
+`joint`: the cluster scope calibrated jointly (one design problem); `sep`: `joint: false` (one problem per cluster, same clusters and index). Individual and portfolio: C1's runs. Relative to the second scope; train in sample, test with the paired 90 % interval.
+
+| n | joint − individual: train | test | sep − individual (index): train | test | joint − sep (joint part): train | test | joint − portfolio: train | test |
+|---|---|---|---|---|---|---|---|---|
+| 1 | +0.1 % | +0.1 % [−0.1, +0.1] | +0.1 % | +0.1 % [−0.1, +0.1] | +0.0 % | +0.0 % [+0.0, +0.0] | +0.3 % | +0.2 % [−0.0, +0.2] |
+| 2 | −0.1 % | −0.1 %* [−0.2, −0.0] | +0.1 % | +0.1 % [−0.0, +0.1] | −0.2 % | −0.1 %* [−0.1, −0.1] | +0.1 % | +0.1 % [−0.1, +0.1] |
+| 3 | −0.0 % | −0.0 % [−0.1, +0.0] | +0.0 % | −0.0 % [−0.1, +0.0] | −0.0 % | −0.0 % [−0.0, +0.0] | +0.1 % | +0.1 % [−0.0, +0.1] |
+| 4 | −0.0 % | −0.0 % [−0.1, +0.0] | −0.0 % | −0.0 % [−0.1, +0.0] | −0.0 % | −0.0 % [−0.0, +0.0] | +0.1 % | +0.1 % [−0.0, +0.1] |
+| 5 | −0.1 % | −0.1 %* [−0.2, −0.1] | −0.0 % | −0.0 % [−0.1, +0.0] | −0.1 % | −0.1 %* [−0.1, −0.0] | +0.0 % | +0.0 % [−0.1, +0.0] |
+| 6 | −0.1 % | −0.1 %* [−0.2, −0.1] | +0.0 % | −0.0 % [−0.1, +0.0] | −0.2 % | −0.1 %* [−0.1, −0.0] | +0.0 % | +0.0 % [−0.1, +0.0] |
+| 7 | −0.1 % | −0.1 %* [−0.1, −0.0] | +0.0 % | −0.0 % [−0.1, +0.0] | −0.1 % | −0.1 %* [−0.1, −0.0] | +0.1 % | +0.1 % [−0.0, +0.1] |
+| 8 | −0.1 % | −0.1 %* [−0.1, −0.1] | +0.0 % | +0.0 % [−0.0, +0.0] | −0.1 % | −0.1 %* [−0.1, −0.0] | +0.1 % | +0.1 % [−0.1, +0.1] |
+| 9 | −0.2 % | −0.1 %* [−0.2, −0.0] | +0.0 % | +0.0 % [+0.0, +0.0] | −0.2 % | −0.1 %* [−0.2, −0.0] | +0.0 % | +0.0 % [+0.0, +0.0] |
+
+## D (CoC r 0.06, wCVaR β 0.99). Cluster count sweep, CVaR₀.₉₉(U), κ 1
+
+`joint`: the cluster scope calibrated jointly (one design problem); `sep`: `joint: false` (one problem per cluster, same clusters and index). Individual and portfolio: C1's runs. Relative to the second scope; train in sample, test with the paired 90 % interval.
+
+| n | joint − individual: train | test | sep − individual (index): train | test | joint − sep (joint part): train | test | joint − portfolio: train | test |
+|---|---|---|---|---|---|---|---|---|
+| 1 | −0.0 % | +0.1 % [−1.4, +1.6] | −0.0 % | +0.1 % [−1.4, +1.6] | +0.0 % | +0.0 % [+0.0, +0.0] | +0.0 % | −0.6 % [−2.5, +1.2] |
+| 2 | −0.0 % | +0.4 % [−1.2, +2.2] | −0.0 % | −0.0 % [−1.2, +1.1] | −0.0 % | +0.5 % [−0.7, +1.8] | +0.0 % | −0.2 % [−1.9, +1.3] |
+| 3 | −0.0 % | +0.8 % [−0.8, +2.6] | −0.0 % | −0.1 % [−1.0, +0.9] | −0.0 % | +0.9 % [−0.3, +2.2] | +0.0 % | +0.2 % [−0.8, +1.1] |
+| 4 | −0.0 % | +1.2 % [−0.5, +3.0] | −0.0 % | +0.3 % [−0.7, +1.3] | −0.0 % | +0.9 % [−0.3, +2.2] | +0.0 % | +0.5 % [−0.4, +1.3] |
+| 5 | −0.0 % | +0.5 % [−0.9, +2.1] | −0.0 % | +0.0 % [−0.9, +0.9] | −0.0 % | +0.5 % [−1.0, +2.2] | +0.0 % | −0.1 % [−1.1, +0.7] |
+| 6 | −0.0 % | +0.5 % [−1.0, +2.2] | −0.0 % | −0.1 % [−1.0, +0.9] | −0.0 % | +0.6 % [−1.1, +2.4] | +0.0 % | −0.2 % [−0.9, +0.5] |
+| 7 | −0.0 % | +0.5 % [−1.1, +2.2] | +0.0 % | −0.0 % [−0.9, +0.9] | −0.0 % | +0.5 % [−1.2, +2.4] | +0.0 % | −0.2 % [−0.9, +0.4] |
+| 8 | −0.0 % | +0.8 % [−0.8, +2.7] | +0.0 % | −0.1 % [−0.9, +0.8] | −0.0 % | +0.9 % [−0.9, +3.0] | +0.0 % | +0.2 % [−0.2, +0.6] |
+| 9 | −0.0 % | +0.7 % [−0.9, +2.5] | +0.0 % | +0.0 % [+0.0, +0.0] | −0.0 % | +0.7 % [−0.9, +2.5] | +0.0 % | +0.0 % [+0.0, +0.0] |
+
+## D (CoC r 0.06, wCVaR β 0.995). Cluster count sweep, CVaR₀.₉₉(U), κ 1
+
+`joint`: the cluster scope calibrated jointly (one design problem); `sep`: `joint: false` (one problem per cluster, same clusters and index). Individual and portfolio: C1's runs. Relative to the second scope; train in sample, test with the paired 90 % interval.
+
+| n | joint − individual: train | test | sep − individual (index): train | test | joint − sep (joint part): train | test | joint − portfolio: train | test |
+|---|---|---|---|---|---|---|---|---|
+| 1 | −0.0 % | +1.4 % [−2.3, +4.6] | −0.0 % | +1.4 % [−2.3, +4.6] | +0.0 % | +0.0 % [+0.0, +0.0] | −0.0 % | +2.5 %* [+0.4, +5.1] |
+| 2 | −0.0 % | −1.7 % [−7.5, +3.6] | −0.0 % | −1.9 % [−5.9, +1.3] | −0.0 % | +0.2 % [−2.6, +2.8] | −0.0 % | −0.7 % [−4.1, +2.8] |
+| 3 | −0.0 % | +0.2 % [−4.9, +5.2] | −0.0 % | −0.5 % [−3.3, +2.2] | −0.0 % | +0.8 % [−1.8, +3.3] | −0.0 % | +1.3 % [−1.5, +4.7] |
+| 4 | −0.0 % | +1.3 % [−3.5, +6.0] | −0.0 % | +0.1 % [−2.4, +2.6] | −0.0 % | +1.2 % [−1.1, +3.6] | +0.0 % | +2.4 % [−0.1, +5.6] |
+| 5 | −0.0 % | +0.4 % [−3.2, +3.5] | −0.0 % | +0.2 % [−2.0, +2.4] | −0.0 % | +0.2 % [−1.5, +1.7] | +0.0 % | +1.5 %* [+0.1, +3.1] |
+| 6 | −0.0 % | −0.7 % [−4.8, +2.9] | −0.0 % | +0.2 % [−2.0, +2.4] | −0.0 % | −0.8 % [−2.9, +0.7] | −0.0 % | +0.4 % [−1.2, +2.2] |
+| 7 | −0.0 % | −0.3 % [−4.5, +3.3] | +0.0 % | +0.2 % [−2.1, +2.3] | −0.0 % | −0.4 % [−2.7, +1.3] | −0.0 % | +0.8 % [−0.5, +2.5] |
+| 8 | −0.0 % | −0.9 % [−5.0, +2.8] | +0.0 % | −0.1 % [−2.2, +1.9] | −0.0 % | −0.7 % [−3.0, +1.1] | −0.0 % | +0.2 % [−1.5, +2.0] |
+| 9 | −0.0 % | −1.1 % [−4.8, +1.5] | +0.0 % | +0.0 % [+0.0, +0.0] | −0.0 % | −1.1 % [−4.8, +1.5] | +0.0 % | +0.0 % [+0.0, +0.0] |
+
+## D2. The clusters per n (thesis Ward, train years)
+
+| n | Clusters |
+|---|---|
+| n1 | C1 = A1 A2 A3 A4 A5 A6 A7 A8 A9 |
+| n2 | C1 = A1 A2; C2 = A3 A4 A5 A6 A7 A8 A9 |
+| n3 | C1 = A1 A2; C2 = A3 A4 A5 A6; C3 = A7 A8 A9 |
+| n4 | C1 = A1 A2; C2 = A3 A4 A5 A6; C3 = A7 A9; C4 = A8 |
+| n5 | C1 = A1 A2; C2 = A3 A4 A5 A6; C3 = A7; C4 = A9; C5 = A8 |
+| n6 | C1 = A1 A2; C2 = A3 A4; C3 = A5 A6; C4 = A7; C5 = A9; C6 = A8 |
+| n7 | C1 = A1 A2; C2 = A3 A4; C3 = A5; C4 = A6; C5 = A7; C6 = A9; C7 = A8 |
+| n8 | C1 = A1 A2; C2 = A3; C3 = A4; C4 = A5; C5 = A6; C6 = A7; C7 = A9; C8 = A8 |
+| n9 | C1 = A1; C2 = A2; C3 = A3; C4 = A4; C5 = A5; C6 = A6; C7 = A7; C8 = A8; C9 = A9 |
+
+## D3. Runs
+
+| Pricing | Design | Scope | Problems | Status | Solvers | Objective | Config hash |
+|---|---|---|---|---|---|---|---|
+| pure | MSE | cluster|n1 | 1 | optimal | OSQP | 9.55116e+10 | `6d448034d8ad` |
+| pure | MSE | cluster_sep|n1 | 1 | optimal | OSQP | 9.55116e+10 | `de9cc0d8a3de` |
+| pure | MSE | cluster|n2 | 1 | optimal | OSQP | 7.32585e+10 | `d10174e07350` |
+| pure | MSE | cluster_sep|n2 | 2 | optimal | CLARABEL,OSQP | 7.70726e+10 | `7f28de028c65` |
+| pure | MSE | cluster|n3 | 1 | optimal | OSQP | 6.62465e+10 | `80bee12e4c89` |
+| pure | MSE | cluster_sep|n3 | 3 | optimal | CLARABEL,OSQP | 7.50496e+10 | `5b77a357c9fd` |
+| pure | MSE | cluster|n4 | 1 | optimal | OSQP | 6.49687e+10 | `ad3fca23cbd6` |
+| pure | MSE | cluster_sep|n4 | 4 | optimal | CLARABEL,OSQP | 7.48668e+10 | `8573de7be66b` |
+| pure | MSE | cluster|n5 | 1 | optimal | OSQP | 6.3269e+10 | `3e3c9151ba06` |
+| pure | MSE | cluster_sep|n5 | 5 | optimal | CLARABEL,OSQP | 7.45315e+10 | `2b1adf66d267` |
+| pure | MSE | cluster|n6 | 1 | optimal | OSQP | 6.23244e+10 | `59ee30d1d659` |
+| pure | MSE | cluster_sep|n6 | 6 | optimal | CLARABEL,OSQP | 7.40248e+10 | `d3bbc8fe069d` |
+| pure | MSE | cluster|n7 | 1 | optimal | OSQP | 6.15385e+10 | `e46249393b5c` |
+| pure | MSE | cluster_sep|n7 | 7 | optimal | CLARABEL,OSQP | 7.39998e+10 | `b61d739c313f` |
+| pure | MSE | cluster|n8 | 1 | optimal | OSQP | 6.12678e+10 | `08630351e5e3` |
+| pure | MSE | cluster_sep|n8 | 8 | optimal | CLARABEL,OSQP | 7.37167e+10 | `2bcee4d47e3f` |
+| pure | MSE | cluster|n9 | 1 | optimal | OSQP | 6.23969e+10 | `b87739c2f5ed` |
+| pure | MSE | cluster_sep|n9 | 9 | optimal | CLARABEL,OSQP | 7.16286e+10 | `debf6f22c8b9` |
+| pure | E[U] | cluster|n1 | 1 | optimal | CLARABEL | 14800.5 | `96691eff4ac1` |
+| pure | E[U] | cluster_sep|n1 | 1 | optimal | CLARABEL | 14800.5 | `ba8c99fb3d61` |
+| pure | E[U] | cluster|n2 | 1 | optimal | CLARABEL | 11348.5 | `0602507e7a55` |
+| pure | E[U] | cluster_sep|n2 | 2 | optimal | CLARABEL | 16416.7 | `a5185f3d68b0` |
+| pure | E[U] | cluster|n3 | 1 | optimal | CLARABEL | 10412.3 | `b78a04a941dd` |
+| pure | E[U] | cluster_sep|n3 | 3 | optimal | CLARABEL | 16938.1 | `3b2492b2de7d` |
+| pure | E[U] | cluster|n4 | 1 | optimal | CLARABEL | 10174.6 | `aff4edfbb05a` |
+| pure | E[U] | cluster_sep|n4 | 4 | optimal | CLARABEL | 16931.6 | `7e65b2c00f81` |
+| pure | E[U] | cluster|n5 | 1 | optimal | CLARABEL | 9781.8 | `58d69edc59b0` |
+| pure | E[U] | cluster_sep|n5 | 5 | optimal | CLARABEL | 17549.2 | `e9f05c29ec61` |
+| pure | E[U] | cluster|n6 | 1 | optimal | CLARABEL | 9369.55 | `ab73427f2c48` |
+| pure | E[U] | cluster_sep|n6 | 6 | optimal | CLARABEL | 17697.1 | `b55e365b0e6a` |
+| pure | E[U] | cluster|n7 | 1 | optimal | CLARABEL | 9188.62 | `09eea277e0e1` |
+| pure | E[U] | cluster_sep|n7 | 7 | optimal | CLARABEL | 17754.3 | `20598357c0e4` |
+| pure | E[U] | cluster|n8 | 1 | optimal | CLARABEL | 8987.09 | `411ad98d7a85` |
+| pure | E[U] | cluster_sep|n8 | 8 | optimal | CLARABEL | 18018.6 | `1ecce711a1cd` |
+| pure | E[U] | cluster|n9 | 1 | optimal | CLARABEL | 8697.66 | `6d37bd3a7369` |
+| pure | E[U] | cluster_sep|n9 | 9 | optimal | CLARABEL | 20049.6 | `73c33763d699` |
+| pure | wCVaR β 0.99 | cluster|n1 | 1 | optimal | CLARABEL | 1.16708e+06 | `9a32e643f807` |
+| pure | wCVaR β 0.99 | cluster_sep|n1 | 1 | optimal | CLARABEL | 1.16708e+06 | `6e7f1c5e74c1` |
+| pure | wCVaR β 0.99 | cluster|n2 | 1 | optimal | CLARABEL | 882803 | `51ba8a9735f5` |
+| pure | wCVaR β 0.99 | cluster_sep|n2 | 2 | optimal | CLARABEL | 1.29919e+06 | `3fb95f73c1e5` |
+| pure | wCVaR β 0.99 | cluster|n3 | 1 | optimal | CLARABEL | 812069 | `9a25ee86197d` |
+| pure | wCVaR β 0.99 | cluster_sep|n3 | 3 | optimal | CLARABEL | 1.36236e+06 | `aeadd0af8ccf` |
+| pure | wCVaR β 0.99 | cluster|n4 | 1 | optimal | CLARABEL | 789639 | `3275cb4859f4` |
+| pure | wCVaR β 0.99 | cluster_sep|n4 | 4 | optimal | CLARABEL | 1.36639e+06 | `f4d81c3269f4` |
+| pure | wCVaR β 0.99 | cluster|n5 | 1 | optimal | CLARABEL | 758635 | `3b658dba145d` |
+| pure | wCVaR β 0.99 | cluster_sep|n5 | 5 | optimal | CLARABEL | 1.41272e+06 | `b71ec03fcf33` |
+| pure | wCVaR β 0.99 | cluster|n6 | 1 | optimal | CLARABEL | 720399 | `e4e6a4c416a6` |
+| pure | wCVaR β 0.99 | cluster_sep|n6 | 6 | optimal | CLARABEL | 1.42878e+06 | `59eace7474da` |
+| pure | wCVaR β 0.99 | cluster|n7 | 1 | optimal | CLARABEL | 704408 | `589e6ae752aa` |
+| pure | wCVaR β 0.99 | cluster_sep|n7 | 7 | optimal | CLARABEL | 1.43462e+06 | `82d05def39d9` |
+| pure | wCVaR β 0.99 | cluster|n8 | 1 | optimal | CLARABEL | 696865 | `03ea1508ec2b` |
+| pure | wCVaR β 0.99 | cluster_sep|n8 | 8 | optimal | CLARABEL | 1.45685e+06 | `8c7bf7cefbb0` |
+| pure | wCVaR β 0.99 | cluster|n9 | 1 | optimal | CLARABEL | 672078 | `9134264da7e8` |
+| pure | wCVaR β 0.99 | cluster_sep|n9 | 9 | optimal | CLARABEL | 1.62041e+06 | `61598f963a64` |
+| pure | wCVaR β 0.995 | cluster|n1 | 1 | optimal | CLARABEL | 1.69513e+06 | `a97842838d35` |
+| pure | wCVaR β 0.995 | cluster_sep|n1 | 1 | optimal | CLARABEL | 1.69513e+06 | `e846bcf886f8` |
+| pure | wCVaR β 0.995 | cluster|n2 | 1 | optimal | CLARABEL | 1.27519e+06 | `2d2304ba50c2` |
+| pure | wCVaR β 0.995 | cluster_sep|n2 | 2 | optimal | CLARABEL | 1.92444e+06 | `c7d0c444d30d` |
+| pure | wCVaR β 0.995 | cluster|n3 | 1 | optimal | CLARABEL | 1.20718e+06 | `4f21280640b7` |
+| pure | wCVaR β 0.995 | cluster_sep|n3 | 3 | optimal | CLARABEL | 2.05786e+06 | `8435b15081a7` |
+| pure | wCVaR β 0.995 | cluster|n4 | 1 | optimal | CLARABEL | 1.18719e+06 | `8e6d701ee3b9` |
+| pure | wCVaR β 0.995 | cluster_sep|n4 | 4 | optimal | CLARABEL | 2.06766e+06 | `47782b6779e3` |
+| pure | wCVaR β 0.995 | cluster|n5 | 1 | optimal | CLARABEL | 1.14483e+06 | `835b1fc68d4f` |
+| pure | wCVaR β 0.995 | cluster_sep|n5 | 5 | optimal | CLARABEL | 2.1356e+06 | `421bfbe4a5f1` |
+| pure | wCVaR β 0.995 | cluster|n6 | 1 | optimal | CLARABEL | 1.08182e+06 | `1480f400ad2e` |
+| pure | wCVaR β 0.995 | cluster_sep|n6 | 6 | optimal | CLARABEL | 2.16387e+06 | `9bdf45f2b5ac` |
+| pure | wCVaR β 0.995 | cluster|n7 | 1 | optimal | CLARABEL | 1.05701e+06 | `98271094b6a3` |
+| pure | wCVaR β 0.995 | cluster_sep|n7 | 7 | optimal | CLARABEL | 2.1735e+06 | `9d028137ea33` |
+| pure | wCVaR β 0.995 | cluster|n8 | 1 | optimal | CLARABEL | 1.04858e+06 | `c70f8b91c4dd` |
+| pure | wCVaR β 0.995 | cluster_sep|n8 | 8 | optimal | CLARABEL | 2.2051e+06 | `1473a5a980e8` |
+| pure | wCVaR β 0.995 | cluster|n9 | 1 | optimal | CLARABEL | 1.00218e+06 | `8d589b99c3a3` |
+| pure | wCVaR β 0.995 | cluster_sep|n9 | 9 | optimal | CLARABEL | 2.50576e+06 | `2e7722fbb19a` |
+| coc_r0.06 | MSE | cluster|n1 | 1 | optimal | CLARABEL | 2.47445e+12 | `37b0688c081c` |
+| coc_r0.06 | MSE | cluster_sep|n1 | 1 | optimal | CLARABEL | 2.47445e+12 | `d5ffc99e9c14` |
+| coc_r0.06 | MSE | cluster|n2 | 1 | optimal | CLARABEL | 2.46421e+12 | `1de935e8a4ea` |
+| coc_r0.06 | MSE | cluster_sep|n2 | 2 | optimal | CLARABEL | 1.34185e+12 | `32e86eff818a` |
+| coc_r0.06 | MSE | cluster|n3 | 1 | optimal | CLARABEL | 2.46301e+12 | `96457b8a9204` |
+| coc_r0.06 | MSE | cluster_sep|n3 | 3 | optimal | CLARABEL | 1.18146e+12 | `f8f43b7314f4` |
+| coc_r0.06 | MSE | cluster|n4 | 1 | optimal | CLARABEL | 2.46248e+12 | `afbe42e51c0b` |
+| coc_r0.06 | MSE | cluster_sep|n4 | 4 | optimal | CLARABEL | 1.17305e+12 | `16ab00f31ba9` |
+| coc_r0.06 | MSE | cluster|n5 | 1 | optimal | CLARABEL | 2.46205e+12 | `9a8cc7242e08` |
+| coc_r0.06 | MSE | cluster_sep|n5 | 5 | optimal | CLARABEL | 1.12557e+12 | `33b5a495c54e` |
+| coc_r0.06 | MSE | cluster|n6 | 1 | optimal | CLARABEL | 2.46334e+12 | `fac11d9bb10b` |
+| coc_r0.06 | MSE | cluster_sep|n6 | 6 | optimal | CLARABEL | 1.10794e+12 | `fb3b8b761316` |
+| coc_r0.06 | MSE | cluster|n7 | 1 | optimal | CLARABEL | 2.46334e+12 | `6ff923d6a67b` |
+| coc_r0.06 | MSE | cluster_sep|n7 | 7 | optimal | CLARABEL | 1.10675e+12 | `c99620a30803` |
+| coc_r0.06 | MSE | cluster|n8 | 1 | optimal | CLARABEL | 2.46315e+12 | `ed585247cc2a` |
+| coc_r0.06 | MSE | cluster_sep|n8 | 8 | optimal | CLARABEL | 1.09398e+12 | `e37106c6435f` |
+| coc_r0.06 | MSE | cluster|n9 | 1 | optimal | CLARABEL | 2.46654e+12 | `0faa10c78e46` |
+| coc_r0.06 | MSE | cluster_sep|n9 | 9 | optimal | CLARABEL | 6.49823e+11 | `283a294d4734` |
+| coc_r0.06 | E[U] | cluster|n1 | 1 | optimal | CLARABEL | 156607 | `439f1c19a85b` |
+| coc_r0.06 | E[U] | cluster_sep|n1 | 1 | optimal | CLARABEL | 156607 | `9f7e66ffcb27` |
+| coc_r0.06 | E[U] | cluster|n2 | 1 | optimal | CLARABEL | 156146 | `21919308b7a9` |
+| coc_r0.06 | E[U] | cluster_sep|n2 | 2 | optimal | CLARABEL | 156741 | `1ff6b1bf4528` |
+| coc_r0.06 | E[U] | cluster|n3 | 1 | optimal | CLARABEL | 156333 | `f5d42cdbabde` |
+| coc_r0.06 | E[U] | cluster_sep|n3 | 3 | optimal | CLARABEL | 157188 | `d1fb03453564` |
+| coc_r0.06 | E[U] | cluster|n4 | 1 | optimal | CLARABEL | 156303 | `9168625a255d` |
+| coc_r0.06 | E[U] | cluster_sep|n4 | 4 | optimal | CLARABEL | 157363 | `0429f8de93a0` |
+| coc_r0.06 | E[U] | cluster|n5 | 1 | optimal | CLARABEL | 156099 | `551be8f092ff` |
+| coc_r0.06 | E[U] | cluster_sep|n5 | 5 | optimal | CLARABEL | 157397 | `5099eba8c548` |
+| coc_r0.06 | E[U] | cluster|n6 | 1 | optimal | CLARABEL | 156077 | `f54347b95fec` |
+| coc_r0.06 | E[U] | cluster_sep|n6 | 6 | optimal | CLARABEL | 157454 | `f8ab445810f1` |
+| coc_r0.06 | E[U] | cluster|n7 | 1 | optimal | CLARABEL | 156017 | `b9927c8633c8` |
+| coc_r0.06 | E[U] | cluster_sep|n7 | 7 | optimal | CLARABEL | 157480 | `edcd611dfd0f` |
+| coc_r0.06 | E[U] | cluster|n8 | 1 | optimal | CLARABEL | 155996 | `b905520997b0` |
+| coc_r0.06 | E[U] | cluster_sep|n8 | 8 | optimal | CLARABEL | 157530 | `de2801d2199d` |
+| coc_r0.06 | E[U] | cluster|n9 | 1 | optimal | CLARABEL | 155809 | `32af3b1169d6` |
+| coc_r0.06 | E[U] | cluster_sep|n9 | 9 | optimal | CLARABEL | 157659 | `bdf549da812a` |
+| coc_r0.06 | wCVaR β 0.99 | cluster|n1 | 1 | optimal | CLARABEL | 1.25612e+07 | `0df1b3c23a73` |
+| coc_r0.06 | wCVaR β 0.99 | cluster_sep|n1 | 1 | optimal | CLARABEL | 1.25612e+07 | `1cbd3e415d06` |
+| coc_r0.06 | wCVaR β 0.99 | cluster|n2 | 1 | optimal | CLARABEL | 1.25612e+07 | `89de6759d9a8` |
+| coc_r0.06 | wCVaR β 0.99 | cluster_sep|n2 | 2 | optimal | CLARABEL | 1.26005e+07 | `33c46f6216fb` |
+| coc_r0.06 | wCVaR β 0.99 | cluster|n3 | 1 | optimal | CLARABEL | 1.25612e+07 | `a56b270c97e4` |
+| coc_r0.06 | wCVaR β 0.99 | cluster_sep|n3 | 3 | optimal | CLARABEL | 1.26816e+07 | `dd4bf1cd8260` |
+| coc_r0.06 | wCVaR β 0.99 | cluster|n4 | 1 | optimal | CLARABEL | 1.25612e+07 | `c2a899d90918` |
+| coc_r0.06 | wCVaR β 0.99 | cluster_sep|n4 | 4 | optimal | CLARABEL | 1.27317e+07 | `f2d0299ec9ce` |
+| coc_r0.06 | wCVaR β 0.99 | cluster|n5 | 1 | optimal | CLARABEL | 1.25612e+07 | `bced5d8b220c` |
+| coc_r0.06 | wCVaR β 0.99 | cluster_sep|n5 | 5 | optimal | CLARABEL | 1.27403e+07 | `3dfe71fb7b69` |
+| coc_r0.06 | wCVaR β 0.99 | cluster|n6 | 1 | optimal | CLARABEL | 1.25612e+07 | `288d8df21be7` |
+| coc_r0.06 | wCVaR β 0.99 | cluster_sep|n6 | 6 | optimal | CLARABEL | 1.27512e+07 | `3960f1aa2e04` |
+| coc_r0.06 | wCVaR β 0.99 | cluster|n7 | 1 | optimal | CLARABEL | 1.25612e+07 | `9f07f79732ee` |
+| coc_r0.06 | wCVaR β 0.99 | cluster_sep|n7 | 7 | optimal | CLARABEL | 1.27597e+07 | `f6366d2d1cb9` |
+| coc_r0.06 | wCVaR β 0.99 | cluster|n8 | 1 | optimal | CLARABEL | 1.25612e+07 | `e05baf7d0a66` |
+| coc_r0.06 | wCVaR β 0.99 | cluster_sep|n8 | 8 | optimal | CLARABEL | 1.27727e+07 | `6ccbb768c6ef` |
+| coc_r0.06 | wCVaR β 0.99 | cluster|n9 | 1 | optimal | CLARABEL | 1.25612e+07 | `50efbc5a3020` |
+| coc_r0.06 | wCVaR β 0.99 | cluster_sep|n9 | 9 | optimal | CLARABEL | 1.28027e+07 | `09f9bf705467` |
+| coc_r0.06 | wCVaR β 0.995 | cluster|n1 | 1 | optimal | CLARABEL | 1.69962e+07 | `4fdda05d0363` |
+| coc_r0.06 | wCVaR β 0.995 | cluster_sep|n1 | 1 | optimal | CLARABEL | 1.69962e+07 | `d7ecbf1e6fed` |
+| coc_r0.06 | wCVaR β 0.995 | cluster|n2 | 1 | optimal | CLARABEL | 1.69962e+07 | `e393650fe545` |
+| coc_r0.06 | wCVaR β 0.995 | cluster_sep|n2 | 2 | optimal | CLARABEL | 1.72203e+07 | `745339eb33bb` |
+| coc_r0.06 | wCVaR β 0.995 | cluster|n3 | 1 | optimal | CLARABEL | 1.69962e+07 | `163912a4237f` |
+| coc_r0.06 | wCVaR β 0.995 | cluster_sep|n3 | 3 | optimal | CLARABEL | 1.74455e+07 | `6f26a4ac924b` |
+| coc_r0.06 | wCVaR β 0.995 | cluster|n4 | 1 | optimal | CLARABEL | 1.69962e+07 | `cd576fe66318` |
+| coc_r0.06 | wCVaR β 0.995 | cluster_sep|n4 | 4 | optimal | CLARABEL | 1.75415e+07 | `7b74f0fd6860` |
+| coc_r0.06 | wCVaR β 0.995 | cluster|n5 | 1 | optimal | CLARABEL | 1.69962e+07 | `589d4002cbad` |
+| coc_r0.06 | wCVaR β 0.995 | cluster_sep|n5 | 5 | optimal | CLARABEL | 1.7587e+07 | `498108a73ef5` |
+| coc_r0.06 | wCVaR β 0.995 | cluster|n6 | 1 | optimal | CLARABEL | 1.69962e+07 | `8d2af4203e9d` |
+| coc_r0.06 | wCVaR β 0.995 | cluster_sep|n6 | 6 | optimal | CLARABEL | 1.76081e+07 | `df859cdd70f2` |
+| coc_r0.06 | wCVaR β 0.995 | cluster|n7 | 1 | optimal | CLARABEL | 1.69962e+07 | `6d7bc52cd11d` |
+| coc_r0.06 | wCVaR β 0.995 | cluster_sep|n7 | 7 | optimal | CLARABEL | 1.76346e+07 | `3810e171dce0` |
+| coc_r0.06 | wCVaR β 0.995 | cluster|n8 | 1 | optimal | CLARABEL | 1.69962e+07 | `3fd493faebe0` |
+| coc_r0.06 | wCVaR β 0.995 | cluster_sep|n8 | 8 | optimal | CLARABEL | 1.7671e+07 | `9ec0fca029c7` |
+| coc_r0.06 | wCVaR β 0.995 | cluster|n9 | 1 | optimal | CLARABEL | 1.69962e+07 | `3e83d293640f` |
+| coc_r0.06 | wCVaR β 0.995 | cluster_sep|n9 | 9 | optimal | CLARABEL | 1.78786e+07 | `1091989e0d61` |

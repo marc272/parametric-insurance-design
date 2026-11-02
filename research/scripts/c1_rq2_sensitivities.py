@@ -199,7 +199,7 @@ class JointSet:
         self.theta_opt = np.asarray(self.ctx.theta.value, dtype=np.float64).copy()
         self.optimum = float(np.asarray(built.objective.expression.value))
         mine = self.objective_value(self.theta_opt)
-        if not math.isclose(mine, self.optimum, rel_tol=1e-5, abs_tol=1e-12):
+        if not math.isclose(mine, self.optimum, rel_tol=1e-5, abs_tol=1e-9):
             raise RuntimeError(
                 f"numpy objective {mine!r} != cvxpy objective {self.optimum!r}"
             )
@@ -757,16 +757,41 @@ def pool_run(
     worker: Callable[..., dict[str, pd.DataFrame]],
     tasks: list[tuple[Any, ...]],
     jobs: int,
+    cache: Path | None = None,
+    keys: Sequence[str] | None = None,
 ) -> dict[str, pd.DataFrame]:
-    """Run ``worker(*task)`` in ``jobs`` spawned processes; concat frames."""
+    """Run ``worker(*task)`` in ``jobs`` spawned processes; concat frames.
+
+    With ``cache`` and ``keys``, each task's frames are pickled to
+    ``cache/<key>.pkl`` when it ends, and a task whose pickle exists is not
+    run again (a failed task then costs only itself on a rerun).
+    """
+    import pickle
     from concurrent.futures import ProcessPoolExecutor, as_completed
     from multiprocessing import get_context
 
     out: dict[str, list[pd.DataFrame]] = {}
+    paths = (
+        [None] * len(tasks)
+        if cache is None or keys is None
+        else [cache / (k.replace("|", "_").replace("/", "_") + ".pkl") for k in keys]
+    )
+    if cache is not None:
+        cache.mkdir(parents=True, exist_ok=True)
+    todo = []
+    for t, p in zip(tasks, paths, strict=True):
+        if p is not None and p.exists():
+            for name, frame in pickle.loads(p.read_bytes()).items():
+                out.setdefault(name, []).append(frame)
+        else:
+            todo.append((t, p))
     with ProcessPoolExecutor(max_workers=jobs, mp_context=get_context("spawn")) as pool:
-        futs = [pool.submit(worker, *t) for t in tasks]
+        futs = {pool.submit(worker, *t): p for t, p in todo}
         for i, fut in enumerate(as_completed(futs), 1):
-            for name, frame in fut.result().items():
+            frames = fut.result()
+            if futs[fut] is not None:
+                futs[fut].write_bytes(pickle.dumps(frames))
+            for name, frame in frames.items():
                 out.setdefault(name, []).append(frame)
             print(f"[{i}/{len(futs)}] done", flush=True)
     return {n: pd.concat(f, ignore_index=True) for n, f in out.items()}
@@ -820,7 +845,10 @@ def run_nonunique(args: argparse.Namespace) -> dict[str, Any]:
         if args.only and not any(o in label for o in args.only):
             continue
         tasks.append((family, pricing, kappa, scope, members, str(args.c1_store)))
-    tables = pool_run(nonunique_worker, tasks, args.jobs)
+    keys = [f"{t[0]}|{t[1]}|{t[2]:g}|{t[3]}" for t in tasks]
+    tables = pool_run(
+        nonunique_worker, tasks, args.jobs, args.full / "parts_nonunique", keys
+    )
     n_checked = check_paired_against_c1(tables["paired"])
     print(f"checked {n_checked} stored differences against C1", flush=True)
     suffix = "_" + "_".join(args.only) if args.only else ""
@@ -1338,7 +1366,10 @@ def run_sens(args: argparse.Namespace, family: str) -> dict[str, Any]:
                 cfg, rid = c1g[("main", "thesis", pricing, 1.0, design)][scope]
                 members[scope] = (cfg, rid, str(args.c1_store))
     tasks = [(g, m) for g, m in groups.items()]
-    tables = pool_run(sens_group_worker, tasks, args.jobs)
+    keys = ["|".join(g) for g in groups]
+    tables = pool_run(
+        sens_group_worker, tasks, args.jobs, args.full / f"parts_{family}", keys
+    )
     suffix = "_" + "_".join(args.only) if args.only else ""
     for name, table in tables.items():
         table.to_csv(

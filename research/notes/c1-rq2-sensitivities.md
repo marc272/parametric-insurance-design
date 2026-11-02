@@ -90,3 +90,35 @@ Observations:
 12. **The joint designs move payout from the large assets to the small ones in every variant.** The portfolio designs' solver split (pure, train E[π_i]/E[L_i]; one member of the optimal set, see family (b)): A1 0.42–0.54 (common) and 0.54–0.62 (none), A7 2.88–3.29 and 2.69–2.91, A3 2.06–3.14 and 1.53–2.24 (`c_noise_entities.csv`). With the per-asset layer: A1 0.44–0.51, A7 2.66–3.43, A3 2.24–3.09 (C1 T6).
 
 Not run here: the pooled 5-fold comparison (C1 6b.3) for these variants, κ 0.5 and 1.5, r 0.10, other noise seeds, and a variant with the per-asset layer at another η.
+
+## Family (d): the cluster count
+
+**Setup.** The cluster scope of C1's main line (thesis Ward, `beta_tail` 0.9, value-weighted index) at n_clusters = 1, …, 9, each **both** jointly calibrated (`joint: true`, C1's cluster scope) and cluster by cluster (`joint: false`, MAR-180), so that the index part (`joint: false` − individual) and the joint part (`joint: true` − `joint: false`) separate at every n. κ 1; pricing pure and CoC r 0.06; MSE, E[U], weighted CVaR β 0.99 and 0.995. 144 runs through the runner, all `optimal`; no `DegenerateTailError`. The individual and portfolio designs are C1's runs, read from the C1 store; every scope of a (pricing, design) group is bootstrapped on the C1 resample. The configs derive from `research/configs/c1/c1_main.yaml` (C1's name and base), so n = 3 with `joint: true` has C1's config hashes and run ids (checked: all 8). Every run's hash: `d_nclusters_runs.csv`, table D3.
+
+Checks: n = 9 puts each asset in its own cluster, whose value-weighted index is the asset's own index. Its `joint: true` designs have the portfolio scope's train objective and its `joint: false` designs the individual scope's, to 6 significant digits, for all 8 (pricing, design) pairs, and their test differences to those scopes are 0.0 % (tables D). At n = 1 the two settings are one problem (difference 0.0 %).
+
+The clusters (table D2): n = 2 splits A1 A2 from the rest; n = 3 is C1's; n = 4 to 8 split off A8, then A7 and A9, then A3 A4 / A5 A6, then A5, A6, then A3, A4; A1 and A2 stay together up to n = 8.
+
+Pure pricing, MSE, CVaR₀.₉₉(U), κ 1 (relative to the second scope; tables D for every design and CoC):
+
+| n | joint − individual: train | test [90 % CI] | index part: test | joint part: train | joint part: test |
+|---|---|---|---|---|---|
+| 1 | +40.0 % | +47.6 %* [+19.5, +76.3] | +47.6 %* | 0.0 % | 0.0 % |
+| 2 | +9.6 % | +11.4 % [−14.7, +38.1] | +15.7 % | −4.8 % | −3.7 % [−9.1, +1.7] |
+| 3 (C1) | +2.4 % | +22.7 % [−3.7, +52.7] | +15.6 % | −8.2 % | +6.1 % [−4.3, +16.7] |
+| 4 | −0.8 % | +36.7 %* [+10.4, +66.6] | +22.7 %* | −10.6 % | +11.4 %* [+0.4, +23.0] |
+| 5 | −3.9 % | +36.4 %* [+12.6, +62.9] | +15.8 % | −13.4 % | +17.8 %* [+4.4, +32.9] |
+| 6 | −7.6 % | +24.2 %* [+1.2, +47.7] | +11.9 % | −16.3 % | +10.9 % [−2.4, +25.1] |
+| 7 | −9.4 % | +28.5 %* [+4.3, +53.6] | +11.5 % | −17.6 % | +15.2 %* [+2.0, +29.6] |
+| 8 | −10.3 % | +22.7 %* [+1.0, +45.6] | +8.9 % | −18.5 % | +12.6 % [−0.2, +26.4] |
+| 9 (= portfolio / individual) | −13.7 % | −0.9 % [−15.0, +11.1] | 0.0 % | −13.7 % | −0.9 % [−15.0, +11.1] |
+
+Hashes of the n = 3 `joint: true` runs are C1's (`80bee12e4c89`, `b78a04a941dd`, `9a25ee86197d`, `4f21280640b7` for MSE, E[U], β 0.99, β 0.995 under pure pricing).
+
+Observations:
+
+13. **In sample, the joint part grows with n.** Under pure pricing the joint part (`joint: true` − `joint: false`, train CVaR₀.₉₉) is −4.6 to −6.2 % at n = 2 and −18.5 to −23.0 % at n = 8, for the four designs (−13.7 to −24.1 % at n = 9, the portfolio scope). The index part on train is +21.8 to +43.6 % at n = 1 and +0.1 to +15.5 % at n = 2 to 8.
+14. **Out of sample, the joint part is positive at every n from 3 to 8.** On test it is +5.3 to +19.9 % (pure, four designs, n = 3 to 8), with intervals excluding zero in 8 of these 24 cells (MSE n = 4, 5, 7; E[U] n = 5; β 0.99 n = 4, 5, 7, 8; none for β 0.995). At n = 2 it is −3.4 to −3.8 %, intervals containing zero. At n = 9 (portfolio against individual) it is C1's −0.9 to −9.5 %, intervals containing zero.
+15. **Joint − individual on test is above zero from n = 4 to 8 for MSE and β 0.99** (+22.7 to +42.2 %, every interval excluding zero), and for E[U] at n = 4 and 5 (+30.3 %, +26.9 %); β 0.995 has +9.7 to +22.8 % with intervals containing zero. The same comparison at n = 9 is −0.9 to −9.5 %. n = 8 differs from n = 9 only in the cluster {A1, A2} with its value-weighted index; for MSE that cluster moves joint − individual on test from −0.9 % to +22.7 % [+1.0, +45.6].
+16. **One cluster (n = 1) is behind individual on test for every design under pure pricing**: +30.1 to +53.2 %, every interval excluding zero; and behind the portfolio scope by +43.8 to +54.7 %.
+17. **Under CoC r 0.06 the count changes little.** Every train difference is within ±0.3 %; on test every cell is within −2.1 to +2.5 %, and the cells with an interval excluding zero are E[U] cells of at most 0.1 %, the index part at n = 2 for MSE (−2.1 % [−4.3, −0.2]) and joint − portfolio for β 0.995 at n = 1 and 5 (+2.5 %, +1.5 %).
