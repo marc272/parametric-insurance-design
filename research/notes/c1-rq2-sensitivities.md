@@ -52,3 +52,41 @@ Observations:
 3. **The resolved MSE ranges.** Portfolio scope: A5 0.18 of its loss below and 0.32 above the stored 2.24 (range 1.96–2.56); A8 1.41–1.70; A9 0.68–0.76. Cluster scope: C2 1.60–1.71 around the stored 1.65. Every resolved range contains the stored value, and no near-optimal MSE design pays A5, A8 or A9 less than 0.68 of its loss.
 4. **The two CoC LPs.** HiGHS ended `optimal`, inside the set: cluster C3 0.00–0.54 and portfolio A6 0.00–1.11. CLARABEL's `optimal_inaccurate` iterates at those ends were inside the set too (0.537 and 1.104), so its status, not its point, was the problem; 2,000 iterations did not change it. So, under CoC, the weighted-CVaR β 0.99 joint designs can pay C3 nothing or 0.54 of its loss, and A6 nothing or 1.11, at the same objective (C1 observation 31 reported their ranges as starting at 0.00 with the top `n/a`).
 5. **Every T11 cell now has a value.** With these six rows, C1 T11 has no `n/a` left at κ 1 (pure and CoC r 0.06).
+
+## Family (c): the per-asset noise layer
+
+**Question (MAR-206).** C1 7b read the in-sample joint gain (portfolio − individual, train CVaR₀.₉₉(U), −13.7 to −24.1 % under pure pricing) as the joint designs fitting the per-asset noise layer, which gives each asset's loss its own noise. Rerun the RQ2 comparison without the layer, or with noise common to all assets.
+
+**Setup.** Two new variants of the thesis EventSet, everything else as C1's main line; κ 1; pricing pure and CoC r 0.06; MSE, E[U], weighted CVaR β 0.99 and 0.995; four scopes: individual, cluster (joint), cluster with `joint: false` (MAR-180; the same problems as C1's derived `cluster_separate`), portfolio. 64 runs through the runner, all `optimal` (CLARABEL; OSQP for most MSE runs); no `DegenerateTailError`. Configs `research/configs/c1-rq2-sensitivities/noise_none.yaml` and `noise_common.yaml`; every run's hash in `c_noise_runs.csv` and table C2.
+
+- **none**: `noise: null`. One outcome slot per year (no copies): 7,000 train slots instead of 91,000, so train CVaR₀.₉₉ averages the worst 70 slots instead of 910. The index is the wind at the asset and the loss the base loss of the row: within a row, each asset's loss is a function of its own index.
+- **common**: the thesis layer (heteroscedastic, η 0.3, 13 copies, bounds 20/70 m/s, seed 42), but one standard-normal draw per (event, copy) row shared by the 9 assets: factor_j = exp(−σ_j²/2 + σ_j z), σ_j ramping with asset j's index. Each asset's noise has the per-asset layer's marginal distribution; across assets it is comonotone instead of independent. Built by `add_common_noise` in the script (research only, not a library function), EventSet content hash `sha256:a5507206…3b401da` (not committed; the script rebuilds it and checks the hash).
+- **per asset**: C1's runs and C1 6b's intervals (`research/data/c1-rq2/scope_paired.csv`), for reference.
+
+Train expected annual loss: 217,083 (none), 214,397 (common), 215,536 (per asset); test 231,743, 231,279, 231,626. The thesis Ward clusters are C1's in both variants (C1 = A1 A2, C2 = A3–A6, C3 = A7–A9; table C4).
+
+Portfolio − individual, CVaR₀.₉₉(U), pure, κ 1 (table C1 has every comparison and both pricings):
+
+| Design | Per asset (C1): train | test [90 % CI] | Common: train | test [90 % CI] | None: train | test [90 % CI] | Hash individual / portfolio, common; none |
+|---|---|---|---|---|---|---|---|
+| MSE | −13.7 % | −0.9 % [−15.0, +11.1] | −6.0 % | +1.2 % [−8.7, +10.8] | −40.7 % | +25.6 % [−13.0, +65.7] | `563b7fb5a588` / `2c2028e93aca`; `8a536d14c293` / `b66718f9b627` |
+| E[U] | −13.9 % | −1.0 % [−15.1, +12.7] | −6.6 % | +0.5 % [−10.0, +11.6] | −43.1 % | +24.2 % [−12.0, +68.8] | `069b27dd498b` / `dfd238a2c8a8`; `c35f4af210e5` / `dc9e808f3455` |
+| wCVaR β 0.99 | −17.3 % | −0.9 % [−14.5, +13.7] | −7.4 % | −4.5 % [−18.4, +8.2] | −54.5 % | −5.3 % [−31.6, +26.1] | `959245906ede` / `5fa91b066c77`; `8bc3b5b68cf2` / `e19d234c7a82` |
+| wCVaR β 0.995 | −24.1 % | −9.5 % [−20.8, +3.4] | −5.6 % | +5.6 % [−7.4, +18.5] | −53.7 % | −15.4 % [−35.0, +8.8] | `b502ff5322e7` / `cefaade5c69f`; `907e7c345d94` / `f5334b8c5942` |
+
+Observations:
+
+6. **Common noise: the in-sample joint gain is smaller.** Portfolio − individual on train is −5.6 to −7.4 % (four designs, pure), against −13.7 to −24.1 % with the per-asset layer. The joint part of the cluster scope (cluster − cluster `joint: false`) is −2.6 to −3.9 % on train, against −7.9 to −9.8 % (C1 observation 36).
+7. **No noise: the in-sample joint gain is larger.** Portfolio − individual on train is −40.7 % (MSE), −43.1 % (E[U]), −54.5 % (β 0.99) and −53.7 % (β 0.995); the joint part of the cluster scope −23.0 to −28.9 %. The individual designs' train CVaR₀.₉₉(U) is 460,022–497,126 here, against 901,744–983,110 with the per-asset layer (C1 section 3.1) and 1,462,893–1,600,626 with common noise.
+8. **Out of sample, every portfolio − individual interval contains zero in all three variants** (pure, CVaR₀.₉₉): common −4.5 to +5.6 %; none −15.4 to +25.6 %, with intervals 40–80 points wide.
+9. **Train to test, the joint designs rise and the separately calibrated ones do not, in every variant** (pure, CVaR₀.₉₉, table C2):
+   - none: individual −26.4 to +1.2 %, cluster `joint: false` −15.4 to +0.2 %, cluster +36.8 to +51.8 %, portfolio +60.5 to +93.1 %;
+   - common: individual +10.6 to +24.1 %, cluster `joint: false` +11.3 to +22.7 %, cluster +24.0 to +34.3 %, portfolio +23.7 to +33.5 %;
+   - per asset (C1 observation 21): individual −7.9 to +3.5 %, `cluster_separate` −6.8 to +5.9 %, cluster +15.3 to +24.0 %, portfolio +9.9 to +19.0 %.
+
+   The test expected loss is 6.8 % above train with no noise, 7.9 % with common noise and 7.5 % per asset.
+10. **Without noise the cluster scope is behind individual out of sample, with intervals excluding zero.** Cluster − individual on test: +82.9 % [+16.2, +156.1] (MSE), +115.9 % [+44.5, +199.8] (E[U]), +53.1 % [+6.2, +112.7] (β 0.99), +43.5 % [+6.5, +89.4] (β 0.995). Both of its parts are positive: the index part (`joint: false` − individual) +26.2 to +64.1 % (E[U] and β 0.99 excluding zero), the joint part +7.6 to +31.6 % (MSE and E[U] excluding zero). With common noise the joint part is +3.7 to +9.0 % (β 0.995: +8.5 % [+1.0, +17.5]) and cluster − individual +6.6 to +13.1 % (β 0.995 excluding zero).
+11. **Under CoC r 0.06 the noise layer changes little.** In every variant the train differences between scopes are within ±0.2 % and the test differences within −2.2 to +2.1 %; the intervals excluding zero are E[U]-design cells of at most 0.1 % (table C1, CoC).
+12. **The joint designs move payout from the large assets to the small ones in every variant.** The portfolio designs' solver split (pure, train E[π_i]/E[L_i]; one member of the optimal set, see family (b)): A1 0.42–0.54 (common) and 0.54–0.62 (none), A7 2.88–3.29 and 2.69–2.91, A3 2.06–3.14 and 1.53–2.24 (`c_noise_entities.csv`). With the per-asset layer: A1 0.44–0.51, A7 2.66–3.43, A3 2.24–3.09 (C1 T6).
+
+Not run here: the pooled 5-fold comparison (C1 6b.3) for these variants, κ 0.5 and 1.5, r 0.10, other noise seeds, and a variant with the per-asset layer at another η.

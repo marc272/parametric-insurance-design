@@ -63,3 +63,157 @@ Train E[π_j]/E[L_j] of entity j over the joint design's near-optimal set (objec
 | CoC r 0.06 | wCVaR β 0.99 | portfolio | A6 | max | CLARABEL / original | optimal_inaccurate | 1.104 | yes | 9.88e-06 | 6 |
 | CoC r 0.06 | wCVaR β 0.99 | portfolio | A6 | max | HIGHS / original | optimal | 1.106 | yes | 1.00e-05 | 8 |
 | CoC r 0.06 | wCVaR β 0.99 | portfolio | A6 | max | CLARABEL_long / original | optimal_inaccurate | 1.104 | yes | 9.88e-06 | 5 |
+
+## C1 (pure). Joint against individual calibration by noise layer, CVaR₀.₉₉(U), κ 1
+
+Relative to scope b. Train: in sample, point value; test: holdout test years, paired 90 % interval on the C1 resample. Per-asset noise: C1's runs (`research/data/c1-rq2/scope_paired.csv`; there the separately calibrated cluster designs are `cluster_separate`, a derived design with the same problems as `joint: false`).
+
+| Comparison | Design | per asset (C1): train | per asset (C1): test | common to all assets: train | common to all assets: test | none: train | none: test |
+|---|---|---|---|---|---|---|---|
+| portfolio − individual | MSE | −13.7 % | −0.9 % [−15.0, +11.1] | −6.0 % | +1.2 % [−8.7, +10.8] | −40.7 % | +25.6 % [−13.0, +65.7] |
+| portfolio − individual | E[U] | −13.9 % | −1.0 % [−15.1, +12.7] | −6.6 % | +0.5 % [−10.0, +11.6] | −43.1 % | +24.2 % [−12.0, +68.8] |
+| portfolio − individual | wCVaR β 0.99 | −17.3 % | −0.9 % [−14.5, +13.7] | −7.4 % | −4.5 % [−18.4, +8.2] | −54.5 % | −5.3 % [−31.6, +26.1] |
+| portfolio − individual | wCVaR β 0.995 | −24.1 % | −9.5 % [−20.8, +3.4] | −5.6 % | +5.6 % [−7.4, +18.5] | −53.7 % | −15.4 % [−35.0, +8.8] |
+| cluster − individual | MSE | +2.4 % | +22.7 % [−3.7, +52.7] | +1.1 % | +8.4 % [−8.3, +25.8] | +6.3 % | +82.9 %* [+16.2, +156.1] |
+| cluster − individual | E[U] | +1.5 % | +21.7 % [−2.2, +49.9] | −0.2 % | +6.6 % [−6.0, +20.6] | +5.6 % | +115.9 %* [+44.5, +199.8] |
+| cluster − individual | wCVaR β 0.99 | −0.1 % | +25.5 % [−2.4, +58.5] | +0.1 % | +10.7 % [−2.7, +24.9] | −6.5 % | +53.1 %* [+6.2, +112.7] |
+| cluster − individual | wCVaR β 0.995 | −9.7 % | +13.0 % [−5.5, +34.7] | +0.9 % | +13.1 %* [+1.0, +27.2] | −2.5 % | +43.5 %* [+6.5, +89.4] |
+| index part: cluster (joint: false) − individual | MSE | +11.5 % | +15.6 % [−4.0, +37.9] | +4.6 % | +4.5 % [−4.5, +14.1] | +39.8 % | +48.8 % [−4.8, +107.2] |
+| index part: cluster (joint: false) − individual | E[U] | +10.2 % | +12.7 % [−7.3, +34.7] | +3.9 % | +1.5 % [−7.1, +10.6] | +37.1 % | +64.1 %* [+13.0, +122.6] |
+| index part: cluster (joint: false) − individual | wCVaR β 0.99 | +8.9 % | +14.2 % [−3.0, +33.6] | +4.0 % | +1.6 % [−7.2, +10.8] | +31.5 % | +42.2 %* [+4.4, +84.2] |
+| index part: cluster (joint: false) − individual | wCVaR β 0.995 | +0.1 % | +1.3 % [−9.2, +13.2] | +3.6 % | +4.2 % [−3.2, +12.5] | +28.8 % | +26.2 % [−1.5, +61.9] |
+| joint part: cluster − cluster (joint: false) | MSE | −8.2 % | +6.1 % [−4.3, +16.7] | −3.4 % | +3.7 % [−5.1, +13.6] | −24.0 % | +22.9 %* [+7.0, +41.0] |
+| joint part: cluster − cluster (joint: false) | E[U] | −7.9 % | +8.0 % [−2.4, +19.0] | −3.9 % | +5.1 % [−1.7, +12.6] | −23.0 % | +31.6 %* [+6.8, +59.6] |
+| joint part: cluster − cluster (joint: false) | wCVaR β 0.99 | −8.3 % | +9.9 % [−3.5, +24.6] | −3.7 % | +9.0 % [−0.0, +19.9] | −28.9 % | +7.6 % [−12.1, +28.5] |
+| joint part: cluster − cluster (joint: false) | wCVaR β 0.995 | −9.8 % | +11.6 % [−2.3, +27.0] | −2.6 % | +8.5 %* [+1.0, +17.5] | −24.3 % | +13.7 % [−0.3, +28.9] |
+| cluster − portfolio | MSE | +18.6 % | +23.8 % [−1.2, +52.5] | +7.6 % | +7.1 % [−6.2, +21.6] | +79.2 % | +45.6 % [−11.2, +108.9] |
+| cluster − portfolio | E[U] | +17.9 % | +22.9 % [−3.0, +53.7] | +6.9 % | +6.0 % [−5.9, +18.0] | +85.5 % | +73.8 %* [+5.6, +151.3] |
+| cluster − portfolio | wCVaR β 0.99 | +20.8 % | +26.7 % [−0.8, +57.3] | +8.1 % | +16.0 %* [+3.2, +30.4] | +105.7 % | +61.7 %* [+6.2, +125.2] |
+| cluster − portfolio | wCVaR β 0.995 | +19.1 % | +24.8 %* [+5.4, +47.2] | +6.8 % | +7.1 % [−4.2, +18.9] | +110.6 % | +69.6 %* [+22.9, +123.7] |
+
+## C1 (CoC r 0.06). Joint against individual calibration by noise layer, CVaR₀.₉₉(U), κ 1
+
+Relative to scope b. Train: in sample, point value; test: holdout test years, paired 90 % interval on the C1 resample. Per-asset noise: C1's runs (`research/data/c1-rq2/scope_paired.csv`; there the separately calibrated cluster designs are `cluster_separate`, a derived design with the same problems as `joint: false`).
+
+| Comparison | Design | per asset (C1): train | per asset (C1): test | common to all assets: train | common to all assets: test | none: train | none: test |
+|---|---|---|---|---|---|---|---|
+| portfolio − individual | MSE | −0.0 % | −0.4 % [−2.9, +2.0] | +0.0 % | −1.2 % [−3.8, +1.2] | −0.0 % | +0.1 % [−2.1, +2.2] |
+| portfolio − individual | E[U] | −0.2 % | −0.1 %* [−0.2, −0.0] | −0.1 % | −0.1 %* [−0.2, −0.0] | −0.2 % | −0.1 %* [−0.2, −0.0] |
+| portfolio − individual | wCVaR β 0.99 | −0.0 % | +0.7 % [−0.9, +2.5] | −0.0 % | +0.8 % [−0.6, +1.9] | −0.2 % | −0.2 % [−2.8, +1.6] |
+| portfolio − individual | wCVaR β 0.995 | −0.0 % | −1.1 % [−4.8, +1.5] | +0.0 % | −2.2 % [−5.5, +0.5] | −0.0 % | −1.5 % [−4.9, +1.3] |
+| cluster − individual | MSE | −0.0 % | −0.1 % [−3.2, +3.1] | +0.1 % | +0.9 % [−1.8, +3.8] | −0.0 % | −0.1 % [−3.8, +3.6] |
+| cluster − individual | E[U] | −0.0 % | −0.0 % [−0.1, +0.0] | −0.0 % | −0.0 % [−0.1, +0.0] | −0.1 % | −0.0 %* [−0.1, −0.0] |
+| cluster − individual | wCVaR β 0.99 | −0.0 % | +0.8 % [−0.8, +2.6] | −0.0 % | +0.3 % [−1.9, +2.1] | −0.2 % | −0.3 % [−2.1, +1.3] |
+| cluster − individual | wCVaR β 0.995 | −0.0 % | +0.2 % [−4.9, +5.2] | +0.0 % | −1.0 % [−4.4, +2.7] | −0.0 % | −0.9 % [−4.8, +2.9] |
+| index part: cluster (joint: false) − individual | MSE | −0.0 % | −0.9 % [−2.5, +0.8] | −0.0 % | −0.8 % [−2.4, +0.9] | −0.0 % | −1.4 % [−3.8, +0.8] |
+| index part: cluster (joint: false) − individual | E[U] | +0.0 % | −0.0 % [−0.1, +0.0] | −0.0 % | −0.0 % [−0.1, +0.0] | −0.0 % | −0.0 % [−0.1, +0.0] |
+| index part: cluster (joint: false) − individual | wCVaR β 0.99 | −0.0 % | −0.1 % [−1.0, +0.9] | −0.0 % | −0.5 % [−1.6, +0.7] | −0.1 % | −0.4 % [−1.2, +0.6] |
+| index part: cluster (joint: false) − individual | wCVaR β 0.995 | −0.0 % | −0.5 % [−3.3, +2.2] | −0.0 % | −0.3 % [−1.7, +1.3] | −0.0 % | −1.1 % [−3.3, +1.1] |
+| joint part: cluster − cluster (joint: false) | MSE | +0.0 % | +0.7 % [−1.4, +2.9] | +0.1 % | +1.7 % [−0.3, +3.7] | −0.0 % | +1.4 % [−1.1, +4.2] |
+| joint part: cluster − cluster (joint: false) | E[U] | −0.0 % | −0.0 % [−0.0, +0.0] | −0.0 % | +0.0 %* [+0.0, +0.0] | −0.0 % | −0.0 % [−0.0, +0.0] |
+| joint part: cluster − cluster (joint: false) | wCVaR β 0.99 | −0.0 % | +0.9 % [−0.3, +2.2] | −0.0 % | +0.8 % [−0.7, +2.0] | −0.1 % | +0.1 % [−1.1, +1.1] |
+| joint part: cluster − cluster (joint: false) | wCVaR β 0.995 | −0.0 % | +0.8 % [−1.8, +3.3] | +0.1 % | −0.7 % [−3.0, +1.8] | −0.0 % | +0.2 % [−1.9, +2.2] |
+| cluster − portfolio | MSE | +0.0 % | +0.3 % [−2.5, +2.8] | +0.0 % | +2.1 % [−0.7, +5.3] | +0.0 % | −0.2 % [−2.7, +2.2] |
+| cluster − portfolio | E[U] | +0.1 % | +0.1 % [−0.0, +0.1] | +0.1 % | +0.1 % [−0.0, +0.1] | +0.1 % | +0.1 % [−0.0, +0.1] |
+| cluster − portfolio | wCVaR β 0.99 | +0.0 % | +0.2 % [−0.8, +1.1] | +0.0 % | −0.5 % [−2.1, +1.0] | −0.0 % | −0.1 % [−1.0, +1.1] |
+| cluster − portfolio | wCVaR β 0.995 | −0.0 % | +1.3 % [−1.5, +4.7] | −0.0 % | +1.2 % [−1.0, +4.0] | +0.0 % | +0.5 % [−1.4, +2.7] |
+
+## C2. Values per scope, CVaR₀.₉₉(U), κ 1
+
+| Noise | Pricing | Design | Scope | Train | Test [90 % CI] | Test / train − 1 | Config hash |
+|---|---|---|---|---|---|---|---|
+| none | pure | MSE | individual | 497,126 | 395,107 [252,539, 548,996] | −20.5 % | `8a536d14c293` |
+| none | pure | MSE | cluster_sep | 694,878 | 587,954 [364,635, 838,002] | −15.4 % | `23874014c39f` |
+| none | pure | MSE | cluster | 528,216 | 722,509 [438,762, 1,039,662] | +36.8 % | `141abf4c99c5` |
+| none | pure | MSE | portfolio | 294,798 | 496,245 [322,757, 690,630] | +68.3 % | `b66718f9b627` |
+| none | pure | E[U] | individual | 484,402 | 356,372 [246,294, 479,799] | −26.4 % | `c35f4af210e5` |
+| none | pure | E[U] | cluster_sep | 664,159 | 584,657 [359,886, 832,311] | −12.0 % | `c9c388fa95c1` |
+| none | pure | E[U] | cluster | 511,663 | 769,472 [470,270, 1,093,052] | +50.4 % | `e9e44222ed6e` |
+| none | pure | E[U] | portfolio | 275,788 | 442,681 [277,079, 646,328] | +60.5 % | `dc9e808f3455` |
+| none | pure | wCVaR β 0.99 | individual | 460,022 | 426,597 [368,248, 480,182] | −7.3 % | `8bc3b5b68cf2` |
+| none | pure | wCVaR β 0.99 | cluster_sep | 605,117 | 606,607 [445,605, 790,496] | +0.2 % | `14778d4fddd5` |
+| none | pure | wCVaR β 0.99 | cluster | 430,171 | 652,988 [443,568, 900,624] | +51.8 % | `236b890e708e` |
+| none | pure | wCVaR β 0.99 | portfolio | 209,109 | 403,858 [277,897, 542,082] | +93.1 % | `e19d234c7a82` |
+| none | pure | wCVaR β 0.995 | individual | 493,681 | 499,366 [433,349, 555,472] | +1.2 % | `907e7c345d94` |
+| none | pure | wCVaR β 0.995 | cluster_sep | 635,624 | 630,206 [488,974, 804,473] | −0.9 % | `0e964ff017a9` |
+| none | pure | wCVaR β 0.995 | cluster | 481,426 | 716,645 [524,470, 939,444] | +48.9 % | `2a898c8f44ea` |
+| none | pure | wCVaR β 0.995 | portfolio | 228,614 | 422,597 [315,460, 546,460] | +84.9 % | `f5334b8c5942` |
+| none | CoC r 0.06 | MSE | individual | 14,057,180 | 14,462,471 [11,257,584, 16,992,345] | +2.9 % | `4fb7e1633900` |
+| none | CoC r 0.06 | MSE | cluster_sep | 14,055,807 | 14,252,957 [11,137,795, 16,685,122] | +1.4 % | `cd1036bc183d` |
+| none | CoC r 0.06 | MSE | cluster | 14,055,804 | 14,453,737 [11,212,108, 16,982,956] | +2.8 % | `5ae37410baa6` |
+| none | CoC r 0.06 | MSE | portfolio | 14,055,802 | 14,477,684 [11,238,651, 17,035,826] | +3.0 % | `0ead63a408b6` |
+| none | CoC r 0.06 | E[U] | individual | 14,573,443 | 15,487,418 [10,590,287, 20,540,580] | +6.3 % | `ec82f2272816` |
+| none | CoC r 0.06 | E[U] | cluster_sep | 14,570,659 | 15,484,841 [10,576,207, 20,534,652] | +6.3 % | `a758a96c2690` |
+| none | CoC r 0.06 | E[U] | cluster | 14,563,429 | 15,481,351 [10,574,038, 20,531,162] | +6.3 % | `0ced7373f307` |
+| none | CoC r 0.06 | E[U] | portfolio | 14,548,749 | 15,465,145 [10,570,310, 20,514,960] | +6.3 % | `72e8a7cae400` |
+| none | CoC r 0.06 | wCVaR β 0.99 | individual | 14,086,541 | 14,514,106 [10,960,218, 18,099,063] | +3.0 % | `0c7fea4ed314` |
+| none | CoC r 0.06 | wCVaR β 0.99 | cluster_sep | 14,076,881 | 14,461,534 [10,977,492, 17,992,925] | +2.7 % | `958b0602321c` |
+| none | CoC r 0.06 | wCVaR β 0.99 | cluster | 14,055,801 | 14,476,202 [11,027,514, 17,955,396] | +3.0 % | `5da6e6f488d2` |
+| none | CoC r 0.06 | wCVaR β 0.99 | portfolio | 14,055,801 | 14,486,556 [11,102,873, 17,894,566] | +3.1 % | `913f9b2a4222` |
+| none | CoC r 0.06 | wCVaR β 0.995 | individual | 14,057,030 | 14,393,351 [11,223,215, 17,344,882] | +2.4 % | `28ec64fba170` |
+| none | CoC r 0.06 | wCVaR β 0.995 | cluster_sep | 14,055,801 | 14,232,917 [11,140,460, 16,896,691] | +1.3 % | `5dcaccc43aaf` |
+| none | CoC r 0.06 | wCVaR β 0.995 | cluster | 14,055,800 | 14,259,061 [11,160,192, 16,857,658] | +1.4 % | `ff3c554bb661` |
+| none | CoC r 0.06 | wCVaR β 0.995 | portfolio | 14,055,800 | 14,183,964 [11,106,658, 16,771,216] | +0.9 % | `677b133ae143` |
+| common to all assets | pure | MSE | individual | 1,600,626 | 1,965,472 [1,275,831, 2,724,923] | +22.8 % | `563b7fb5a588` |
+| common to all assets | pure | MSE | cluster_sep | 1,673,979 | 2,053,590 [1,362,956, 2,817,303] | +22.7 % | `399d723482fa` |
+| common to all assets | pure | MSE | cluster | 1,617,810 | 2,130,152 [1,353,481, 2,970,131] | +31.7 % | `1c1ac7b9b74a` |
+| common to all assets | pure | MSE | portfolio | 1,504,007 | 1,988,171 [1,294,039, 2,735,941] | +32.2 % | `2c2028e93aca` |
+| common to all assets | pure | E[U] | individual | 1,594,961 | 1,978,950 [1,286,836, 2,770,200] | +24.1 % | `069b27dd498b` |
+| common to all assets | pure | E[U] | cluster_sep | 1,657,775 | 2,007,864 [1,311,888, 2,775,412] | +21.1 % | `ddeeb98a820b` |
+| common to all assets | pure | E[U] | cluster | 1,592,512 | 2,109,959 [1,357,246, 2,935,370] | +32.5 % | `70443ffaf17a` |
+| common to all assets | pure | E[U] | portfolio | 1,490,306 | 1,989,674 [1,269,776, 2,792,487] | +33.5 % | `dfd238a2c8a8` |
+| common to all assets | pure | wCVaR β 0.99 | individual | 1,462,893 | 1,775,489 [1,254,342, 2,357,103] | +21.4 % | `959245906ede` |
+| common to all assets | pure | wCVaR β 0.99 | cluster_sep | 1,521,280 | 1,803,935 [1,312,683, 2,374,224] | +18.6 % | `58e04fa607e7` |
+| common to all assets | pure | wCVaR β 0.99 | cluster | 1,464,488 | 1,966,268 [1,394,517, 2,610,907] | +34.3 % | `25bd3d7b6cc8` |
+| common to all assets | pure | wCVaR β 0.99 | portfolio | 1,355,294 | 1,695,132 [1,190,184, 2,252,147] | +25.1 % | `5fa91b066c77` |
+| common to all assets | pure | wCVaR β 0.995 | individual | 1,566,140 | 1,732,924 [1,371,403, 2,125,880] | +10.6 % | `b502ff5322e7` |
+| common to all assets | pure | wCVaR β 0.995 | cluster_sep | 1,621,791 | 1,805,195 [1,430,874, 2,213,595] | +11.3 % | `916bffb6175b` |
+| common to all assets | pure | wCVaR β 0.995 | cluster | 1,580,050 | 1,959,207 [1,521,550, 2,419,851] | +24.0 % | `988cf8cb3eed` |
+| common to all assets | pure | wCVaR β 0.995 | portfolio | 1,478,952 | 1,829,580 [1,423,145, 2,297,444] | +23.7 % | `cefaade5c69f` |
+| common to all assets | CoC r 0.06 | MSE | individual | 13,892,008 | 14,551,834 [11,288,165, 17,205,251] | +4.7 % | `96e43f118b6d` |
+| common to all assets | CoC r 0.06 | MSE | cluster_sep | 13,891,654 | 14,442,366 [11,205,498, 17,047,466] | +4.0 % | `f84a4b99cc47` |
+| common to all assets | CoC r 0.06 | MSE | cluster | 13,900,273 | 14,687,698 [11,300,053, 17,547,271] | +5.7 % | `fd134f7edae9` |
+| common to all assets | CoC r 0.06 | MSE | portfolio | 13,896,924 | 14,381,828 [11,092,267, 16,951,189] | +3.5 % | `42f5297acbce` |
+| common to all assets | CoC r 0.06 | E[U] | individual | 14,373,302 | 15,575,203 [10,680,851, 20,703,559] | +8.4 % | `be001290694b` |
+| common to all assets | CoC r 0.06 | E[U] | cluster_sep | 14,373,266 | 15,573,624 [10,663,611, 20,700,916] | +8.4 % | `12c4d461ae45` |
+| common to all assets | CoC r 0.06 | E[U] | cluster | 14,370,317 | 15,574,607 [10,669,183, 20,701,849] | +8.4 % | `e7642e47197d` |
+| common to all assets | CoC r 0.06 | E[U] | portfolio | 14,352,960 | 15,556,246 [10,667,827, 20,683,681] | +8.4 % | `ec5e3978acb4` |
+| common to all assets | CoC r 0.06 | wCVaR β 0.99 | individual | 13,864,343 | 14,522,417 [10,985,040, 18,094,010] | +4.7 % | `a927a7909619` |
+| common to all assets | CoC r 0.06 | wCVaR β 0.99 | cluster_sep | 13,859,459 | 14,453,977 [11,014,335, 17,924,763] | +4.3 % | `2fae4fc25a52` |
+| common to all assets | CoC r 0.06 | wCVaR β 0.99 | cluster | 13,857,614 | 14,568,193 [11,127,140, 17,909,434] | +5.1 % | `4c63a6f307c6` |
+| common to all assets | CoC r 0.06 | wCVaR β 0.99 | portfolio | 13,857,614 | 14,634,797 [11,169,741, 18,186,533] | +5.6 % | `0e475c04c941` |
+| common to all assets | CoC r 0.06 | wCVaR β 0.995 | individual | 13,859,633 | 14,465,332 [11,206,268, 17,444,311] | +4.4 % | `854f0fda3549` |
+| common to all assets | CoC r 0.06 | wCVaR β 0.995 | cluster_sep | 13,857,614 | 14,423,769 [11,242,906, 17,264,441] | +4.1 % | `1ba7278cd181` |
+| common to all assets | CoC r 0.06 | wCVaR β 0.995 | cluster | 13,864,960 | 14,323,128 [11,201,168, 17,072,908] | +3.3 % | `364e78d23dd0` |
+| common to all assets | CoC r 0.06 | wCVaR β 0.995 | portfolio | 13,865,449 | 14,151,675 [11,063,017, 16,743,625] | +2.1 % | `7966d7e87c07` |
+
+## C3. Expected annual loss (the portfolio's, USD)
+
+| Noise | Split | E[L] |
+|---|---|---|
+| none | test | 231,743 |
+| none | train | 217,083 |
+| common to all assets | test | 231,279 |
+| common to all assets | train | 214,397 |
+
+## C4. The clusters (thesis Ward on the train years)
+
+C1 (per-asset noise): C1 = A1 A2, C2 = A3 A4 A5 A6, C3 = A7 A8 A9.
+
+| Noise | Clusters |
+|---|---|
+| common to all assets | C1 = A1 A2; C2 = A3 A4 A5 A6; C3 = A7 A8 A9 |
+| none | C1 = A1 A2; C2 = A3 A4 A5 A6; C3 = A7 A8 A9 |
+
+## C5. Runs
+
+| Noise | Scope | Runs | Statuses | Solvers |
+|---|---|---|---|---|
+| common to all assets | cluster | 8 | optimal | CLARABEL,OSQP |
+| common to all assets | cluster_sep | 8 | optimal | CLARABEL,OSQP |
+| common to all assets | individual | 8 | optimal | CLARABEL,OSQP |
+| common to all assets | portfolio | 8 | optimal | CLARABEL,OSQP |
+| none | cluster | 8 | optimal | CLARABEL,OSQP |
+| none | cluster_sep | 8 | optimal | CLARABEL,OSQP |
+| none | individual | 8 | optimal | CLARABEL,OSQP |
+| none | portfolio | 8 | optimal | CLARABEL,OSQP |
