@@ -1061,7 +1061,7 @@ def paired_difference(
         row has its own key. Each ``table`` must have every key column of
         :data:`~parametric_insurance_design.records.KPIS` and ``value``, as
         the tables of :func:`bootstrap_kpis` do; a hand-built table without
-        one raises ``KeyError``. With ``across_scopes=True``: the
+        one raises :class:`BootstrapError`. With ``across_scopes=True``: the
         portfolio-level rows of two designs of possibly different scopes on
         the same portfolio, e.g. ``a.portfolio_rows()`` and
         ``b.portfolio_rows()``.
@@ -1098,7 +1098,9 @@ def paired_difference(
     Raises
     ------
     BootstrapError
-        If the resamples differ, a KPI row has no partner, two rows of one
+        If a table lacks a key column of
+        :data:`~parametric_insurance_design.records.KPIS` or ``value``, the
+        resamples differ, a KPI row has no partner, two rows of one
         table have the same pairing key (e.g. the rows of several runs in one
         table), or ``level`` is not in ``(0, 1)``; with ``across_scopes=True``,
         also if a table has a row that is not at the portfolio level, or no
@@ -1116,6 +1118,8 @@ def paired_difference(
         )
     """
     ci_level = a.level if level is None else _check_level(level)
+    _check_pair_columns(a, "a")
+    _check_pair_columns(b, "b")
     if not a.resample.same_as(b.resample):
         raise BootstrapError(
             "the two designs were bootstrapped with different resamples; "
@@ -1171,6 +1175,24 @@ def paired_difference(
     return out.sort_values(key, kind="stable").reset_index(drop=True)
 
 
+def _check_pair_columns(boot: KpiBootstrap, side: str) -> None:
+    """Raise unless ``boot.table`` has every column the pairing reads.
+
+    These are the key columns of
+    :data:`~parametric_insurance_design.records.KPIS` (:data:`PAIR_KEY` and
+    ``run_id``) and ``value``, with or without ``across_scopes``. A table of
+    :func:`bootstrap_kpis` has them all; a hand-built one may not.
+    """
+    needed = [*PAIR_KEY, "run_id", "value"]
+    missing = [column for column in needed if column not in boot.table.columns]
+    if missing:
+        raise BootstrapError(
+            f"design {side}'s table lacks the column(s) {', '.join(missing)}; "
+            f"paired_difference needs {', '.join(needed)}, as in the tables of "
+            "bootstrap_kpis"
+        )
+
+
 def _check_portfolio_only(boot: KpiBootstrap, side: str) -> None:
     """Raise unless ``boot`` has rows and every one is at the portfolio level."""
     levels = boot.table["level"].astype(str)
@@ -1181,7 +1203,8 @@ def _check_portfolio_only(boot: KpiBootstrap, side: str) -> None:
             f"across_scopes pairs portfolio-level rows only; design {side} has "
             f"{int(other.sum())} rows at level {', '.join(found)}, which aren't "
             "comparable across scopes (a joint design's per-entity values "
-            "aren't unique, MAR-100). Pass KpiBootstrap.portfolio_rows()"
+            "aren't unique; see docs/methodology/payout-allocation.md). Pass "
+            "KpiBootstrap.portfolio_rows()"
         )
     if levels.empty:
         raise BootstrapError(
