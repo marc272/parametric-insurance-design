@@ -19,6 +19,7 @@ import copy
 import pickle
 from dataclasses import dataclass, replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, ClassVar
 
 import cvxpy as cp
@@ -526,6 +527,152 @@ def test_solve_module_reexports_the_result_types() -> None:
 
     assert solve_module.SolveResult is interfaces.SolveResult
     assert solve_module.SolveError is SolveError
+
+
+# -- OSQP polishing guard (MAR-224) ------------------------------------------
+
+# OSQP 1.x returns an unstored (all-zero) solution with status ``solved`` when
+# its polishing step fails to factorise (``status_polish == -2``); see
+# research/notes/solver-check.md, section 3. The real trigger is a 60,000-
+# variable problem, so these tests solve the toy MSE problem for real and then
+# replace the OSQP result object that cvxpy keeps in
+# ``solver_stats.extra_stats``.
+
+# Slack-budget MSE optimum of the toy problem (test_mse_is_reported_...).
+TOY_MSE = 12.5 / 3
+
+
+def with_osqp_extra_stats(
+    monkeypatch: pytest.MonkeyPatch,
+    built: BuiltProblem,
+    extra_stats: object,
+    solvers: tuple[str, ...] = ("OSQP",),
+    status: str | None = None,
+    zero_theta: bool = False,
+) -> None:
+    """Solve for real, then set ``solver_stats.extra_stats`` after ``solvers``.
+
+    With ``status``, the cvxpy status of those solves is overwritten too;
+    with ``zero_theta``, the payout parameters are set to zero, as OSQP 1.x
+    returns them after a polish linsys error.
+    """
+    problem = built.problem
+    real_solve = problem.solve
+
+    def wrapped(*, solver: str, **kwargs: object) -> None:
+        real_solve(solver=solver, **kwargs)
+        if solver in solvers:
+            stats = replace(problem.solver_stats, extra_stats=extra_stats)
+            problem._solver_stats = stats  # pyright: ignore[reportAttributeAccessIssue]
+            if status is not None:
+                problem._status = status  # pyright: ignore[reportAttributeAccessIssue]
+            if zero_theta:
+                theta = built.context.theta
+                theta.value = np.zeros(theta.shape)
+
+    monkeypatch.setattr(problem, "solve", wrapped)
+
+
+def polish(code: object) -> SimpleNamespace:
+    """An OSQP result object whose ``info.status_polish`` is ``code``."""
+    return SimpleNamespace(info=SimpleNamespace(status_polish=code))
+
+
+def test_real_osqp_solves_expose_status_polish(toy_eventset: EventSet) -> None:
+    # The guard reads what cvxpy really stores; on the toy problem polishing
+    # stores the solution, so OSQP's result is accepted.
+    built = toy_built(toy_eventset, MSE(), (Budget(2.0),))
+    result = solve(built)
+    assert result.solver == "OSQP"
+    info = getattr(built.problem.solver_stats.extra_stats, "info", None)
+    if info is not None:  # other OSQP versions: the guard is a no-op
+        assert int(info.status_polish) != -2
+
+
+@pytest.mark.parametrize("name", sorted(NAMED_POLICIES))
+def test_osqp_polish_linsys_error_falls_back(
+    name: str, toy_eventset: EventSet, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # OSQP "converges" to the all-zero point; Clarabel returns the optimum.
+    built = toy_built(toy_eventset, MSE(), (Budget(2.0),))
+    with_osqp_extra_stats(monkeypatch, built, polish(-2), zero_theta=True)
+    result = solve(built, NAMED_POLICIES[name])
+    assert result.solver == "CLARABEL"
+    assert result.status is SolveStatus.OPTIMAL
+    assert result.objective_value == pytest.approx(TOY_MSE, rel=1e-6)
+    np.testing.assert_allclose(result.theta.sum(axis=0), [3.5, 16.0], rtol=1e-4)
+    rejected, accepted = result.attempts
+    assert (rejected.solver, rejected.status) == ("OSQP", SolveStatus.SOLVER_ERROR)
+    assert rejected.message is not None
+    assert "OSQP polishing failed to factorise" in rejected.message
+    assert "(cvxpy status 'optimal')" in rejected.message
+    assert rejected.seconds > 0
+    assert accepted.solver == "CLARABEL"
+    assert result.solve_seconds == pytest.approx(rejected.seconds + accepted.seconds)
+
+
+def test_osqp_polish_linsys_error_alone_raises(
+    toy_eventset: EventSet, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    built = toy_built(toy_eventset, MSE(), (Budget(2.0),))
+    with_osqp_extra_stats(monkeypatch, built, polish(-2))
+    with pytest.raises(SolveError, match="OSQP polishing failed") as info:
+        solve(built, SolverPolicy(qp_solvers=("OSQP",)))
+    assert type(info.value) is SolveError
+    assert info.value.status is SolveStatus.SOLVER_ERROR
+    (attempt,) = info.value.attempts
+    assert (attempt.solver, attempt.status) == ("OSQP", SolveStatus.SOLVER_ERROR)
+
+
+def test_osqp_polish_linsys_error_is_checked_on_inaccurate_results(
+    toy_eventset: EventSet, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    built = toy_built(toy_eventset, MSE(), (Budget(2.0),))
+    with_osqp_extra_stats(monkeypatch, built, polish(-2), status="optimal_inaccurate")
+    with pytest.raises(SolveError) as info:
+        solve(built, SolverPolicy(qp_solvers=("OSQP",)))
+    (attempt,) = info.value.attempts
+    assert attempt.status is SolveStatus.SOLVER_ERROR
+    assert attempt.message is not None
+    assert "(cvxpy status 'optimal_inaccurate')" in attempt.message
+
+
+@pytest.mark.parametrize(
+    "extra_stats",
+    [
+        pytest.param(polish(-1), id="polish-failed-benign"),
+        pytest.param(polish(0), id="polish-not-performed"),
+        pytest.param(polish(1), id="polish-success"),
+        pytest.param(polish(np.int64(1)), id="numpy-code"),
+        pytest.param(None, id="no-extra-stats"),
+        pytest.param(SimpleNamespace(), id="no-info"),
+        pytest.param(SimpleNamespace(info=SimpleNamespace()), id="no-code"),
+        pytest.param(polish(None), id="code-none"),
+        pytest.param(polish("n/a"), id="code-not-an-integer"),
+    ],
+)
+def test_osqp_results_without_a_linsys_error_are_accepted(
+    extra_stats: object, toy_eventset: EventSet, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    built = toy_built(toy_eventset, MSE(), (Budget(2.0),))
+    with_osqp_extra_stats(monkeypatch, built, extra_stats)
+    result = solve(built)
+    assert result.solver == "OSQP"
+    (attempt,) = result.attempts
+    assert attempt.message is None
+    assert result.objective_value == pytest.approx(TOY_MSE, rel=1e-6)
+
+
+def test_polish_guard_ignores_other_solvers(
+    toy_eventset: EventSet, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Only OSQP's polish codes mean anything; a -2 elsewhere is not read.
+    built = toy_built(toy_eventset, MSE(), (Budget(2.0),))
+    with_osqp_extra_stats(monkeypatch, built, polish(-2), solvers=("CLARABEL",))
+    result = solve(built, SolverPolicy(qp_solvers=("CLARABEL", "OSQP")))
+    assert result.solver == "CLARABEL"
+    assert [a.solver for a in result.attempts] == ["CLARABEL"]
+
 
 
 # -- MAR-14 acceptance on the parity fixture ---------------------------------

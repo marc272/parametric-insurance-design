@@ -78,11 +78,36 @@ Failure handling
       ``infeasible_or_unbounded``) is recorded as ``solver_error`` with the
       raw status in the message.
     * An accepted status without a finite solution is recorded as ``error``.
+    * An OSQP solution whose polishing step failed to factorise its linear
+      system is recorded as ``solver_error`` and the next solver is tried
+      ("OSQP polishing guard", below).
     * After the last solver, the final status is the most informative status
       among the attempts (:data:`FAILURE_PRECEDENCE`): an infeasibility or
       unboundedness certificate beats a numerical failure. It selects the
       error class: :class:`InfeasibleError`, :class:`UnboundedError`, or
       :class:`SolveError` for everything else.
+
+OSQP polishing guard
+    After converging, OSQP polishes its solution: it guesses the active
+    constraints and solves a reduced, regularised KKT system. When that
+    system cannot be factorised, OSQP 1.x sets ``info.status_polish`` to
+    ``-2`` (``OSQP_POLISH_LINSYS_ERROR``) and returns without storing the
+    solution, so the returned point is OSQP's initial one (all zeros), yet
+    ``info.status`` stays ``solved`` and cvxpy reports ``optimal``. This
+    was observed on large MSE problems (``research/notes/solver-check.md``,
+    section 3). After every OSQP solve with status ``optimal`` or
+    ``optimal_inaccurate``, :func:`solve` therefore reads ``status_polish``
+    from the OSQP result that cvxpy keeps in
+    ``problem.solver_stats.extra_stats.info``; if it is ``-2``, the attempt
+    is recorded as ``solver_error`` with a message naming the polishing
+    failure, and the next solver of the list is tried (Clarabel in both named
+    policies). The other polishing outcomes (``-1``: polishing did not
+    improve the point, which OSQP then keeps; ``0``: not performed; ``1``:
+    success) store the solution and are accepted as before. The guard does
+    nothing when ``extra_stats``, ``info`` or ``status_polish`` is missing
+    (other OSQP or cvxpy versions). It applies under every policy that lists
+    OSQP, :data:`THESIS_POLICY` included; it is not a policy option, so it
+    leaves policy fingerprints and run ids unchanged.
 """
 
 from __future__ import annotations
@@ -323,8 +348,47 @@ def _status(raw: object) -> tuple[SolveStatus, str | None]:
         return SolveStatus.SOLVER_ERROR, f"unrecognised cvxpy status {raw!r}"
 
 
+_OSQP_POLISH_LINSYS_ERROR: Final[int] = -2
+"""OSQP 1.x ``info.status_polish`` code ``OSQP_POLISH_LINSYS_ERROR``."""
+
+_OSQP_POLISH_LINSYS_MESSAGE: Final[str] = (
+    "OSQP polishing failed to factorise its linear system (status_polish -2); "
+    "OSQP 1.x then does not store the solution, so the returned point is not "
+    "OSQP's solution"
+)
+"""Message of an OSQP attempt rejected by the polishing guard (module docstring)."""
+
+_SOLUTION_STATUSES: Final = frozenset(
+    {SolveStatus.OPTIMAL, SolveStatus.OPTIMAL_INACCURATE}
+)
+"""Statuses a policy can accept: the ones that come with a solution."""
+
+
+def _osqp_polish_failed(problem: cp.Problem) -> bool:
+    """Whether OSQP's last solve of ``problem`` hit a polish linsys error.
+
+    Reads ``problem.solver_stats.extra_stats.info.status_polish`` (module
+    docstring, "OSQP polishing guard"). Returns False when any link of that
+    chain is missing or the code is not an integer.
+    """
+    extra = getattr(problem.solver_stats, "extra_stats", None)
+    info = getattr(extra, "info", None)
+    code = getattr(info, "status_polish", None)
+    if code is None or isinstance(code, bool):
+        return False
+    try:
+        return int(code) == _OSQP_POLISH_LINSYS_ERROR
+    except (TypeError, ValueError):
+        return False
+
+
 def _try(built: BuiltProblem, solver: str, options: Mapping[str, Any]) -> SolverAttempt:
-    """Call one solver and record the outcome; only SolverError is caught."""
+    """Call one solver and record the outcome; only SolverError is caught.
+
+    An OSQP solve with a solution status whose polishing failed to factorise
+    is recorded as ``solver_error`` (module docstring, "OSQP polishing
+    guard").
+    """
     problem = built.problem
     start = time.perf_counter()
     try:
@@ -338,6 +402,17 @@ def _try(built: BuiltProblem, solver: str, options: Mapping[str, Any]) -> Solver
         )
     seconds = time.perf_counter() - start
     status, message = _status(problem.status)
+    if (
+        solver == "OSQP"
+        and status in _SOLUTION_STATUSES
+        and _osqp_polish_failed(problem)
+    ):
+        return SolverAttempt(
+            solver,
+            SolveStatus.SOLVER_ERROR,
+            seconds,
+            f"{_OSQP_POLISH_LINSYS_MESSAGE} (cvxpy status {status.value!r})",
+        )
     return SolverAttempt(solver, status, seconds, message)
 
 
