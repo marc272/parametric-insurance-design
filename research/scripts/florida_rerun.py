@@ -1073,8 +1073,15 @@ def _kfold_variant(
                 point = kpi_replicates(
                     d.loss, d.payout, measure, row_years, ones, beta=beta
                 )
+                # problem_id: MAR-228 made it an argument (the folds' own)
                 boots[beta][key] = comb._pooled_bootstrap(
-                    reps, point, beta, pooled.resample, pooled.level, exp_hash
+                    reps,
+                    point,
+                    beta,
+                    pooled.resample,
+                    pooled.level,
+                    exp_hash,
+                    d.problem_id,
                 )
         native.append((pooled, positions))
     grid: list[dict[str, Any]] = []
@@ -2363,6 +2370,7 @@ def run_t14(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any]:
     args.full.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).to_csv(args.full / T14_FILE, index=False, float_format="%.10g")
     return {
+        "t14_issue": "MAR-203",
         "t14_policy": {
             "lp_solvers": list(T14_POLICY.lp_solvers),
             "qp_solvers": list(T14_POLICY.qp_solvers),
