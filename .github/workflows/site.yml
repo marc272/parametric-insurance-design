@@ -133,6 +133,14 @@ jobs:
       - uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661b # v2.2.0
         with:
           version: ${{ env.QUARTO_VERSION }}
+      # The API reference (ADR 0004 Q4, R1): site/reference/build.py runs
+      # quartodoc, pinned in the root pyproject.toml's docs group, on the
+      # quartodoc section of site/_quarto.yml. It writes one page per entry
+      # into site/reference/ before the render, and fails when a name of
+      # pid.__all__ has no page, so a name added to the public API without a
+      # reference entry fails the build.
+      - name: Build the API reference
+        run: uv run --locked --group docs python site/reference/build.py
       - name: Render the site
         run: quarto render site
       # After the render, which empties site/_site. The label is the config's
@@ -147,7 +155,9 @@ jobs:
         run: |
           pages="index.html about.html method/index.html method/tail-risk-objective.html
                  method/portfolio-calibration.html method/combination.html
-                 explorers/alpha-beta.html blog/index.html"
+                 explorers/alpha-beta.html blog/index.html
+                 reference/index.html reference/design.html reference/StepPayout.html
+                 reference/parametric_insurance_design.evaluate.html"
           for f in $pages blog/index.xml favicon.svg \
                    bundles/explorer/manifest.json bundles/explorer/sweep.alpha.payouts.arrow; do
             test -s "site/_site/$f" || { echo "missing: site/_site/$f"; exit 1; }
