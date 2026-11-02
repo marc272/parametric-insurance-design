@@ -41,8 +41,10 @@ not committed) and solves nothing it can reuse. Two phases:
     MAR-212): ``paired_difference(a.portfolio_rows(), b.portfolio_rows(),
     across_scopes=True)``. It pairs the two designs' portfolio-level rows on
     ``PORTFOLIO_PAIR_KEY`` (``PAIR_KEY`` without ``problem_id``, which is
-    ``"*"`` for a scope with several design problems and ``"portfolio"`` for
-    the portfolio scope), with the same resample check, and keeps each
+    ``"*"`` for a run with several design problems, here the individual
+    scope, and the problem's id for a run with one, here ``"portfolio"`` for
+    the C1 cluster and portfolio scopes), with the same resample check, and
+    keeps each
     design's own ``problem_id`` (``problem_id_a``, ``problem_id_b`` in the
     full ``paired`` tables). MAR-158 relabelled ``problem_id`` here instead
     (:func:`portfolio_rows`); the two give the same differences and
@@ -331,9 +333,10 @@ def portfolio_rows(boot: KpiBootstrap) -> KpiBootstrap:
     pairs with it: it calls ``paired_difference(..., across_scopes=True)``
     on :meth:`KpiBootstrap.portfolio_rows` (MAR-212). It is kept because
     ``individual_nonuniqueness.py`` imports it. ``problem_id`` is ``"*"``
-    for a scope with several design problems, ``"portfolio"`` for the
-    portfolio scope; here both get :data:`ALL_PROBLEMS`. The replicates and
-    the resample are unchanged.
+    for a run with several design problems (the individual scope) and the
+    problem's id for a run with one (``"portfolio"`` for the C1 cluster and
+    portfolio scopes); here every row gets :data:`ALL_PROBLEMS`. The
+    replicates and the resample are unchanged.
 
     Parameters
     ----------

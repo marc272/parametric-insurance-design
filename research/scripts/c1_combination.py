@@ -48,8 +48,9 @@ design's bootstrap is cut to its portfolio-level rows
 (``KpiBootstrap.portfolio_rows``), and every contrast is
 ``paired_difference(..., across_scopes=True)``. It pairs on
 ``PORTFOLIO_PAIR_KEY``, ``PAIR_KEY`` without ``problem_id`` (``"*"`` for a
-scope with several design problems, ``"portfolio"`` for the portfolio
-scope), with the same resample check. MAR-182 relabelled ``problem_id`` to a
+run with several design problems, here the individual scope; the problem's
+id for a run with one, here ``"portfolio"`` for the C1 cluster and portfolio
+scopes), with the same resample check. MAR-182 relabelled ``problem_id`` to a
 common value instead (``c1_rq2.portfolio_rows``); the two give the same
 contrasts bit for bit (MAR-212). The interaction is ``paired_difference`` of
 two difference bootstraps (:func:`difference_bootstrap`: point values and
@@ -280,8 +281,9 @@ def difference_bootstrap(a: KpiBootstrap, b: KpiBootstrap) -> KpiBootstrap:
     a, b : KpiBootstrap
         Two designs' bootstraps with the same subjects and resample: two
         designs of one scope, as in every interaction (``(J, W) - (J, O)``,
-        ``(I, W) - (I, O)``). Designs of different scopes have different
-        ``problem_id`` values and raise ``BootstrapError``.
+        ``(I, W) - (I, O)``). ``PAIR_KEY`` includes ``problem_id``, so an
+        individual design (``"*"``) and a joint one (``"portfolio"``) don't
+        pair and raise ``BootstrapError``.
 
     Returns
     -------
