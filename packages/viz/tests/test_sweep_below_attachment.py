@@ -18,7 +18,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
@@ -137,12 +136,6 @@ def default_swept(tmp_path_factory: pytest.TempPathFactory) -> Swept:
         tmp_path_factory.mktemp("default_swept"),
         tmp_path_factory.mktemp("default_swept_figures"),
     )
-
-
-@pytest.fixture(autouse=True)
-def _close_figures() -> object:
-    yield
-    plt.close("all")
 
 
 # -- helpers -------------------------------------------------------------------

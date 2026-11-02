@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
@@ -57,12 +56,6 @@ def scope_events(toy: Fixture, scope: str) -> pd.DataFrame:
     runs = scope_runs(toy, scope)
     component = toy.config.scopes[SCOPES[scope]].build()
     return entity_events(toy.eventset, component, runs[0].problem_specs())
-
-
-@pytest.fixture(autouse=True)
-def _close_figures() -> object:
-    yield
-    plt.close("all")
 
 
 def test_payout_steps_table(toy: Fixture) -> None:
