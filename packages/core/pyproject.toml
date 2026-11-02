@@ -1,6 +1,6 @@
 [project]
 name = "parametric-insurance-design"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Design of parametric insurance payout functions with tail-risk objectives, per asset or across a portfolio."
 readme = "README.md"
 license = "BSD-3-Clause"

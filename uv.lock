@@ -1142,7 +1142,7 @@ wheels = [
 
 [[package]]
 name = "parametric-insurance-design"
-version = "0.1.0.dev0"
+version = "0.1.0"
 source = { editable = "packages/core" }
 dependencies = [
     { name = "cvxpy" },
@@ -1178,7 +1178,7 @@ requires-dist = [{ name = "parametric-insurance-design", editable = "packages/co
 
 [[package]]
 name = "parametric-insurance-design-viz"
-version = "0.1.0.dev0"
+version = "0.1.0"
 source = { editable = "packages/viz" }
 dependencies = [
     { name = "matplotlib" },
