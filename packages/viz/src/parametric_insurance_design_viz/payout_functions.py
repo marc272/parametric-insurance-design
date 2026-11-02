@@ -252,13 +252,17 @@ def _where(frame: pd.DataFrame, mask: object) -> pd.DataFrame:
 
 
 def _scope_runs(runs: Sequence[RunResult]) -> tuple[RunResult, ...]:
-    """Check that runs are complete, share one scope and differ in objective."""
+    """Check that runs are complete, share one scope and differ in objective.
+
+    One scope by :func:`~.style.run_scope_name`, so the joint and the
+    separately calibrated cluster scope are not mixed (MAR-225).
+    """
     runs = tuple(runs)
     if not runs:
         raise InconsistentRunsError("a payout figure needs at least one run")
     for run in runs:
         run.require_complete()
-    scopes = sorted({r.scope for r in runs})
+    scopes = sorted({style.run_scope_name(r) for r in runs})
     if len(scopes) != 1:
         raise InconsistentRunsError(
             f"a payout figure shows one scope, got runs of scopes {scopes}"
@@ -799,7 +803,9 @@ def payout_grid(
         Index axis range. Default: 20 % of the payout range on either side
         of attachment and limit (the thesis 10 to 80 for 20 and 70).
     name : str, optional
-        Figure name. Default ``"payout_grid_<scope>"``.
+        Figure name. Default ``"payout_grid_<scope>"``, with the scope name
+        of :func:`~.style.run_scope_name` (``cluster_separate`` for a cluster
+        scope calibrated cluster by cluster; MAR-225).
     joint_entities : {"caption", "refuse"}, default "caption"
         Panels of a joint design's entities (:func:`is_joint_design`):
         draw them under :data:`JOINT_CAPTION`, or refuse them (module
@@ -852,7 +858,6 @@ def payout_grid(
     caption = _joint_caption(runs[0], entity_ids, joint_entities, figure="payout_grid")
     steps = payout_steps(runs)
     steps = _where(steps, steps["entity_id"].isin(entity_ids)).reset_index(drop=True)
-    scope = runs[0].scope
     ncols = max(1, min(ncols, len(entity_ids)))
     nrows = math.ceil(len(entity_ids) / ncols)
 
@@ -947,7 +952,8 @@ def payout_grid(
         ).reset_index(drop=True)
     if caption is not None:
         data["caption"] = caption
-    return FigureOutput(name=name or f"payout_grid_{scope}", figure=fig, data=data)
+    default = f"payout_grid_{style.run_scope_name(runs[0])}"
+    return FigureOutput(name=name or default, figure=fig, data=data)
 
 
 def _normalised_levels(
@@ -1040,7 +1046,7 @@ def normalised_payout(
         Index axis range; default as :func:`payout_grid`.
     name : str, optional
         Figure name. Default ``"normalised_payout_<scope>_<entity>"``
-        (lowercase).
+        (lowercase), with the scope name of :func:`~.style.run_scope_name`.
     joint_entities : {"caption", "refuse"}, default "caption"
         If the entity belongs to a joint design problem
         (:func:`is_joint_design`): draw it under :data:`JOINT_CAPTION`, or
@@ -1192,7 +1198,7 @@ def normalised_payout(
 
     main = pd.concat(tables, ignore_index=True)
     markers = pd.DataFrame(marker_rows, columns=list(MARKER_COLUMNS))
-    scope = runs[0].scope
+    scope = style.run_scope_name(runs[0])
     data = {MAIN_TABLE: main, "density": density, "markers": markers}
     if caption is not None:
         data["caption"] = caption
