@@ -22,7 +22,6 @@ import pyarrow as pa
 import pytest
 import yaml
 
-from parametric_insurance_design import cli
 from parametric_insurance_design.experiment.config import (
     CostOfCapitalConfig,
     config_hash,
@@ -35,11 +34,9 @@ from parametric_insurance_design.experiment.kfold import (
     PooledKpis,
     pooled_kpis,
 )
-from parametric_insurance_design.experiment.runner import load_input
 from parametric_insurance_design.experiment.store import ResultStore
 from parametric_insurance_design.experiment.sweeps import run_sweeps
 from parametric_insurance_design.payout import NO_BIN
-from parametric_insurance_design.solve import DEFAULT_POLICY
 from parametric_insurance_design_viz import site_export
 from parametric_insurance_design_viz.errors import (
     EventSetMismatchError,
@@ -72,7 +69,7 @@ from parametric_insurance_design_viz.site_export import (
     read_slice,
 )
 
-from .conftest import build_fixture, config_dict, make_eventset
+from .conftest import build_fixture, command_sweep_runs, config_dict, make_eventset
 
 if TYPE_CHECKING:
     from conftest import Fixture
@@ -98,9 +95,7 @@ EXPECTED_FILES = [
 
 def sweep_runs(toy: Fixture) -> tuple[SweepRun, ...]:
     """The sweep points as the ``export-site`` command computes them."""
-    data = load_input(toy.config)
-    runs = cli._sweep_runs(site_export, toy.config, data, DEFAULT_POLICY)
-    return tuple(r for r in runs if isinstance(r, SweepRun))
+    return command_sweep_runs(toy.config)
 
 
 def export(fixture: Fixture, out: Path, **options: Any) -> ExportReport:  # noqa: ANN401

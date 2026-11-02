@@ -28,9 +28,7 @@ from matplotlib.figure import Figure
 from matplotlib.text import Text
 
 from parametric_insurance_design import cli
-from parametric_insurance_design.experiment.runner import load_input
 from parametric_insurance_design.experiment.sweeps import run_sweeps
-from parametric_insurance_design.solve import DEFAULT_POLICY
 from parametric_insurance_design_viz import command
 from parametric_insurance_design_viz.command import SweepRun
 from parametric_insurance_design_viz.figure_data import (
@@ -53,7 +51,7 @@ from parametric_insurance_design_viz.sweep_figures import (
     tradeoff,
 )
 
-from .conftest import build_fixture
+from .conftest import build_fixture, command_sweep_runs
 
 if TYPE_CHECKING:
     from conftest import Fixture
@@ -137,8 +135,7 @@ def figure_texts(figure: Figure) -> list[str]:
 
 def sweep_runs(toy: Fixture) -> tuple[SweepRun, ...]:
     """The sweep points as the ``figures`` command computes them."""
-    runs = cli._sweep_runs(command, toy.config, load_input(toy.config), DEFAULT_POLICY)
-    return tuple(r for r in runs if isinstance(r, SweepRun))
+    return command_sweep_runs(toy.config)
 
 
 @pytest.fixture(scope="module")

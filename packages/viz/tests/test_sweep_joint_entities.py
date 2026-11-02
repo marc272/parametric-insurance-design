@@ -19,11 +19,8 @@ import pandas as pd
 import pytest
 from matplotlib.figure import Figure
 
-from parametric_insurance_design import cli
-from parametric_insurance_design.experiment.runner import load_input
 from parametric_insurance_design.experiment.sweeps import run_sweeps
-from parametric_insurance_design.solve import DEFAULT_POLICY
-from parametric_insurance_design_viz import command, style, sweep_figures
+from parametric_insurance_design_viz import style, sweep_figures
 from parametric_insurance_design_viz.command import (
     FigureReport,
     SweepRun,
@@ -43,7 +40,7 @@ from parametric_insurance_design_viz.sweep_figures import (
     payout_sweep,
 )
 
-from .conftest import build_fixture
+from .conftest import build_fixture, command_sweep_runs
 
 if TYPE_CHECKING:
     from conftest import Fixture
@@ -88,9 +85,7 @@ def swept(tmp_path_factory: pytest.TempPathFactory) -> Swept:
         sweeps=SWEEPS,
     )
     run_sweeps(toy.config, store=toy.store, baseline=False)
-    data = load_input(toy.config)
-    points = cli._sweep_runs(command, toy.config, data, DEFAULT_POLICY)
-    sweeps = tuple(p for p in points if isinstance(p, SweepRun))
+    sweeps = command_sweep_runs(toy.config)
     report = write_figures(
         toy.config,
         toy.run_ids,

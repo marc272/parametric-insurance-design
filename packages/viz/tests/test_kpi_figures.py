@@ -57,7 +57,6 @@ from parametric_insurance_design_viz.kpi_figures import (
     POOLED_KPI_COLUMNS,
     Baseline,
     KFoldRunsError,
-    _fmt_sci,  # pyright: ignore[reportPrivateUsage]
     exceedance_curves,
     interval_note,
     kpi_figures,
@@ -100,6 +99,21 @@ def where(frame: pd.DataFrame, mask: Any) -> pd.DataFrame:  # noqa: ANN401
 def drawn(frame: pd.DataFrame) -> NDArray[np.bool_]:
     """The figure data's ``ci_drawn`` column as a numpy array."""
     return frame["ci_drawn"].to_numpy(dtype=bool)
+
+
+def cell_text(value: float) -> str:
+    """The thesis heatmap cell text, written out here as the test's oracle.
+
+    Plain with two decimals for exponents -1 to 2, else e.g. ``1.66e6``.
+    """
+    if not np.isfinite(value):
+        return ""
+    if value == 0:
+        return "0"
+    exp = int(np.floor(np.log10(abs(value))))
+    if -1 <= exp <= 2:
+        return f"{value:.2f}"
+    return f"{value / 10**exp:.2f}e{exp}"
 
 
 def store_kpi(run: RunResult, kpi: str, split: str = "full") -> float:
@@ -589,7 +603,7 @@ def test_heatmap_shows_the_stored_intervals(holdout_ci: dict) -> None:
     assert drawn(main).all()
     texts = [t.get_text() for t in output.figure.axes[0].texts]
     for row in cast(Any, main.itertuples(index=False)):
-        assert f"[{_fmt_sci(row.ci_low)}, {_fmt_sci(row.ci_high)}]" in texts
+        assert f"[{cell_text(row.ci_low)}, {cell_text(row.ci_high)}]" in texts
     notes = [t.get_text() for t in output.figure.texts]
     assert "In brackets: 90% block-bootstrap interval over years (B = 200)" in notes
 
