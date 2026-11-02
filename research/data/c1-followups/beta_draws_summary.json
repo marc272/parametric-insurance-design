@@ -1,0 +1,22 @@
+{
+  "issue": "MAR-205",
+  "family": "beta_draws",
+  "grid": "research/configs/c1-followups/followups.yaml",
+  "base_config": "research/configs/c1/c1_main.yaml",
+  "eventset_checksums": {
+    "thesis": "sha256:404b0c3a3aefa38965ad3ace2747d308685a67e3b218cb835d45a9ab375294df",
+    "cic50_vuln": "sha256:8050edc7b4cb4581ca92ab22616b83ba7e65ad7bf86b4d576c06f3098939d627",
+    "vuln": "sha256:18170363488026aeee05a6f7371a0fdf24ca7cd854955b40bf5cc7f56fa849e9",
+    "vuln_basins_null": "sha256:f93e7cdd8d5d01ed1cbf47e9eb051cc7ffde99afe3bccbb105c1876b99c314f9"
+  },
+  "package_version": "0.1.0.dev0",
+  "n_runs": 108,
+  "n_runs_distinct": 108,
+  "n_runs_from_c1_store": 54,
+  "n_runs_solved_this_call": 54,
+  "jobs": 2,
+  "seconds": {
+    "solve_phase": 853.0,
+    "bootstrap_phase": 609.5
+  }
+}

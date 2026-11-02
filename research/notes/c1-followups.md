@@ -3,7 +3,7 @@
 - Issue: MAR-205 (split from MAR-152 items 1, 2, 3 and 5). An addendum to checkpoint C1 (`research/checkpoints/C1.md`, MAR-29).
 - **Observations only.** No interpretation and no recommendation: that belongs to the owner. RQ1 statements here hold for the stated setup only (publication rule, AGENTS.md).
 - Script: `research/scripts/c1_followups.py` (one `--family` per run family). Grid: `research/configs/c1-followups/followups.yaml`. Data: `research/data/c1-followups/`. Hashes in this note are the first 12 hex digits of the `sha256:` config hash; the `*_runs.csv` tables have the full config hash and run id of every run.
-- Status: families 3 (budget use) and 1 (CoC q) below. Families 2 and 4 are added as they finish.
+- Status: families 3 (budget use), 1 (CoC q) and 2 (design β on draws) below. Family 4 is added when it finishes.
 - Per run family, `research/data/c1-followups/` holds `<family>_runs.csv` (every run: config hash, run id, solver status, budget use, train E[π]), `<family>_kpis.csv` (portfolio KPIs: test with 90 % intervals, train point values, at every KPI β), `<family>_paired.csv` (paired differences on the test years), `<family>_summary.json` and `tables_<family>.md` (generated: every run's train and test CVaR, every paired difference with its interval and both hashes).
 
 ## Setup common to every family
@@ -133,3 +133,46 @@ F1.3. **q 0.995 read at KPI 0.99 (the case MAR-152 names).** The design with all
 - Against E[U], the β 0.99 design is 1.4–2.6 % lower at KPI 0.99 and 1.1–1.9 % lower at KPI 0.995 (intervals excluding zero, narrow: e.g. −1.9 % [−1.9, −1.8] at r 0.06, portfolio), and 11.5–15.1 % higher at KPI 0.95 (intervals excluding zero). The β 0.995 design is 17.8–25.6 % above E[U] at KPI 0.95 (intervals excluding zero) and −6.7 to +3.5 % at KPI 0.99 and 0.995 (intervals containing zero).
 
 F1.4. **Comparison with q 0.99 (C1).** At q 0.99 and KPI 0.99, C1 found weighted CVaR β 0.99 minus MSE at +0.2 to +1.3 % (r 0.06 and 0.10) and minus E[U] at −3.1 to −6.7 %, every interval containing zero (C1 section 3.2). In this family, the design that ties with MSE in sample is the one whose β equals q (β 0.995 at q 0.995; at q 0.95 every design but E[U] is within 1.7 %), not the one whose β equals the KPI β.
+
+## Family 2: design β above 0.99 on the vulnerability-draws EventSets (MAR-152 item 2)
+
+**Question tested.** C1 observation 16: on `vuln_basins_null` the weighted-CVaR β 0.99 design equals the E[U] design, because fewer than about 1 % of (year, draw) slots carry an uncovered loss; "a design β above 0.99 would be needed to separate them". C1 ran β 0.95 and 0.99 only on the F-12 EventSets.
+
+**Setup.** C1's F-12 setup (C1 section 2, provisional: the vulnerability prior MAR-118 Q5 and the radius Q6 are open), on the three EventSets with 10 vulnerability draws: `vuln` (wind at the asset, default prior), `cic50_vuln` (cat-in-a-circle 50 km, default prior, one bin per category, no threshold) and `vuln_basins_null` (wind, prior without basin filter). Their content hashes are C1's (`research/data/c1/summary.json`; `beta_draws_summary.json`). No noise layer. κ 1; pure and cost of capital r 0.06, q 0.99; every scope. **New designs: weighted CVaR β 0.995, 0.998 and 0.999** (54 runs, all `optimal`). The MSE, E[U] and β 0.99 designs are C1's runs, read from the C1 store (same config hashes; 3 of them `optimal_inaccurate`, as in C1). Test CVaR(U) at KPI β 0.95, 0.99, 0.995 and 0.998 (the test sample has 30,000 slots, so KPI β 0.998 averages the worst 60). Wall time 1,466 s at `--jobs 2`. No `DegenerateTailError`: the cluster scope (thesis Ward) ran on all three EventSets. Every run and interval: `tables_beta_draws.md`.
+
+**Test (out of sample):** relative paired difference in test CVaR(U) at KPI β 0.99 / 0.995 / 0.998, in % (`*`: the 90 % interval excludes zero). MSE, E[U] hashes: C1 section 6.
+
+| EventSet | Pricing | Scope | β 0.995 − E[U] | β 0.998 − E[U] | β 0.999 − E[U] | β 0.995 − MSE | β 0.998 − MSE | β 0.999 − MSE | Hash β 0.995 / 0.998 / 0.999 |
+|---|---|---|---|---|---|---|---|---|---|
+| `vuln` | pure | individual | −1.4 / −6.8 / −10.1* | +5.0 / −4.2 / −11.9 | +7.3 / −3.9 / −15.9 | −3.0 / −9.4* / −11.9* | +3.3 / −6.8 / −13.8* | +5.5 / −6.5 / −17.7* | `c24350d2a454` / `da7abd859681` / `b2cf9bba67e5` |
+| `vuln` | pure | cluster | +1.8 / −5.8 / −9.6* | +6.9 / −4.0 / −12.8 | +10.5 / −1.6 / −12.6 | −1.9 / −9.2 / −12.1* | +3.1 / −7.4 / −15.2 | +6.6 / −5.1 / −15.0 | `1b195d068b13` / `cff8322c412f` / `952123b9699d` |
+| `vuln` | pure | portfolio | +1.7 / −4.4 / −8.1 | +14.9 / +3.6 / −8.9 | +16.2 / +4.6 / −8.4 | −2.6 / −9.0* / −11.1* | +10.0 / −1.4 / −11.9 | +11.2 / −0.4 / −11.5 | `36dfc627b27b` / `6a6361dfbc5c` / `4cc6d6ca0bba` |
+| `vuln` | CoC r 0.06 | individual | −0.3 / −5.1 / −7.9* | −0.0 / −5.1 / −9.2* | +1.1 / −4.7 / −9.3 | −0.7 / −0.4 / +0.9 | −0.4 / −0.4 / −0.5 | +0.7 / +0.0 / −0.6 | `f76517bb0432` / `ab974e56e1e2` / `afb528511989` |
+| `vuln` | CoC r 0.06 | cluster | −0.5 / −5.5 / −8.9* | −0.1 / −5.4 / −10.0* | +2.3 / −3.5 / −8.6 | −2.9* / −2.9* / −2.4 | −2.6 / −2.8 / −3.5 | −0.2 / −0.8 / −2.0 | `95396f6e350c` / `8790018bfc94` / `57d87c3b127a` |
+| `vuln` | CoC r 0.06 | portfolio | −2.7 / −7.7 / −11.3* | −3.3 / −8.1 / −11.8* | +2.0 / −3.8 / −8.6 | −3.2* / −3.0* / −2.1 | −3.8* / −3.4* / −2.6 | +1.6 / +1.2 / +0.9 | `f22205c9e237` / `333e3a99fa43` / `2af9a497e68f` |
+| `cic50_vuln` | pure | individual | −1.1 / −2.3 / −3.8* | −1.2 / −2.8 / −4.7* | +1.0 / −1.4 / −4.5 | −13.3* / −13.7* / −12.7* | −13.4* / −14.1* / −13.6* | −11.6* / −12.9* / −13.4* | `997003943564` / `53f64e72670f` / `2505587cb112` |
+| `cic50_vuln` | pure | cluster | −2.0 / −3.8 / −5.2* | −3.0 / −4.9* / −5.4* | −1.7 / −4.2 / −5.3* | −11.6* / −12.7* / −12.3* | −12.6* / −13.7* / −12.5* | −11.4* / −13.1* / −12.4* | `fd09ac65fd18` / `357051e60b3a` / `a6795425b36e` |
+| `cic50_vuln` | pure | portfolio | −2.5 / −3.9 / −4.9* | −2.7 / −3.9 / −4.8 | −0.5 / −3.1 / −4.9 | −10.5* / −11.3* / −10.6* | −10.7* / −11.3* / −10.5* | −8.7* / −10.5* / −10.6* | `32ba7812974c` / `48aa3bcc7abf` / `351d9228687e` |
+| `cic50_vuln` | CoC r 0.06 | individual | −1.0 / −1.7 / −2.2* | −0.7 / −1.4 / −2.0* | +0.9 / −0.1 / −1.2 | +0.0* / +0.0 / −0.0 | +0.4* / +0.3* / +0.2 | +1.9* / +1.6* / +0.9 | `d67781a4806e` / `32df9bf82728` / `bd6fd7e4917c` |
+| `cic50_vuln` | CoC r 0.06 | cluster | −0.7 / −1.8 / −2.1 | −0.6 / −1.9 / −2.4 | −0.1 / −1.4 / −2.1 | −0.1 / +0.1 / +0.2 | +0.0 / +0.0 / −0.0 | +0.6* / +0.5* / +0.2 | `86774d1a919a` / `cc6e93be232e` / `5a58403649b6` |
+| `cic50_vuln` | CoC r 0.06 | portfolio | −2.1 / −2.8* / −3.3* | −1.9 / −2.6 / −3.2* | +0.0 / −0.9 / −1.9* | +0.0 / +0.0 / +0.0 | +0.2 / +0.2 / +0.1 | +2.2* / +1.9* / +1.5* | `6de9bc1338ea` / `c6d09f4652be` / `43c98953cc72` |
+| `vuln_basins_null` | pure | individual | −0.0 / −0.4 / −0.4 | +0.5 / −0.0 / −0.3 | +2.9 / +2.5 / +2.6 | −2.8 / −3.4 / −3.7* | −2.3 / −3.1 / −3.6* | −0.0 / −0.6 / −0.7 | `2f268fdab194` / `e3f79558f611` / `983d1f2e8e4b` |
+| `vuln_basins_null` | pure | cluster | +0.2 / −0.3 / −0.1 | +1.4 / +0.2 / −0.7 | +2.3 / +1.7 / +1.7 | −2.5 / −3.3 / −3.3* | −1.4 / −2.8 / −3.8* | −0.5 / −1.3 / −1.5* | `7ef62d3bcbd7` / `6c1f27a892ef` / `53597e00b68f` |
+| `vuln_basins_null` | pure | portfolio | −0.0 / −0.4 / −0.6 | +0.6 / −0.4 / −0.6 | +3.4 / +2.6 / +2.9 | −2.2 / −3.0 / −3.6* | −1.6 / −2.9 / −3.6* | +1.2 / −0.0 / −0.2 | `45dd027fbf39` / `7d93beacfba5` / `9742f4bed6dc` |
+| `vuln_basins_null` | CoC r 0.06 | individual | +0.3 / −0.2 / −0.3 | +0.3 / −0.3 / −0.4 | +0.2 / +0.2 / −0.0 | +0.3 / −0.0 / −0.2 | +0.2 / −0.1 / −0.3 | +0.1 / +0.3 / +0.1 | `b3258fb8d074` / `a40efc17c944` / `2b5a7b3e12a5` |
+| `vuln_basins_null` | CoC r 0.06 | cluster | +0.8 / +0.2 / +0.0 | +0.9 / +0.2 / −0.2 | +0.2 / +0.1 / −0.0 | +0.4 / +0.1 / −0.0 | +0.5 / +0.1 / −0.2 | −0.2 / +0.0 / −0.1 | `12ffc1cf8f89` / `85c1d03c6ce8` / `d0b4ccb80a12` |
+| `vuln_basins_null` | CoC r 0.06 | portfolio | −0.1 / −0.3 / −0.3 | +0.8 / −0.0 / −0.4 | +1.0 / +0.7 / +0.3 | −0.9 / −0.6 / −0.5 | +0.0 / −0.3 / −0.6 | +0.2 / +0.4 / +0.1 | `1716225d00cc` / `eb43226d415b` / `75a3a08ca52c` |
+
+For reference, C1's β 0.99 design on the same rows (KPI β 0.99 / 0.995 / 0.998, ranges over the three scopes; `beta_draws_paired.csv`): against E[U], `vuln` pure −2.2 to −5.8 %, CoC −0.5 to −3.5 %; `cic50_vuln` pure −0.7 to −2.6 %, CoC −0.5 to −0.9 %; `vuln_basins_null` 0.0 % (pure) and −0.2 to +0.2 % (CoC).
+
+Observations:
+
+F2.1. **`vuln_basins_null`, the case of C1 observation 16.** On the train years the E[U] design's VaR₀.₉₉(U) is 0 and its VaR₀.₉₉₅(U) is 1.28–1.67 million (pure; `beta_draws_kpis.csv`): between 0.5 % and 1 % of train slots carry an uncovered loss. The designs above β 0.99 differ from the E[U] design in sample, by small amounts: under pure pricing the β 0.995 design's train CVaR₀.₉₉₅(U) is 0.14–0.21 % below E[U]'s, the β 0.998 design's train CVaR₀.₉₉₈(U) 0.83–1.13 % below; the β 0.999 design's train CVaR₀.₉₉₈(U) is 0.10–0.34 % above (KPI β 0.999 was not evaluated). Out of sample, β 0.995 and 0.998 minus E[U] is −0.7 to +1.4 % at KPI 0.99–0.998, and β 0.999 minus E[U] +1.7 to +3.4 %; no interval excludes zero. Against MSE, β 0.995 and 0.998 are 1.4–3.8 % lower (intervals excluding zero at KPI 0.998 only), as is C1's β 0.99 (= E[U]) design (2.2–3.3 %). Under cost of capital every difference is within ±1.0 %, intervals containing zero.
+
+F2.2. **`vuln` (wind, default prior), pure.** At KPI 0.998 the β 0.995–0.999 designs are 8.1–15.9 % below E[U] (intervals excluding zero for β 0.995 in the individual and cluster scopes only) and 11.1–17.7 % below MSE (excluding zero for β 0.995 in every scope, and for β 0.998 and 0.999 in the individual scope). At KPI 0.99 the β 0.998 and 0.999 designs are 5.0–16.2 % above E[U] and 3.1–11.2 % above MSE, intervals containing zero. In sample, the β 0.998 design's train CVaR₀.₉₉₈(U) is 14.4–17.0 % below E[U]'s.
+
+F2.3. **`vuln`, cost of capital.** The β 0.995–0.999 designs pay out the budget-fixed E[π] / E[L] of 0.144 (all payout in at most 1 % of slots, as MSE; family 3), the β 0.99 and E[U] designs 0.254–0.327 (`tables_beta_draws.md`). Against MSE the new designs are −3.8 to +1.6 % (intervals excluding zero in six cells, −2.9 to −3.8 %: β 0.995 in the cluster and portfolio scopes and β 0.998 in the portfolio scope, at KPI 0.99 and 0.995). Against E[U] at KPI 0.998, β 0.995 and 0.998 are 7.9–11.8 % lower, every interval excluding zero; β 0.999 is 8.6–9.3 % lower, intervals containing zero.
+
+F2.4. **`cic50_vuln` (cat-in-a-circle, default prior).** Pure: every new design is 8.7–14.1 % below MSE at every KPI β, every interval excluding zero (C1's β 0.99: 7.7–13.3 %). Against E[U] the new designs are −5.4 to +1.0 %, with intervals excluding zero at KPI 0.998 in 6 of 9 cells. Cost of capital: β 0.995 and 0.998 are within 0.4 % of MSE; β 0.999 is 0.2–2.2 % above MSE (intervals excluding zero at KPI 0.99 and 0.995); against E[U], −3.3 to +0.9 %.
+
+F2.5. **Budget use.** Every new design uses its whole budget (1.000). Under pure pricing on `cic50_vuln` the MSE design uses 0.933–0.953 (C1 observation 15) and on `vuln_basins_null` 0.993–1.000.
