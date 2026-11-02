@@ -13,7 +13,7 @@ The top level holds the vocabulary of both ideas (`WeightedCVaR`, `ExpectedUncov
 
 The repository's [README](https://github.com/marc272/parametric-insurance-design#readme) has the status and a quickstart, and its [documentation index](https://github.com/marc272/parametric-insurance-design/blob/main/docs/README.md) explains the method.
 
-- Version 0.1.0.dev0, not released: install from a clone of the repository with `uv sync`.
+- Version 0.1.0, not yet on PyPI: install from a clone of the repository with `uv sync`. The repository's [changelog](https://github.com/marc272/parametric-insurance-design/blob/main/CHANGELOG.md) lists what 0.1.0 contains.
 - Python 3.11 to 3.13, numpy ≥ 1.26, pandas ≥ 2.1.
 - No hazard-model dependency. Hazard data comes in as EventSet files, for example from the CLIMADA adapter package.
-- Licence: BSD-3-Clause (`LICENSE` in this folder).
+- Licence: BSD-3-Clause (the `LICENSE` file, shipped with the package).

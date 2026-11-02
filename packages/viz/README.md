@@ -34,7 +34,7 @@ The repository's [examples](https://github.com/marc272/parametric-insurance-desi
 
 Each module's docstring has the details. How the KPI figures treat holdout and k-fold runs and the bootstrap is in the methodology pages on [out-of-sample evaluation](https://github.com/marc272/parametric-insurance-design/blob/main/docs/methodology/out-of-sample.md#figures) and [confidence intervals](https://github.com/marc272/parametric-insurance-design/blob/main/docs/methodology/bootstrap.md#figures).
 
-- Version 0.1.0.dev0, not released: install from a clone of the repository with `uv sync`. Python 3.11 to 3.13.
+- Version 0.1.0, not yet on PyPI: install from a clone of the repository with `uv sync`. Python 3.11 to 3.13. The repository's [changelog](https://github.com/marc272/parametric-insurance-design/blob/main/CHANGELOG.md) lists what 0.1.0 contains.
 - Depends on the core package only. It never imports an adapter, the solver or the problem builder (checked in `tests/test_imports.py`).
-- Licence: BSD-3-Clause (`LICENSE` in this folder).
+- Licence: BSD-3-Clause (the `LICENSE` file, shipped with the package).
 - The repository's [README](https://github.com/marc272/parametric-insurance-design#readme) has the status and a quickstart.
