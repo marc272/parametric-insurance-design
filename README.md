@@ -16,7 +16,7 @@ Any objective works with any scope, so the two ideas can be studied apart or tog
 
 ## Status
 
-Version `0.1.0.dev0`, in development. There is no release yet and nothing is on PyPI: install from a clone, as below.
+Version `0.1.0` of the core and viz packages, not yet on PyPI: install from a clone, as below. The [changelog](CHANGELOG.md) lists what 0.1.0 contains. The two adapters stay at `0.1.0.dev0`.
 
 - **Parity with the thesis.** The core reproduces the results of the thesis code. [`parity/REPORT.md`](parity/REPORT.md) compares its runs with the thesis's result tables and explains every difference: alternative optima of the same linear program, or the accuracy of the quadratic solver on the MSE designs. The CLIMADA adapter regenerates the thesis's event-loss table bit for bit.
 - **Core v1 features**, each with a methodology page:
@@ -94,7 +94,9 @@ parametric-insurance-design/
 ├── research/       # the paper's working area: configs, scripts, notes, checkpoints
 ├── showcase/crc/   # the Climate Risk Commons showcase (planned)
 ├── site/           # the website (planned)
-└── scripts/        # repository checks and the local CI script
+├── scripts/        # repository checks and the local CI script
+├── CHANGELOG.md    # what each release contains
+└── CITATION.cff    # how to cite this repository (GitHub's "Cite this repository")
 ```
 
 | Distribution | Import name |
