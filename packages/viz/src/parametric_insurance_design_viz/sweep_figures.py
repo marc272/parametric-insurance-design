@@ -506,6 +506,11 @@ def _scope_style(scope: str) -> style.ScopeStyle:
     return style.SCOPE_STYLES.get(scope, style.ScopeStyle(linestyle="-", marker="o"))
 
 
+def _baseline_scope_label(run: RunResult) -> str:
+    """Lower-case scope label of a run, by its scope name (MAR-225)."""
+    return style.scope_label(style.run_scope_name(run)).lower()
+
+
 def _sweep_cmap(start: float, stop: float) -> LinearSegmentedColormap:
     """Viridis truncated to ``[start, stop]`` (thesis)."""
     base = colormaps["viridis"]
@@ -624,8 +629,22 @@ class SweepSeries:
 
     @property
     def scope_kind(self) -> str:
-        """The scope kind (``runs.scope``), e.g. ``"cluster"``."""
+        """The scope kind (``runs.scope``), e.g. ``"cluster"``.
+
+        ``"cluster"`` for both cluster settings; :attr:`scope_name` tells
+        them apart.
+        """
         return self.baseline.scope
+
+    @property
+    def scope_name(self) -> str:
+        """The scope name that labels and styles the series (MAR-225).
+
+        ``style.run_scope_name`` of the baseline run: :attr:`scope_kind`, or
+        ``"cluster_separate"`` for a cluster scope calibrated cluster by
+        cluster (``joint: false``).
+        """
+        return style.run_scope_name(self.baseline)
 
     @property
     def objective(self) -> str:
@@ -974,7 +993,7 @@ def payout_sweep(
                 color="red",
                 linestyle="--",
                 linewidth=1.5,
-                label=f"Baseline ({style.scope_label(benchmark.scope).lower()} & "
+                label=f"Baseline ({_baseline_scope_label(benchmark)} & "
                 f"{style.objective_label(benchmark.objective).lower()})",
             )
         cmap = _sweep_cmap(0.0, 0.9)
@@ -1200,7 +1219,7 @@ def sensitivity(
                 table, (table["scope"] == s.scope) & (table["objective"] == s.objective)
             )
             line = line.dropna(subset=["kpi_value"])
-            scope_style = _scope_style(s.scope_kind)
+            scope_style = _scope_style(s.scope_name)
             ax.plot(
                 line["parameter_value"].astype(float),
                 line["kpi_value"].astype(float),
@@ -1220,7 +1239,7 @@ def sensitivity(
         ax.set_title(parameter_label(parameter), fontsize=style.FONT.label_size)
         _frame(ax)
         fig.tight_layout()
-        _scope_objective_legend(fig, [(s.scope_kind, s.objective) for s in series])
+        _scope_objective_legend(fig, [(s.scope_name, s.objective) for s in series])
     return FigureOutput(
         name=name or f"sensitivity_{parameter}",
         figure=fig,
@@ -1295,7 +1314,7 @@ def tradeoff(
             f"the {series.parameter} sweep of {series.scope} x {series.objective} "
             "has no successful point to draw"
         )
-    scope_style = _scope_style(series.scope_kind)
+    scope_style = _scope_style(series.scope_name)
     color = style.objective_color(series.objective)
 
     with style.style():
@@ -1322,7 +1341,7 @@ def tradeoff(
             _annotate_curve(
                 ax, xs, ys, drawn["parameter_value"].tolist(), annotate_every
             )
-        _scope_objective_legend(fig, [(series.scope_kind, series.objective)])
+        _scope_objective_legend(fig, [(series.scope_name, series.objective)])
     return FigureOutput(
         name=name or f"tradeoff_{series.scope}_{series.parameter}",
         figure=fig,

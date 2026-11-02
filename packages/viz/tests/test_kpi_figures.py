@@ -1211,7 +1211,11 @@ def test_repeated_scope_labels() -> None:
     from parametric_insurance_design_viz.kpi_figures import _scope_text
 
     class Run:
+        # a joint cluster run, as style.run_scope_name reads it (MAR-225)
         scope = "cluster"
+        parameters: dict[str, Any] = {}  # noqa: RUF012
+        runs = pd.DataFrame({"problem_id": ["portfolio"]})
+        manifest: dict[str, Any] = {}  # noqa: RUF012
 
     scopes: Any = {"cluster": [Run()], "cluster_2": [Run()]}
     assert _scope_text("cluster", scopes) == "Cluster scope"

@@ -565,6 +565,14 @@ def run_parameters(config: ExperimentConfig, eventset: EventSet) -> dict[str, An
     ``runs`` table can tell which runs hold per-location KPI rows and under
     which rule. A ``"none"`` run's parameters are as before MAR-217.
 
+    ``cluster_joint`` (MAR-225) follows it too: ``False``, present only for a
+    cluster scope with ``joint: false`` (MAR-180, one design problem per
+    cluster). ``runs.scope`` reads ``"cluster"`` for both cluster settings
+    (``Cluster.name`` is a class constant), so this key is what tells readers
+    of the ``runs`` table, such as the viz scope keys and labels, that a
+    cluster run was calibrated cluster by cluster. A joint cluster run's
+    parameters are as before MAR-225.
+
     Parameters
     ----------
     config : ExperimentConfig
@@ -580,7 +588,8 @@ def run_parameters(config: ExperimentConfig, eventset: EventSet) -> dict[str, An
         payout); ``allocation`` (an allocation rule other than ``"none"``);
         ``train_fraction`` (holdout);
         ``k``, ``fold`` (k-fold); ``n_clusters``, ``beta_tail``, ``linkage``
-        (cluster scope); ``scope_index`` (if set); ``alpha``, ``beta`` (weighted CVaR);
+        (cluster scope); ``cluster_joint`` (a cluster scope with ``joint:
+        false``); ``scope_index`` (if set); ``alpha``, ``beta`` (weighted CVaR);
         ``pricing_rate``, ``pricing_q`` (cost of capital); ``budget_loading``
         (budget); ``noise_kind``, ``noise_level``, ``n_copies``,
         ``noise_seed``, ``noise_low``, ``noise_high`` (noise); ``threshold``,
@@ -612,6 +621,8 @@ def run_parameters(config: ExperimentConfig, eventset: EventSet) -> dict[str, An
             params["n_clusters"] = scope.n_clusters
             params["beta_tail"] = scope.strategy.beta_tail
             params["linkage"] = scope.strategy.linkage
+            if not scope.joint:
+                params["cluster_joint"] = False
     for objective in config.objectives:
         if objective.kind == "weighted_cvar":
             params["alpha"] = objective.alpha

@@ -424,8 +424,13 @@ def _n_folds(config: ExperimentConfig) -> int:
 
 
 def _scope_keys(config: ExperimentConfig) -> list[str]:
-    """Figure-name stem per configured scope: its kind, numbered on repeats."""
-    kinds = [s.kind for s in config.scopes]
+    """Figure-name stem per configured scope: its name, numbered on repeats.
+
+    The name is ``style.config_scope_name``: the kind, or
+    ``"cluster_separate"`` for a cluster scope with ``joint: false``
+    (MAR-225).
+    """
+    kinds = [style.config_scope_name(s) for s in config.scopes]
     total = Counter(kinds)
     seen: Counter[str] = Counter()
     keys: list[str] = []
