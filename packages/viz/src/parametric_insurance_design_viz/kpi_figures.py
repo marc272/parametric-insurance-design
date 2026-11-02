@@ -168,6 +168,7 @@ __all__ = [
     "MissingKpiError",
     "exceedance_curves",
     "figure_split",
+    "heatmap_figsize",
     "interval_note",
     "kpi_figures",
     "kpi_heatmap",
@@ -304,6 +305,9 @@ _HEATMAP_TITLE: Final[str] = "Portfolio-level performance comparison"
 _CELL_INSET: Final[float] = 0.015
 _CORNER_RADIUS: Final[float] = 0.05
 _HEATMAP_FONT: Final[float] = 10  # thesis plot_kpi_heatmap label_size default
+_HEATMAP_SIZE: Final[float] = 8.0  # inches, square: the thesis 3 x 3 heatmap
+_HEATMAP_ROWS: Final[int] = 3  # the rows the square heatmap is laid out for
+_HEATMAP_GRID: Final[float] = 0.62  # height share of the cells (top 0.80, bottom 0.18)
 _AXIS_TEXT_COLOR: Final[str] = "#444"
 _DARK_TEXT: Final[str] = "#0a2540"
 _BAR_WIDTH: Final[float] = 0.1
@@ -960,12 +964,23 @@ def _box(ax: Axes) -> None:
         spine.set_color("black")
 
 
-def _titles(fig: Figure, title: str | None, subtitle: str | None) -> None:
-    """Centred title and subtitle at the top of the figure (thesis)."""
+def _titles(
+    fig: Figure,
+    title: str | None,
+    subtitle: str | None,
+    *,
+    top: float = 0.985,
+    second: float = 0.95,
+) -> None:
+    """Centred title and subtitle at the top of the figure (thesis).
+
+    ``top`` and ``second`` are the heights of the first and second line in
+    figure fractions.
+    """
     if title:
         fig.text(
             0.5,
-            0.985,
+            top,
             title,
             ha="center",
             va="top",
@@ -975,7 +990,7 @@ def _titles(fig: Figure, title: str | None, subtitle: str | None) -> None:
     if subtitle:
         fig.text(
             0.5,
-            0.95 if title else 0.985,
+            second if title else top,
             subtitle,
             ha="center",
             va="top",
@@ -988,6 +1003,38 @@ def _titles(fig: Figure, title: str | None, subtitle: str | None) -> None:
 # --------------------------------------------------------------------------
 
 
+def heatmap_figsize(n_rows: int) -> tuple[float, float]:
+    """Return the default size of a KPI heatmap with ``n_rows`` scope rows.
+
+    The thesis heatmap is 8 x 8 inches for three scopes. With fewer rows the
+    figure is less high by the rows it lacks, so the cells keep their size
+    and the figure has no empty bands above and below them (MAR-232); the
+    titles, axis captions and legend bar keep their distances in inches.
+    From three rows on it stays 8 x 8, as before.
+
+    Parameters
+    ----------
+    n_rows : int
+        Scope rows, at least 1.
+
+    Returns
+    -------
+    (float, float)
+        Width and height in inches.
+
+    Raises
+    ------
+    FigureDataError
+        If ``n_rows`` is less than 1.
+    """
+    if n_rows < 1:
+        raise FigureDataError(f"a heatmap needs at least one row, got {n_rows}")
+    if n_rows >= _HEATMAP_ROWS:
+        return (_HEATMAP_SIZE, _HEATMAP_SIZE)
+    row = _HEATMAP_GRID * _HEATMAP_SIZE / _HEATMAP_ROWS
+    return (_HEATMAP_SIZE, _HEATMAP_SIZE - (_HEATMAP_ROWS - n_rows) * row)
+
+
 def kpi_heatmap(
     scopes: ScopeGrid,
     kpi: str,
@@ -996,7 +1043,7 @@ def kpi_heatmap(
     eval_split: str | None = None,
     lower_is_better: bool = True,
     n_legend_bins: int = 7,
-    figsize: tuple[float, float] = (8.0, 8.0),
+    figsize: tuple[float, float] | None = None,
     title: str | None = _HEATMAP_TITLE,
     subtitle: str | None = None,
     name: str | None = None,
@@ -1024,8 +1071,11 @@ def kpi_heatmap(
         Colour decreases green (uncovered-loss KPIs). False flips the scale.
     n_legend_bins : int, default 7
         Colour classes of the legend bar.
-    figsize : (float, float), default (8, 8)
-        Figure size in inches (thesis notebook).
+    figsize : (float, float), optional
+        Figure size in inches. Default :func:`heatmap_figsize`: 8 x 8 (the
+        thesis notebook) for three or more scope rows, less high for fewer,
+        so a one-row heatmap has no empty bands (MAR-232). A given size is
+        laid out as the 8 x 8 one, in figure fractions.
     title, subtitle : str, optional
         Figure titles. Default title "Portfolio-level performance
         comparison"; default subtitle the KPI's name and symbol, followed
@@ -1078,7 +1128,7 @@ def _draw_heatmap(
     baseline: Baseline,
     lower_is_better: bool = True,
     n_legend_bins: int = 7,
-    figsize: tuple[float, float] = (8.0, 8.0),
+    figsize: tuple[float, float] | None = None,
     title: str | None = _HEATMAP_TITLE,
     subtitle: str | None = None,
     name: str | None = None,
@@ -1111,6 +1161,20 @@ def _draw_heatmap(
     symbol = label.symbol if label else kpi.replace("_", " ")
     if subtitle is None:
         subtitle = kpi_label(kpi)
+
+    if figsize is None:
+        figsize = heatmap_figsize(n_rows)
+        scale = _HEATMAP_SIZE / figsize[1]  # the 8-inch layout's inches kept
+    else:
+        scale = 1.0
+
+    def up(fraction: float) -> float:
+        """Return a figure fraction at the 8-inch layout's inches above the bottom."""
+        return fraction if scale == 1.0 else fraction * scale
+
+    def down(fraction: float) -> float:
+        """Return a figure fraction at the 8-inch layout's inches below the top."""
+        return fraction if scale == 1.0 else 1.0 - (1.0 - fraction) * scale
 
     with style.style():
         fig, ax = plt.subplots(figsize=figsize)
@@ -1194,7 +1258,7 @@ def _draw_heatmap(
                 zorder=10,
             )
         )
-        fig.subplots_adjust(left=0.24, right=0.96, top=0.80, bottom=0.18)
+        fig.subplots_adjust(left=0.24, right=0.96, top=down(0.80), bottom=up(0.18))
 
         # Axis captions beside the tick labels, placed from their extents.
         fig.canvas.draw()
@@ -1207,7 +1271,7 @@ def _draw_heatmap(
         box = ax.get_position()
         fig.text(
             (box.x0 + box.x1) / 2,
-            x_top_fig + 0.025,
+            x_top_fig + up(0.025),
             r"Optimization objective $\rightarrow$",
             ha="center",
             va="bottom",
@@ -1230,7 +1294,7 @@ def _draw_heatmap(
         # Legend bar under the first two columns (thesis).
         left = to_fig.transform(ax.transData.transform((-0.5, 0)))[0]
         right = to_fig.transform(ax.transData.transform((min(1.5, n_cols - 0.5), 0)))[0]
-        cax = fig.add_axes((left, 0.08, right - left, 0.022))
+        cax = fig.add_axes((left, up(0.08), right - left, up(0.022)))
         mappable = ScalarMappable(
             norm=BoundaryNorm(bounds, legend_cmap.N), cmap=legend_cmap
         )
@@ -1256,14 +1320,14 @@ def _draw_heatmap(
         if note:
             fig.text(
                 0.5,
-                0.015,
+                up(0.015),
                 f"In brackets: {note}",
                 ha="center",
                 va="bottom",
                 fontsize=_HEATMAP_FONT - 1,
                 color=_AXIS_TEXT_COLOR,
             )
-        _titles(fig, title, subtitle)
+        _titles(fig, title, subtitle, top=down(0.985), second=down(0.95))
 
     legend = pd.DataFrame(
         {

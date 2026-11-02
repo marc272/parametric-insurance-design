@@ -58,6 +58,7 @@ from parametric_insurance_design_viz.kpi_figures import (
     Baseline,
     KFoldRunsError,
     exceedance_curves,
+    heatmap_figsize,
     interval_note,
     kpi_figures,
     kpi_heatmap,
@@ -474,6 +475,30 @@ def test_heatmap_with_a_zero_baseline_has_no_change(toy_grid: dict) -> None:
     scopes = {**toy_grid, "individual": (zero, *toy_grid["individual"][1:])}
     main = kpi_heatmap(scopes, "cvar_uncovered").data[""]
     assert bool(main["pct_vs_baseline"].isna().all())
+
+
+def test_heatmap_height_follows_the_rows(toy_grid: dict) -> None:
+    """Fewer than three scope rows: a lower figure, same cells (MAR-232)."""
+    assert heatmap_figsize(3) == heatmap_figsize(5) == (8.0, 8.0)
+    one, two = heatmap_figsize(1), heatmap_figsize(2)
+    assert one[0] == two[0] == 8.0
+    row = 8.0 - two[1]
+    assert row == pytest.approx(0.62 * 8.0 / 3)
+    assert one[1] == pytest.approx(8.0 - 2 * row)
+    with pytest.raises(FigureDataError, match="at least one row"):
+        heatmap_figsize(0)
+    full = kpi_heatmap(toy_grid, "cvar_uncovered")
+    single = kpi_heatmap({"individual": toy_grid["individual"]}, "cvar_uncovered")
+    assert tuple(full.figure.get_size_inches()) == (8.0, 8.0)
+    assert tuple(single.figure.get_size_inches()) == pytest.approx(one)
+    # the cells keep their size: the axes are as high in inches
+    heights = [
+        out.figure.axes[0].get_position().height * out.figure.get_size_inches()[1]
+        for out in (full, single)
+    ]
+    assert heights[1] == pytest.approx(heights[0] / 3)
+    fixed = kpi_heatmap(toy_grid, "cvar_uncovered", figsize=(8.0, 8.0))
+    assert tuple(fixed.figure.get_size_inches()) == (8.0, 8.0)
 
 
 # -- performance overview --------------------------------------------------------
