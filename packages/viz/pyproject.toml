@@ -1,6 +1,6 @@
 [project]
 name = "parametric-insurance-design-viz"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Figures for parametric-insurance-design, read from its result store."
 readme = "README.md"
 license = "BSD-3-Clause"
