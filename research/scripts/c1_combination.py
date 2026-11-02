@@ -51,13 +51,14 @@ design's bootstrap is cut to its portfolio-level rows
 run with several design problems, here the individual scope; the problem's
 id for a run with one, here ``"portfolio"`` for the C1 cluster and portfolio
 scopes), with the same resample check. MAR-182 relabelled ``problem_id`` to a
-common value instead (``c1_rq2.portfolio_rows``); the two give the same
-contrasts bit for bit (MAR-212). The interaction is ``paired_difference`` of
-two difference bootstraps (:func:`difference_bootstrap`: point values and
-replicates of two designs of one scope subtracted row by row, after the same
-check). The k-fold contrasts use ``kpi_replicates`` of
-``kfold.pooled_designs`` on the one shared resample, and are checked against
-``kfold.pooled_difference`` wherever both designs are in one k-fold config.
+common value instead (a ``c1_rq2.portfolio_rows`` helper, removed in
+MAR-228); the two give the same contrasts bit for bit (MAR-212). The
+interaction is ``paired_difference`` of two difference bootstraps
+(:func:`difference_bootstrap`: point values and replicates of two designs of
+one scope subtracted row by row, after the same check). The k-fold contrasts
+use ``kpi_replicates`` of ``kfold.pooled_designs`` on the one shared
+resample, and are checked against ``kfold.pooled_difference`` wherever both
+designs are in one k-fold config.
 
 **Checks** (raise on failure): the recomputed test KPIs equal C1's
 (``research/data/c1/kpis_<family>.csv``); the two-term contrasts that C1 or
