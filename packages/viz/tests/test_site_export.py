@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -23,8 +22,6 @@ import pyarrow as pa
 import pytest
 import yaml
 
-from parametric_insurance_design import cli, evaluate
-from parametric_insurance_design.experiment import runner
 from parametric_insurance_design.experiment.config import (
     CostOfCapitalConfig,
     config_hash,
@@ -37,11 +34,9 @@ from parametric_insurance_design.experiment.kfold import (
     PooledKpis,
     pooled_kpis,
 )
-from parametric_insurance_design.experiment.runner import load_input
 from parametric_insurance_design.experiment.store import ResultStore
 from parametric_insurance_design.experiment.sweeps import run_sweeps
 from parametric_insurance_design.payout import NO_BIN
-from parametric_insurance_design.solve import DEFAULT_POLICY
 from parametric_insurance_design_viz import site_export
 from parametric_insurance_design_viz.errors import (
     EventSetMismatchError,
@@ -74,7 +69,7 @@ from parametric_insurance_design_viz.site_export import (
     read_slice,
 )
 
-from .conftest import build_fixture, config_dict, make_eventset
+from .conftest import build_fixture, command_sweep_runs, config_dict, make_eventset
 
 if TYPE_CHECKING:
     from conftest import Fixture
@@ -100,9 +95,7 @@ EXPECTED_FILES = [
 
 def sweep_runs(toy: Fixture) -> tuple[SweepRun, ...]:
     """The sweep points as the ``export-site`` command computes them."""
-    data = load_input(toy.config)
-    runs = cli._sweep_runs(site_export, toy.config, data, DEFAULT_POLICY)
-    return tuple(r for r in runs if isinstance(r, SweepRun))
+    return command_sweep_runs(toy.config)
 
 
 def export(fixture: Fixture, out: Path, **options: Any) -> ExportReport:  # noqa: ANN401
@@ -305,7 +298,7 @@ def test_column_types_follow_the_rules(swept: Swept) -> None:
 def test_map_without_allocation_rows_uses_individual_entity_rows_only(
     swept: Swept,
 ) -> None:
-    # The toy store has no allocation rows (MAR-217 adds the config field).
+    # The toy config names no allocation rule, so its store has no allocation rows.
     map_ = arrow(swept.out / "baseline.map.arrow").to_pandas()
     columns = [c for c in swept.manifest["files"] if c["path"] == "baseline.map.arrow"]
     meaning = {c["name"]: c["null_means"] for c in columns[0]["columns"]}
@@ -1189,25 +1182,11 @@ def test_a_kfold_bundle_refuses_the_split_filter(kfold: Pooled, tmp_path: Path) 
 def build_allocated(directory: Path, allocation: str, **changes: Any) -> Fixture:  # noqa: ANN401
     """A toy store whose runs were evaluated under an allocation rule.
 
-    The experiment config cannot name a rule yet (MAR-217 adds it), so the
-    runner's evaluate calls are wrapped to pass ``allocation``: the stored
-    rows are exactly what ``evaluate`` writes under that rule.
+    The config names the rule in ``evaluation.allocation`` (MAR-217), so the
+    stored rows are what the runner writes under it.
     """
-
-    def under_rule(
-        function: Callable[..., pd.DataFrame],
-    ) -> Callable[..., pd.DataFrame]:
-        def wrapped(*args: Any, **kwargs: Any) -> pd.DataFrame:  # noqa: ANN401
-            return function(*args, **{**kwargs, "allocation": allocation})
-
-        return wrapped
-
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(runner, "kpis", under_rule(evaluate.kpis))
-        patch.setattr(
-            runner, "exceedance_curves", under_rule(evaluate.exceedance_curves)
-        )
-        return build_fixture(directory, **changes)
+    evaluation = {**config_dict()["evaluation"], "allocation": allocation}
+    return build_fixture(directory, evaluation=evaluation, **changes)
 
 
 @dataclass(frozen=True)

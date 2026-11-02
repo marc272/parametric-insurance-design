@@ -14,16 +14,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 from matplotlib.figure import Figure
 
-from parametric_insurance_design import cli
-from parametric_insurance_design.experiment.runner import load_input
 from parametric_insurance_design.experiment.sweeps import run_sweeps
-from parametric_insurance_design.solve import DEFAULT_POLICY
-from parametric_insurance_design_viz import command, style, sweep_figures
+from parametric_insurance_design_viz import style, sweep_figures
 from parametric_insurance_design_viz.command import (
     FigureReport,
     SweepRun,
@@ -43,7 +39,7 @@ from parametric_insurance_design_viz.sweep_figures import (
     payout_sweep,
 )
 
-from .conftest import build_fixture
+from .conftest import build_fixture, command_sweep_runs
 
 if TYPE_CHECKING:
     from conftest import Fixture
@@ -88,9 +84,7 @@ def swept(tmp_path_factory: pytest.TempPathFactory) -> Swept:
         sweeps=SWEEPS,
     )
     run_sweeps(toy.config, store=toy.store, baseline=False)
-    data = load_input(toy.config)
-    points = cli._sweep_runs(command, toy.config, data, DEFAULT_POLICY)
-    sweeps = tuple(p for p in points if isinstance(p, SweepRun))
+    sweeps = command_sweep_runs(toy.config)
     report = write_figures(
         toy.config,
         toy.run_ids,
@@ -101,12 +95,6 @@ def swept(tmp_path_factory: pytest.TempPathFactory) -> Swept:
         figure_sets=(sweep_figures.sweep_figures,),
     )
     return Swept(toy=toy, sweeps=sweeps, report=report)
-
-
-@pytest.fixture(autouse=True)
-def _close_figures() -> object:
-    yield
-    plt.close("all")
 
 
 def captions(figure: Figure) -> list[str]:
@@ -178,6 +166,28 @@ def test_payout_sweeps_of_unique_designs_have_no_caption(
         assert captions(out.figure) == []
         assert "caption" not in out.data
     pd.testing.assert_frame_equal(plain.data[MAIN_TABLE], refused.data[MAIN_TABLE])
+
+
+def test_joint_is_decided_for_every_drawn_point(swept: Swept) -> None:
+    """A later point of a joint design captions the figure (MAR-232).
+
+    The first point (alpha 0.5) is the individual scope's, a unique design;
+    the second (alpha 0.9) the portfolio scope's, a joint one. Deciding on
+    the first point alone drew the figure without the caption.
+    """
+    individual = alpha_series(swept, "individual")
+    portfolio = alpha_series(swept, "portfolio")
+    first = individual.sorted_points()[0]
+    last = portfolio.sorted_points()[-1]
+    assert (first[0].value, last[0].value) == (0.5, 0.9)
+    mixed = SweepSeries("alpha", "portfolio", portfolio.baseline, (first, last))
+    out = payout_sweep(mixed, "A1")
+    assert captions(out.figure) == [JOINT_CAPTION]
+    assert out.data["caption"]["problem_id"].tolist() == [
+        last[1].problem_specs()[0].problem_id
+    ]
+    with pytest.raises(JointEntitiesError, match=f"run {last[1].run_id}"):
+        payout_sweep(mixed, "A1", joint_entities="refuse")
 
 
 def test_an_unknown_mode_is_refused(swept: Swept) -> None:

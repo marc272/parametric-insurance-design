@@ -3,8 +3,8 @@
 The fixture store is the viz ``toy`` experiment (three locations, 60 events)
 with small sweeps, computed at test time by the core runner and sweeps. The
 sweep points are passed to the figures as the ``figures`` command passes
-them (``cli._sweep_runs``). The tests check the figure-data CSVs against the
-store's own tables.
+them (``conftest.command_sweep_runs``). The tests check the figure-data CSVs
+against the store's own tables.
 """
 
 from __future__ import annotations
@@ -19,10 +19,7 @@ import pandas as pd
 import pytest
 from matplotlib.figure import Figure
 
-from parametric_insurance_design import cli
-from parametric_insurance_design.experiment.runner import load_input
 from parametric_insurance_design.experiment.sweeps import run_sweeps
-from parametric_insurance_design.solve import DEFAULT_POLICY
 from parametric_insurance_design_viz import command, sweep_figures
 from parametric_insurance_design_viz.command import (
     FigureReport,
@@ -48,7 +45,7 @@ from parametric_insurance_design_viz.sweep_figures import (
     tradeoff,
 )
 
-from .conftest import build_fixture
+from .conftest import build_fixture, command_sweep_runs
 
 if TYPE_CHECKING:
     from conftest import Fixture
@@ -89,10 +86,7 @@ class SweepFixture:
 
 def sweep_runs(toy: Fixture) -> tuple[SweepRun, ...]:
     """The sweep points as the ``figures`` command computes them."""
-    data = load_input(toy.config)
-    runs = cli._sweep_runs(command, toy.config, data, DEFAULT_POLICY)
-    assert all(isinstance(r, SweepRun) for r in runs)
-    return tuple(r for r in runs if isinstance(r, SweepRun))
+    return command_sweep_runs(toy.config)
 
 
 @pytest.fixture(scope="module")

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
@@ -21,7 +20,6 @@ from parametric_insurance_design_viz.payout_functions import (
     STEP_COLUMNS,
     AxisLabels,
     _normalised_levels,
-    _SciOffsetFormatter,
     normalised_payout,
     payout_grid,
     payout_steps,
@@ -58,12 +56,6 @@ def scope_events(toy: Fixture, scope: str) -> pd.DataFrame:
     runs = scope_runs(toy, scope)
     component = toy.config.scopes[SCOPES[scope]].build()
     return entity_events(toy.eventset, component, runs[0].problem_specs())
-
-
-@pytest.fixture(autouse=True)
-def _close_figures() -> object:
-    yield
-    plt.close("all")
 
 
 def test_payout_steps_table(toy: Fixture) -> None:
@@ -258,15 +250,14 @@ def test_weighted_quantile() -> None:
         weighted_quantile(v[:0], w[:0], 0.5)
 
 
-def test_scientific_offset_text_is_compact() -> None:
-    fig, ax = plt.subplots()
-    ax.plot([0.0, 3e7])
-    formatter = _SciOffsetFormatter(useMathText=False)
-    formatter.set_scientific(True)
-    formatter.set_powerlimits((0, 0))
-    ax.yaxis.set_major_formatter(formatter)
-    fig.canvas.draw()
-    assert ax.yaxis.get_offset_text().get_text() == "e+07"
+def test_the_grid_labels_payouts_in_the_money_style(toy: Fixture) -> None:
+    out = payout_grid(scope_runs(toy, "individual"))
+    out.figure.canvas.draw()
+    for ax in out.figure.axes:
+        assert isinstance(ax.yaxis.get_major_formatter(), style.MoneyFormatter)
+        assert ax.yaxis.get_offset_text().get_text() == ""
+        labels = [t.get_text() for t in ax.get_yticklabels() if t.get_text()]
+        assert len(labels) == len(set(labels)) > 1
 
 
 def test_axis_labels() -> None:

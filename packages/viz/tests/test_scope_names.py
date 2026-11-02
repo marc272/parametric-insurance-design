@@ -28,7 +28,7 @@ from parametric_insurance_design.experiment import runner
 from parametric_insurance_design.experiment.config import parse_config
 from parametric_insurance_design.records import ALL_PROBLEMS
 from parametric_insurance_design_viz import site_export, style
-from parametric_insurance_design_viz.command import _scope_keys, write_figures
+from parametric_insurance_design_viz.command import write_figures
 from parametric_insurance_design_viz.errors import (
     FigureDataError,
     InconsistentRunsError,
@@ -39,6 +39,11 @@ from parametric_insurance_design_viz.kpi_figures import (
     kpi_figures,
     kpi_heatmap,
     performance_overview,
+)
+from parametric_insurance_design_viz.payout_functions import (
+    is_joint_design,
+    normalised_payout,
+    payout_grid,
 )
 from parametric_insurance_design_viz.reader import ResultReader, RunResult
 from parametric_insurance_design_viz.sweep_figures import SweepSeries, sensitivity
@@ -83,7 +88,7 @@ def grid(fixture: Fixture) -> dict[str, tuple[RunResult, ...]]:
     """Runs per scope key, as the figures command passes them."""
     runs = ResultReader(fixture.store).runs(fixture.run_ids)
     per = len(fixture.config.objectives)
-    keys = _scope_keys(fixture.config)
+    keys = style.config_scope_keys(fixture.config)
     return {k: tuple(runs[i * per : (i + 1) * per]) for i, k in enumerate(keys)}
 
 
@@ -116,8 +121,7 @@ def test_the_separate_cluster_scope_has_its_own_label_and_style() -> None:
 
 
 def test_four_scopes_have_four_keys(four: Fixture) -> None:
-    assert _scope_keys(four.config) == KEYS
-    assert site_export._scope_keys(four.config) == KEYS
+    assert style.config_scope_keys(four.config) == KEYS
     runs = grid(four)
     for key, scope_runs in runs.items():
         assert {style.run_scope_name(r) for r in scope_runs} == {key}
@@ -343,3 +347,31 @@ def test_a_store_written_before_mar_225_is_keyed_and_labelled_alike(
     )
     entries = json.loads((out / "runs.json").read_text(encoding="utf-8"))["runs"]
     assert sorted({e["scope_key"] for e in entries}) == sorted(KEYS)
+
+
+# -- payout figures (MAR-232) ------------------------------------------------------
+
+
+def test_only_problems_with_several_entities_are_joint(four: Fixture) -> None:
+    joint = {k: {is_joint_design(r) for r in rs} for k, rs in grid(four).items()}
+    assert joint == {
+        "individual": {False},
+        "cluster": {True},
+        "cluster_separate": {False},
+        "portfolio": {True},
+    }
+
+
+def test_payout_figures_are_named_by_the_scope_name(four: Fixture) -> None:
+    for key, runs in grid(four).items():
+        entity = runs[0].entity_order()[0]
+        assert payout_grid(runs).name == f"payout_grid_{key}"
+        normalised = normalised_payout(runs, entity)
+        assert normalised.name == f"normalised_payout_{key}_{entity.lower()}"
+
+
+def test_a_payout_figure_does_not_mix_the_two_cluster_scopes(four: Fixture) -> None:
+    runs = grid(four)
+    mixed = (runs["cluster"][0], runs["cluster_separate"][1])
+    with pytest.raises(InconsistentRunsError, match="one scope"):
+        payout_grid(mixed)

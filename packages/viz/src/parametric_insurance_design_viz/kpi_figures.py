@@ -31,7 +31,9 @@ Which rows are read
   or ``train`` rows also states it, in its subtitle (heatmaps, overview)
   or axes title (exceedance): "out of sample (test years)" or "in sample
   (train years)" (:func:`split_note`, MAR-229). A figure on the ``full``
-  rows carries no note, so the thesis figures are unchanged.
+  rows carries no note, so the thesis figures are unchanged. The sweep
+  figures choose their split with the same function, :func:`figure_split`
+  (MAR-232).
 * **Samples:** ``full`` and ``holdout`` runs. The functions that take runs
   (:func:`kpi_table`, :func:`kpi_heatmap`, :func:`performance_overview`,
   :func:`exceedance_curves`) refuse runs of a ``kfold`` sample with
@@ -163,7 +165,10 @@ __all__ = [
     "SPLIT_PREFERENCE",
     "Baseline",
     "KFoldRunsError",
+    "MissingKpiError",
     "exceedance_curves",
+    "figure_split",
+    "heatmap_figsize",
     "interval_note",
     "kpi_figures",
     "kpi_heatmap",
@@ -198,6 +203,17 @@ year, in sample) states nothing, so the thesis figures stay byte-identical;
 
 KFOLD_SAMPLE: Final[str] = "kfold"
 """``runs.parameters["sample"]`` of a k-fold run, which the figures refuse."""
+
+
+class MissingKpiError(InconsistentRunsError):
+    """A run lacks the KPI row a figure needs (or has several candidates).
+
+    Raised by :func:`figure_split` and the sweep figures (``sweep_figures``
+    re-exports it). Defined here since MAR-232, when the split rule became
+    one function; it was a :class:`~.errors.VizError` of ``sweep_figures``,
+    and is now also an :class:`~.errors.InconsistentRunsError`, which the
+    KPI figures raised for a missing split before.
+    """
 
 
 class KFoldRunsError(InconsistentRunsError):
@@ -289,6 +305,9 @@ _HEATMAP_TITLE: Final[str] = "Portfolio-level performance comparison"
 _CELL_INSET: Final[float] = 0.015
 _CORNER_RADIUS: Final[float] = 0.05
 _HEATMAP_FONT: Final[float] = 10  # thesis plot_kpi_heatmap label_size default
+_HEATMAP_SIZE: Final[float] = 8.0  # inches, square: the thesis 3 x 3 heatmap
+_HEATMAP_ROWS: Final[int] = 3  # the rows the square heatmap is laid out for
+_HEATMAP_GRID: Final[float] = 0.62  # height share of the cells (top 0.80, bottom 0.18)
 _AXIS_TEXT_COLOR: Final[str] = "#444"
 _DARK_TEXT: Final[str] = "#0a2540"
 _BAR_WIDTH: Final[float] = 0.1
@@ -482,22 +501,68 @@ def _runs(scopes: ScopeGrid) -> list[tuple[str, RunResult]]:
     return [(key, run) for key in scopes for run in scopes[key]]
 
 
-def _eval_split(runs: Sequence[RunResult], eval_split: str | None) -> str:
-    """Return the split every run has: ``eval_split`` or the preferred one."""
-    have = [set(r.kpis["eval_split"]) | set(r.exceedance["eval_split"]) for r in runs]
-    common = set.intersection(*have) if have else set()
+def figure_split(
+    runs: Sequence[RunResult],
+    eval_split: str | None = None,
+    *,
+    tables: Sequence[str] = ("kpis",),
+) -> str:
+    """Return the evaluation split a figure reads from its runs (MAR-229).
+
+    The one rule of the KPI figures and the sweep figures (``sweep_figures``
+    re-exports it; MAR-232). Every row of one figure is read on one split:
+    ``eval_split`` if given, else the first of :data:`SPLIT_PREFERENCE`
+    (``test``, ``full``, ``train``) on which every complete run has rows. A
+    holdout run has ``train`` and ``test`` rows, so its figures read
+    ``test`` (out of sample); a full-sample run has ``full`` rows only.
+
+    Parameters
+    ----------
+    runs : sequence of RunResult
+        The figure's runs. Failed runs have no rows and are not considered.
+    eval_split : str, optional
+        The split to read; it must be one every complete run has.
+    tables : sequence of str, default ("kpis",)
+        The run tables whose ``eval_split`` column counts: a run has a split
+        if one of them has a row on it. The KPI figures pass ``("kpis",
+        "exceedance")``.
+
+    Returns
+    -------
+    str
+        The split. Without a complete run no row is read, and it is
+        ``eval_split`` or ``"full"``.
+
+    Raises
+    ------
+    MissingKpiError
+        If a complete run lacks ``eval_split``, or the complete runs share
+        no split.
+    """
+    have = [
+        (r, set().union(*(set(getattr(r, t)["eval_split"]) for t in tables)))
+        for r in runs
+        if r.complete
+    ]
+    common = set.intersection(*(h for _, h in have)) if have else set()
     if eval_split is not None:
-        if eval_split not in common:
-            raise InconsistentRunsError(
-                f"not every run has KPI rows on the {eval_split!r} split"
+        lacking = [(r, h) for r, h in have if eval_split not in h]
+        if lacking:
+            run, splits = lacking[0]
+            raise MissingKpiError(
+                f"{len(lacking)} of {len(have)} runs have no KPI rows on the "
+                f"{eval_split!r} split, e.g. run {run.run_id} ({run.scope} x "
+                f"{run.objective}) has the splits {sorted(splits)}"
             )
         return eval_split
+    if not have:
+        return "full"
     for split in SPLIT_PREFERENCE:
         if split in common:
             return split
-    raise InconsistentRunsError(
-        "the runs share no evaluation split with KPI rows; "
-        f"splits per run: {[sorted(h) for h in have]}"
+    raise MissingKpiError(
+        "the runs of the figure share no evaluation split with KPI rows; "
+        f"splits per run: {[(r.run_id, sorted(h)) for r, h in have]}"
     )
 
 
@@ -581,7 +646,7 @@ def kpi_table(
     _grid(scopes)
     pairs = _runs(scopes)
     runs = [r for _, r in pairs]
-    split = _eval_split(runs, eval_split)
+    split = figure_split(runs, eval_split, tables=("kpis", "exceedance"))
     level = _beta(runs, beta)
     rows: list[dict[str, object]] = []
     for key, run in pairs:
@@ -630,7 +695,7 @@ def pooled_kpi_table(
         ``PooledKpis.table``: one row per pooled design and KPI.
     scope_keys : sequence of str
         Figure key of each configured scope, by position in
-        ``config.scopes`` (``command._scope_keys``).
+        ``config.scopes`` (``style.config_scope_keys``).
     kpis : sequence of str
         KPI names (``records.KpiName`` values).
 
@@ -899,12 +964,23 @@ def _box(ax: Axes) -> None:
         spine.set_color("black")
 
 
-def _titles(fig: Figure, title: str | None, subtitle: str | None) -> None:
-    """Centred title and subtitle at the top of the figure (thesis)."""
+def _titles(
+    fig: Figure,
+    title: str | None,
+    subtitle: str | None,
+    *,
+    top: float = 0.985,
+    second: float = 0.95,
+) -> None:
+    """Centred title and subtitle at the top of the figure (thesis).
+
+    ``top`` and ``second`` are the heights of the first and second line in
+    figure fractions.
+    """
     if title:
         fig.text(
             0.5,
-            0.985,
+            top,
             title,
             ha="center",
             va="top",
@@ -914,7 +990,7 @@ def _titles(fig: Figure, title: str | None, subtitle: str | None) -> None:
     if subtitle:
         fig.text(
             0.5,
-            0.95 if title else 0.985,
+            second if title else top,
             subtitle,
             ha="center",
             va="top",
@@ -927,6 +1003,38 @@ def _titles(fig: Figure, title: str | None, subtitle: str | None) -> None:
 # --------------------------------------------------------------------------
 
 
+def heatmap_figsize(n_rows: int) -> tuple[float, float]:
+    """Return the default size of a KPI heatmap with ``n_rows`` scope rows.
+
+    The thesis heatmap is 8 x 8 inches for three scopes. With fewer rows the
+    figure is less high by the rows it lacks, so the cells keep their size
+    and the figure has no empty bands above and below them (MAR-232); the
+    titles, axis captions and legend bar keep their distances in inches.
+    From three rows on it stays 8 x 8, as before.
+
+    Parameters
+    ----------
+    n_rows : int
+        Scope rows, at least 1.
+
+    Returns
+    -------
+    (float, float)
+        Width and height in inches.
+
+    Raises
+    ------
+    FigureDataError
+        If ``n_rows`` is less than 1.
+    """
+    if n_rows < 1:
+        raise FigureDataError(f"a heatmap needs at least one row, got {n_rows}")
+    if n_rows >= _HEATMAP_ROWS:
+        return (_HEATMAP_SIZE, _HEATMAP_SIZE)
+    row = _HEATMAP_GRID * _HEATMAP_SIZE / _HEATMAP_ROWS
+    return (_HEATMAP_SIZE, _HEATMAP_SIZE - (_HEATMAP_ROWS - n_rows) * row)
+
+
 def kpi_heatmap(
     scopes: ScopeGrid,
     kpi: str,
@@ -935,7 +1043,7 @@ def kpi_heatmap(
     eval_split: str | None = None,
     lower_is_better: bool = True,
     n_legend_bins: int = 7,
-    figsize: tuple[float, float] = (8.0, 8.0),
+    figsize: tuple[float, float] | None = None,
     title: str | None = _HEATMAP_TITLE,
     subtitle: str | None = None,
     name: str | None = None,
@@ -963,8 +1071,11 @@ def kpi_heatmap(
         Colour decreases green (uncovered-loss KPIs). False flips the scale.
     n_legend_bins : int, default 7
         Colour classes of the legend bar.
-    figsize : (float, float), default (8, 8)
-        Figure size in inches (thesis notebook).
+    figsize : (float, float), optional
+        Figure size in inches. Default :func:`heatmap_figsize`: 8 x 8 (the
+        thesis notebook) for three or more scope rows, less high for fewer,
+        so a one-row heatmap has no empty bands (MAR-232). A given size is
+        laid out as the 8 x 8 one, in figure fractions.
     title, subtitle : str, optional
         Figure titles. Default title "Portfolio-level performance
         comparison"; default subtitle the KPI's name and symbol, followed
@@ -1017,7 +1128,7 @@ def _draw_heatmap(
     baseline: Baseline,
     lower_is_better: bool = True,
     n_legend_bins: int = 7,
-    figsize: tuple[float, float] = (8.0, 8.0),
+    figsize: tuple[float, float] | None = None,
     title: str | None = _HEATMAP_TITLE,
     subtitle: str | None = None,
     name: str | None = None,
@@ -1050,6 +1161,20 @@ def _draw_heatmap(
     symbol = label.symbol if label else kpi.replace("_", " ")
     if subtitle is None:
         subtitle = kpi_label(kpi)
+
+    if figsize is None:
+        figsize = heatmap_figsize(n_rows)
+        scale = _HEATMAP_SIZE / figsize[1]  # the 8-inch layout's inches kept
+    else:
+        scale = 1.0
+
+    def up(fraction: float) -> float:
+        """Return a figure fraction at the 8-inch layout's inches above the bottom."""
+        return fraction if scale == 1.0 else fraction * scale
+
+    def down(fraction: float) -> float:
+        """Return a figure fraction at the 8-inch layout's inches below the top."""
+        return fraction if scale == 1.0 else 1.0 - (1.0 - fraction) * scale
 
     with style.style():
         fig, ax = plt.subplots(figsize=figsize)
@@ -1133,7 +1258,7 @@ def _draw_heatmap(
                 zorder=10,
             )
         )
-        fig.subplots_adjust(left=0.24, right=0.96, top=0.80, bottom=0.18)
+        fig.subplots_adjust(left=0.24, right=0.96, top=down(0.80), bottom=up(0.18))
 
         # Axis captions beside the tick labels, placed from their extents.
         fig.canvas.draw()
@@ -1146,7 +1271,7 @@ def _draw_heatmap(
         box = ax.get_position()
         fig.text(
             (box.x0 + box.x1) / 2,
-            x_top_fig + 0.025,
+            x_top_fig + up(0.025),
             r"Optimization objective $\rightarrow$",
             ha="center",
             va="bottom",
@@ -1169,7 +1294,7 @@ def _draw_heatmap(
         # Legend bar under the first two columns (thesis).
         left = to_fig.transform(ax.transData.transform((-0.5, 0)))[0]
         right = to_fig.transform(ax.transData.transform((min(1.5, n_cols - 0.5), 0)))[0]
-        cax = fig.add_axes((left, 0.08, right - left, 0.022))
+        cax = fig.add_axes((left, up(0.08), right - left, up(0.022)))
         mappable = ScalarMappable(
             norm=BoundaryNorm(bounds, legend_cmap.N), cmap=legend_cmap
         )
@@ -1195,14 +1320,14 @@ def _draw_heatmap(
         if note:
             fig.text(
                 0.5,
-                0.015,
+                up(0.015),
                 f"In brackets: {note}",
                 ha="center",
                 va="bottom",
                 fontsize=_HEATMAP_FONT - 1,
                 color=_AXIS_TEXT_COLOR,
             )
-        _titles(fig, title, subtitle)
+        _titles(fig, title, subtitle, top=down(0.985), second=down(0.95))
 
     legend = pd.DataFrame(
         {
@@ -1563,7 +1688,7 @@ def exceedance_curves(
     key = scope_key or style.run_scope_name(runs[0])
     _grid({key: runs})
     labels = labels or AxisLabels()
-    split = _eval_split(runs, eval_split)
+    split = figure_split(runs, eval_split, tables=("kpis", "exceedance"))
     level = _beta(runs, beta)
     # rounded so that e.g. beta 0.95 gives 20, not 19.999999999999982
     var_period = float(f"{1.0 / (1.0 - level):.12g}") if level < 1.0 else math.inf

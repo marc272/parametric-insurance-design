@@ -57,8 +57,8 @@ from parametric_insurance_design_viz.kpi_figures import (
     POOLED_KPI_COLUMNS,
     Baseline,
     KFoldRunsError,
-    _fmt_sci,  # pyright: ignore[reportPrivateUsage]
     exceedance_curves,
+    heatmap_figsize,
     interval_note,
     kpi_figures,
     kpi_heatmap,
@@ -100,6 +100,21 @@ def where(frame: pd.DataFrame, mask: Any) -> pd.DataFrame:  # noqa: ANN401
 def drawn(frame: pd.DataFrame) -> NDArray[np.bool_]:
     """The figure data's ``ci_drawn`` column as a numpy array."""
     return frame["ci_drawn"].to_numpy(dtype=bool)
+
+
+def cell_text(value: float) -> str:
+    """The thesis heatmap cell text, written out here as the test's oracle.
+
+    Plain with two decimals for exponents -1 to 2, else e.g. ``1.66e6``.
+    """
+    if not np.isfinite(value):
+        return ""
+    if value == 0:
+        return "0"
+    exp = int(np.floor(np.log10(abs(value))))
+    if -1 <= exp <= 2:
+        return f"{value:.2f}"
+    return f"{value / 10**exp:.2f}e{exp}"
 
 
 def store_kpi(run: RunResult, kpi: str, split: str = "full") -> float:
@@ -462,6 +477,30 @@ def test_heatmap_with_a_zero_baseline_has_no_change(toy_grid: dict) -> None:
     assert bool(main["pct_vs_baseline"].isna().all())
 
 
+def test_heatmap_height_follows_the_rows(toy_grid: dict) -> None:
+    """Fewer than three scope rows: a lower figure, same cells (MAR-232)."""
+    assert heatmap_figsize(3) == heatmap_figsize(5) == (8.0, 8.0)
+    one, two = heatmap_figsize(1), heatmap_figsize(2)
+    assert one[0] == two[0] == 8.0
+    row = 8.0 - two[1]
+    assert row == pytest.approx(0.62 * 8.0 / 3)
+    assert one[1] == pytest.approx(8.0 - 2 * row)
+    with pytest.raises(FigureDataError, match="at least one row"):
+        heatmap_figsize(0)
+    full = kpi_heatmap(toy_grid, "cvar_uncovered")
+    single = kpi_heatmap({"individual": toy_grid["individual"]}, "cvar_uncovered")
+    assert tuple(full.figure.get_size_inches()) == (8.0, 8.0)
+    assert tuple(single.figure.get_size_inches()) == pytest.approx(one)
+    # the cells keep their size: the axes are as high in inches
+    heights = [
+        out.figure.axes[0].get_position().height * out.figure.get_size_inches()[1]
+        for out in (full, single)
+    ]
+    assert heights[1] == pytest.approx(heights[0] / 3)
+    fixed = kpi_heatmap(toy_grid, "cvar_uncovered", figsize=(8.0, 8.0))
+    assert tuple(fixed.figure.get_size_inches()) == (8.0, 8.0)
+
+
 # -- performance overview --------------------------------------------------------
 
 
@@ -589,7 +628,7 @@ def test_heatmap_shows_the_stored_intervals(holdout_ci: dict) -> None:
     assert drawn(main).all()
     texts = [t.get_text() for t in output.figure.axes[0].texts]
     for row in cast(Any, main.itertuples(index=False)):
-        assert f"[{_fmt_sci(row.ci_low)}, {_fmt_sci(row.ci_high)}]" in texts
+        assert f"[{cell_text(row.ci_low)}, {cell_text(row.ci_high)}]" in texts
     notes = [t.get_text() for t in output.figure.texts]
     assert "In brackets: 90% block-bootstrap interval over years (B = 200)" in notes
 

@@ -14,7 +14,6 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
@@ -57,12 +56,6 @@ ZERO_PAYOUT = {
 def zero(tmp_path_factory: pytest.TempPathFactory) -> Fixture:
     """The ``toy`` store with ``below_attachment: zero``."""
     return build_fixture(tmp_path_factory.mktemp("zero"), payout=ZERO_PAYOUT)
-
-
-@pytest.fixture(autouse=True)
-def _close_figures() -> object:
-    yield
-    plt.close("all")
 
 
 def scope_runs(fixture: Fixture, scope: str) -> tuple[RunResult, ...]:

@@ -26,7 +26,9 @@ it as its own scope, :data:`SEPARATE_CLUSTER_SCOPE` (``"cluster_separate"``,
 names a configured scope, :func:`run_scope_name` a stored run (from the
 ``cluster_joint`` run parameter, the problem ids and the manifest's config),
 and :data:`SCOPE_LABELS` and :data:`SCOPE_STYLES` hold its label and style.
-The thesis had no such scope; its style is new.
+The thesis had no such scope; its style is new. :func:`config_scope_keys`
+numbers repeated names, so each configured scope has its own key in the
+figure names and the site bundles (MAR-232).
 
 The thesis font is Times New Roman. Where it is not installed (e.g. on Linux
 CI), :func:`font_family` falls back along :data:`SERIF_FALLBACK` to STIX,
@@ -44,6 +46,7 @@ need, so neighbouring ticks never share a label.
 from __future__ import annotations
 
 import math
+from collections import Counter
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -55,6 +58,7 @@ from matplotlib.ticker import Formatter
 
 from parametric_insurance_design.experiment.config import (
     ClusterScopeConfig,
+    ExperimentConfig,
     ScopeConfig,
 )
 from parametric_insurance_design.records import ALL_PROBLEMS
@@ -85,6 +89,7 @@ __all__ = [
     "Font",
     "MoneyFormatter",
     "ScopeStyle",
+    "config_scope_keys",
     "config_scope_name",
     "font_family",
     "money_prefix",
@@ -388,6 +393,38 @@ def config_scope_name(scope: ScopeConfig) -> str:
     if isinstance(scope, ClusterScopeConfig) and not scope.joint:
         return SEPARATE_CLUSTER_SCOPE
     return scope.kind
+
+
+def config_scope_keys(config: ExperimentConfig) -> list[str]:
+    """Return the key of every configured scope: its name, numbered on repeats.
+
+    The one rule of the figure-name stems (``command``) and the site bundles'
+    ``scope_key`` (``site_export``; MAR-232). The name is
+    :func:`config_scope_name`, so the joint and the separately calibrated
+    cluster scope never share a key. A name that occurs more than once keeps
+    it on its first occurrence and gets ``_2``, ``_3``, ... on later ones.
+
+    Parameters
+    ----------
+    config : ExperimentConfig
+        The experiment config.
+
+    Returns
+    -------
+    list of str
+        One key per entry of ``config.scopes``, in order, e.g.
+        ``["cluster", "individual", "cluster_2"]``.
+    """
+    names = [config_scope_name(s) for s in config.scopes]
+    total = Counter(names)
+    seen: Counter[str] = Counter()
+    keys: list[str] = []
+    for name in names:
+        seen[name] += 1
+        keys.append(
+            name if total[name] == 1 or seen[name] == 1 else f"{name}_{seen[name]}"
+        )
+    return keys
 
 
 def _configured_joint(run: RunResult) -> bool | None:

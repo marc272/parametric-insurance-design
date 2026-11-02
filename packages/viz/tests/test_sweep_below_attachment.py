@@ -18,19 +18,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
 from matplotlib.lines import Line2D
 from numpy.typing import NDArray
 
-from parametric_insurance_design import cli
-from parametric_insurance_design.experiment.runner import load_input
 from parametric_insurance_design.experiment.sweeps import run_sweeps
 from parametric_insurance_design.payout import NO_BIN
-from parametric_insurance_design.solve import DEFAULT_POLICY
-from parametric_insurance_design_viz import command, sweep_figures
+from parametric_insurance_design_viz import sweep_figures
 from parametric_insurance_design_viz.command import (
     FigureReport,
     SweepRun,
@@ -52,7 +48,7 @@ from parametric_insurance_design_viz.sweep_figures import (
     payout_sweep,
 )
 
-from .conftest import build_fixture
+from .conftest import build_fixture, command_sweep_runs
 
 if TYPE_CHECKING:
     from conftest import Fixture
@@ -110,12 +106,7 @@ class Swept:
 def build_swept(directory: Path, out: Path, **changes: Any) -> Swept:  # noqa: ANN401
     toy = build_fixture(directory, sweeps=SWEEPS, **changes)
     run_sweeps(toy.config, store=toy.store, baseline=False)
-    # the sweep points as the figures command computes them (cli._sweep_runs)
-    computed = cli._sweep_runs(  # pyright: ignore[reportPrivateUsage]
-        command, toy.config, load_input(toy.config), DEFAULT_POLICY
-    )
-    sweeps = tuple(r for r in computed if isinstance(r, SweepRun))
-    assert len(sweeps) == len(computed)
+    sweeps = command_sweep_runs(toy.config)
     report = write_figures(
         toy.config,
         toy.run_ids,
@@ -145,12 +136,6 @@ def default_swept(tmp_path_factory: pytest.TempPathFactory) -> Swept:
         tmp_path_factory.mktemp("default_swept"),
         tmp_path_factory.mktemp("default_swept_figures"),
     )
-
-
-@pytest.fixture(autouse=True)
-def _close_figures() -> object:
-    yield
-    plt.close("all")
 
 
 # -- helpers -------------------------------------------------------------------

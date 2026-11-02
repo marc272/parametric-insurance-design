@@ -8,6 +8,7 @@ code never solves is checked in ``test_imports.py``.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,11 +18,13 @@ import matplotlib
 
 matplotlib.use("Agg")
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
 import yaml
 
+from parametric_insurance_design import cli
 from parametric_insurance_design.eventset import (
     EventSet,
     EventSetMetadata,
@@ -42,6 +45,9 @@ from parametric_insurance_design.experiment.runner import (
     run_key,
 )
 from parametric_insurance_design.experiment.store import ResultStore
+from parametric_insurance_design.solve import DEFAULT_POLICY
+from parametric_insurance_design_viz import command
+from parametric_insurance_design_viz.command import SweepRun
 
 N_EVENTS = 60
 N_YEARS = 60
@@ -157,6 +163,38 @@ def build_fixture(directory: Path, **changes: Any) -> Fixture:  # noqa: ANN401
         run_ids=run_ids,
         eventset=prepare_eventset(config, data.eventset),
     )
+
+
+def command_sweep_runs(config: ExperimentConfig) -> tuple[SweepRun, ...]:
+    """The sweep points as the ``figures`` and ``export-site`` commands pass them.
+
+    This is the one place the viz tests use a private core name,
+    ``cli._sweep_runs`` (MAR-232): the core has no public function that lists
+    a config's sweep points as viz :class:`SweepRun` objects (the CLI builds
+    them), and the tests must pass the figures and bundles exactly what the
+    commands pass. Rebuilding the list from the public ``sweep_points`` and
+    ``run_key`` would test a copy of the CLI code instead.
+    """
+    runs = cli._sweep_runs(  # pyright: ignore[reportPrivateUsage]
+        command, config, load_input(config), DEFAULT_POLICY
+    )
+    sweeps = tuple(r for r in runs if isinstance(r, SweepRun))
+    assert len(sweeps) == len(runs)
+    return sweeps
+
+
+@pytest.fixture(autouse=True)
+def close_figures() -> Iterator[None]:
+    """Close every pyplot figure after each test (MAR-232).
+
+    The figure functions draw with ``plt.subplots``, so pyplot keeps each
+    figure until it is closed; without this, a module draws more than
+    matplotlib's ``figure.max_open_warning`` (20) figures and the suite fails
+    under ``-W error::RuntimeWarning``. A closed figure can still be read and
+    saved, so module-scoped fixtures that hold figures keep working.
+    """
+    yield
+    plt.close("all")
 
 
 @pytest.fixture(scope="session")
