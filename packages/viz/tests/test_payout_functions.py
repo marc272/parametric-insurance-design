@@ -19,6 +19,7 @@ from parametric_insurance_design_viz.payout_functions import (
     MARKER_COLUMNS,
     STEP_COLUMNS,
     AxisLabels,
+    # Private: its test needs benchmark bins no solved toy run has (see there).
     _normalised_levels,
     normalised_payout,
     payout_grid,
@@ -212,6 +213,10 @@ def test_normalised_payout_needs_benchmark_and_entity(toy: Fixture) -> None:
 
 
 def test_normalised_levels_masks_zero_benchmark() -> None:
+    # The one private name of these tests: a level at solver zero and coarser
+    # benchmark bins need breakpoints and levels no solved toy run has, so the
+    # lookup is tested on the helper; normalised_payout's own masking is
+    # covered by test_normalised_payout_smoke.
     bp = np.array([0.0, 1.0, 2.0, 3.0])
     bench, rel = _normalised_levels(
         bp, np.array([1.0, 2.0, 6.0]), bp, np.array([1e-9, 4.0, 3.0])
