@@ -31,6 +31,14 @@ from parametric_insurance_design.cli import (
 )
 from parametric_insurance_design.errors import ParametricInsuranceDesignError
 from parametric_insurance_design.eventset import EventSet
+from parametric_insurance_design.experiment.config import config_hash, load_config
+from parametric_insurance_design.experiment.runner import load_input, run_key
+from parametric_insurance_design.experiment.store import ResultStore
+from parametric_insurance_design.experiment.sweeps import (
+    sweep_membership,
+    sweep_points,
+)
+from parametric_insurance_design.solve import DEFAULT_POLICY, THESIS_POLICY
 
 VIZ_PACKAGE = "parametric_insurance_design_viz"
 
@@ -374,3 +382,77 @@ def test_figures_help_names_the_mar120_options(
     out = capsys.readouterr().out
     assert "--skip-missing-sweeps" in out
     assert "--transaction-costs TAU,..." in out
+
+
+# -- the public sweep points -----------------------------------------------------
+
+
+@pytest.mark.usefixtures("viz")
+def test_sweep_runs_are_what_figures_passes(
+    tmp_path: Path,
+    toy_eventset: EventSet,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    sweeps = [{"parameter": "alpha", "values": [0.3, 0.5]}]
+    path = toy_config(tmp_path, toy_eventset, sweeps=sweeps)
+    assert main(["sweep", str(path), "-q"]) == ExitCode.OK
+    capsys.readouterr()
+    runs: list[Any] = cli.sweep_runs(load_config(path))
+    viz = importlib.import_module(VIZ_MODULE)
+    assert all(isinstance(r, viz.SweepRun) for r in runs)
+    # 2 values x the 2 weighted-CVaR runs (individual, portfolio), value-major
+    assert [(r.value, r.single) for r in runs] == [
+        (0.3, 1),
+        (0.3, 3),
+        (0.5, 1),
+        (0.5, 3),
+    ]
+    membership = sweep_membership(ResultStore(tmp_path / "results"))
+    assert {r.run_id for r in runs} == set(membership["run_id"])
+
+    passed: dict[str, object] = {}
+    write_figures = viz.write_figures
+
+    def spy(*args: object, **kwargs: object) -> object:
+        passed["sweeps"] = kwargs["sweeps"]
+        return write_figures(*args, **kwargs)
+
+    monkeypatch.setattr(viz, "write_figures", spy)
+    assert main(["figures", str(path), "-q"]) == ExitCode.OK
+    assert passed["sweeps"] == runs
+
+
+@pytest.mark.usefixtures("viz")
+def test_sweep_runs_take_the_input_and_the_policy(
+    tmp_path: Path, toy_eventset: EventSet
+) -> None:
+    sweeps = [{"parameter": "alpha", "values": [0.3]}]
+    config = load_config(toy_config(tmp_path, toy_eventset, sweeps=sweeps))
+    data = load_input(config)
+    points = sweep_points(config, "alpha", location_ids=data.eventset.location_ids)
+    expected = [
+        run_key(config_hash(p.config), data.checksum, policy=THESIS_POLICY)
+        for p in points
+    ]
+    runs: list[Any] = cli.sweep_runs(config, data=data, policy=THESIS_POLICY)
+    assert [r.run_id for r in runs] == expected
+    default: list[Any] = cli.sweep_runs(config)
+    assert [r.run_id for r in default] == [
+        run_key(config_hash(p.config), data.checksum, policy=DEFAULT_POLICY)
+        for p in points
+    ]
+    assert expected != [r.run_id for r in default]
+
+
+@pytest.mark.usefixtures("viz")
+def test_sweep_runs_of_a_config_without_sweeps_are_empty(config: Path) -> None:
+    assert cli.sweep_runs(load_config(config)) == []
+
+
+def test_sweep_runs_without_viz_raise_a_typed_error(
+    config: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    without_viz(monkeypatch)
+    with pytest.raises(VizNotInstalledError, match=VIZ_DISTRIBUTION):
+        cli.sweep_runs(load_config(config))

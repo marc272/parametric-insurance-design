@@ -96,6 +96,12 @@ Common options of ``run`` and ``sweep``:
 
 The summary goes to stdout, the log to stderr.
 
+Library function
+----------------
+:func:`sweep_runs` lists a config's sweep points as ``figures`` and
+``export-site`` pass them to the viz package, for code that draws the figures
+or exports a bundle without the command line.
+
 Exit codes
 ----------
 ====  =====================================================================
@@ -186,6 +192,7 @@ __all__ = [
     "VizNotInstalledError",
     "build_parser",
     "main",
+    "sweep_runs",
 ]
 
 _log = logging.getLogger(__name__)
@@ -822,6 +829,56 @@ def _sweep_runs(
                 )
             )
     return out
+
+
+def sweep_runs(
+    config: ExperimentConfig,
+    *,
+    data: RunInput | None = None,
+    policy: SolverPolicy = DEFAULT_POLICY,
+) -> list[object]:
+    """Every point of the config's sweeps, as ``figures`` and ``export-site`` pass them.
+
+    Each point is a ``parametric_insurance_design_viz.command.SweepRun``
+    (parameter, value, ``run_id``, baseline single run, ``n_assets`` subset),
+    in config order: sweep by sweep, value-major, then the single runs the
+    parameter applies to in ``single_runs()`` order. The ``run_id`` of a
+    point is computed as ``sweep`` (and its dry run) computes it, from
+    :func:`~parametric_insurance_design.experiment.sweeps.sweep_points` and
+    :func:`~parametric_insurance_design.experiment.runner.run_key`, so
+    nothing is solved and no sweep manifest is read. Pass the list as
+    ``sweeps=`` to the viz package's ``write_figures`` or ``export_site``.
+
+    The core never depends on the viz package: it is imported here lazily,
+    as the ``figures`` command imports it (:data:`VIZ_MODULE`). For a k-fold
+    config the commands pass no sweep points; this function lists the
+    config's sweeps regardless.
+
+    Parameters
+    ----------
+    config : ExperimentConfig
+        The experiment config.
+    data : RunInput or None, default None
+        The config's input (EventSet and checksum). None reads it with
+        :func:`~parametric_insurance_design.experiment.runner.load_input`.
+    policy : SolverPolicy, default DEFAULT_POLICY
+        The solver policy of the runs (part of every ``run_id``).
+
+    Returns
+    -------
+    list of parametric_insurance_design_viz.command.SweepRun
+        One entry per sweep point; empty if the config has no sweeps. Typed
+        ``object`` because the core never imports viz types.
+
+    Raises
+    ------
+    VizNotInstalledError
+        If the viz package, or one of its dependencies, cannot be imported.
+    """
+    viz = _import_viz()
+    return _sweep_runs(
+        viz, config, load_input(config) if data is None else data, policy
+    )
 
 
 def _figures(config: ExperimentConfig, args: argparse.Namespace) -> ExitCode:
