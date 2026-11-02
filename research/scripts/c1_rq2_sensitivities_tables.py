@@ -639,8 +639,10 @@ def family_c(full: Path, out: Path) -> str | None:
     runs = pd.read_csv(full / "noise_runs.csv")
     ents = pd.read_csv(full / "noise_entities.csv")
     keep = paired.loc[
-        paired["kpi"].isin(
-            ["cvar_uncovered", "expected_uncovered", "expected_payout", "premium"]
+        (paired["kpi"] == "cvar_uncovered")
+        | (
+            paired["kpi"].isin(["expected_uncovered", "expected_payout", "premium"])
+            & (paired["eval_beta"] == 0.99)
         )
     ]
     keep.drop(
@@ -864,8 +866,11 @@ def family_d(full: Path, out: Path) -> str | None:
     runs = pd.read_csv(full / "nclusters_runs.csv")
     ents = pd.read_csv(full / "nclusters_entities.csv")
     keep = paired.loc[
-        paired["kpi"].isin(["cvar_uncovered", "expected_uncovered", "expected_payout"])
-    ]
+        (paired["kpi"] == "cvar_uncovered")
+        | ((paired["kpi"] == "expected_uncovered") & (paired["eval_beta"] == 0.99))
+    ].copy()
+    for col in ("config_hash_a", "config_hash_b"):
+        keep[col] = keep[col].map(h12)  # full hashes: d_nclusters_runs.csv
     keep.drop(
         columns=[
             c
