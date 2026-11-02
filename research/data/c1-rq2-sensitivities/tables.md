@@ -64,6 +64,560 @@ Train E[π_j]/E[L_j] of entity j over the joint design's near-optimal set (objec
 | CoC r 0.06 | wCVaR β 0.99 | portfolio | A6 | max | HIGHS / original | optimal | 1.106 | yes | 1.00e-05 | 8 |
 | CoC r 0.06 | wCVaR β 0.99 | portfolio | A6 | max | CLARABEL_long / original | optimal_inaccurate | 1.104 | yes | 9.88e-06 | 5 |
 
+## B1. Within-scope comparisons whose interval verdict changes
+
+Weighted CVaR (every design β) minus MSE and minus E[U], cluster and portfolio scopes, test years, paired 90 % intervals on the C1 resample; KPIs CVaR at every KPI β of the family and E[U]. Each joint design is replaced by its second optimum (`alt`: `c1_rq2.ALT_POLICY`) or by an end of its free-bin family (low end: the weighted-CVaR design with every free parameter at its highest and the other design at its lowest, which gives the smallest difference over the two families; high end: the reverse). Cells: comparisons; of them, how many lose or gain an interval excluding zero against the C1 designs, and how many change sign.
+
+| Variant (wCVaR / other) | Family | Cells | Lose exclusion | Gain exclusion | Sign changes |
+|---|---|---|---|---|---|
+| alt / C1 | main | 720 | 64 | 33 | 112 |
+| alt / C1 | reference | 36 | 0 | 0 | 0 |
+| C1 / alt | main | 720 | 47 | 26 | 100 |
+| C1 / alt | reference | 36 | 0 | 0 | 0 |
+| alt / alt | main | 720 | 92 | 39 | 167 |
+| alt / alt | reference | 36 | 0 | 0 | 0 |
+| free low end | main | 720 | 9 | 7 | 13 |
+| free low end | reference | 36 | 0 | 1 | 0 |
+| free high end | main | 720 | 17 | 5 | 53 |
+| free high end | reference | 36 | 0 | 0 | 0 |
+
+## B2. The C1 section 3 and 4 cells, κ 1
+
+Relative to the C1 value of the other design (MSE or E[U]); `*`: the interval excludes zero. Main line: the headline design (β 0.99) at CVaR₀.₉₉ and E[U] (C1 sections 3.1–3.2). Reference: the event-conditional column at the thesis β 0.95 and KPI 0.95 (C1 section 4).
+
+| Family | Pricing | Scope | Comparison | KPI | C1 | alt / C1 | C1 / alt | alt / alt | free low end | free high end | Hash wCVaR / other |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| main | pure | cluster | wCVaR β 0.99 − MSE | CVaR₀.₉₉ | −11.9 %* [−24.3, −0.3] | −9.8 % [−23.4, +4.0] | −14.7 %* [−28.1, −2.6] | −12.5 % [−27.3, +1.6] | −11.9 %* [−24.3, −0.3] | −11.9 %* [−24.3, −0.3] | `9a25ee86197d` / `80bee12e4c89` |
+| main | pure | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₉ | −11.8 %* [−23.2, −1.3] | −9.7 % [−22.6, +2.4] | −11.3 %* [−21.5, −1.7] | −9.1 % [−21.1, +1.9] | −11.8 %* [−23.2, −1.3] | −11.8 %* [−23.2, −1.3] | `9a25ee86197d` / `b78a04a941dd` |
+| main | pure | portfolio | wCVaR β 0.99 − MSE | CVaR₀.₉₉ | −14.0 %* [−26.2, −2.1] | −11.8 % [−25.7, +1.9] | −15.2 %* [−29.2, −2.2] | −13.0 % [−29.9, +2.2] | −19.9 %* [−37.6, −4.2] | −8.5 % [−21.4, +4.8] | `7d700f7bd02d` / `4d63dddd3335` |
+| main | pure | portfolio | wCVaR β 0.99 − E[U] | CVaR₀.₉₉ | −14.5 % [−33.5, +0.9] | −12.3 % [−31.7, +4.6] | −19.5 %* [−42.7, −0.9] | −17.3 %* [−37.4, −0.9] | −20.9 %* [−43.9, −1.6] | −9.4 % [−27.2, +6.9] | `7d700f7bd02d` / `08a569620416` |
+| main | CoC r 0.06 | cluster | wCVaR β 0.99 − MSE | CVaR₀.₉₉ | +1.1 % [−10.3, +15.9] | +4.6 % [−9.4, +22.7] | +1.1 % [−10.3, +15.9] | +4.6 % [−9.4, +22.7] | +1.1 % [−10.3, +15.9] | +1.1 % [−10.3, +15.9] | `a56b270c97e4` / `96457b8a9204` |
+| main | CoC r 0.06 | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₉ | −5.9 % [−15.5, +2.6] | −2.7 % [−11.0, +5.0] | −5.9 % [−15.5, +2.6] | −2.7 % [−11.0, +5.0] | −5.9 % [−15.5, +2.6] | −5.9 % [−15.5, +2.6] | `a56b270c97e4` / `f5d42cdbabde` |
+| main | CoC r 0.06 | portfolio | wCVaR β 0.99 − MSE | CVaR₀.₉₉ | +1.3 % [−10.3, +16.0] | +3.0 % [−12.4, +22.9] | +1.3 % [−10.3, +16.0] | +3.0 % [−12.4, +22.9] | +0.4 % [−10.8, +14.4] | +2.1 % [−9.9, +17.8] | `a705dea1563a` / `0ada0ff98fb2` |
+| main | CoC r 0.06 | portfolio | wCVaR β 0.99 − E[U] | CVaR₀.₉₉ | −5.9 % [−14.9, +2.5] | −4.3 % [−10.7, +2.2] | −5.9 % [−14.9, +2.5] | −4.3 % [−10.7, +2.2] | −6.2 % [−15.5, +2.4] | −5.6 % [−14.4, +2.6] | `a705dea1563a` / `e86fd26ac86f` |
+| main | CoC r 0.10 | cluster | wCVaR β 0.99 − MSE | CVaR₀.₉₉ | +0.8 % [−8.6, +14.1] | +0.2 % [−5.3, +6.2] | +0.8 % [−8.6, +14.1] | +0.2 % [−5.3, +6.2] | +0.8 % [−8.6, +14.1] | +0.8 % [−8.6, +14.1] | `9e2e281aa4b6` / `f514d937ee8b` |
+| main | CoC r 0.10 | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₉ | −3.2 % [−8.2, +1.6] | −3.7 % [−15.7, +5.0] | −3.2 % [−8.2, +1.6] | −3.7 % [−15.7, +5.0] | −3.2 % [−8.2, +1.6] | −3.2 % [−8.2, +1.6] | `9e2e281aa4b6` / `7bcffc295bd3` |
+| main | CoC r 0.10 | portfolio | wCVaR β 0.99 − MSE | CVaR₀.₉₉ | +1.1 % [−8.6, +14.7] | +4.3 % [−5.4, +17.3] | +1.1 % [−8.6, +14.7] | +4.3 % [−5.4, +17.3] | +0.5 % [−8.8, +13.8] | +1.6 % [−8.3, +15.7] | `120c06502b37` / `b4a513c6f1ab` |
+| main | CoC r 0.10 | portfolio | wCVaR β 0.99 − E[U] | CVaR₀.₉₉ | −3.1 % [−8.1, +1.7] | −0.1 % [−5.9, +4.5] | −3.1 % [−8.1, +1.7] | −0.1 % [−5.9, +4.5] | −3.3 % [−8.4, +1.6] | −2.9 % [−7.8, +1.8] | `120c06502b37` / `94bbfeba79fe` |
+| main | pure | cluster | wCVaR β 0.99 − MSE | E[U] | +10.8 % [−1.1, +22.1] | +12.7 % [−0.9, +26.1] | +8.0 % [−4.5, +19.8] | +9.9 % [−4.4, +23.6] | +10.8 % [−1.1, +22.1] | +10.8 % [−1.1, +22.1] | `9a25ee86197d` / `80bee12e4c89` |
+| main | pure | cluster | wCVaR β 0.99 − E[U] | E[U] | +12.0 %* [+0.5, +22.3] | +13.9 %* [+0.8, +25.8] | +12.4 %* [+1.7, +22.0] | +14.4 %* [+2.5, +25.4] | +12.0 %* [+0.5, +22.3] | +12.0 %* [+0.5, +22.3] | `9a25ee86197d` / `b78a04a941dd` |
+| main | pure | portfolio | wCVaR β 0.99 − MSE | E[U] | +19.1 %* [+5.5, +31.7] | +21.2 %* [+6.7, +34.6] | +17.8 %* [+3.6, +30.9] | +19.9 %* [+3.3, +35.3] | +13.4 % [−4.5, +29.0] | +24.5 %* [+10.1, +38.0] | `7d700f7bd02d` / `4d63dddd3335` |
+| main | pure | portfolio | wCVaR β 0.99 − E[U] | E[U] | +20.9 %* [+2.5, +36.0] | +23.1 %* [+3.9, +39.8] | +16.1 % [−6.8, +34.4] | +18.3 % [−0.6, +34.6] | +14.7 % [−7.9, +33.1] | +26.0 %* [+7.8, +42.3] | `7d700f7bd02d` / `08a569620416` |
+| main | CoC r 0.06 | cluster | wCVaR β 0.99 − MSE | E[U] | +0.7 % [−7.9, +11.7] | +3.5 % [−7.0, +16.8] | +0.7 % [−7.9, +11.7] | +3.5 % [−7.0, +16.8] | +0.7 % [−7.9, +11.7] | +0.7 % [−7.9, +11.7] | `a56b270c97e4` / `96457b8a9204` |
+| main | CoC r 0.06 | cluster | wCVaR β 0.99 − E[U] | E[U] | +17.5 %* [+9.4, +25.6] | +20.8 %* [+13.2, +28.0] | +17.5 %* [+9.4, +25.6] | +20.8 %* [+13.2, +28.0] | +17.5 %* [+9.4, +25.6] | +17.5 %* [+9.4, +25.6] | `a56b270c97e4` / `f5d42cdbabde` |
+| main | CoC r 0.06 | portfolio | wCVaR β 0.99 − MSE | E[U] | +0.6 % [−8.1, +11.3] | +1.3 % [−10.6, +16.0] | +0.6 % [−8.1, +11.3] | +1.3 % [−10.6, +16.0] | −0.0 % [−8.5, +10.2] | +1.2 % [−7.8, +12.7] | `a705dea1563a` / `0ada0ff98fb2` |
+| main | CoC r 0.06 | portfolio | wCVaR β 0.99 − E[U] | E[U] | +17.1 %* [+9.1, +24.9] | +17.9 %* [+11.7, +24.1] | +17.1 %* [+9.1, +24.9] | +17.9 %* [+11.7, +24.1] | +16.8 %* [+8.6, +24.7] | +17.3 %* [+9.6, +24.9] | `a705dea1563a` / `e86fd26ac86f` |
+| main | CoC r 0.10 | cluster | wCVaR β 0.99 − MSE | E[U] | +0.4 % [−6.8, +10.3] | +0.2 % [−3.9, +4.7] | +0.4 % [−6.8, +10.3] | +0.2 % [−3.9, +4.7] | +0.4 % [−6.8, +10.3] | +0.4 % [−6.8, +10.3] | `9e2e281aa4b6` / `f514d937ee8b` |
+| main | CoC r 0.10 | cluster | wCVaR β 0.99 − E[U] | E[U] | +14.0 %* [+9.4, +18.5] | +13.7 %* [+3.4, +22.0] | +14.0 %* [+9.4, +18.5] | +13.7 %* [+3.4, +22.0] | +14.0 %* [+9.4, +18.5] | +14.0 %* [+9.4, +18.5] | `9e2e281aa4b6` / `7bcffc295bd3` |
+| main | CoC r 0.10 | portfolio | wCVaR β 0.99 − MSE | E[U] | +0.6 % [−6.9, +11.0] | +2.7 % [−4.6, +12.7] | +0.6 % [−6.9, +11.0] | +2.7 % [−4.6, +12.7] | +0.2 % [−7.1, +10.3] | +1.0 % [−6.8, +11.8] | `120c06502b37` / `b4a513c6f1ab` |
+| main | CoC r 0.10 | portfolio | wCVaR β 0.99 − E[U] | E[U] | +13.7 %* [+9.2, +18.4] | +16.1 %* [+10.7, +20.9] | +13.7 %* [+9.2, +18.4] | +16.1 %* [+10.7, +20.9] | +13.6 %* [+9.0, +18.3] | +13.9 %* [+9.5, +18.4] | `120c06502b37` / `94bbfeba79fe` |
+| reference | pure | cluster | wCVaR β 0.95 − MSE | CVaR₀.₉₅ | −23.0 %* [−41.4, −5.8] | −21.4 %* [−39.8, −4.0] | −23.9 %* [−41.6, −6.9] | −22.2 %* [−40.1, −5.4] | −23.0 %* [−41.4, −5.8] | −23.0 %* [−41.4, −5.8] | `691419c8ea6e` / `d54442e350cc` |
+| reference | pure | cluster | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | −23.0 %* [−41.0, −6.3] | −21.4 %* [−38.8, −5.0] | −22.3 %* [−40.9, −5.3] | −20.7 %* [−39.4, −3.5] | −23.0 %* [−41.0, −6.3] | −23.0 %* [−41.0, −6.3] | `691419c8ea6e` / `e7d6062c6f2e` |
+| reference | pure | portfolio | wCVaR β 0.95 − MSE | CVaR₀.₉₅ | −28.0 %* [−50.5, −7.5] | −28.7 %* [−53.6, −6.6] | −25.7 %* [−48.5, −5.0] | −26.4 %* [−51.3, −3.9] | −31.3 %* [−54.9, −8.6] | −22.4 %* [−43.2, −2.4] | `effe8566488c` / `b3b396a3e817` |
+| reference | pure | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | −27.6 %* [−55.3, −4.0] | −28.4 %* [−58.7, −2.9] | −29.5 %* [−58.6, −3.4] | −30.2 %* [−58.7, −4.1] | −33.4 %* [−63.2, −6.1] | −24.2 %* [−52.6, −0.9] | `effe8566488c` / `1dff61a5f097` |
+| reference | CoC r 0.06 | cluster | wCVaR β 0.95 − MSE | CVaR₀.₉₅ | −0.5 % [−12.4, +16.3] | −0.5 % [−12.4, +16.3] | −0.5 % [−12.4, +16.3] | −0.5 % [−12.4, +16.3] | −0.5 % [−12.4, +16.3] | −0.5 % [−12.4, +16.3] | `365c816e1846` / `c2d84badeb59` |
+| reference | CoC r 0.06 | cluster | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | −20.3 %* [−33.7, −3.1] | −20.3 %* [−33.7, −3.1] | −20.3 %* [−33.7, −3.1] | −20.3 %* [−33.7, −3.1] | −20.3 %* [−33.7, −3.1] | −20.3 %* [−33.7, −3.1] | `365c816e1846` / `036fcac0c6bf` |
+| reference | CoC r 0.06 | portfolio | wCVaR β 0.95 − MSE | CVaR₀.₉₅ | −1.2 % [−13.5, +16.2] | −1.0 % [−13.5, +17.0] | −1.2 % [−13.5, +16.2] | −1.0 % [−13.5, +17.0] | −1.7 % [−13.5, +14.7] | −0.7 % [−13.5, +17.8] | `909ecc5c722e` / `0ca0a44fb462` |
+| reference | CoC r 0.06 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | −20.0 %* [−32.7, −3.1] | −19.8 %* [−32.5, −2.9] | −20.2 %* [−33.0, −3.2] | −20.0 %* [−32.7, −3.1] | −20.4 %* [−33.5, −3.4] | −19.6 %* [−32.3, −2.9] | `909ecc5c722e` / `c69b087130d2` |
+| reference | CoC r 0.10 | cluster | wCVaR β 0.95 − MSE | CVaR₀.₉₅ | −0.7 % [−4.2, +5.0] | −0.7 % [−4.2, +5.0] | −0.7 % [−4.2, +5.0] | −0.7 % [−4.2, +5.0] | −0.7 % [−4.2, +5.0] | −0.7 % [−4.2, +5.0] | `61001be28e26` / `0822a0132856` |
+| reference | CoC r 0.10 | cluster | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | −15.3 %* [−20.6, −3.6] | −15.3 %* [−20.6, −3.6] | −15.3 %* [−20.6, −3.6] | −15.3 %* [−20.6, −3.6] | −15.3 %* [−20.6, −3.6] | −15.3 %* [−20.6, −3.6] | `61001be28e26` / `87ee9059b49b` |
+| reference | CoC r 0.10 | portfolio | wCVaR β 0.95 − MSE | CVaR₀.₉₅ | −0.5 % [−4.6, +4.6] | −0.3 % [−4.6, +5.1] | −0.5 % [−4.6, +4.6] | −0.3 % [−4.6, +5.1] | −0.9 % [−4.6, +3.7] | −0.1 % [−4.6, +5.8] | `a2cb9a2e589f` / `056ca8575b1c` |
+| reference | CoC r 0.10 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | −14.8 %* [−19.9, −2.8] | −14.7 %* [−19.6, −2.4] | −15.0 %* [−20.0, −2.9] | −14.8 %* [−19.8, −2.7] | −15.1 %* [−20.2, −3.0] | −14.6 %* [−19.5, −2.4] | `a2cb9a2e589f` / `26acf8347604` |
+
+## B3. Every within-scope cell whose verdict changes
+
+Relative to the other design's value in that variant. `b_changes.csv` has the absolute values and both hashes.
+
+| Family | Pricing | κ | Scope | Comparison | KPI | Variant | C1 designs | Variant designs |
+|---|---|---|---|---|---|---|---|---|
+| main | CoC r 0.06 | 0.5 | cluster | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | alt / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [+0.0, +0.0] |
+| main | CoC r 0.06 | 0.5 | cluster | wCVaR β 0.95 − E[U] | CVaR₀.₉₉ | alt / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [−0.0, +0.0] |
+| main | CoC r 0.06 | 0.5 | cluster | wCVaR β 0.95 − E[U] | CVaR₀.₉₉₅ | alt / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [−0.0, +0.0] |
+| main | CoC r 0.06 | 0.5 | cluster | wCVaR β 0.95 − E[U] | E[U] | alt / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [−0.0, +0.0] |
+| main | CoC r 0.06 | 0.5 | cluster | wCVaR β 0.995 − E[U] | CVaR₀.₉₉₅ | alt / C1 | −8.7 %* [−17.3, −1.0] | −6.4 % [−20.4, +3.2] |
+| main | CoC r 0.06 | 0.5 | cluster | wCVaR β 0.995 − E[U] | CVaR₀.₉₉₅ | alt / alt | −8.7 %* [−17.3, −1.0] | −6.4 % [−20.4, +3.2] |
+| main | CoC r 0.06 | 0.5 | portfolio | wCVaR β 0.995 − E[U] | CVaR₀.₉₉₅ | alt / C1 | −10.2 %* [−18.8, −2.3] | −4.6 % [−15.8, +2.8] |
+| main | CoC r 0.06 | 0.5 | portfolio | wCVaR β 0.995 − E[U] | CVaR₀.₉₉₅ | alt / alt | −10.2 %* [−18.8, −2.3] | −4.6 % [−15.8, +2.8] |
+| main | CoC r 0.06 | 1 | cluster | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | C1 / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [−0.0, +0.0] |
+| main | CoC r 0.06 | 1 | cluster | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | alt / alt | −0.0 %* [−0.0, −0.0] | −0.0 % [−0.0, +0.0] |
+| main | CoC r 0.06 | 1 | cluster | wCVaR β 0.95 − E[U] | E[U] | C1 / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [−0.0, +0.0] |
+| main | CoC r 0.06 | 1 | cluster | wCVaR β 0.95 − E[U] | E[U] | alt / alt | −0.0 %* [−0.0, −0.0] | −0.0 % [−0.0, +0.0] |
+| main | CoC r 0.06 | 1 | cluster | wCVaR β 0.995 − E[U] | CVaR₀.₉₉₅ | alt / C1 | −18.8 %* [−41.2, −0.2] | −17.5 % [−41.3, +1.0] |
+| main | CoC r 0.06 | 1 | cluster | wCVaR β 0.995 − E[U] | CVaR₀.₉₉₅ | alt / alt | −18.8 %* [−41.2, −0.2] | −17.5 % [−41.3, +1.0] |
+| main | CoC r 0.06 | 1 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉ | alt / alt | −0.0 %* [−0.0, −0.0] | −0.0 % [−0.0, +0.0] |
+| main | CoC r 0.06 | 1 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉₅ | alt / alt | −0.0 %* [−0.0, −0.0] | −0.0 % [−0.0, +0.0] |
+| main | CoC r 0.06 | 1 | portfolio | wCVaR β 0.995 − E[U] | CVaR₀.₉₅ | alt / C1 | +15.4 % [−0.0, +28.8] | +17.2 %* [+3.6, +29.1] |
+| main | CoC r 0.06 | 1 | portfolio | wCVaR β 0.995 − E[U] | CVaR₀.₉₅ | alt / alt | +15.4 % [−0.0, +28.8] | +17.2 %* [+3.6, +29.1] |
+| main | CoC r 0.06 | 1 | portfolio | wCVaR β 0.995 − E[U] | CVaR₀.₉₅ | free high end | +15.4 % [−0.0, +28.8] | +15.9 %* [+0.7, +29.0] |
+| main | CoC r 0.06 | 1 | portfolio | wCVaR β 0.995 − E[U] | E[U] | free low end | +15.6 %* [+0.1, +29.0] | +15.2 % [−0.5, +28.9] |
+| main | CoC r 0.06 | 1.5 | cluster | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | alt / C1 | −0.0 %* [−0.0, −0.0] | +0.0 % [−0.0, +0.0] |
+| main | CoC r 0.06 | 1.5 | cluster | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | alt / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [−0.0, +0.0] |
+| main | CoC r 0.06 | 1.5 | cluster | wCVaR β 0.95 − E[U] | CVaR₀.₉₉ | C1 / alt | −0.0 %* [−0.0, −0.0] | −0.0 % [−0.0, +0.0] |
+| main | CoC r 0.06 | 1.5 | cluster | wCVaR β 0.95 − E[U] | E[U] | alt / C1 | −0.0 %* [−0.0, −0.0] | +0.0 % [−0.0, +0.0] |
+| main | CoC r 0.06 | 1.5 | cluster | wCVaR β 0.95 − E[U] | E[U] | alt / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [−0.0, +0.0] |
+| main | CoC r 0.06 | 1.5 | cluster | wCVaR β 0.97 − E[U] | CVaR₀.₉₅ | alt / C1 | −0.0 %* [−0.0, −0.0] | +0.0 % [−0.0, +0.0] |
+| main | CoC r 0.06 | 1.5 | cluster | wCVaR β 0.97 − E[U] | E[U] | alt / C1 | −0.0 %* [−0.0, −0.0] | +0.0 % [−0.0, +0.0] |
+| main | CoC r 0.06 | 1.5 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | C1 / alt | −0.0 % [−0.0, +0.0] | +0.0 %* [+0.0, +0.0] |
+| main | CoC r 0.06 | 1.5 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉ | alt / alt | −0.0 %* [−0.0, −0.0] | −0.0 % [−0.0, +0.0] |
+| main | CoC r 0.06 | 1.5 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉₅ | alt / alt | −0.0 %* [−0.0, −0.0] | −0.0 % [−0.0, +0.0] |
+| main | CoC r 0.06 | 1.5 | portfolio | wCVaR β 0.95 − E[U] | E[U] | C1 / alt | −0.0 % [−0.0, +0.0] | +0.0 %* [+0.0, +0.0] |
+| main | CoC r 0.06 | 1.5 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₅ | alt / C1 | −0.0 % [−0.0, +0.0] | −0.0 %* [−0.0, −0.0] |
+| main | CoC r 0.06 | 1.5 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₅ | C1 / alt | −0.0 % [−0.0, +0.0] | +0.0 %* [+0.0, +0.0] |
+| main | CoC r 0.06 | 1.5 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉ | alt / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [−0.0, +0.0] |
+| main | CoC r 0.06 | 1.5 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉₅ | alt / alt | −0.0 %* [−0.0, −0.0] | −0.0 % [−0.0, +0.0] |
+| main | CoC r 0.06 | 1.5 | portfolio | wCVaR β 0.97 − E[U] | E[U] | alt / C1 | −0.0 % [−0.0, +0.0] | −0.0 %* [−0.0, −0.0] |
+| main | CoC r 0.06 | 1.5 | portfolio | wCVaR β 0.97 − E[U] | E[U] | C1 / alt | −0.0 % [−0.0, +0.0] | +0.0 %* [+0.0, +0.0] |
+| main | CoC r 0.06 | 1.5 | portfolio | wCVaR β 0.99 − MSE | CVaR₀.₉₉₅ | alt / C1 | +12.1 % [−3.4, +30.8] | +26.1 %* [+0.5, +58.9] |
+| main | CoC r 0.06 | 1.5 | portfolio | wCVaR β 0.99 − MSE | CVaR₀.₉₉₅ | alt / alt | +12.1 % [−3.4, +30.8] | +26.1 %* [+0.5, +58.9] |
+| main | CoC r 0.10 | 0.5 | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₅ | alt / C1 | +8.0 %* [+6.0, +10.0] | +6.0 % [−1.8, +11.4] |
+| main | CoC r 0.10 | 0.5 | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₅ | alt / alt | +8.0 %* [+6.0, +10.0] | +6.0 % [−1.8, +11.4] |
+| main | CoC r 0.10 | 0.5 | cluster | wCVaR β 0.99 − E[U] | E[U] | alt / C1 | +8.2 %* [+6.1, +10.4] | +6.2 % [−1.7, +11.7] |
+| main | CoC r 0.10 | 0.5 | cluster | wCVaR β 0.99 − E[U] | E[U] | alt / alt | +8.2 %* [+6.1, +10.4] | +6.2 % [−1.7, +11.7] |
+| main | CoC r 0.10 | 0.5 | cluster | wCVaR β 0.99 − MSE | CVaR₀.₉₅ | alt / C1 | −0.3 % [−4.9, +7.2] | −2.1 %* [−3.8, −0.5] |
+| main | CoC r 0.10 | 0.5 | cluster | wCVaR β 0.99 − MSE | CVaR₀.₉₅ | alt / alt | −0.3 % [−4.9, +7.2] | −2.1 %* [−3.8, −0.5] |
+| main | CoC r 0.10 | 0.5 | cluster | wCVaR β 0.99 − MSE | CVaR₀.₉₉ | alt / C1 | −0.3 % [−6.2, +9.5] | −2.8 %* [−4.9, −0.6] |
+| main | CoC r 0.10 | 0.5 | cluster | wCVaR β 0.99 − MSE | CVaR₀.₉₉ | alt / alt | −0.3 % [−6.2, +9.5] | −2.8 %* [−4.9, −0.6] |
+| main | CoC r 0.10 | 0.5 | cluster | wCVaR β 0.99 − MSE | CVaR₀.₉₉₅ | alt / C1 | +1.1 % [−6.4, +14.7] | −3.8 %* [−6.2, −0.9] |
+| main | CoC r 0.10 | 0.5 | cluster | wCVaR β 0.99 − MSE | CVaR₀.₉₉₅ | alt / alt | +1.1 % [−6.4, +14.7] | −3.8 %* [−6.2, −0.9] |
+| main | CoC r 0.10 | 0.5 | cluster | wCVaR β 0.99 − MSE | E[U] | alt / C1 | −0.3 % [−4.9, +7.2] | −2.1 %* [−3.8, −0.5] |
+| main | CoC r 0.10 | 0.5 | cluster | wCVaR β 0.99 − MSE | E[U] | alt / alt | −0.3 % [−4.9, +7.2] | −2.1 %* [−3.8, −0.5] |
+| main | CoC r 0.10 | 0.5 | cluster | wCVaR β 0.995 − E[U] | CVaR₀.₉₅ | alt / C1 | +7.9 %* [+4.5, +11.0] | +7.5 % [−0.8, +13.2] |
+| main | CoC r 0.10 | 0.5 | cluster | wCVaR β 0.995 − E[U] | CVaR₀.₉₅ | alt / alt | +7.9 %* [+4.5, +11.0] | +7.5 % [−0.8, +13.2] |
+| main | CoC r 0.10 | 0.5 | cluster | wCVaR β 0.995 − E[U] | CVaR₀.₉₉₅ | alt / C1 | −5.5 %* [−10.4, −1.0] | −6.1 % [−19.0, +2.2] |
+| main | CoC r 0.10 | 0.5 | cluster | wCVaR β 0.995 − E[U] | CVaR₀.₉₉₅ | alt / alt | −5.5 %* [−10.4, −1.0] | −6.1 % [−19.0, +2.2] |
+| main | CoC r 0.10 | 0.5 | cluster | wCVaR β 0.995 − E[U] | E[U] | alt / C1 | +8.1 %* [+4.7, +11.2] | +7.7 % [−0.7, +13.5] |
+| main | CoC r 0.10 | 0.5 | cluster | wCVaR β 0.995 − E[U] | E[U] | alt / alt | +8.1 %* [+4.7, +11.2] | +7.7 % [−0.7, +13.5] |
+| main | CoC r 0.10 | 0.5 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | C1 / alt | −0.0 %* [−0.0, −0.0] | −0.0 % [−0.0, +0.0] |
+| main | CoC r 0.10 | 0.5 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | alt / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [+0.0, +0.0] |
+| main | CoC r 0.10 | 0.5 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉ | alt / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [+0.0, +0.0] |
+| main | CoC r 0.10 | 0.5 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉₅ | alt / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [+0.0, +0.0] |
+| main | CoC r 0.10 | 0.5 | portfolio | wCVaR β 0.95 − E[U] | E[U] | C1 / alt | −0.0 %* [−0.0, −0.0] | −0.0 % [−0.0, +0.0] |
+| main | CoC r 0.10 | 0.5 | portfolio | wCVaR β 0.95 − E[U] | E[U] | alt / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [+0.0, +0.0] |
+| main | CoC r 0.10 | 0.5 | portfolio | wCVaR β 0.995 − E[U] | CVaR₀.₉₉₅ | alt / C1 | −6.2 %* [−11.3, −1.5] | −1.2 % [−9.7, +3.1] |
+| main | CoC r 0.10 | 0.5 | portfolio | wCVaR β 0.995 − E[U] | CVaR₀.₉₉₅ | alt / alt | −6.2 %* [−11.3, −1.5] | −1.2 % [−9.7, +3.1] |
+| main | CoC r 0.10 | 0.5 | portfolio | wCVaR β 0.995 − MSE | CVaR₀.₉₅ | alt / C1 | −0.1 % [−4.6, +6.6] | +2.9 %* [+0.1, +6.8] |
+| main | CoC r 0.10 | 0.5 | portfolio | wCVaR β 0.995 − MSE | CVaR₀.₉₅ | alt / alt | −0.1 % [−4.6, +6.6] | +2.9 %* [+0.1, +6.8] |
+| main | CoC r 0.10 | 0.5 | portfolio | wCVaR β 0.995 − MSE | CVaR₀.₉₉ | alt / C1 | −0.1 % [−5.9, +8.6] | +3.8 %* [+0.1, +8.9] |
+| main | CoC r 0.10 | 0.5 | portfolio | wCVaR β 0.995 − MSE | CVaR₀.₉₉ | alt / alt | −0.1 % [−5.9, +8.6] | +3.8 %* [+0.1, +8.9] |
+| main | CoC r 0.10 | 0.5 | portfolio | wCVaR β 0.995 − MSE | CVaR₀.₉₉₅ | alt / C1 | −0.2 % [−8.0, +12.0] | +5.2 %* [+0.1, +12.1] |
+| main | CoC r 0.10 | 0.5 | portfolio | wCVaR β 0.995 − MSE | CVaR₀.₉₉₅ | alt / alt | −0.2 % [−8.0, +12.0] | +5.2 %* [+0.1, +12.1] |
+| main | CoC r 0.10 | 0.5 | portfolio | wCVaR β 0.995 − MSE | E[U] | alt / C1 | −0.1 % [−4.5, +6.6] | +2.9 %* [+0.1, +6.8] |
+| main | CoC r 0.10 | 0.5 | portfolio | wCVaR β 0.995 − MSE | E[U] | alt / alt | −0.1 % [−4.5, +6.6] | +2.9 %* [+0.1, +6.8] |
+| main | CoC r 0.10 | 1 | cluster | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | C1 / alt | −0.0 %* [−0.0, −0.0] | −0.0 % [−0.0, +0.0] |
+| main | CoC r 0.10 | 1 | cluster | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | alt / alt | −0.0 %* [−0.0, −0.0] | −0.0 % [−0.0, +0.0] |
+| main | CoC r 0.10 | 1 | cluster | wCVaR β 0.95 − E[U] | CVaR₀.₉₉ | alt / alt | −0.0 %* [−0.0, −0.0] | −0.0 % [−0.0, +0.0] |
+| main | CoC r 0.10 | 1 | cluster | wCVaR β 0.95 − E[U] | CVaR₀.₉₉₅ | alt / alt | −0.0 %* [−0.0, −0.0] | −0.0 % [−0.0, +0.0] |
+| main | CoC r 0.10 | 1 | cluster | wCVaR β 0.95 − E[U] | E[U] | C1 / alt | −0.0 %* [−0.0, −0.0] | −0.0 % [−0.0, +0.0] |
+| main | CoC r 0.10 | 1 | cluster | wCVaR β 0.95 − E[U] | E[U] | alt / alt | −0.0 %* [−0.0, −0.0] | −0.0 % [−0.0, +0.0] |
+| main | CoC r 0.10 | 1 | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₉₅ | alt / C1 | −8.0 %* [−11.3, −3.5] | −10.6 % [−24.8, +0.2] |
+| main | CoC r 0.10 | 1 | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₉₅ | alt / alt | −8.0 %* [−11.3, −3.5] | −10.6 % [−24.8, +0.2] |
+| main | CoC r 0.10 | 1 | cluster | wCVaR β 0.995 − E[U] | CVaR₀.₉₉₅ | alt / C1 | −10.8 %* [−22.7, −0.4] | −10.2 % [−28.3, +3.2] |
+| main | CoC r 0.10 | 1 | cluster | wCVaR β 0.995 − E[U] | CVaR₀.₉₉₅ | alt / alt | −10.8 %* [−22.7, −0.4] | −10.2 % [−28.3, +3.2] |
+| main | CoC r 0.10 | 1 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | C1 / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [−0.0, +0.0] |
+| main | CoC r 0.10 | 1 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | alt / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [−0.0, +0.0] |
+| main | CoC r 0.10 | 1 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉ | alt / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [+0.0, +0.0] |
+| main | CoC r 0.10 | 1 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉₅ | alt / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [+0.0, +0.0] |
+| main | CoC r 0.10 | 1 | portfolio | wCVaR β 0.95 − E[U] | E[U] | C1 / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [−0.0, +0.0] |
+| main | CoC r 0.10 | 1 | portfolio | wCVaR β 0.95 − E[U] | E[U] | alt / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [−0.0, +0.0] |
+| main | CoC r 0.10 | 1 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₅ | alt / C1 | −0.0 % [−0.0, +0.0] | −0.0 %* [−0.0, −0.0] |
+| main | CoC r 0.10 | 1 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉ | alt / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [+0.0, +0.0] |
+| main | CoC r 0.10 | 1 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉₅ | alt / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [+0.0, +0.0] |
+| main | CoC r 0.10 | 1 | portfolio | wCVaR β 0.97 − E[U] | E[U] | alt / C1 | −0.0 % [−0.0, +0.0] | −0.0 %* [−0.0, −0.0] |
+| main | CoC r 0.10 | 1 | portfolio | wCVaR β 0.99 − E[U] | CVaR₀.₉₉₅ | alt / C1 | −7.8 %* [−11.8, −3.2] | −5.3 % [−10.7, +0.3] |
+| main | CoC r 0.10 | 1 | portfolio | wCVaR β 0.99 − E[U] | CVaR₀.₉₉₅ | alt / alt | −7.8 %* [−11.8, −3.2] | −5.3 % [−10.7, +0.3] |
+| main | CoC r 0.10 | 1 | portfolio | wCVaR β 0.995 − E[U] | CVaR₀.₉₉₅ | alt / C1 | −12.7 %* [−24.3, −2.3] | −7.8 % [−20.2, +1.6] |
+| main | CoC r 0.10 | 1 | portfolio | wCVaR β 0.995 − E[U] | CVaR₀.₉₉₅ | alt / alt | −12.7 %* [−24.3, −2.3] | −7.8 % [−20.2, +1.6] |
+| main | CoC r 0.10 | 1.5 | cluster | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | alt / C1 | +0.0 % [−0.0, +0.0] | −0.0 %* [−0.0, −0.0] |
+| main | CoC r 0.10 | 1.5 | cluster | wCVaR β 0.95 − E[U] | CVaR₀.₉₉ | alt / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [+0.0, +0.0] |
+| main | CoC r 0.10 | 1.5 | cluster | wCVaR β 0.95 − E[U] | CVaR₀.₉₉₅ | alt / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [+0.0, +0.0] |
+| main | CoC r 0.10 | 1.5 | cluster | wCVaR β 0.95 − E[U] | E[U] | alt / C1 | +0.0 % [−0.0, +0.0] | −0.0 %* [−0.0, −0.0] |
+| main | CoC r 0.10 | 1.5 | cluster | wCVaR β 0.97 − E[U] | CVaR₀.₉₉ | alt / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [+0.0, +0.0] |
+| main | CoC r 0.10 | 1.5 | cluster | wCVaR β 0.97 − E[U] | CVaR₀.₉₉₅ | alt / alt | −0.0 %* [−0.0, −0.0] | +0.0 % [+0.0, +0.0] |
+| main | CoC r 0.10 | 1.5 | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₉₅ | alt / C1 | −12.9 %* [−20.2, −4.9] | −11.4 % [−30.0, +2.7] |
+| main | CoC r 0.10 | 1.5 | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₉₅ | alt / alt | −12.9 %* [−20.2, −4.9] | −11.4 % [−30.0, +2.7] |
+| main | CoC r 0.10 | 1.5 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | C1 / alt | +0.0 % [−0.0, +0.0] | −0.0 %* [−0.0, −0.0] |
+| main | CoC r 0.10 | 1.5 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | alt / alt | +0.0 % [−0.0, +0.0] | +0.0 %* [+0.0, +0.0] |
+| main | CoC r 0.10 | 1.5 | portfolio | wCVaR β 0.95 − E[U] | E[U] | C1 / alt | +0.0 % [−0.0, +0.0] | −0.0 %* [−0.0, −0.0] |
+| main | CoC r 0.10 | 1.5 | portfolio | wCVaR β 0.95 − E[U] | E[U] | alt / alt | +0.0 % [−0.0, +0.0] | +0.0 %* [+0.0, +0.0] |
+| main | CoC r 0.10 | 1.5 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₅ | alt / alt | +0.0 % [−0.0, +0.0] | +0.0 %* [+0.0, +0.0] |
+| main | CoC r 0.10 | 1.5 | portfolio | wCVaR β 0.97 − E[U] | E[U] | alt / alt | +0.0 % [−0.0, +0.0] | +0.0 %* [+0.0, +0.0] |
+| main | pure | 0.5 | cluster | wCVaR β 0.95 − E[U] | CVaR₀.₉₉ | alt / C1 | +0.1 % [−1.2, +1.3] | +46.7 %* [+6.8, +93.8] |
+| main | pure | 0.5 | cluster | wCVaR β 0.95 − E[U] | CVaR₀.₉₉ | C1 / alt | +0.1 % [−0.8, +0.8] | −36.5 %* [−72.4, −5.2] |
+| main | pure | 0.5 | cluster | wCVaR β 0.95 − E[U] | CVaR₀.₉₉₅ | alt / C1 | +0.6 % [−1.3, +2.0] | +92.8 %* [+32.8, +159.8] |
+| main | pure | 0.5 | cluster | wCVaR β 0.95 − E[U] | CVaR₀.₉₉₅ | C1 / alt | +0.3 % [−0.6, +0.9] | −53.7 %* [−89.1, −20.1] |
+| main | pure | 0.5 | cluster | wCVaR β 0.95 − E[U] | CVaR₀.₉₉₅ | alt / alt | +0.3 % [−0.6, +0.9] | −11.3 %* [−17.7, −3.8] |
+| main | pure | 0.5 | cluster | wCVaR β 0.95 − MSE | CVaR₀.₉₉ | alt / C1 | −1.1 % [−5.4, +5.3] | +45.0 %* [+1.1, +98.9] |
+| main | pure | 0.5 | cluster | wCVaR β 0.95 − MSE | CVaR₀.₉₉ | alt / alt | −1.1 % [−5.4, +5.3] | +44.3 %* [+0.8, +97.5] |
+| main | pure | 0.5 | cluster | wCVaR β 0.95 − MSE | CVaR₀.₉₉₅ | alt / C1 | +3.5 % [−3.5, +12.0] | +98.3 %* [+30.3, +175.2] |
+| main | pure | 0.5 | cluster | wCVaR β 0.95 − MSE | CVaR₀.₉₉₅ | alt / alt | +3.5 % [−3.5, +11.9] | +96.9 %* [+29.7, +172.7] |
+| main | pure | 0.5 | cluster | wCVaR β 0.97 − E[U] | CVaR₀.₉₉ | alt / C1 | +0.0 % [−1.4, +1.4] | +39.2 %* [+2.0, +83.9] |
+| main | pure | 0.5 | cluster | wCVaR β 0.97 − E[U] | CVaR₀.₉₉ | C1 / alt | +0.0 % [−0.9, +0.9] | −36.5 %* [−72.4, −5.3] |
+| main | pure | 0.5 | cluster | wCVaR β 0.97 − E[U] | CVaR₀.₉₉ | alt / alt | +0.0 % [−0.9, +0.9] | −11.7 %* [−21.0, −2.9] |
+| main | pure | 0.5 | cluster | wCVaR β 0.97 − E[U] | CVaR₀.₉₉₅ | alt / C1 | +0.7 % [−1.3, +2.3] | +82.0 %* [+23.9, +147.4] |
+| main | pure | 0.5 | cluster | wCVaR β 0.97 − E[U] | CVaR₀.₉₉₅ | C1 / alt | +0.3 % [−0.6, +1.0] | −53.7 %* [−89.1, −20.2] |
+| main | pure | 0.5 | cluster | wCVaR β 0.97 − E[U] | CVaR₀.₉₉₅ | alt / alt | +0.3 % [−0.6, +1.0] | −16.3 %* [−22.9, −7.3] |
+| main | pure | 0.5 | cluster | wCVaR β 0.97 − MSE | CVaR₀.₉₉₅ | alt / C1 | +3.6 % [−3.5, +12.3] | +87.2 %* [+21.2, +162.8] |
+| main | pure | 0.5 | cluster | wCVaR β 0.97 − MSE | CVaR₀.₉₉₅ | alt / alt | +3.6 % [−3.5, +12.2] | +85.9 %* [+21.0, +160.3] |
+| main | pure | 0.5 | cluster | wCVaR β 0.98 − E[U] | CVaR₀.₉₉ | C1 / alt | +0.1 % [−1.5, +1.7] | −36.5 %* [−71.8, −5.8] |
+| main | pure | 0.5 | cluster | wCVaR β 0.98 − E[U] | CVaR₀.₉₉ | alt / alt | +0.1 % [−1.5, +1.7] | −29.9 %* [−53.8, −9.9] |
+| main | pure | 0.5 | cluster | wCVaR β 0.98 − E[U] | CVaR₀.₉₉₅ | alt / C1 | +2.1 % [−1.3, +5.0] | +29.8 %* [+1.7, +62.0] |
+| main | pure | 0.5 | cluster | wCVaR β 0.98 − E[U] | CVaR₀.₉₉₅ | C1 / alt | +1.0 % [−0.6, +2.3] | −53.1 %* [−88.1, −20.1] |
+| main | pure | 0.5 | cluster | wCVaR β 0.98 − E[U] | CVaR₀.₉₉₅ | alt / alt | +1.0 % [−0.6, +2.3] | −40.3 %* [−60.6, −19.0] |
+| main | pure | 0.5 | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₉ | C1 / alt | +1.7 % [−0.6, +4.0] | −34.9 %* [−70.7, −3.8] |
+| main | pure | 0.5 | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₉ | alt / alt | +1.7 % [−0.6, +4.0] | −35.5 %* [−71.8, −4.4] |
+| main | pure | 0.5 | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₉₅ | C1 / alt | +1.6 % [−0.7, +3.7] | −52.4 %* [−88.2, −19.1] |
+| main | pure | 0.5 | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₉₅ | alt / alt | +1.6 % [−0.7, +3.7] | −52.9 %* [−87.7, −19.6] |
+| main | pure | 0.5 | cluster | wCVaR β 0.995 − E[U] | CVaR₀.₉₉ | C1 / alt | +1.2 % [−2.3, +3.9] | −35.3 %* [−73.7, −2.4] |
+| main | pure | 0.5 | cluster | wCVaR β 0.995 − E[U] | CVaR₀.₉₉ | alt / alt | +1.2 % [−2.3, +3.9] | −35.7 %* [−74.4, −2.7] |
+| main | pure | 0.5 | cluster | wCVaR β 0.995 − E[U] | CVaR₀.₉₉₅ | C1 / alt | −0.8 % [−4.3, +1.9] | −54.8 %* [−93.0, −19.3] |
+| main | pure | 0.5 | cluster | wCVaR β 0.995 − E[U] | CVaR₀.₉₉₅ | alt / alt | −0.8 % [−4.3, +1.9] | −55.1 %* [−92.7, −19.5] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉ | alt / alt | −1.4 %* [−2.4, −0.2] | −15.8 % [−43.7, +6.4] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉ | free high end | −2.2 %* [−3.7, −0.3] | −0.4 % [−3.0, +3.1] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉₅ | alt / C1 | −1.3 % [−3.2, +0.7] | +54.5 %* [+24.1, +78.1] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉₅ | C1 / alt | −0.6 % [−1.5, +0.4] | −52.5 %* [−89.3, −20.4] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉₅ | free low end | −1.3 % [−3.1, +0.7] | −3.5 %* [−6.4, −0.8] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.95 − MSE | CVaR₀.₉₉ | alt / C1 | −0.8 % [−6.6, +6.2] | +30.1 %* [+5.2, +54.3] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.95 − MSE | CVaR₀.₉₉ | alt / alt | −0.8 % [−6.6, +6.3] | +30.2 %* [+4.9, +55.0] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.95 − MSE | CVaR₀.₉₉₅ | alt / C1 | +2.9 % [−5.6, +13.0] | +61.1 %* [+26.4, +88.5] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.95 − MSE | CVaR₀.₉₉₅ | alt / alt | +2.9 % [−5.5, +13.0] | +61.0 %* [+25.6, +88.7] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉ | alt / alt | −1.6 %* [−2.7, −0.2] | −18.0 % [−46.5, +4.1] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉ | free high end | −2.5 %* [−4.1, −0.3] | −0.7 % [−3.4, +3.2] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉₅ | alt / C1 | −1.4 % [−3.4, +0.9] | +51.3 %* [+21.6, +75.6] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉₅ | C1 / alt | −0.7 % [−1.6, +0.4] | −52.5 %* [−89.1, −20.4] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉₅ | alt / alt | −0.7 % [−1.6, +0.4] | −27.2 %* [−59.8, −1.3] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉₅ | free low end | −1.4 % [−3.3, +0.9] | −3.6 %* [−6.5, −0.7] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.97 − MSE | CVaR₀.₉₉ | alt / C1 | −1.0 % [−7.0, +6.0] | +26.7 %* [+2.5, +51.9] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.97 − MSE | CVaR₀.₉₉ | alt / alt | −1.0 % [−7.0, +6.1] | +26.8 %* [+2.3, +52.4] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.97 − MSE | CVaR₀.₉₉₅ | alt / C1 | +2.8 % [−5.8, +12.8] | +57.7 %* [+24.1, +85.5] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.97 − MSE | CVaR₀.₉₉₅ | alt / alt | +2.8 % [−5.8, +12.8] | +57.6 %* [+23.3, +85.8] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.98 − E[U] | CVaR₀.₉₉ | C1 / alt | −2.0 % [−4.0, +0.6] | −36.3 %* [−71.9, −6.9] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.98 − E[U] | CVaR₀.₉₉ | alt / alt | −2.0 % [−4.0, +0.6] | −27.0 %* [−56.4, −4.5] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.98 − E[U] | CVaR₀.₉₉ | free low end | −3.0 % [−6.0, +0.9] | −4.9 %* [−7.6, −1.3] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.98 − E[U] | CVaR₀.₉₉₅ | alt / C1 | −0.3 % [−4.6, +4.2] | +35.1 %* [+6.0, +63.5] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.98 − E[U] | CVaR₀.₉₉₅ | C1 / alt | −0.2 % [−2.2, +2.0] | −52.0 %* [−87.9, −20.3] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.98 − E[U] | CVaR₀.₉₉₅ | alt / alt | −0.2 % [−2.2, +2.0] | −34.9 %* [−66.7, −10.6] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.98 − MSE | CVaR₀.₉₉₅ | alt / C1 | +3.9 % [−6.4, +15.2] | +40.8 %* [+7.2, +72.9] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.98 − MSE | CVaR₀.₉₉₅ | alt / alt | +3.9 % [−6.4, +15.2] | +40.8 %* [+7.1, +72.6] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.99 − E[U] | CVaR₀.₉₉ | free high end | −4.5 %* [−7.6, −0.5] | −3.0 % [−6.4, +1.2] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.99 − E[U] | CVaR₀.₉₉₅ | alt / C1 | −3.6 % [−7.4, +0.4] | −3.6 %* [−6.9, −0.0] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.99 − E[U] | CVaR₀.₉₉₅ | C1 / alt | −1.8 % [−3.6, +0.2] | −53.6 %* [−90.9, −20.3] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.99 − E[U] | CVaR₀.₉₉₅ | alt / alt | −1.8 % [−3.6, +0.2] | −53.6 %* [−90.8, −20.7] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.99 − E[U] | CVaR₀.₉₉₅ | free low end | −3.6 % [−7.4, +0.4] | −5.6 %* [−10.6, −0.6] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.995 − E[U] | CVaR₀.₉₉ | C1 / alt | −2.8 % [−6.4, +0.8] | −37.2 %* [−76.0, −4.3] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.995 − E[U] | CVaR₀.₉₉ | alt / alt | −2.8 % [−6.4, +0.8] | −36.6 %* [−75.0, −3.7] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.995 − E[U] | CVaR₀.₉₉₅ | C1 / alt | −3.2 % [−6.9, +0.1] | −55.1 %* [−95.5, −19.2] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.995 − E[U] | CVaR₀.₉₉₅ | alt / alt | −3.2 % [−6.9, +0.1] | −54.7 %* [−95.2, −19.1] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.995 − E[U] | CVaR₀.₉₉₅ | free low end | −6.7 % [−14.1, +0.1] | −8.6 %* [−17.8, −0.4] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.995 − MSE | CVaR₀.₉₅ | alt / C1 | −2.4 %* [−4.1, −0.6] | −1.5 % [−3.5, +0.5] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.995 − MSE | CVaR₀.₉₅ | alt / alt | −2.4 %* [−4.1, −0.6] | −1.3 % [−3.8, +1.4] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.995 − MSE | CVaR₀.₉₅ | free high end | −2.4 %* [−4.2, −0.6] | −0.0 % [−2.7, +3.6] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.995 − MSE | CVaR₀.₉₉ | alt / C1 | −3.0 %* [−5.1, −0.6] | −2.1 % [−4.7, +0.9] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.995 − MSE | CVaR₀.₉₉ | alt / alt | −3.0 %* [−5.1, −0.6] | −2.1 % [−5.3, +1.8] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.995 − MSE | CVaR₀.₉₉ | free high end | −3.0 %* [−5.1, −0.6] | −0.6 % [−3.6, +3.4] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.995 − MSE | CVaR₀.₉₉₅ | C1 / alt | −2.8 % [−5.4, +0.3] | −2.8 %* [−5.3, −0.0] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.995 − MSE | CVaR₀.₉₉₅ | free low end | −2.8 % [−5.4, +0.3] | −4.3 %* [−7.7, −1.1] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.995 − MSE | E[U] | alt / C1 | −2.4 %* [−4.1, −0.6] | −1.5 % [−3.5, +0.5] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.995 − MSE | E[U] | alt / alt | −2.4 %* [−4.1, −0.6] | −1.3 % [−3.8, +1.4] |
+| main | pure | 0.5 | portfolio | wCVaR β 0.995 − MSE | E[U] | free high end | −2.4 %* [−4.2, −0.6] | −0.0 % [−2.7, +3.6] |
+| main | pure | 1 | cluster | wCVaR β 0.98 − E[U] | CVaR₀.₉₅ | alt / C1 | +2.7 %* [+0.9, +4.1] | +2.3 % [−0.4, +4.7] |
+| main | pure | 1 | cluster | wCVaR β 0.98 − E[U] | CVaR₀.₉₉ | C1 / alt | −2.0 %* [−3.6, −0.5] | −1.5 % [−3.8, +1.3] |
+| main | pure | 1 | cluster | wCVaR β 0.98 − E[U] | CVaR₀.₉₉₅ | C1 / alt | −2.4 %* [−3.4, −1.2] | −1.8 % [−4.0, +1.1] |
+| main | pure | 1 | cluster | wCVaR β 0.98 − E[U] | E[U] | alt / C1 | +2.7 %* [+0.9, +4.2] | +2.3 % [−0.4, +4.7] |
+| main | pure | 1 | cluster | wCVaR β 0.98 − MSE | CVaR₀.₉₉₅ | C1 / alt | −2.7 % [−9.4, +5.4] | −5.4 %* [−10.5, −0.2] |
+| main | pure | 1 | cluster | wCVaR β 0.98 − MSE | CVaR₀.₉₉₅ | alt / alt | −2.7 % [−9.4, +5.4] | −5.8 %* [−10.9, −0.3] |
+| main | pure | 1 | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₉ | alt / C1 | −11.8 %* [−23.2, −1.3] | −9.7 % [−22.6, +2.4] |
+| main | pure | 1 | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₉ | alt / alt | −11.9 %* [−23.4, −1.3] | −9.2 % [−21.2, +1.9] |
+| main | pure | 1 | cluster | wCVaR β 0.99 − MSE | CVaR₀.₉₉ | alt / C1 | −11.9 %* [−24.3, −0.3] | −9.8 % [−23.4, +4.0] |
+| main | pure | 1 | cluster | wCVaR β 0.99 − MSE | CVaR₀.₉₉ | alt / alt | −11.6 %* [−23.7, −0.3] | −12.2 % [−26.5, +1.5] |
+| main | pure | 1 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | alt / C1 | −0.2 %* [−0.3, −0.0] | +4.6 % [−4.8, +15.7] |
+| main | pure | 1 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | C1 / alt | −0.2 %* [−0.3, −0.0] | −4.8 % [−15.7, +4.3] |
+| main | pure | 1 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | alt / alt | −0.2 %* [−0.3, −0.0] | −0.2 % [−1.1, +0.6] |
+| main | pure | 1 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | free high end | −0.2 %* [−0.4, −0.0] | +6.9 % [−0.2, +21.0] |
+| main | pure | 1 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉ | alt / C1 | −0.2 %* [−0.3, −0.0] | +4.7 % [−5.0, +16.3] |
+| main | pure | 1 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉ | C1 / alt | −0.2 %* [−0.3, −0.0] | −4.9 % [−16.2, +4.5] |
+| main | pure | 1 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉ | alt / alt | −0.2 %* [−0.3, −0.0] | −0.2 % [−1.1, +0.6] |
+| main | pure | 1 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉ | free high end | −0.2 %* [−0.3, −0.0] | +7.1 % [−0.2, +21.6] |
+| main | pure | 1 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉₅ | alt / C1 | −0.2 %* [−0.4, −0.0] | +5.0 % [−5.3, +17.4] |
+| main | pure | 1 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉₅ | C1 / alt | −0.2 %* [−0.3, −0.0] | −5.2 % [−16.9, +4.9] |
+| main | pure | 1 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉₅ | alt / alt | −0.2 %* [−0.3, −0.0] | −0.2 % [−1.1, +0.7] |
+| main | pure | 1 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉₅ | free high end | −0.2 %* [−0.4, −0.0] | +7.5 % [−0.3, +22.4] |
+| main | pure | 1 | portfolio | wCVaR β 0.95 − E[U] | E[U] | alt / C1 | −0.2 %* [−0.3, −0.0] | +4.6 % [−4.8, +15.7] |
+| main | pure | 1 | portfolio | wCVaR β 0.95 − E[U] | E[U] | C1 / alt | −0.2 %* [−0.3, −0.0] | −4.8 % [−15.7, +4.3] |
+| main | pure | 1 | portfolio | wCVaR β 0.95 − E[U] | E[U] | alt / alt | −0.2 %* [−0.3, −0.0] | −0.2 % [−1.1, +0.6] |
+| main | pure | 1 | portfolio | wCVaR β 0.95 − E[U] | E[U] | free high end | −0.2 %* [−0.4, −0.0] | +6.9 % [−0.2, +21.0] |
+| main | pure | 1 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉ | alt / C1 | −0.4 %* [−0.7, −0.0] | +4.5 % [−5.5, +16.5] |
+| main | pure | 1 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉ | C1 / alt | −0.3 %* [−0.7, −0.0] | −5.1 % [−16.4, +4.5] |
+| main | pure | 1 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉ | alt / alt | −0.3 %* [−0.7, −0.0] | −0.4 % [−1.5, +0.6] |
+| main | pure | 1 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉ | free high end | −0.4 %* [−0.7, −0.0] | +7.0 % [−0.5, +21.3] |
+| main | pure | 1 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉₅ | alt / C1 | −0.4 %* [−0.8, −0.1] | +4.8 % [−5.7, +17.4] |
+| main | pure | 1 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉₅ | C1 / alt | −0.4 %* [−0.7, −0.1] | −5.4 % [−17.3, +4.7] |
+| main | pure | 1 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉₅ | alt / alt | −0.4 %* [−0.7, −0.1] | −0.5 % [−1.5, +0.6] |
+| main | pure | 1 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉₅ | free high end | −0.4 %* [−0.8, −0.1] | +7.3 % [−0.6, +22.0] |
+| main | pure | 1 | portfolio | wCVaR β 0.98 − E[U] | CVaR₀.₉₉ | alt / C1 | −9.3 %* [−18.3, −2.1] | −5.0 % [−18.1, +9.2] |
+| main | pure | 1 | portfolio | wCVaR β 0.98 − E[U] | CVaR₀.₉₉ | free high end | −9.5 %* [−18.7, −2.1] | −2.3 % [−14.5, +11.7] |
+| main | pure | 1 | portfolio | wCVaR β 0.98 − E[U] | CVaR₀.₉₉₅ | alt / C1 | −11.2 %* [−20.6, −3.4] | −6.6 % [−20.4, +8.7] |
+| main | pure | 1 | portfolio | wCVaR β 0.98 − E[U] | CVaR₀.₉₉₅ | free high end | −11.5 %* [−21.0, −3.5] | −3.9 % [−16.3, +10.9] |
+| main | pure | 1 | portfolio | wCVaR β 0.98 − MSE | CVaR₀.₉₉ | alt / C1 | −8.8 %* [−16.3, −1.3] | −4.4 % [−15.5, +8.0] |
+| main | pure | 1 | portfolio | wCVaR β 0.98 − MSE | CVaR₀.₉₉ | alt / alt | −8.6 %* [−16.1, −1.3] | −5.6 % [−19.0, +9.5] |
+| main | pure | 1 | portfolio | wCVaR β 0.98 − MSE | CVaR₀.₉₉ | free high end | −9.0 %* [−16.7, −1.3] | −1.4 % [−13.4, +12.9] |
+| main | pure | 1 | portfolio | wCVaR β 0.98 − MSE | CVaR₀.₉₉₅ | alt / C1 | −9.2 %* [−16.7, −1.5] | −4.4 % [−15.9, +8.9] |
+| main | pure | 1 | portfolio | wCVaR β 0.98 − MSE | CVaR₀.₉₉₅ | alt / alt | −9.1 %* [−16.5, −1.4] | −5.6 % [−19.3, +10.2] |
+| main | pure | 1 | portfolio | wCVaR β 0.98 − MSE | CVaR₀.₉₉₅ | free high end | −9.4 %* [−17.1, −1.5] | −1.3 % [−13.8, +13.9] |
+| main | pure | 1 | portfolio | wCVaR β 0.99 − E[U] | CVaR₀.₉₅ | C1 / alt | +19.7 %* [+2.1, +33.8] | +15.1 % [−6.5, +32.3] |
+| main | pure | 1 | portfolio | wCVaR β 0.99 − E[U] | CVaR₀.₉₅ | alt / alt | +19.7 %* [+2.1, +33.8] | +17.2 % [−0.9, +32.6] |
+| main | pure | 1 | portfolio | wCVaR β 0.99 − E[U] | CVaR₀.₉₅ | free low end | +19.7 %* [+2.1, +33.8] | +13.7 % [−7.8, +31.0] |
+| main | pure | 1 | portfolio | wCVaR β 0.99 − E[U] | CVaR₀.₉₉ | C1 / alt | −13.8 % [−31.9, +0.8] | −18.5 %* [−40.7, −0.9] |
+| main | pure | 1 | portfolio | wCVaR β 0.99 − E[U] | CVaR₀.₉₉ | alt / alt | −13.8 % [−31.9, +0.8] | −16.4 %* [−35.6, −0.8] |
+| main | pure | 1 | portfolio | wCVaR β 0.99 − E[U] | CVaR₀.₉₉ | free low end | −13.8 % [−31.9, +0.8] | −19.9 %* [−41.8, −1.5] |
+| main | pure | 1 | portfolio | wCVaR β 0.99 − E[U] | E[U] | C1 / alt | +20.0 %* [+2.4, +34.3] | +15.4 % [−6.5, +32.8] |
+| main | pure | 1 | portfolio | wCVaR β 0.99 − E[U] | E[U] | alt / alt | +20.0 %* [+2.4, +34.3] | +17.4 % [−0.5, +33.0] |
+| main | pure | 1 | portfolio | wCVaR β 0.99 − E[U] | E[U] | free low end | +20.0 %* [+2.4, +34.3] | +14.0 % [−7.6, +31.6] |
+| main | pure | 1 | portfolio | wCVaR β 0.99 − MSE | CVaR₀.₉₅ | free low end | +18.1 %* [+5.1, +29.7] | +12.6 % [−4.3, +27.5] |
+| main | pure | 1 | portfolio | wCVaR β 0.99 − MSE | CVaR₀.₉₉ | alt / C1 | −14.0 %* [−26.2, −2.1] | −11.8 % [−25.7, +1.9] |
+| main | pure | 1 | portfolio | wCVaR β 0.99 − MSE | CVaR₀.₉₉ | alt / alt | −13.8 %* [−25.8, −2.1] | −12.8 % [−29.5, +2.2] |
+| main | pure | 1 | portfolio | wCVaR β 0.99 − MSE | CVaR₀.₉₉ | free high end | −14.3 %* [−26.8, −2.2] | −8.7 % [−22.0, +5.0] |
+| main | pure | 1 | portfolio | wCVaR β 0.99 − MSE | E[U] | free low end | +18.3 %* [+5.3, +30.4] | +12.8 % [−4.3, +27.8] |
+| main | pure | 1.5 | cluster | wCVaR β 0.97 − E[U] | CVaR₀.₉₅ | alt / C1 | −17.1 %* [−33.7, −4.7] | −40.5 % [−138.4, +50.6] |
+| main | pure | 1.5 | cluster | wCVaR β 0.97 − E[U] | CVaR₀.₉₅ | C1 / alt | −29.0 %* [−57.1, −8.0] | +40.6 % [−100.6, +189.3] |
+| main | pure | 1.5 | cluster | wCVaR β 0.97 − E[U] | CVaR₀.₉₅ | alt / alt | −29.0 %* [−57.1, −8.0] | +0.9 % [−0.0, +2.1] |
+| main | pure | 1.5 | cluster | wCVaR β 0.97 − E[U] | CVaR₀.₉₉ | alt / C1 | −17.1 %* [−33.7, −4.7] | −40.5 % [−138.4, +50.6] |
+| main | pure | 1.5 | cluster | wCVaR β 0.97 − E[U] | CVaR₀.₉₉ | C1 / alt | −29.0 %* [−57.1, −8.0] | +40.6 % [−100.6, +189.3] |
+| main | pure | 1.5 | cluster | wCVaR β 0.97 − E[U] | CVaR₀.₉₉ | alt / alt | −29.0 %* [−57.1, −8.0] | +0.9 % [−0.0, +2.1] |
+| main | pure | 1.5 | cluster | wCVaR β 0.97 − E[U] | CVaR₀.₉₉₅ | alt / C1 | −17.1 %* [−33.7, −4.7] | −40.5 % [−138.4, +50.6] |
+| main | pure | 1.5 | cluster | wCVaR β 0.97 − E[U] | CVaR₀.₉₉₅ | C1 / alt | −29.0 %* [−57.1, −8.0] | +40.6 % [−100.6, +189.3] |
+| main | pure | 1.5 | cluster | wCVaR β 0.97 − E[U] | CVaR₀.₉₉₅ | alt / alt | −29.0 %* [−57.1, −8.0] | +0.9 % [−0.0, +2.1] |
+| main | pure | 1.5 | cluster | wCVaR β 0.97 − E[U] | E[U] | alt / C1 | −17.1 %* [−33.7, −4.7] | −40.5 % [−138.4, +50.6] |
+| main | pure | 1.5 | cluster | wCVaR β 0.97 − E[U] | E[U] | C1 / alt | −29.0 %* [−57.1, −8.0] | +40.6 % [−100.6, +189.3] |
+| main | pure | 1.5 | cluster | wCVaR β 0.97 − E[U] | E[U] | alt / alt | −29.0 %* [−57.1, −8.0] | +0.9 % [−0.0, +2.1] |
+| main | pure | 1.5 | cluster | wCVaR β 0.98 − E[U] | CVaR₀.₉₅ | alt / C1 | −21.1 %* [−45.6, −2.0] | −40.5 % [−138.4, +50.6] |
+| main | pure | 1.5 | cluster | wCVaR β 0.98 − E[U] | CVaR₀.₉₅ | C1 / alt | −35.8 %* [−77.2, −3.3] | +33.8 % [−103.1, +172.2] |
+| main | pure | 1.5 | cluster | wCVaR β 0.98 − E[U] | CVaR₀.₉₅ | alt / alt | −35.8 %* [−77.2, −3.3] | +0.9 % [−0.0, +2.1] |
+| main | pure | 1.5 | cluster | wCVaR β 0.98 − E[U] | CVaR₀.₉₉ | alt / C1 | −21.1 %* [−45.6, −2.0] | −40.5 % [−138.4, +50.6] |
+| main | pure | 1.5 | cluster | wCVaR β 0.98 − E[U] | CVaR₀.₉₉ | C1 / alt | −35.8 %* [−77.2, −3.3] | +33.8 % [−103.1, +172.2] |
+| main | pure | 1.5 | cluster | wCVaR β 0.98 − E[U] | CVaR₀.₉₉ | alt / alt | −35.8 %* [−77.2, −3.3] | +0.9 % [−0.0, +2.1] |
+| main | pure | 1.5 | cluster | wCVaR β 0.98 − E[U] | CVaR₀.₉₉₅ | alt / C1 | −21.1 %* [−45.6, −2.0] | −40.5 % [−138.4, +50.6] |
+| main | pure | 1.5 | cluster | wCVaR β 0.98 − E[U] | CVaR₀.₉₉₅ | C1 / alt | −35.8 %* [−77.2, −3.3] | +33.8 % [−103.1, +172.2] |
+| main | pure | 1.5 | cluster | wCVaR β 0.98 − E[U] | CVaR₀.₉₉₅ | alt / alt | −35.8 %* [−77.2, −3.3] | +0.9 % [−0.0, +2.1] |
+| main | pure | 1.5 | cluster | wCVaR β 0.98 − E[U] | E[U] | alt / C1 | −21.1 %* [−45.6, −2.0] | −40.5 % [−138.4, +50.6] |
+| main | pure | 1.5 | cluster | wCVaR β 0.98 − E[U] | E[U] | C1 / alt | −35.8 %* [−77.2, −3.3] | +33.8 % [−103.1, +172.2] |
+| main | pure | 1.5 | cluster | wCVaR β 0.98 − E[U] | E[U] | alt / alt | −35.8 %* [−77.2, −3.3] | +0.9 % [−0.0, +2.1] |
+| main | pure | 1.5 | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₅ | alt / C1 | −15.6 %* [−29.8, −4.0] | −40.5 % [−138.4, +50.6] |
+| main | pure | 1.5 | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₅ | C1 / alt | −26.4 %* [−50.4, −6.8] | +43.2 % [−100.1, +193.8] |
+| main | pure | 1.5 | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₅ | alt / alt | −26.4 %* [−50.4, −6.8] | +0.9 % [−0.0, +2.1] |
+| main | pure | 1.5 | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₉ | alt / C1 | −15.6 %* [−29.8, −4.0] | −40.5 % [−138.4, +50.6] |
+| main | pure | 1.5 | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₉ | C1 / alt | −26.4 %* [−50.4, −6.8] | +43.2 % [−100.1, +193.8] |
+| main | pure | 1.5 | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₉ | alt / alt | −26.4 %* [−50.4, −6.8] | +0.9 % [−0.0, +2.1] |
+| main | pure | 1.5 | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₉₅ | alt / C1 | −15.6 %* [−29.8, −4.0] | −40.5 % [−138.4, +50.6] |
+| main | pure | 1.5 | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₉₅ | C1 / alt | −26.4 %* [−50.4, −6.8] | +43.2 % [−100.1, +193.8] |
+| main | pure | 1.5 | cluster | wCVaR β 0.99 − E[U] | CVaR₀.₉₉₅ | alt / alt | −26.4 %* [−50.4, −6.8] | +0.9 % [−0.0, +2.1] |
+| main | pure | 1.5 | cluster | wCVaR β 0.99 − E[U] | E[U] | alt / C1 | −15.6 %* [−29.8, −4.0] | −40.5 % [−138.4, +50.6] |
+| main | pure | 1.5 | cluster | wCVaR β 0.99 − E[U] | E[U] | C1 / alt | −26.4 %* [−50.4, −6.8] | +43.2 % [−100.1, +193.8] |
+| main | pure | 1.5 | cluster | wCVaR β 0.99 − E[U] | E[U] | alt / alt | −26.4 %* [−50.4, −6.8] | +0.9 % [−0.0, +2.1] |
+| main | pure | 1.5 | cluster | wCVaR β 0.995 − E[U] | CVaR₀.₉₅ | alt / C1 | −24.7 %* [−52.8, −2.7] | −40.5 % [−138.4, +50.6] |
+| main | pure | 1.5 | cluster | wCVaR β 0.995 − E[U] | CVaR₀.₉₅ | C1 / alt | −42.0 %* [−89.5, −4.6] | +27.6 % [−103.2, +159.2] |
+| main | pure | 1.5 | cluster | wCVaR β 0.995 − E[U] | CVaR₀.₉₅ | alt / alt | −42.0 %* [−89.5, −4.6] | +0.9 % [−0.0, +2.1] |
+| main | pure | 1.5 | cluster | wCVaR β 0.995 − E[U] | CVaR₀.₉₉ | alt / C1 | −24.7 %* [−52.8, −2.7] | −40.5 % [−138.4, +50.6] |
+| main | pure | 1.5 | cluster | wCVaR β 0.995 − E[U] | CVaR₀.₉₉ | C1 / alt | −42.0 %* [−89.5, −4.6] | +27.6 % [−103.2, +159.2] |
+| main | pure | 1.5 | cluster | wCVaR β 0.995 − E[U] | CVaR₀.₉₉ | alt / alt | −42.0 %* [−89.5, −4.6] | +0.9 % [−0.0, +2.1] |
+| main | pure | 1.5 | cluster | wCVaR β 0.995 − E[U] | CVaR₀.₉₉₅ | alt / C1 | −24.7 %* [−52.8, −2.7] | −40.5 % [−138.4, +50.6] |
+| main | pure | 1.5 | cluster | wCVaR β 0.995 − E[U] | CVaR₀.₉₉₅ | C1 / alt | −42.0 %* [−89.5, −4.6] | +27.6 % [−103.2, +159.2] |
+| main | pure | 1.5 | cluster | wCVaR β 0.995 − E[U] | CVaR₀.₉₉₅ | alt / alt | −42.0 %* [−89.5, −4.6] | +0.9 % [−0.0, +2.1] |
+| main | pure | 1.5 | cluster | wCVaR β 0.995 − E[U] | E[U] | alt / C1 | −24.7 %* [−52.8, −2.7] | −40.5 % [−138.4, +50.6] |
+| main | pure | 1.5 | cluster | wCVaR β 0.995 − E[U] | E[U] | C1 / alt | −42.0 %* [−89.5, −4.6] | +27.6 % [−103.2, +159.2] |
+| main | pure | 1.5 | cluster | wCVaR β 0.995 − E[U] | E[U] | alt / alt | −42.0 %* [−89.5, −4.6] | +0.9 % [−0.0, +2.1] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | alt / C1 | +12.8 %* [+1.8, +28.0] | −36.6 % [−179.5, +81.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | C1 / alt | +25.0 %* [+3.6, +54.9] | +120.8 % [−131.6, +425.1] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₅ | alt / alt | +25.0 %* [+3.6, +54.9] | +24.2 % [−152.7, +195.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉ | alt / C1 | +12.8 %* [+1.8, +28.0] | −36.6 % [−179.5, +81.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉ | C1 / alt | +25.0 %* [+3.6, +54.9] | +120.8 % [−131.6, +425.1] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉ | alt / alt | +25.0 %* [+3.6, +54.9] | +24.2 % [−152.7, +195.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉₅ | alt / C1 | +12.8 %* [+1.8, +28.0] | −36.6 % [−179.5, +81.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉₅ | C1 / alt | +25.0 %* [+3.6, +54.9] | +120.8 % [−131.6, +425.1] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.95 − E[U] | CVaR₀.₉₉₅ | alt / alt | +25.0 %* [+3.6, +54.9] | +24.2 % [−152.7, +195.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.95 − E[U] | E[U] | alt / C1 | +12.8 %* [+1.8, +28.0] | −36.6 % [−179.5, +81.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.95 − E[U] | E[U] | C1 / alt | +25.0 %* [+3.6, +54.9] | +120.8 % [−131.6, +425.1] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.95 − E[U] | E[U] | alt / alt | +25.0 %* [+3.6, +54.9] | +24.2 % [−152.7, +195.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₅ | alt / C1 | +10.6 %* [+1.2, +23.9] | −36.6 % [−179.5, +81.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₅ | C1 / alt | +20.8 %* [+2.4, +46.8] | +116.6 % [−134.3, +417.2] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₅ | alt / alt | +20.8 %* [+2.4, +46.8] | +24.2 % [−152.7, +195.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉ | alt / C1 | +10.6 %* [+1.2, +23.9] | −36.6 % [−179.5, +81.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉ | C1 / alt | +20.8 %* [+2.4, +46.8] | +116.6 % [−134.3, +417.2] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉ | alt / alt | +20.8 %* [+2.4, +46.8] | +24.2 % [−152.7, +195.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉₅ | alt / C1 | +10.6 %* [+1.2, +23.9] | −36.6 % [−179.5, +81.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉₅ | C1 / alt | +20.8 %* [+2.4, +46.8] | +116.6 % [−134.3, +417.2] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.97 − E[U] | CVaR₀.₉₉₅ | alt / alt | +20.8 %* [+2.4, +46.8] | +24.2 % [−152.7, +195.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.97 − E[U] | E[U] | alt / C1 | +10.6 %* [+1.2, +23.9] | −36.6 % [−179.5, +81.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.97 − E[U] | E[U] | C1 / alt | +20.8 %* [+2.4, +46.8] | +116.6 % [−134.3, +417.2] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.97 − E[U] | E[U] | alt / alt | +20.8 %* [+2.4, +46.8] | +24.2 % [−152.7, +195.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.98 − E[U] | CVaR₀.₉₅ | alt / C1 | +5.8 %* [+0.5, +12.3] | −36.6 % [−179.5, +81.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.98 − E[U] | CVaR₀.₉₅ | C1 / alt | +11.4 %* [+1.0, +24.1] | +107.2 % [−138.1, +398.3] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.98 − E[U] | CVaR₀.₉₅ | alt / alt | +11.4 %* [+1.0, +24.1] | +24.2 % [−152.7, +195.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.98 − E[U] | CVaR₀.₉₅ | free low end | +5.8 %* [+0.5, +12.3] | +5.4 % [−0.0, +11.8] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.98 − E[U] | CVaR₀.₉₉ | alt / C1 | +5.8 %* [+0.5, +12.3] | −36.6 % [−179.5, +81.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.98 − E[U] | CVaR₀.₉₉ | C1 / alt | +11.4 %* [+1.0, +24.1] | +107.2 % [−138.1, +398.3] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.98 − E[U] | CVaR₀.₉₉ | alt / alt | +11.4 %* [+1.0, +24.1] | +24.2 % [−152.7, +195.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.98 − E[U] | CVaR₀.₉₉ | free low end | +5.8 %* [+0.5, +12.3] | +5.4 % [−0.0, +11.8] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.98 − E[U] | CVaR₀.₉₉₅ | alt / C1 | +5.8 %* [+0.5, +12.3] | −36.6 % [−179.5, +81.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.98 − E[U] | CVaR₀.₉₉₅ | C1 / alt | +11.4 %* [+1.0, +24.1] | +107.2 % [−138.1, +398.3] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.98 − E[U] | CVaR₀.₉₉₅ | alt / alt | +11.4 %* [+1.0, +24.1] | +24.2 % [−152.7, +195.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.98 − E[U] | CVaR₀.₉₉₅ | free low end | +5.8 %* [+0.5, +12.3] | +5.4 % [−0.0, +11.8] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.98 − E[U] | E[U] | alt / C1 | +5.8 %* [+0.5, +12.3] | −36.6 % [−179.5, +81.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.98 − E[U] | E[U] | C1 / alt | +11.4 %* [+1.0, +24.1] | +107.2 % [−138.1, +398.3] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.98 − E[U] | E[U] | alt / alt | +11.4 %* [+1.0, +24.1] | +24.2 % [−152.7, +195.6] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.98 − E[U] | E[U] | free low end | +5.8 %* [+0.5, +12.3] | +5.4 % [−0.0, +11.8] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.99 − E[U] | CVaR₀.₉₅ | free high end | +1.9 % [−0.2, +4.5] | +2.4 %* [+0.5, +5.1] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.99 − E[U] | CVaR₀.₉₉ | free high end | +1.9 % [−0.2, +4.5] | +2.4 %* [+0.5, +5.1] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.99 − E[U] | CVaR₀.₉₉₅ | free high end | +1.9 % [−0.2, +4.5] | +2.4 %* [+0.5, +5.1] |
+| main | pure | 1.5 | portfolio | wCVaR β 0.99 − E[U] | E[U] | free high end | +1.9 % [−0.2, +4.5] | +2.4 %* [+0.5, +5.1] |
+| reference | CoC r 0.06 | 1 | portfolio | wCVaR β 0.95 − MSE | E[U] | free low end | −9.1 % [−16.7, +0.0] | −9.3 %* [−16.7, −0.6] |
+
+## B4. The second optima (`alt`)
+
+Train objective of the `alt` design relative to the C1 design's (numpy recomputation), every κ and design.
+
+| Family | Pricing | Scope | Designs | Objective rel. diff. | Solvers | Status |
+|---|---|---|---|---|---|---|
+| main | pure | cluster | 21 | -1.0e+00 to 5.1e-05 | CLARABEL, HIGHS | optimal |
+| main | pure | portfolio | 21 | -1.0e+00 to 6.5e+278 | CLARABEL, HIGHS | optimal |
+| main | CoC r 0.06 | cluster | 21 | -5.4e-07 to 8.9e-14 | CLARABEL, HIGHS | optimal |
+| main | CoC r 0.06 | portfolio | 21 | -6.8e-07 to 4.6e-14 | CLARABEL, HIGHS | optimal |
+| main | CoC r 0.10 | cluster | 21 | -4.6e-07 to 5.0e-14 | CLARABEL, HIGHS | optimal |
+| main | CoC r 0.10 | portfolio | 21 | -5.2e-07 to 2.2e-15 | CLARABEL, HIGHS | optimal |
+| reference | pure | cluster | 3 | 3.3e-09 to 3.7e-06 | CLARABEL, HIGHS | optimal |
+| reference | pure | portfolio | 3 | 2.3e-10 to 1.2e-05 | CLARABEL, HIGHS | optimal |
+| reference | CoC r 0.06 | cluster | 3 | -3.8e-08 to -1.3e-13 | CLARABEL, HIGHS | optimal |
+| reference | CoC r 0.10 | cluster | 3 | -2.4e-08 to 1.4e-14 | CLARABEL, HIGHS | optimal |
+| reference | CoC r 0.06 | portfolio | 3 | -1.4e-07 to -9.7e-15 | CLARABEL, HIGHS | optimal |
+| reference | CoC r 0.10 | portfolio | 3 | -4.9e-08 to 2.2e-12 | CLARABEL, HIGHS | optimal |
+
+## B5. Free bins of the joint designs
+
+Entities with bins that hold no train row of their index (entity: number of free bins), and the largest free-parameter width relative to the entity's cap over every design and κ.
+
+| Family | Pricing | Scope | Entities with free bins | Largest width / cap |
+|---|---|---|---|---|
+| main | pure | cluster | C1:1 | 0.328 |
+| main | pure | portfolio | A1:1 A2:1 A3:1 A4:1 A6:2 A8:1 | 1.000 |
+| main | CoC r 0.06 | cluster | C1:1 | 0.117 |
+| main | CoC r 0.06 | portfolio | A1:1 A2:1 A3:1 A4:1 A6:2 A8:1 | 1.000 |
+| main | CoC r 0.10 | cluster | C1:1 | 0.200 |
+| main | CoC r 0.10 | portfolio | A1:1 A2:1 A3:1 A4:1 A6:2 A8:1 | 0.791 |
+| reference | pure | cluster | C1:1 | 0.197 |
+| reference | pure | portfolio | A1:1 A2:1 A3:1 A4:1 A6:2 A8:1 | 0.183 |
+| reference | CoC r 0.06 | cluster | C1:1 | 0.068 |
+| reference | CoC r 0.10 | cluster | C1:1 | 0.006 |
+| reference | CoC r 0.06 | portfolio | A1:1 A2:1 A3:1 A4:1 A6:2 A8:1 | 1.000 |
+| reference | CoC r 0.10 | portfolio | A1:1 A2:1 A3:1 A4:1 A6:2 A8:1 | 1.000 |
+
+## T6′ (pure, portfolio scope). Train E[π_i]/E[L_i] per asset under a named allocation rule (κ 1)
+
+`rule value`: each design problem's payout split pro rata to insured value (`evaluate` `allocation="value"`); `rule loss`: pro rata to each asset's loss in every row (`allocation="loss"`). `solver split`: the joint design's own per-asset payout (C1 T6). `alt`: the second optimum (`c1_rq2.ALT_POLICY`).
+
+| Design | Optimum | Split | A1 | A2 | A3 | A4 | A5 | A6 | A7 | A8 | A9 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| MSE | stored | solver split | 0.50 | 0.89 | 2.24 | 1.74 | 2.24 | 0.89 | 3.43 | 1.54 | 0.71 |
+| MSE | stored | rule `value` | 1.00 | 1.00 | 0.99 | 0.98 | 1.02 | 0.99 | 1.00 | 0.94 | 1.01 |
+| MSE | stored | rule `loss` | 1.00 | 1.00 | 1.01 | 1.01 | 1.01 | 1.01 | 1.01 | 1.02 | 1.00 |
+| MSE | alt | solver split | 0.47 | 0.91 | 2.24 | 1.75 | 2.21 | 1.00 | 3.31 | 1.54 | 0.73 |
+| MSE | alt | rule `value` | 1.00 | 1.00 | 0.99 | 0.98 | 1.02 | 0.99 | 1.00 | 0.94 | 1.01 |
+| MSE | alt | rule `loss` | 1.00 | 1.00 | 1.01 | 1.01 | 1.01 | 1.01 | 1.01 | 1.03 | 1.00 |
+| E[U] | stored | solver split | 0.44 | 0.85 | 2.57 | 2.02 | 2.02 | 1.04 | 3.00 | 1.24 | 0.83 |
+| E[U] | stored | rule `value` | 1.00 | 1.00 | 0.99 | 0.98 | 1.02 | 0.99 | 1.00 | 0.94 | 1.01 |
+| E[U] | stored | rule `loss` | 1.00 | 1.00 | 1.01 | 1.01 | 1.01 | 1.01 | 1.01 | 1.02 | 1.00 |
+| E[U] | alt | solver split | 0.48 | 0.82 | 2.55 | 1.97 | 2.02 | 1.04 | 3.09 | 1.24 | 0.81 |
+| E[U] | alt | rule `value` | 1.00 | 1.00 | 0.99 | 0.98 | 1.02 | 0.99 | 1.00 | 0.94 | 1.01 |
+| E[U] | alt | rule `loss` | 1.00 | 1.00 | 1.01 | 1.01 | 1.01 | 1.02 | 1.01 | 1.02 | 1.00 |
+| wCVaR β 0.99 | stored | solver split | 0.51 | 0.86 | 2.55 | 1.85 | 2.22 | 0.80 | 2.90 | 1.10 | 0.79 |
+| wCVaR β 0.99 | stored | rule `value` | 1.00 | 1.00 | 0.99 | 0.98 | 1.02 | 0.99 | 1.00 | 0.94 | 1.01 |
+| wCVaR β 0.99 | stored | rule `loss` | 1.00 | 1.00 | 1.01 | 1.01 | 1.02 | 1.01 | 1.01 | 0.98 | 1.00 |
+| wCVaR β 0.99 | alt | solver split | 0.54 | 0.83 | 2.59 | 1.80 | 2.22 | 0.80 | 2.97 | 1.10 | 0.78 |
+| wCVaR β 0.99 | alt | rule `value` | 1.00 | 1.00 | 0.99 | 0.98 | 1.02 | 0.99 | 1.00 | 0.94 | 1.01 |
+| wCVaR β 0.99 | alt | rule `loss` | 1.00 | 1.00 | 1.01 | 1.01 | 1.02 | 1.01 | 1.01 | 0.98 | 1.00 |
+| wCVaR β 0.995 | stored | solver split | 0.49 | 0.91 | 3.09 | 1.77 | 1.96 | 0.27 | 2.66 | 1.15 | 0.81 |
+| wCVaR β 0.995 | stored | rule `value` | 1.00 | 1.00 | 0.99 | 0.98 | 1.02 | 0.99 | 1.00 | 0.94 | 1.01 |
+| wCVaR β 0.995 | stored | rule `loss` | 1.00 | 1.00 | 1.02 | 1.01 | 1.02 | 1.00 | 1.01 | 0.97 | 0.99 |
+| wCVaR β 0.995 | alt | solver split | 0.55 | 0.86 | 3.09 | 1.73 | 1.96 | 0.27 | 2.76 | 1.15 | 0.79 |
+| wCVaR β 0.995 | alt | rule `value` | 1.00 | 1.00 | 0.99 | 0.98 | 1.02 | 0.99 | 1.00 | 0.94 | 1.01 |
+| wCVaR β 0.995 | alt | rule `loss` | 1.00 | 1.00 | 1.02 | 1.01 | 1.02 | 1.00 | 1.01 | 0.97 | 0.99 |
+
+## T6′ (pure, cluster scope). Train E[π_i]/E[L_i] per asset under a named allocation rule (κ 1)
+
+`rule value`: each design problem's payout split pro rata to insured value (`evaluate` `allocation="value"`); `rule loss`: pro rata to each asset's loss in every row (`allocation="loss"`). `alt`: the second optimum (`c1_rq2.ALT_POLICY`).
+
+| Design | Optimum | Split | A1 | A2 | A3 | A4 | A5 | A6 | A7 | A8 | A9 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| MSE | stored | rule `value` | 1.00 | 1.00 | 0.99 | 0.98 | 1.02 | 0.99 | 1.00 | 0.94 | 1.01 |
+| MSE | stored | rule `loss` | 1.00 | 0.99 | 1.01 | 1.01 | 1.01 | 1.02 | 1.01 | 1.02 | 1.00 |
+| MSE | alt | rule `value` | 1.00 | 1.00 | 0.99 | 0.98 | 1.02 | 0.99 | 1.00 | 0.94 | 1.01 |
+| MSE | alt | rule `loss` | 1.00 | 0.99 | 1.01 | 1.01 | 1.01 | 1.02 | 1.01 | 1.02 | 1.00 |
+| E[U] | stored | rule `value` | 1.00 | 1.00 | 0.99 | 0.98 | 1.02 | 0.99 | 1.00 | 0.94 | 1.01 |
+| E[U] | stored | rule `loss` | 1.00 | 0.99 | 1.01 | 1.00 | 1.01 | 1.01 | 1.01 | 0.99 | 1.01 |
+| E[U] | alt | rule `value` | 1.00 | 1.00 | 0.99 | 0.98 | 1.02 | 0.99 | 1.00 | 0.94 | 1.01 |
+| E[U] | alt | rule `loss` | 1.00 | 0.99 | 1.01 | 1.00 | 1.01 | 1.01 | 1.01 | 0.99 | 1.01 |
+| wCVaR β 0.99 | stored | rule `value` | 1.00 | 1.00 | 0.99 | 0.98 | 1.02 | 0.99 | 1.00 | 0.94 | 1.01 |
+| wCVaR β 0.99 | stored | rule `loss` | 1.00 | 0.99 | 1.02 | 1.00 | 1.02 | 1.01 | 1.01 | 0.96 | 1.00 |
+| wCVaR β 0.99 | alt | rule `value` | 1.00 | 1.00 | 0.99 | 0.98 | 1.02 | 0.99 | 1.00 | 0.94 | 1.01 |
+| wCVaR β 0.99 | alt | rule `loss` | 1.00 | 0.99 | 1.02 | 1.00 | 1.02 | 1.01 | 1.01 | 0.96 | 1.00 |
+| wCVaR β 0.995 | stored | rule `value` | 1.00 | 1.00 | 0.99 | 0.98 | 1.02 | 0.99 | 1.00 | 0.94 | 1.01 |
+| wCVaR β 0.995 | stored | rule `loss` | 1.01 | 0.99 | 1.02 | 1.01 | 1.02 | 1.01 | 1.01 | 0.95 | 0.99 |
+| wCVaR β 0.995 | alt | rule `value` | 1.00 | 1.00 | 0.99 | 0.98 | 1.02 | 0.99 | 1.00 | 0.94 | 1.01 |
+| wCVaR β 0.995 | alt | rule `loss` | 1.01 | 0.99 | 1.02 | 1.01 | 1.02 | 1.01 | 1.01 | 0.95 | 0.99 |
+
+## T6′ (CoC r 0.06, portfolio scope). Train E[π_i]/E[L_i] per asset under a named allocation rule (κ 1)
+
+`rule value`: each design problem's payout split pro rata to insured value (`evaluate` `allocation="value"`); `rule loss`: pro rata to each asset's loss in every row (`allocation="loss"`). `solver split`: the joint design's own per-asset payout (C1 T6). `alt`: the second optimum (`c1_rq2.ALT_POLICY`).
+
+| Design | Optimum | Split | A1 | A2 | A3 | A4 | A5 | A6 | A7 | A8 | A9 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| MSE | stored | solver split | 0.12 | 0.24 | 0.13 | 0.15 | 0.00 | 0.00 | 0.10 | 0.00 | 0.08 |
+| MSE | stored | rule `value` | 0.14 | 0.14 | 0.14 | 0.14 | 0.15 | 0.14 | 0.14 | 0.14 | 0.15 |
+| MSE | stored | rule `loss` | 0.15 | 0.14 | 0.15 | 0.15 | 0.15 | 0.13 | 0.15 | 0.10 | 0.13 |
+| MSE | alt | solver split | 0.12 | 0.24 | 0.13 | 0.15 | 0.00 | 0.00 | 0.10 | 0.00 | 0.08 |
+| MSE | alt | rule `value` | 0.14 | 0.14 | 0.14 | 0.14 | 0.15 | 0.14 | 0.14 | 0.14 | 0.15 |
+| MSE | alt | rule `loss` | 0.15 | 0.14 | 0.15 | 0.15 | 0.15 | 0.13 | 0.15 | 0.10 | 0.13 |
+| E[U] | stored | solver split | 0.22 | 0.30 | 0.15 | 0.32 | 2.11 | 0.28 | 0.86 | 0.00 | 0.09 |
+| E[U] | stored | rule `value` | 0.29 | 0.29 | 0.28 | 0.28 | 0.29 | 0.29 | 0.29 | 0.27 | 0.29 |
+| E[U] | stored | rule `loss` | 0.28 | 0.29 | 0.28 | 0.29 | 0.28 | 0.31 | 0.29 | 0.36 | 0.31 |
+| E[U] | alt | solver split | 0.22 | 0.30 | 0.15 | 0.32 | 2.11 | 0.28 | 0.86 | 0.00 | 0.09 |
+| E[U] | alt | rule `value` | 0.29 | 0.29 | 0.28 | 0.28 | 0.29 | 0.29 | 0.29 | 0.27 | 0.29 |
+| E[U] | alt | rule `loss` | 0.28 | 0.29 | 0.28 | 0.29 | 0.28 | 0.31 | 0.29 | 0.36 | 0.31 |
+| wCVaR β 0.99 | stored | solver split | 0.05 | 0.08 | 0.43 | 0.40 | 0.59 | 0.29 | 0.44 | 0.05 | 0.12 |
+| wCVaR β 0.99 | stored | rule `value` | 0.14 | 0.14 | 0.14 | 0.14 | 0.15 | 0.14 | 0.14 | 0.14 | 0.15 |
+| wCVaR β 0.99 | stored | rule `loss` | 0.15 | 0.14 | 0.15 | 0.15 | 0.15 | 0.15 | 0.15 | 0.13 | 0.14 |
+| wCVaR β 0.99 | alt | solver split | 0.07 | 0.00 | 0.00 | 0.34 | 1.06 | 0.17 | 0.03 | 0.00 | 0.37 |
+| wCVaR β 0.99 | alt | rule `value` | 0.14 | 0.14 | 0.14 | 0.14 | 0.15 | 0.14 | 0.14 | 0.14 | 0.15 |
+| wCVaR β 0.99 | alt | rule `loss` | 0.14 | 0.14 | 0.15 | 0.14 | 0.15 | 0.15 | 0.15 | 0.13 | 0.15 |
+| wCVaR β 0.995 | stored | solver split | 0.14 | 0.17 | 0.26 | 0.18 | 0.22 | 0.13 | 0.29 | 0.03 | 0.04 |
+| wCVaR β 0.995 | stored | rule `value` | 0.14 | 0.14 | 0.14 | 0.14 | 0.15 | 0.14 | 0.14 | 0.14 | 0.15 |
+| wCVaR β 0.995 | stored | rule `loss` | 0.15 | 0.14 | 0.15 | 0.15 | 0.15 | 0.13 | 0.15 | 0.11 | 0.13 |
+| wCVaR β 0.995 | alt | solver split | 0.25 | 0.10 | 0.19 | 0.00 | 0.00 | 0.17 | 0.54 | 0.00 | 0.00 |
+| wCVaR β 0.995 | alt | rule `value` | 0.14 | 0.14 | 0.14 | 0.14 | 0.15 | 0.14 | 0.14 | 0.14 | 0.15 |
+| wCVaR β 0.995 | alt | rule `loss` | 0.15 | 0.14 | 0.16 | 0.15 | 0.15 | 0.13 | 0.15 | 0.11 | 0.13 |
+
+## T6′ (CoC r 0.06, cluster scope). Train E[π_i]/E[L_i] per asset under a named allocation rule (κ 1)
+
+`rule value`: each design problem's payout split pro rata to insured value (`evaluate` `allocation="value"`); `rule loss`: pro rata to each asset's loss in every row (`allocation="loss"`). `alt`: the second optimum (`c1_rq2.ALT_POLICY`).
+
+| Design | Optimum | Split | A1 | A2 | A3 | A4 | A5 | A6 | A7 | A8 | A9 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| MSE | stored | rule `value` | 0.14 | 0.14 | 0.14 | 0.14 | 0.15 | 0.14 | 0.14 | 0.14 | 0.15 |
+| MSE | stored | rule `loss` | 0.15 | 0.15 | 0.15 | 0.15 | 0.15 | 0.13 | 0.15 | 0.10 | 0.12 |
+| MSE | alt | rule `value` | 0.14 | 0.14 | 0.14 | 0.14 | 0.15 | 0.14 | 0.14 | 0.14 | 0.15 |
+| MSE | alt | rule `loss` | 0.15 | 0.15 | 0.15 | 0.15 | 0.15 | 0.13 | 0.15 | 0.10 | 0.12 |
+| E[U] | stored | rule `value` | 0.29 | 0.30 | 0.29 | 0.29 | 0.30 | 0.29 | 0.29 | 0.28 | 0.30 |
+| E[U] | stored | rule `loss` | 0.28 | 0.29 | 0.28 | 0.30 | 0.29 | 0.32 | 0.29 | 0.38 | 0.31 |
+| E[U] | alt | rule `value` | 0.29 | 0.30 | 0.29 | 0.29 | 0.30 | 0.29 | 0.29 | 0.28 | 0.30 |
+| E[U] | alt | rule `loss` | 0.28 | 0.29 | 0.28 | 0.30 | 0.29 | 0.32 | 0.29 | 0.38 | 0.31 |
+| wCVaR β 0.99 | stored | rule `value` | 0.14 | 0.14 | 0.14 | 0.14 | 0.15 | 0.14 | 0.14 | 0.14 | 0.15 |
+| wCVaR β 0.99 | stored | rule `loss` | 0.15 | 0.14 | 0.15 | 0.14 | 0.15 | 0.14 | 0.15 | 0.13 | 0.14 |
+| wCVaR β 0.99 | alt | rule `value` | 0.14 | 0.14 | 0.14 | 0.14 | 0.15 | 0.14 | 0.14 | 0.14 | 0.15 |
+| wCVaR β 0.99 | alt | rule `loss` | 0.15 | 0.14 | 0.15 | 0.14 | 0.16 | 0.15 | 0.15 | 0.13 | 0.15 |
+| wCVaR β 0.995 | stored | rule `value` | 0.14 | 0.14 | 0.14 | 0.14 | 0.15 | 0.14 | 0.14 | 0.14 | 0.15 |
+| wCVaR β 0.995 | stored | rule `loss` | 0.15 | 0.14 | 0.15 | 0.15 | 0.15 | 0.13 | 0.15 | 0.11 | 0.13 |
+| wCVaR β 0.995 | alt | rule `value` | 0.14 | 0.14 | 0.14 | 0.14 | 0.15 | 0.14 | 0.14 | 0.14 | 0.15 |
+| wCVaR β 0.995 | alt | rule `loss` | 0.15 | 0.14 | 0.16 | 0.15 | 0.15 | 0.13 | 0.15 | 0.11 | 0.13 |
+
+
 ## C1 (pure). Joint against individual calibration by noise layer, CVaR₀.₉₉(U), κ 1
 
 Relative to scope b. Train: in sample, point value; test: holdout test years, paired 90 % interval on the C1 resample. Per-asset noise: C1's runs (`research/data/c1-rq2/scope_paired.csv`; there the separately calibrated cluster designs are `cluster_separate`, a derived design with the same problems as `joint: false`).

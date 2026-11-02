@@ -273,7 +273,13 @@ def family_b(full: Path, out: Path) -> str | None:
         "config_hash_a",
         "config_hash_b",
     ]
-    tail[keep].to_csv(out / "b_within_scope.csv", index=False, float_format="%.10g")
+    slim = tail[keep].copy()
+    for col in ("config_hash_a", "config_hash_b"):
+        slim[col] = slim[col].map(h12)  # full hashes: b_designs.csv
+    for pricing, part in slim.groupby("pricing"):  # one file per pricing, < 500 kB
+        part.to_csv(
+            out / f"b_within_scope_{pricing}.csv", index=False, float_format="%.8g"
+        )
     designs.to_csv(out / "b_designs.csv", index=False, float_format="%.6g")
     entities.to_csv(out / "b_free_bins.csv", index=False, float_format="%.6g")
     # verdict changes against the C1 designs
@@ -283,7 +289,7 @@ def family_b(full: Path, out: Path) -> str | None:
     other = tail.loc[
         ~((tail["variant_a"] == "stored") & (tail["variant_b"] == "stored"))
     ]
-    m = other.join(base, on=key, rsuffix="_c1")
+    m = other.merge(base.add_suffix("_c1"), left_on=key, right_index=True)
     m["changed"] = m["excludes_zero"] != m["excludes_zero_c1"]
     m["sign_changed"] = np.sign(m["difference"]) != np.sign(m["difference_c1"])
     changes = m.loc[m["changed"]]
@@ -540,7 +546,29 @@ def family_b(full: Path, out: Path) -> str | None:
 def t6_allocation(alloc: pd.DataFrame, out: Path) -> str:
     """C1 T6 re-derived with the named allocation rules."""
     a = alloc.loc[alloc["kpi"].isin(["expected_payout", "expected_loss"])].copy()
-    a.to_csv(out / "b_t6_allocation.csv", index=False, float_format="%.10g")
+    wide = (
+        a.loc[a["level"].isin(["entity", "location_by_value", "location_by_loss"])]
+        .pivot_table(
+            index=[
+                "pricing",
+                "kappa",
+                "scope",
+                "design",
+                "variant",
+                "split",
+                "allocation",
+                "level",
+                "subject_id",
+                "config_hash",
+            ],
+            columns="kpi",
+            values="value",
+        )
+        .reset_index()
+    )
+    wide = wide.loc[~((wide["level"] == "entity") & (wide["allocation"] == "loss"))]
+    wide["payout_to_loss"] = wide["expected_payout"] / wide["expected_loss"]
+    wide.to_csv(out / "b_t6_allocation.csv", index=False, float_format="%.8g")
     md = []
     for pricing in ("pure", "coc_r0.06"):
         for scope in ("portfolio", "cluster"):

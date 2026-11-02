@@ -83,5 +83,37 @@
     "noise_groups": 16,
     "noise_solve_seconds": 914.1,
     "noise_seconds": 1181.4
+  },
+  "summary_nonunique": {
+    "issue": "MAR-206",
+    "phase": "nonunique",
+    "package_versions": {
+      "parametric-insurance-design": "0.1.0.dev0",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.0",
+      "pyarrow": "26.0.0",
+      "pydantic": "2.14.1",
+      "pyyaml": "6.0.3",
+      "cvxpy": "1.9.3",
+      "clarabel": "0.11.1",
+      "osqp": "1.1.3",
+      "scs": "3.3.1",
+      "highspy": "1.15.1"
+    },
+    "nonunique_groups": 24,
+    "nonunique_rows_checked_against_c1": 1896,
+    "nonunique_seconds": 2356.0,
+    "alt_policy": {
+      "lp_solvers": [
+        "HIGHS",
+        "CLARABEL",
+        "SCS"
+      ],
+      "qp_solvers": [
+        "CLARABEL",
+        "OSQP"
+      ]
+    }
   }
 }

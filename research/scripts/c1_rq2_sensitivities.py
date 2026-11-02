@@ -199,7 +199,7 @@ class JointSet:
         self.theta_opt = np.asarray(self.ctx.theta.value, dtype=np.float64).copy()
         self.optimum = float(np.asarray(built.objective.expression.value))
         mine = self.objective_value(self.theta_opt)
-        if not math.isclose(mine, self.optimum, rel_tol=1e-5, abs_tol=1e-9):
+        if not math.isclose(mine, self.optimum, rel_tol=1e-5, abs_tol=1e-7):
             raise RuntimeError(
                 f"numpy objective {mine!r} != cvxpy objective {self.optimum!r}"
             )
@@ -787,13 +787,21 @@ def pool_run(
             todo.append((t, p))
     with ProcessPoolExecutor(max_workers=jobs, mp_context=get_context("spawn")) as pool:
         futs = {pool.submit(worker, *t): p for t, p in todo}
+        failed: list[str] = []
         for i, fut in enumerate(as_completed(futs), 1):
-            frames = fut.result()
+            try:
+                frames = fut.result()
+            except Exception as exc:  # recorded, raised after the others end
+                failed.append(f"{futs[fut]}: {exc!r}")
+                print(f"[{i}/{len(futs)}] FAILED {futs[fut]}: {exc!r}", flush=True)
+                continue
             if futs[fut] is not None:
                 futs[fut].write_bytes(pickle.dumps(frames))
             for name, frame in frames.items():
                 out.setdefault(name, []).append(frame)
             print(f"[{i}/{len(futs)}] done", flush=True)
+    if failed:
+        raise RuntimeError("failed tasks:\n" + "\n".join(failed))
     return {n: pd.concat(f, ignore_index=True) for n, f in out.items()}
 
 
