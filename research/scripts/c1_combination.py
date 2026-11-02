@@ -962,6 +962,56 @@ def _pooled_bootstrap(
     )
 
 
+C1_PREPARED_HASH: Final[str] = (
+    "sha256:008057c84ba2541847f1c447c19a201c3d4951320610625e246a7a4bbd5eafdf"
+)
+"""Content hash of the prepared thesis EventSet of the C1 and MAR-158 runs
+(C1.md erratum E.2): the same data as under core 0.1.0, with transform
+records that name core ``0.1.0.dev0``."""
+
+
+def prepared_as(prepared: EventSet, package_version: str | None) -> EventSet:
+    """Return the prepared EventSet as an earlier core version labelled it.
+
+    A prepared EventSet's transform records name the core version that
+    applied them, so its content hash, which every k-fold run records and
+    ``kfold.pooled_designs`` checks, changes with the version though the
+    data do not. For runs of another version this relabels the records; the
+    caller's drift guard (``FoldDriftError``) then still checks the result
+    against each run's recorded hash. For ``0.1.0.dev0`` the result must hash
+    as :data:`C1_PREPARED_HASH` (checked here).
+
+    Parameters
+    ----------
+    prepared : EventSet
+        The prepared EventSet under the installed core.
+    package_version : str or None
+        The runs' core version; None: the installed one (no change).
+
+    Returns
+    -------
+    EventSet
+        ``prepared`` with every transform record's ``version`` set.
+
+    Raises
+    ------
+    RuntimeError
+        If the relabelled EventSet of ``0.1.0.dev0`` does not hash as C1's.
+    """
+    if package_version is None:
+        return prepared
+    meta = prepared.metadata
+    transforms = tuple(
+        dataclasses.replace(t, version=package_version) for t in meta.transforms
+    )
+    out = dataclasses.replace(
+        prepared, metadata=dataclasses.replace(meta, transforms=transforms)
+    )
+    if package_version == C1_PACKAGE_VERSION and out.content_hash() != C1_PREPARED_HASH:
+        raise RuntimeError(f"relabelled EventSet hashes as {out.content_hash()}")
+    return out
+
+
 @dataclass
 class PooledVariant:
     """The pooled 5-fold designs of one (pricing, kappa) variant.
@@ -1095,7 +1145,8 @@ def pooled_variant(
     package_version : str or None
         Core version of the runs (part of their run ids); None: installed.
     prepared : EventSet
-        The prepared thesis EventSet.
+        The prepared thesis EventSet (relabelled with :func:`prepared_as`
+        for runs of another core version).
     sites : bool, optional
         Also return the individual designs' per-site pooled payouts.
 
@@ -1111,6 +1162,7 @@ def pooled_variant(
         different resamples.
     """
     checksum = str(load_config(c1.BASE_CONFIG).eventset.checksum)
+    prepared = prepared_as(prepared, package_version)
     measure = outcome_measure(prepared, Basis.ANNUAL, years=Sample.full(prepared).years)
     row_years = prepared.events["year"].to_numpy(dtype=np.int64)
     resample_ref: YearResample | None = None
