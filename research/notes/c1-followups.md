@@ -3,7 +3,8 @@
 - Issue: MAR-205 (split from MAR-152 items 1, 2, 3 and 5). An addendum to checkpoint C1 (`research/checkpoints/C1.md`, MAR-29).
 - **Observations only.** No interpretation and no recommendation: that belongs to the owner. RQ1 statements here hold for the stated setup only (publication rule, AGENTS.md).
 - Script: `research/scripts/c1_followups.py` (one `--family` per run family). Grid: `research/configs/c1-followups/followups.yaml`. Data: `research/data/c1-followups/`. Hashes in this note are the first 12 hex digits of the `sha256:` config hash; the `*_runs.csv` tables have the full config hash and run id of every run.
-- Status: families 3 (budget use), 1 (CoC q) and 2 (design β on draws) below. Family 4 is added when it finishes.
+- Status: complete, 2026-11-02. Families in the order run: 3 (budget use), 1 (CoC q), 2 (design β on draws), 4 (bootstrap coverage). 102 new runs, all `optimal`; no run raised `DegenerateTailError`.
+- Stores: new runs in a fresh store (`results/c1-followups/store`, not committed); C1's runs read, never written, from the C1 store (`C1_STORE`, `C1_EVENTSETS`; see the script's docstring).
 - Per run family, `research/data/c1-followups/` holds `<family>_runs.csv` (every run: config hash, run id, solver status, budget use, train E[π]), `<family>_kpis.csv` (portfolio KPIs: test with 90 % intervals, train point values, at every KPI β), `<family>_paired.csv` (paired differences on the test years), `<family>_summary.json` and `tables_<family>.md` (generated: every run's train and test CVaR, every paired difference with its interval and both hashes).
 
 ## Setup common to every family
@@ -176,3 +177,55 @@ F2.3. **`vuln`, cost of capital.** The β 0.995–0.999 designs pay out the budg
 F2.4. **`cic50_vuln` (cat-in-a-circle, default prior).** Pure: every new design is 8.7–14.1 % below MSE at every KPI β, every interval excluding zero (C1's β 0.99: 7.7–13.3 %). Against E[U] the new designs are −5.4 to +1.0 %, with intervals excluding zero at KPI 0.998 in 6 of 9 cells. Cost of capital: β 0.995 and 0.998 are within 0.4 % of MSE; β 0.999 is 0.2–2.2 % above MSE (intervals excluding zero at KPI 0.99 and 0.995); against E[U], −3.3 to +0.9 %.
 
 F2.5. **Budget use.** Every new design uses its whole budget (1.000). Under pure pricing on `cic50_vuln` the MSE design uses 0.933–0.953 (C1 observation 15) and on `vuln_basins_null` 0.993–1.000.
+
+## Family 4: bootstrap coverage of the CVaR interval at β 0.95–0.995, annual basis (MAR-152 item 5)
+
+**Question tested.** C1 reads its test-year intervals for CVaR₀.₉₉(U) and CVaR₀.₉₉₅(U) as approximate: percentile coverage for CVaR was measured at 85–92 % only on synthetic exponential losses (`docs/methodology/bootstrap.md`), never at β 0.99–0.995 on the annual basis of the thesis portfolio. How often does C1's interval, built the same way, contain the true value here?
+
+**Setup (a simulation study).**
+
+- **Population.** The thesis EventSet with C1's noise layer and threshold, all 10,000 years × 13 copies (130,000 slots, 13,897 rows), annual basis. The **true value** of a KPI is its value on the whole population.
+- **Designs, held fixed.** C1's main-line portfolio-scope designs at κ 1, read from the C1 store: pure MSE (`4d63dddd3335`), pure E[U] (`08a569620416`), pure weighted CVaR β 0.99 (`7d700f7bd02d`), CoC r 0.06 / q 0.99 MSE (`0ada0ff98fb2`) and weighted CVaR β 0.99 (`a705dea1563a`), and no cover (payout 0, U = L).
+- **One replication** draws 3,000 years (C1's test-sample size) with replacement from the 10,000; all 13 copies of a drawn year come along. On these years it computes the KPI (the point estimate) and its 90 % percentile interval from B = 1000 year-block replicates, exactly as C1 does: the library's `resample_years`, `kpi_replicates` and `percentile_interval`, on the annual measure of the drawn years. It records whether the interval contains the true value. Paired differences between two designs use the same replicates for both designs, as C1's `paired_difference`.
+- **R = 500 replications**, seed 20261102. The Monte Carlo standard error of a coverage near 0.87 is about 0.015.
+- **KPIs:** CVaR(U) at KPI β 0.95, 0.99 and 0.995; E[U]; the paired differences pure wCVaR − MSE, pure wCVaR − E[U] and CoC wCVaR − MSE.
+- **Check.** The script builds the annual measure of a drawn sample itself (as `basis._annual_measure`). Applied to C1's holdout test years 7,000–9,999 it reproduces C1's test CVaR of every design at every KPI β (relative tolerance 10⁻⁶) before the simulation starts.
+- Run: `python research/scripts/c1_followups.py --family coverage` (1,408 s, one process). Output: `research/data/c1-followups/coverage.csv` (per KPI: coverage, its standard error, the share of intervals entirely above or below the truth, the true value, the mean estimate, the mean interval width relative to the true value, the config hashes) and `coverage_summary.json`.
+
+**What it covers and what it doesn't.**
+
+- It covers the interval C1 reports for a test KPI of a fixed design: the uncertainty from which years fall in a 3,000-year evaluation sample, with years independent and identically distributed.
+- It doesn't cover: calibration uncertainty (the design is held fixed; a refit bootstrap is MAR-149 item 2); dependence between years (IRIS years are drawn independently, so none is modelled); the gap between the 10,000-year catalogue and reality; C1's actual test sample, which is one fixed block of years drawn without replacement from the same catalogue; other portfolios, the F-12 EventSets, other sample sizes or other designs; other interval methods (BCa, studentised: MAR-149 item 1, not implemented here).
+
+**Results (n = 3,000 years, nominal level 0.90).** Coverage, and in brackets the share of intervals entirely below the truth (truth above the upper bound) / entirely above it.
+
+| Subject | E[U] | CVaR₀.₉₅(U) | CVaR₀.₉₉(U) | CVaR₀.₉₉₅(U) | Hash |
+|---|---|---|---|---|---|
+| no cover (U = L) | 0.868 (0.094 / 0.038) | 0.868 (0.094 / 0.038) | 0.852 (0.118 / 0.030) | 0.824 (0.150 / 0.026) | – |
+| pure MSE | 0.870 (0.102 / 0.028) | 0.870 (0.102 / 0.028) | 0.866 (0.106 / 0.028) | 0.848 (0.126 / 0.026) | `4d63dddd3335` |
+| pure E[U] | 0.858 (0.116 / 0.026) | 0.858 (0.116 / 0.026) | 0.854 (0.120 / 0.026) | 0.836 (0.144 / 0.020) | `08a569620416` |
+| pure wCVaR β 0.99 | 0.886 (0.088 / 0.026) | 0.884 (0.094 / 0.022) | 0.846 (0.134 / 0.020) | 0.828 (0.152 / 0.020) | `7d700f7bd02d` |
+| CoC r 0.06 MSE | 0.890 (0.074 / 0.036) | 0.892 (0.072 / 0.036) | 0.876 (0.088 / 0.036) | 0.862 (0.106 / 0.032) | `0ada0ff98fb2` |
+| CoC r 0.06 wCVaR β 0.99 | 0.876 (0.084 / 0.040) | 0.878 (0.084 / 0.038) | 0.846 (0.128 / 0.026) | 0.834 (0.140 / 0.026) | `a705dea1563a` |
+| pure wCVaR − MSE (paired) | 0.886 (0.042 / 0.072) | 0.878 (0.048 / 0.074) | 0.870 (0.034 / 0.096) | 0.858 (0.028 / 0.114) | `7d700f7bd02d` / `4d63dddd3335` |
+| pure wCVaR − E[U] (paired) | 0.858 (0.044 / 0.098) | 0.858 (0.044 / 0.098) | 0.840 (0.032 / 0.128) | 0.816 (0.026 / 0.158) | `7d700f7bd02d` / `08a569620416` |
+| CoC wCVaR − MSE (paired) | 0.804 (0.176 / 0.020) | 0.804 (0.176 / 0.020) | 0.804 (0.176 / 0.020) | 0.804 (0.168 / 0.028) | `a705dea1563a` / `0ada0ff98fb2` |
+
+Mean interval width relative to the true value, CVaR₀.₉₉(U): 0.40 (CoC MSE) to 0.76 (pure E[U]) for single designs; 1.9 and 2.4 for the pure paired differences (true differences −114,023 and −110,416); 58 for the CoC paired difference (true difference +53,113 on a CVaR of 14.1 million). True CVaR₀.₉₉(U) on the population: pure MSE 894,448, pure wCVaR 780,425, CoC MSE 14,077,200 (`coverage.csv`).
+
+Observations:
+
+F4.1. **Single designs.** Coverage of the nominal 90 % interval is 0.846–0.876 at KPI β 0.99 and 0.824–0.862 at KPI β 0.995, against 0.858–0.892 for E[U] and CVaR₀.₉₅(U). In every row it falls from KPI β 0.95 to 0.99 to 0.995 (from 0.95 to 0.995 by 0.022–0.056). That is 1.6–3.4 Monte Carlo standard errors below 0.90 at β 0.99 and 2.5–4.5 at β 0.995.
+
+F4.2. **The misses are one-sided.** For every single design the interval lies entirely below the truth (truth above the upper bound) in 7.2–15.2 % of replications and entirely above it in 2.0–4.0 %, against 5 % each nominally. The share below the truth grows with the KPI β.
+
+F4.3. **Paired differences.** The pure wCVaR − MSE and wCVaR − E[U] intervals (true differences negative) cover 0.858–0.886 at KPI β ≤ 0.95 and 0.816–0.870 at β 0.99–0.995; their misses are mostly intervals entirely above the truth (7.2–15.8 %), i.e. intervals that understate the size of the negative difference. The CoC wCVaR − MSE interval (true difference positive and small) covers 0.804 at every KPI β, with 16.8–17.6 % of intervals entirely below the truth.
+
+F4.4. **CVaR₀.₉₅(U) and E[U].** The coverage of CVaR₀.₉₅(U) is within 0.008 of E[U]'s in every row and equal in five of nine (C1 observation 8: CVaR₀.₉₅(U) = E[U] / 0.05 when VaR₀.₉₅(U) = 0).
+
+F4.5. **Point estimates.** The mean estimate over the 500 replications is within 1.2 % of the true value for every single design (Monte Carlo standard error about 1 %); for the paired differences it is within 1.8 %, except the CoC difference (−21 % at KPI 0.95, +5.6 % at 0.99, +9.1 % at 0.995, where the true difference is small against its spread).
+
+## Not run here
+
+- KPI β 0.999 (the β 0.999 designs of family 2 are read at KPI β up to 0.998); q 0.995 at κ 0.5 and 1.5; q ≠ 0.99 on the F-12 EventSets.
+- Coverage (family 4) for other sample sizes, the F-12 EventSets and the k-fold intervals; BCa or studentised intervals (MAR-149 item 1); a refit bootstrap (MAR-149 item 2).
