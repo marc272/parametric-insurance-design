@@ -106,10 +106,10 @@ CONTRAST_DESIGNS: Final[dict[str, tuple[tuple[str, str], ...]]] = {
 }
 """The (scope, design) terms of each ``c1_combination`` contrast."""
 NOT_UNIQUE: Final[str] = (
-    "Individual-scope near-optimal ranges are not measured yet for Florida "
-    "(MAR-203): the individual design here is the one member of its optimal "
-    "set the default solver policy returned, and individual designs are not "
-    "unique either (MAR-198)."
+    "Every design here is the one member of its optimal set the default "
+    "solver policy returned; neither joint nor individual designs are unique "
+    "(MAR-100, MAR-198). MAR-203 recomputes these differences at other "
+    "members of the optimal sets: `ranges_tables.md`."
 )
 """One line next to every Florida RQ2 or combination difference."""
 CONFOUNDED: Final[str] = (

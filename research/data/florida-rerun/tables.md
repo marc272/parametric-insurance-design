@@ -286,7 +286,7 @@ Weighted CVaR minus MSE / minus E[U], test CVaR at KPI β 0.95, 0.99, 0.995.
 
 Cluster: a different index (value-weighted mean wind or category of 3 clusters). The cluster scope confounds the cluster index with the joint calibration: MAR-180 (a separate cluster index) has not merged. T6 splits the difference as C1 section 6b.6 does.
 
-Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203): the individual design here is the one member of its optimal set the default solver policy returned, and individual designs are not unique either (MAR-198).
+Every design here is the one member of its optimal set the default solver policy returned; neither joint nor individual designs are unique (MAR-100, MAR-198). MAR-203 recomputes these differences at other members of the optimal sets: `ranges_tables.md`.
 
 | Index | Pricing | Comparison | Design | Train CVaR₀.₉₉ | Test CVaR₀.₉₉ | Pooled CVaR₀.₉₉ | Train CVaR₀.₉₉₅ | Test CVaR₀.₉₉₅ | Pooled CVaR₀.₉₉₅ | Test ΔE[U] | Pooled ΔE[U] |
 |---|---|---|---|---|---|---|---|---|---|---|---|
@@ -327,7 +327,7 @@ Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203):
 
 The cluster scope confounds the cluster index with the joint calibration: MAR-180 (a separate cluster index) has not merged.
 
-Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203): the individual design here is the one member of its optimal set the default solver policy returned, and individual designs are not unique either (MAR-198).
+Every design here is the one member of its optimal set the default solver policy returned; neither joint nor individual designs are unique (MAR-100, MAR-198). MAR-203 recomputes these differences at other members of the optimal sets: `ranges_tables.md`.
 
 | Index | Pricing | κ | Design | Portfolio − ind., train | Portfolio − ind., test | Cluster − ind., train | Cluster − ind., test |
 |---|---|---|---|---|---|---|---|
@@ -384,7 +384,7 @@ Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203):
 
 Index part: `cluster_separate` (the clusters and their index, each cluster calibrated on its own) − individual. Joint part: cluster − `cluster_separate`. Cluster − individual is in T4. The cluster scope confounds the cluster index with the joint calibration: MAR-180 (a separate cluster index) has not merged.
 
-Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203): the individual design here is the one member of its optimal set the default solver policy returned, and individual designs are not unique either (MAR-198).
+Every design here is the one member of its optimal set the default solver policy returned; neither joint nor individual designs are unique (MAR-100, MAR-198). MAR-203 recomputes these differences at other members of the optimal sets: `ranges_tables.md`.
 
 | Index | Pricing | Design | Index part, train | Index part, test | Joint part, train | Joint part, test | Id separate |
 |---|---|---|---|---|---|---|---|
@@ -489,7 +489,7 @@ Every individual design's ratio and every portfolio design's ratio, summarised o
 
 A = the premium of the individual designs' summed payout (train), S = the sum of their 67 stand-alone premiums; credit = 1 − A / S. `portfolio_matched` = the portfolio design problem budgeted at A. Portfolio − individual = cross-coverage (matched − individual) + pricing diversification (portfolio − matched); CVaR₀.₉₉(U), every part relative to the individual design's value, so the parts add up.
 
-Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203): the individual design here is the one member of its optimal set the default solver policy returned, and individual designs are not unique either (MAR-198).
+Every design here is the one member of its optimal set the default solver policy returned; neither joint nor individual designs are unique (MAR-100, MAR-198). MAR-203 recomputes these differences at other members of the optimal sets: `ranges_tables.md`.
 
 | Index | κ | Design | Credit 1 − A/S | Matched loading A/E[L] | Matched budget use | Cross-cov., train | Cross-cov., test | Pricing div., train | Pricing div., test | Total, train | Total, test | Hash matched |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -522,7 +522,7 @@ Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203):
 
 Read at the KPI β that matches the design β.
 
-Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203): the individual design here is the one member of its optimal set the default solver policy returned, and individual designs are not unique either (MAR-198).
+Every design here is the one member of its optimal set the default solver policy returned; neither joint nor individual designs are unique (MAR-100, MAR-198). MAR-203 recomputes these differences at other members of the optimal sets: `ranges_tables.md`.
 
 | Index | Pricing | Design | Comparison | Train ΔCVaR | Test ΔCVaR | Pooled ΔCVaR | Test ΔE[U] | Pooled ΔE[U] |
 |---|---|---|---|---|---|---|---|---|
@@ -555,7 +555,7 @@ Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203):
 
 Relative to the individual MSE design's value.
 
-Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203): the individual design here is the one member of its optimal set the default solver policy returned, and individual designs are not unique either (MAR-198).
+Every design here is the one member of its optimal set the default solver policy returned; neither joint nor individual designs are unique (MAR-100, MAR-198). MAR-203 recomputes these differences at other members of the optimal sets: `ranges_tables.md`.
 
 | Index | Pricing | Design | KPI | Split | Both | RQ1 alone | RQ2 alone | Interaction |
 |---|---|---|---|---|---|---|---|---|
@@ -641,7 +641,7 @@ Every pricing, κ, tail design, base design and KPI β (0.95, 0.99, 0.995).
 
 Range over the 5 folds; train = the fold's 8,000 calibration years, test = its held-out block.
 
-Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203): the individual design here is the one member of its optimal set the default solver policy returned, and individual designs are not unique either (MAR-198).
+Every design here is the one member of its optimal set the default solver policy returned; neither joint nor individual designs are unique (MAR-100, MAR-198). MAR-203 recomputes these differences at other members of the optimal sets: `ranges_tables.md`.
 
 | Index | Pricing | Design | Train (5 folds) | Test (5 folds) |
 |---|---|---|---|---|

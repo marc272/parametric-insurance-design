@@ -5,6 +5,7 @@
 - **MAR-118 Q5 is answered by MAR-160**: the vulnerability prior is recentred on the base impact function in the excess form, with the expected loss matched to the no-draws build (`s` = 0.690130, median `v_half` 86.293 m/s; `research/notes/d2-florida-eventset.md`). Both EventSets of this rerun carry that prior.
 - Scripts: `research/scripts/florida_rerun.py` (runs, bootstraps, contrasts; reuses the workers of `c1_checkpoint.py`, `c1_rq2.py` and `c1_combination.py`, unchanged) and `research/scripts/florida_rerun_tables.py` (committed CSVs and `tables.md`). Configs and plan: `research/configs/florida/` (`florida_main.yaml`, `florida_cic75.yaml`, `plan.yaml`).
 - Data: `research/data/florida-rerun/`. `runs.csv` maps every design to its full `config_hash` (or `derived:` id) and `run_id`; `grid.csv`, `contrasts.csv`, `contrasts_train.csv`, `cluster_parts.csv`, `entity_payouts.csv`, `clusters.csv`, `premiums.csv`, `premium_split.csv`, `kfold_folds.csv` and `guard.csv` hold every number below; `solver_check.csv` holds the solver check (T14); `tables.md` (T1–T15) holds every table, generated. Hashes in this note are the first 12 hex digits of the `sha256:` config hash.
+- **MAR-203 (C1-F2), 2026-11-02:** section 9 measures how far every Florida KPI and contrast moves across equally optimal designs (second optima, free bins, near-optimal sets, per-county payout ranges). The two T14 designs are re-solved with CLARABEL and used in their place: the cells that read "not optimal (T14)" are filled (observations 9, 22, 30, 34; T2, T4, T9, T10, T12). Sections 1–8 are otherwise MAR-202's.
 - Result store (not committed; kept for MAR-203 and MAR-204): `results/florida/store` in this worktree, with the EventSets in `results/florida/eventsets/` and the full tables in `results/florida/full/`.
 
 ## 1. The question
@@ -46,10 +47,10 @@ Every number below is: D2 portfolio (67 counties, the State as owner), annual ba
 
 Caveats that apply to every cross-scope (RQ2 and combination) difference below:
 
-- **Individual-scope ranges.** Each compares a joint design with **one** individual design: individual-scope near-optimal ranges are not measured yet for Florida (MAR-203), and individual designs are not unique either (MAR-198).
-- **Joint-scope optima.** The Florida cross-scope differences have not been checked for non-unique joint optima yet; on the thesis portfolio, second optima of the joint designs changed 131 of 720 C1 verdicts (MAR-206, `research/notes/c1-rq2-sensitivities.md`). The check (families (b) and (e) of `research/scripts/c1_rq2_sensitivities.py`) is a follow-up.
+- **Individual-scope ranges.** Each compares a joint design with **one** individual design, and individual designs are not unique either (MAR-198). Section 9 (MAR-203) recomputes every difference at the ends of the individual designs' free-bin families.
+- **Joint-scope optima.** On the thesis portfolio, second optima of the joint designs changed 131 of 720 C1 verdicts (MAR-206, `research/notes/c1-rq2-sensitivities.md`). Section 9 (MAR-203) runs MAR-206's families (b) and (e) on these designs.
 - **Cluster scope.** It confounds the cluster index (value-weighted mean index of 3 clusters) with the joint calibration: MAR-180 has not merged. T6 splits cluster − individual as C1 section 6b.6 does, with `cluster_separate`, which keeps the cluster index.
-- **Solver check (T14).** Two stored designs are not optimal: the index (b) k-fold portfolio MSE designs of folds 0 and 4 (pure, κ 1), stored by OSQP with status `optimal`, a zero payout and an objective 66–67 % above a CLARABEL re-solve. Every number that uses them (the index (b) pooled portfolio MSE KPIs and the pooled contrasts with that design as a term) reads "not optimal (T14)" in the tables and is left out here. Nothing else is affected: the other 53 checked designs agree within 10⁻⁵, and no holdout design is affected.
+- **Solver check (T14).** Two stored designs were not optimal: the index (b) k-fold portfolio MSE designs of folds 0 and 4 (pure, κ 1), stored by OSQP with status `optimal`, a zero payout and an objective 66–67 % above a CLARABEL re-solve. MAR-203 re-solved both through the runner with CLARABEL first (observation 34) and every pooled number uses the re-solved designs. The other 53 checked designs agree within 10⁻⁵, and no holdout design is affected.
 
 ## 4. RQ1: the tail design within each scope
 
@@ -69,11 +70,11 @@ Caveats that apply to every cross-scope (RQ2 and combination) difference below:
 **Pooled 5-fold (pure, κ 1)**
 
 8. **Index (a) (T2).** Weighted CVaR against MSE and E[U] at the matched KPI β: −3.3 to −9.6 % (individual), −7.8 to −19.3 % (cluster), −12.5 to −17.7 % (portfolio); all 12 intervals below zero, each within 5 points of the holdout test value. Pooled E[U] rises by +0.8 to +23.4 %.
-9. **Index (b) (T2).** Against MSE: −10.0 and −10.3 % (individual), −12.5 and −10.8 % (cluster); the portfolio cells use the two non-optimal fold designs (T14). Against E[U]: −1.8 and −3.4 % (individual), −0.6 and −0.3 % (cluster, intervals contain zero), −8.1 and −9.3 % (portfolio).
+9. **Index (b) (T2).** Against MSE: −10.0 and −10.3 % (individual), −12.5 and −10.8 % (cluster), −11.0 % [−13.8, −8.3] and −12.1 % [−15.4, −9.0] (portfolio; with the T14 folds re-solved, observation 34). Against E[U]: −1.8 and −3.4 % (individual), −0.6 and −0.3 % (cluster, intervals contain zero), −8.1 and −9.3 % (portfolio).
 
 ## 5. RQ2: joint against individual calibration within each design
 
-Every difference in this section compares a joint design with one individual design (section 3: individual-scope ranges not measured yet, MAR-203; joint optima not checked, MAR-206 follow-up). Cluster rows confound the cluster index with the joint calibration (MAR-180 not merged).
+Every difference in this section compares a joint design with one individual design, each one member of its optimal set (section 3; section 9 recomputes them at other members). Cluster rows confound the cluster index with the joint calibration (MAR-180 not merged).
 
 **Index (a), holdout**
 
@@ -95,11 +96,11 @@ Every difference in this section compares a joint design with one individual des
 **Pooled 5-fold (pure, κ 1)**
 
 21. **Index (a) (T4, T12).** Portfolio − individual, pooled CVaR₀.₉₉: MSE −1.0 % [−2.1, −0.0], E[U] +0.1 % [−1.2, +1.2], weighted CVaR −9.5 % and −6.3 % (intervals below zero). Cluster − individual: +3.5 to +15.7 % (3 of 4 above zero). Per fold (T12), portfolio − individual is −15.0 to −0.3 % on the training blocks and −13.0 to +0.8 % on the held-out blocks.
-22. **Index (b) (T4, T12).** Portfolio − individual: E[U] +0.1 % [−1.2, +1.4], weighted CVaR −6.3 % and −4.6 % (below zero); MSE uses the two non-optimal fold designs (T14). Cluster − individual: −3.4 to +0.6 % (E[U] −3.4 % [−5.3, −1.8] the one interval excluding zero at KPI 0.99). Per fold, the E[U] and tail designs are −10.5 to −1.7 % on training blocks and −9.5 to +2.5 % on held-out blocks.
+22. **Index (b) (T4, T12).** Portfolio − individual: E[U] +0.1 % [−1.2, +1.4], weighted CVaR −6.3 % and −4.6 % (below zero); MSE −5.2 % [−6.4, −4.0] (T14 folds re-solved). Per fold (T12), the MSE design is −8.1 to −7.1 % on the training blocks and −6.4 to −3.9 % on the held-out blocks. Cluster − individual: −3.4 to +0.6 % (E[U] −3.4 % [−5.3, −1.8] the one interval excluding zero at KPI 0.99). Per fold, the E[U] and tail designs are −10.5 to −1.7 % on training blocks and −9.5 to +2.5 % on held-out blocks.
 
 ## 6. The combination
 
-Every difference in this section involves joint calibration and so carries the caveats of section 3 (individual-scope ranges not measured yet, MAR-203; joint optima not checked, MAR-206 follow-up).
+Every difference in this section involves joint calibration and so carries the caveats of section 3; section 9 recomputes them at other members of the optimal sets.
 
 **Index (a), holdout**
 
@@ -116,22 +117,22 @@ Every difference in this section involves joint calibration and so carries the c
 **Pooled 5-fold (pure, κ 1)**
 
 29. **Index (a) (T9, T10).** Against individual MSE −15.4 % and −18.8 %, against individual weighted CVaR −9.5 % and −10.1 %, against portfolio MSE −14.5 % and −17.7 %; all below zero. Interaction −7.8 % [−10.1, −5.4] and −7.8 % [−10.2, −5.3]; for E[U] +14.5 % and +17.4 %.
-30. **Index (b) (T9).** Against individual MSE −15.6 % and −16.2 %, against individual weighted CVaR −6.3 % and −6.6 %; all below zero. The comparison with portfolio MSE and the interaction use the two non-optimal fold designs (T14).
+30. **Index (b) (T9).** Against individual MSE −15.6 % and −16.2 %, against individual weighted CVaR −6.3 % and −6.6 %; all below zero. With the T14 folds re-solved: against portfolio MSE −11.0 % [−13.8, −8.3] and −12.1 % [−15.4, −9.0]; T10 (β 0.99, CVaR₀.₉₉): −15.6 % = −10.0 % (RQ1 alone) + −5.2 % (RQ2 alone) + interaction −0.5 % [−2.0, +1.0]; β 0.995 at CVaR₀.₉₉₅: interaction −1.2 % [−3.1, +0.6].
 
 ## 7. Checks on every run
 
 31. **Degenerate-tail guard (MAR-172, T13).** The zero-loss share of every calibration sample is 8.0–9.8 % for index (a) (after the 20 m/s threshold) and 63.0–66.1 % for index (b) (no threshold; 64.57 % unfiltered, both EventSets). The guard (at `beta_tail` 0.9) fires on none of the 24 samples.
 32. **Tail records (MAR-173).** Recomputed for every weighted-CVaR design problem of every scope on every calibration sample (1,656 problem records): none is flagged degenerate; the 2,350 problem records carried by the manifests of runs solved after MAR-173 equal the recomputed ones (`summary.json`, guard phase).
 33. **Pairing across scopes (MAR-179).** Every holdout joint − individual pair computed with `paired_difference(..., across_scopes=True)` equals the C1 6b.1 pairing (differences and intervals, rtol 10⁻¹²). The decomposition both = RQ1 alone + RQ2 alone + interaction holds on all 1,728 holdout and 144 pooled rows; the premium split adds up on all 216 rows; 108 pooled contrasts equal `kfold.pooled_difference`.
-34. **Solver check (T14).** 55 designs re-solved with CLARABEL first: the 43 holdout and k-fold runs with an OSQP-solved problem (all MSE) and the 12 MSE `cluster_separate` designs. 53 agree within 9.8 × 10⁻⁶ (relative objective). Two do not: index (b), k-fold, pure, κ 1, portfolio MSE, folds 0 (`5318734bca7e`) and 4 (`8dd6c28a7ed9`). OSQP stored them with status `optimal`, budget use 0.000 (no payout) and objectives 2.28 × 10²¹ and 2.48 × 10²¹, against 1.37 × 10²¹ and 1.49 × 10²¹ re-solved (+66.1 % and +66.9 %). The LP designs (E[U], weighted CVaR) were solved by CLARABEL or HiGHS and are not part of this check.
+34. **Solver check (T14).** 55 designs re-solved with CLARABEL first: the 43 holdout and k-fold runs with an OSQP-solved problem (all MSE) and the 12 MSE `cluster_separate` designs. 53 agree within 9.8 × 10⁻⁶ (relative objective). Two do not: index (b), k-fold, pure, κ 1, portfolio MSE, folds 0 (`5318734bca7e`) and 4 (`8dd6c28a7ed9`). OSQP stored them with status `optimal`, budget use 0.000 (no payout) and objectives 2.28 × 10²¹ and 2.48 × 10²¹, against 1.37 × 10²¹ and 1.49 × 10²¹ re-solved (+66.1 % and +66.9 %). The LP designs (E[U], weighted CVaR) were solved by CLARABEL or HiGHS and are not part of this check. **MAR-203:** both runs were run again through the runner with `florida_rerun.T14_POLICY` (CLARABEL first for QPs; phase `t14`), stored next to the OSQP runs under their own run ids (`3db0dfb41be6…`, `f9437ae84b0f…`; the config hashes are unchanged). Both ended `optimal`, solver CLARABEL, objectives 1.3728 × 10²¹ and 1.4863 × 10²¹, within 3.2 × 10⁻¹⁰ of the solver check's re-solve. The `kfold` phase pools them in place of the OSQP runs (`runs.csv`: `replaces_run_id`); the tables have no "not optimal (T14)" cell left. Every other pooled number is unchanged (the k-fold tables were regenerated and compared row by row).
 35. **`optimal_inaccurate` statuses (MAR-224).** 16 designs have at least one problem with status `optimal_inaccurate` (`runs.csv`): 13 holdout or derived designs: 12 of index (b) (11 under CoC, mostly E[U], and the pure `cluster_separate` E[U] design at κ 0.5; budget use 0.994–1.002) and one of index (a) (CoC, individual E[U], κ 1.5); and 3 index (b) pure k-fold runs (cluster E[U] fold 4, individual weighted CVaR β 0.995 fold 1, portfolio MSE fold 2, which passes the solver check). Their numbers are shown as they are.
 
 ## 8. Coverage gaps
 
 - CoC pooled k-fold: not run (deferred for compute, MAR-223); every CoC number is holdout only.
-- Individual-scope near-optimal ranges (MAR-203) and joint-scope non-uniqueness (MAR-206 families (b), (e)) for Florida: not measured.
+- Individual-scope near-optimal ranges and joint-scope non-uniqueness: section 9 (MAR-203), with its own coverage gaps (9.9).
 - MAR-180 (cluster index separated from the joint calibration in the library): not merged.
-- The two non-optimal index (b) k-fold portfolio MSE designs are reported, not replaced; the pooled numbers that use them are missing until those runs are re-solved.
+- The two non-optimal index (b) k-fold portfolio MSE designs: re-solved and replaced (MAR-203, observation 34).
 - The radius sweep and the near-optimal ranges are out of scope (MAR-152 sub-issues).
 
 ## Appendix: config hashes
