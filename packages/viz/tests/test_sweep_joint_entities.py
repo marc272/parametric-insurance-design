@@ -14,7 +14,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 from matplotlib.figure import Figure
@@ -98,12 +97,6 @@ def swept(tmp_path_factory: pytest.TempPathFactory) -> Swept:
     return Swept(toy=toy, sweeps=sweeps, report=report)
 
 
-@pytest.fixture(autouse=True)
-def _close_figures() -> object:
-    yield
-    plt.close("all")
-
-
 def captions(figure: Figure) -> list[str]:
     """Figure-level texts, unwrapped (the axes' own labels are not among them)."""
     return [" ".join(t.get_text().split()) for t in figure.texts]
@@ -173,6 +166,28 @@ def test_payout_sweeps_of_unique_designs_have_no_caption(
         assert captions(out.figure) == []
         assert "caption" not in out.data
     pd.testing.assert_frame_equal(plain.data[MAIN_TABLE], refused.data[MAIN_TABLE])
+
+
+def test_joint_is_decided_for_every_drawn_point(swept: Swept) -> None:
+    """A later point of a joint design captions the figure (MAR-232).
+
+    The first point (alpha 0.5) is the individual scope's, a unique design;
+    the second (alpha 0.9) the portfolio scope's, a joint one. Deciding on
+    the first point alone drew the figure without the caption.
+    """
+    individual = alpha_series(swept, "individual")
+    portfolio = alpha_series(swept, "portfolio")
+    first = individual.sorted_points()[0]
+    last = portfolio.sorted_points()[-1]
+    assert (first[0].value, last[0].value) == (0.5, 0.9)
+    mixed = SweepSeries("alpha", "portfolio", portfolio.baseline, (first, last))
+    out = payout_sweep(mixed, "A1")
+    assert captions(out.figure) == [JOINT_CAPTION]
+    assert out.data["caption"]["problem_id"].tolist() == [
+        last[1].problem_specs()[0].problem_id
+    ]
+    with pytest.raises(JointEntitiesError, match=f"run {last[1].run_id}"):
+        payout_sweep(mixed, "A1", joint_entities="refuse")
 
 
 def test_an_unknown_mode_is_refused(swept: Swept) -> None:

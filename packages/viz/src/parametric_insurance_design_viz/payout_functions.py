@@ -82,12 +82,13 @@ Figures of runs without a joint problem (the individual scope) are unchanged
 in both modes. External outputs (website, posts, examples) show per-entity
 payout functions of a joint design only with the caption.
 
-Step helpers (MAR-193)
-----------------------
-:func:`step_points`, :func:`bin_breakpoints`, :func:`with_zero_rows` and
-:func:`shared_attachment_limit` are public, so the payout sweep
-(``sweep_figures``) draws and tabulates its step payouts with the same code
-as :func:`payout_grid`.
+Shared helpers (MAR-193, MAR-232)
+---------------------------------
+:func:`step_points`, :func:`bin_breakpoints`, :func:`with_zero_rows`,
+:func:`shared_attachment_limit`, :func:`default_xlim`, :func:`joint_caption`
+and :func:`wrap_joint_caption` are public, so the payout sweep
+(``sweep_figures``) draws and tabulates its step payouts, its axis range and
+its joint-design caption with the same code as :func:`payout_grid`.
 """
 
 from __future__ import annotations
@@ -134,7 +135,9 @@ __all__ = [
     "JointEntitiesError",
     "below_attachment_mode",
     "bin_breakpoints",
+    "default_xlim",
     "is_joint_design",
+    "joint_caption",
     "normalised_payout",
     "payout_grid",
     "payout_steps",
@@ -142,6 +145,7 @@ __all__ = [
     "step_points",
     "weighted_quantile",
     "with_zero_rows",
+    "wrap_joint_caption",
 ]
 
 BENCHMARK_ZERO_RTOL: Final[float] = 1e-6
@@ -409,24 +413,46 @@ def _check_joint_mode(joint_entities: str) -> None:
         )
 
 
-def _joint_caption(
+def joint_caption(
     run: RunResult,
     entity_ids: Sequence[str],
-    joint_entities: JointEntities,
+    joint_entities: JointEntities = "caption",
     *,
     figure: str,
 ) -> pd.DataFrame | None:
-    """Return the ``caption`` table of the drawn entities, or None.
+    """Return the ``caption`` table of a payout figure's drawn entities.
 
-    One row per joint problem (more than one entity) with a drawn entity;
-    None if no drawn entity belongs to one. Under ``"refuse"`` such entities
-    raise instead.
+    The payout grid, the normalised payout and the payout sweep
+    (``sweep_figures``) all decide with this function whether their panels
+    need :data:`JOINT_CAPTION` (module docstring, "Joint designs").
+
+    Parameters
+    ----------
+    run : RunResult
+        A drawn run.
+    entity_ids : sequence of str
+        The run's entities the figure draws, in panel order.
+    joint_entities : {"caption", "refuse"}, default "caption"
+        What to do with a drawn entity of a joint design problem.
+    figure : str
+        The figure, for the error message, e.g. ``"payout_grid"``.
+
+    Returns
+    -------
+    pandas.DataFrame or None
+        One row (:data:`CAPTION_COLUMNS`) per design problem of ``run`` that
+        has more than one entity and a drawn entity; ``entity_ids`` joins
+        its drawn entities with ``";"``. None if no drawn entity belongs to
+        such a problem.
 
     Raises
     ------
+    FigureDataError
+        If ``joint_entities`` is not one of :data:`JOINT_ENTITIES_MODES`.
     JointEntitiesError
         Under ``"refuse"``, if a drawn entity belongs to a joint problem.
     """
+    _check_joint_mode(joint_entities)
     rows: list[dict[str, str]] = []
     for spec in run.problem_specs():
         if len(spec.entities) < 2:
@@ -438,11 +464,11 @@ def _joint_caption(
         if joint_entities == "refuse":
             raise JointEntitiesError(
                 f"{figure}: scope {run.scope!r} is a joint design (problem "
-                f"{spec.problem_id!r} calibrates {len(spec.entities)} entities "
-                "jointly), so its per-entity payout functions are one of "
-                "several optimal designs, chosen by the solver. Pass "
-                "joint_entities='caption' to draw them with a caption that "
-                "says so, or read the portfolio-level KPIs"
+                f"{spec.problem_id!r} of run {run.run_id} calibrates "
+                f"{len(spec.entities)} entities jointly), so its per-entity "
+                "payout functions are one of several optimal designs, chosen "
+                "by the solver. Pass joint_entities='caption' to draw them "
+                "with a caption that says so, or read the portfolio-level KPIs"
             )
         rows.append(
             {
@@ -640,8 +666,23 @@ def _entity_events(events: pd.DataFrame | None, entity_id: str) -> pd.DataFrame 
 # --------------------------------------------------------------------------
 
 
-def _default_xlim(attachment: float, limit: float) -> tuple[float, float]:
-    """Thesis axis range: 20 % of the payout range on either side (10 to 80)."""
+def default_xlim(attachment: float, limit: float) -> tuple[float, float]:
+    """Return the thesis index-axis range of the payout figures.
+
+    20 % of the payout range on either side of attachment and limit: the
+    thesis 10 to 80 for 20 and 70. The default of :func:`payout_grid`,
+    :func:`normalised_payout` and the payout sweep (``sweep_figures``).
+
+    Parameters
+    ----------
+    attachment, limit : float
+        The payout range (:func:`shared_attachment_limit`).
+
+    Returns
+    -------
+    (float, float)
+        The axis range.
+    """
     margin = 0.2 * (limit - attachment)
     return attachment - margin, limit + margin
 
@@ -736,18 +777,39 @@ def _figure_legend(fig: Figure, handles: list, labels: list[str], *, ncol: int) 
     )
 
 
-def _draw_caption(fig: Figure) -> None:
-    """Draw :data:`JOINT_CAPTION` as the figure title, wrapped to its width.
+def wrap_joint_caption(fig: Figure) -> str:
+    """Return :data:`JOINT_CAPTION` wrapped to a figure's width.
 
-    Lines of about equal length, as few as fit the figure width. Call before
-    ``tight_layout``, which leaves room for it.
+    Lines of about equal length, as few as fit the figure width at the
+    caption's font size (``style.FONT.subtitle_size``). The payout grid, the
+    normalised payout and the payout sweep (``sweep_figures``) draw their
+    caption with this text.
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        The figure the caption is drawn on.
+
+    Returns
+    -------
+    str
+        The caption with line breaks.
     """
     size = style.FONT.subtitle_size
     fits = max(20, int(fig.get_figwidth() * 72.0 / (size * _CAPTION_CHAR_WIDTH)))
     n_lines = math.ceil(len(JOINT_CAPTION) / fits)
+    width = math.ceil(len(JOINT_CAPTION) / n_lines) + 8
+    return textwrap.fill(JOINT_CAPTION, width=width)
+
+
+def _draw_caption(fig: Figure) -> None:
+    """Draw :data:`JOINT_CAPTION` as the figure title, wrapped to its width.
+
+    Call before ``tight_layout``, which leaves room for it.
+    """
     fig.suptitle(
-        textwrap.fill(JOINT_CAPTION, width=math.ceil(len(JOINT_CAPTION) / n_lines) + 8),
-        fontsize=size,
+        wrap_joint_caption(fig),
+        fontsize=style.FONT.subtitle_size,
         fontstyle="italic",
     )
 
@@ -844,7 +906,7 @@ def payout_grid(
     modes: dict[str, BelowAttachment] = {
         run.run_id: below_attachment_mode(run) for run in runs
     }
-    xlim = xlim or _default_xlim(attachment, limit)
+    xlim = xlim or default_xlim(attachment, limit)
     members = _membership(runs[0])
     order = runs[0].entity_order()
     if entity_ids is None:
@@ -855,7 +917,7 @@ def payout_grid(
             f"entities {unknown or '(none)'} are not entities of the runs ({order})"
         )
     entity_ids = tuple(entity_ids)
-    caption = _joint_caption(runs[0], entity_ids, joint_entities, figure="payout_grid")
+    caption = joint_caption(runs[0], entity_ids, joint_entities, figure="payout_grid")
     steps = payout_steps(runs)
     steps = _where(steps, steps["entity_id"].isin(entity_ids)).reset_index(drop=True)
     ncols = max(1, min(ncols, len(entity_ids)))
@@ -1088,11 +1150,11 @@ def normalised_payout(
         raise InconsistentRunsError(
             f"{entity_id!r} is not an entity of the runs ({runs[0].entity_order()})"
         )
-    caption = _joint_caption(
+    caption = joint_caption(
         runs[0], (entity_id,), joint_entities, figure="normalised_payout"
     )
     attachment, limit = shared_attachment_limit(runs)
-    xlim = xlim or _default_xlim(attachment, limit)
+    xlim = xlim or default_xlim(attachment, limit)
     if tail_level is None:
         levels = {float(r.parameters["evaluation_beta"]) for r in runs}
         if len(levels) != 1:

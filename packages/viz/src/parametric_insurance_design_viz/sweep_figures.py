@@ -128,8 +128,6 @@ Differences from the thesis code, all deliberate:
 
 from __future__ import annotations
 
-import math
-import textwrap
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, cast
@@ -151,27 +149,24 @@ from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.payout import BelowAttachment
 from parametric_insurance_design_viz import style
 from parametric_insurance_design_viz.errors import (
-    FigureDataError,
     InconsistentRunsError,
     VizError,
 )
 from parametric_insurance_design_viz.figure_data import MAIN_TABLE, FigureOutput
 from parametric_insurance_design_viz.kpi_figures import SPLIT_PREFERENCE, split_note
 from parametric_insurance_design_viz.payout_functions import (
-    CAPTION_COLUMNS,
-    JOINT_CAPTION,
-    JOINT_ENTITIES_MODES,
     STEP_COLUMNS,
     AxisLabels,
     JointEntities,
-    JointEntitiesError,
     below_attachment_mode,
     bin_breakpoints,
-    is_joint_design,
+    default_xlim,
+    joint_caption,
     payout_steps,
     shared_attachment_limit,
     step_points,
     with_zero_rows,
+    wrap_joint_caption,
 )
 from parametric_insurance_design_viz.reader import RunResult
 
@@ -430,7 +425,6 @@ _REGIME_ALPHA: Final[float] = 0.12
 _MINUS: Final[str] = "\N{MINUS SIGN}"
 _FLAT_PP: Final[float] = 0.5  # |change| below this many points reads "0"
 _ANNOTATE_OFFSET: Final[float] = 7.0  # points, thesis _tick_dist
-_CAPTION_CHAR_WIDTH: Final[float] = 0.55  # mean glyph width, in font sizes
 _CAPTION_GAP: Final[float] = 0.01  # figure fraction between title and caption
 
 
@@ -1052,79 +1046,57 @@ def _sweep_step_xy(
 
 def _sweep_caption(
     series: SweepSeries,
-    run: RunResult,
+    runs: Sequence[RunResult],
     entity_id: str,
     joint_entities: JointEntities,
 ) -> pd.DataFrame | None:
     """Return the ``caption`` table of a payout sweep, or None.
 
-    One row (:data:`~.payout_functions.CAPTION_COLUMNS`) if the entity
-    belongs to a design problem of ``run`` with more than one entity (a
-    joint design, :func:`~.payout_functions.is_joint_design`); None
-    otherwise.
+    Decided for every drawn sweep point
+    (:func:`~.payout_functions.joint_caption`), since a sweep point may in
+    principle change the design problems: one row
+    (:data:`~.payout_functions.CAPTION_COLUMNS`) per distinct joint problem
+    of the entity among the points; None if the entity belongs to a joint
+    problem at no point.
 
     Raises
     ------
     FigureDataError
         If ``joint_entities`` is not a mode.
     JointEntitiesError
-        Under ``"refuse"``, if the entity belongs to a joint problem.
+        Under ``"refuse"``, if the entity belongs to a joint problem at a
+        point.
     """
-    if joint_entities not in JOINT_ENTITIES_MODES:
-        raise FigureDataError(
-            f"joint_entities must be one of {list(JOINT_ENTITIES_MODES)}, "
-            f"got {joint_entities!r}"
-        )
-    if not is_joint_design(run):
+    figure = f"payout_sweep of the {series.parameter} sweep of {series.scope}"
+    tables = [
+        table
+        for run in runs
+        if (table := joint_caption(run, (entity_id,), joint_entities, figure=figure))
+        is not None
+    ]
+    if not tables:
         return None
-    for spec in run.problem_specs():
-        ids = [entity.entity_id for entity in spec.entities]
-        if len(ids) < 2 or entity_id not in ids:
-            continue
-        if joint_entities == "refuse":
-            raise JointEntitiesError(
-                f"payout_sweep: the {series.parameter} sweep of {series.scope} "
-                f"is a joint design (problem {spec.problem_id!r} calibrates "
-                f"{len(ids)} entities jointly), so the payout functions of "
-                f"{entity_id!r} are one of several optimal designs, chosen by "
-                "the solver. Pass joint_entities='caption' to draw them with a "
-                "caption that says so, or read the portfolio-level KPIs"
-            )
-        return pd.DataFrame(
-            [
-                {
-                    "scope": run.scope,
-                    "problem_id": spec.problem_id,
-                    "entity_ids": entity_id,
-                    "caption": JOINT_CAPTION,
-                }
-            ],
-            columns=list(CAPTION_COLUMNS),
-        )
-    return None
+    return pd.concat(tables, ignore_index=True).drop_duplicates(ignore_index=True)
 
 
 def _draw_sweep_caption(fig: Figure, ax: Axes) -> None:
     """Draw :data:`~.payout_functions.JOINT_CAPTION` above the axes title.
 
-    Wrapped to the figure width in lines of about equal length, in the
-    payout grid's caption style. Call after the layout is final; the PNG is
-    saved with a tight bounding box, which takes the caption in.
+    The payout grid's wrapped caption
+    (:func:`~.payout_functions.wrap_joint_caption`) in its style. Call after
+    the layout is final; the PNG is saved with a tight bounding box, which
+    takes the caption in.
     """
-    size = style.FONT.subtitle_size
-    fits = max(20, int(fig.get_figwidth() * 72.0 / (size * _CAPTION_CHAR_WIDTH)))
-    n_lines = math.ceil(len(JOINT_CAPTION) / fits)
-    width = math.ceil(len(JOINT_CAPTION) / n_lines) + 8
     fig.draw_without_rendering()
     box = ax.get_tightbbox()
     top = 1.0 if box is None else fig.transFigure.inverted().transform((0.0, box.y1))[1]
     fig.text(
         0.5,
         float(top) + _CAPTION_GAP,
-        textwrap.fill(JOINT_CAPTION, width=width),
+        wrap_joint_caption(fig),
         ha="center",
         va="bottom",
-        fontsize=size,
+        fontsize=style.FONT.subtitle_size,
         fontstyle="italic",
     )
 
@@ -1179,9 +1151,9 @@ def payout_sweep(
     name : str, optional
         Default ``"payout_sweep_<scope>_<entity>_<parameter>"`` (lowercase).
     joint_entities : {"caption", "refuse"}, default "caption"
-        If the entity belongs to a joint design problem of the first drawn
-        sweep point: draw it under :data:`~.payout_functions.JOINT_CAPTION`,
-        or refuse it (``payout_functions``, "Joint designs").
+        If the entity belongs to a joint design problem at any drawn sweep
+        point: draw it under :data:`~.payout_functions.JOINT_CAPTION`, or
+        refuse it (``payout_functions``, "Joint designs").
 
     Returns
     -------
@@ -1189,7 +1161,9 @@ def payout_sweep(
         Main table :data:`SWEEP_STEP_COLUMNS` (for a ``"zero"`` run also its
         zero row below the attachment); ``events`` with the scatter when
         ``events`` is given; for an entity of a joint design the ``caption``
-        table (:data:`~.payout_functions.CAPTION_COLUMNS`, one row).
+        table (:data:`~.payout_functions.CAPTION_COLUMNS`, one row per
+        distinct joint problem among the drawn points; one row when the
+        sweep leaves the problems unchanged).
 
     Raises
     ------
@@ -1214,14 +1188,13 @@ def payout_sweep(
             "has no successful point to draw"
         )
     runs = [r for _, r in ok]
-    caption = _sweep_caption(series, runs[0], entity_id, joint_entities)
+    caption = _sweep_caption(series, runs, entity_id, joint_entities)
     drawn = runs + ([benchmark] if benchmark is not None else [])
     attachment, limit = shared_attachment_limit(drawn)
     modes: dict[str, BelowAttachment] = {
         run.run_id: below_attachment_mode(run) for run in drawn
     }
-    margin = 0.2 * (limit - attachment)
-    xlim = (attachment - margin, limit + margin)
+    xlim = default_xlim(attachment, limit)
     steps = payout_steps(drawn)
     steps = _where(steps, steps["entity_id"] == entity_id).reset_index(drop=True)
     lacking = sorted({r.run_id for r in drawn} - set(steps["run_id"]))
