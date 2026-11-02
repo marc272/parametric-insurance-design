@@ -38,7 +38,13 @@ Figure                                        Thesis
   and the scope's residual-loss (``mse``) baseline. Below the attachment
   each run pays as its ``below_attachment`` mode says, drawn and tabulated
   as in the payout grid (MAR-192; ``payout_functions``, "Below the
-  attachment").
+  attachment"). If the entity belongs to a joint design problem (the
+  portfolio scope, a joint cluster scope with more than one cluster;
+  ``payout_functions``, "Joint designs"), the figure carries
+  :data:`~.payout_functions.JOINT_CAPTION` above its title and a ``caption``
+  table (MAR-222, design review F8): its payout functions are one of several
+  optimal designs, chosen by the solver. A cluster scope calibrated cluster
+  by cluster (``joint: false``) has one entity per problem, so no caption.
 * ``sensitivity_<param>``: the portfolio tail basis risk (KPI
   ``cvar_uncovered`` at ``level = "portfolio"``, at the evaluation
   ``beta``) against the swept value, one line per scope x objective except
@@ -58,7 +64,10 @@ Figure                                        Thesis
   ``tau*(C) = Pi(C) / (K - C)`` for ``C < K``. The costs are a figure option,
   not part of the config (as in the thesis): ``FigureContext.transaction_costs``,
   the ``figures`` command's ``--transaction-costs`` (MAR-120), by default
-  :data:`THESIS_TRANSACTION_COSTS`.
+  :data:`THESIS_TRANSACTION_COSTS`. They measure what the joint cluster
+  calibration gains, so a cluster scope calibrated cluster by cluster
+  (``joint: false``, ``style.SEPARATE_CLUSTER_SCOPE``) does not get them
+  (:data:`SEPARATE_CLUSTER_REASON`, MAR-222).
 
 The thesis notebook's figure arguments that are not in the config (the
 weighted-CVaR objective as the focus, the excluded combinations, the default
@@ -79,8 +88,9 @@ No silent failures
   and the same name says how many points were left out, so the command
   exits 1 (the thesis dropped such points without a trace).
 * A figure that does not apply (no individual scope for the premium
-  reallocation, no weighted-CVaR objective) is a ``SkippedFigure`` with
-  ``failed=False``. Without sweeps there are no sweep figures.
+  reallocation, no weighted-CVaR objective, the net advantage and
+  break-even cost of a cluster scope with ``joint: false``) is a
+  ``SkippedFigure`` with ``failed=False``. Without sweeps there are no sweep figures.
 * A figure that needs sweep points missing from the store
   (``FigureContext.missing_sweeps``, when the command skips missing points,
   MAR-120) is not drawn: a ``SkippedFigure`` with ``missing=True`` counts the
@@ -101,6 +111,8 @@ Differences from the thesis code, all deliberate:
 
 from __future__ import annotations
 
+import math
+import textwrap
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, cast
@@ -121,13 +133,23 @@ from numpy.typing import NDArray
 from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.payout import BelowAttachment
 from parametric_insurance_design_viz import style
-from parametric_insurance_design_viz.errors import InconsistentRunsError, VizError
+from parametric_insurance_design_viz.errors import (
+    FigureDataError,
+    InconsistentRunsError,
+    VizError,
+)
 from parametric_insurance_design_viz.figure_data import MAIN_TABLE, FigureOutput
 from parametric_insurance_design_viz.payout_functions import (
+    CAPTION_COLUMNS,
+    JOINT_CAPTION,
+    JOINT_ENTITIES_MODES,
     STEP_COLUMNS,
     AxisLabels,
+    JointEntities,
+    JointEntitiesError,
     below_attachment_mode,
     bin_breakpoints,
+    is_joint_design,
     payout_steps,
     shared_attachment_limit,
     step_points,
@@ -153,6 +175,7 @@ __all__ = [
     "REALLOCATION_COLUMNS",
     "SENSITIVITY_COLUMNS",
     "SENSITIVITY_EXCLUDED",
+    "SEPARATE_CLUSTER_REASON",
     "SWEEP_STEP_COLUMNS",
     "TAIL_KPI",
     "THESIS_TRANSACTION_COSTS",
@@ -223,6 +246,13 @@ THESIS_TRANSACTION_COSTS: Final[tuple[float, ...]] = (
 )
 """Transaction costs per contract of the net-advantage figure, loss units
 (thesis ``sweeps.yaml`` ``transaction_costs``)."""
+
+SEPARATE_CLUSTER_REASON: Final[str] = (
+    "the cluster scope is calibrated cluster by cluster (joint: false): the "
+    "net advantage and the break-even cost measure what the joint cluster "
+    "calibration gains against the portfolio scope, so they do not apply"
+)
+"""Why the cluster figures of a ``joint: false`` cluster scope are skipped."""
 
 _PARAMETER_SYMBOLS: Final[dict[str, str]] = {
     "alpha": r"$\alpha$",
@@ -367,6 +397,8 @@ _REGIME_ALPHA: Final[float] = 0.12
 _MINUS: Final[str] = "\N{MINUS SIGN}"
 _FLAT_PP: Final[float] = 0.5  # |change| below this many points reads "0"
 _ANNOTATE_OFFSET: Final[float] = 7.0  # points, thesis _tick_dist
+_CAPTION_CHAR_WIDTH: Final[float] = 0.55  # mean glyph width, in font sizes
+_CAPTION_GAP: Final[float] = 0.01  # figure fraction between title and caption
 
 
 class MissingKpiError(VizError):
@@ -875,6 +907,85 @@ def _sweep_step_xy(
     return step_points(bin_breakpoints(bins), levels, xlim, mode)
 
 
+def _sweep_caption(
+    series: SweepSeries,
+    run: RunResult,
+    entity_id: str,
+    joint_entities: JointEntities,
+) -> pd.DataFrame | None:
+    """Return the ``caption`` table of a payout sweep, or None.
+
+    One row (:data:`~.payout_functions.CAPTION_COLUMNS`) if the entity
+    belongs to a design problem of ``run`` with more than one entity (a
+    joint design, :func:`~.payout_functions.is_joint_design`); None
+    otherwise.
+
+    Raises
+    ------
+    FigureDataError
+        If ``joint_entities`` is not a mode.
+    JointEntitiesError
+        Under ``"refuse"``, if the entity belongs to a joint problem.
+    """
+    if joint_entities not in JOINT_ENTITIES_MODES:
+        raise FigureDataError(
+            f"joint_entities must be one of {list(JOINT_ENTITIES_MODES)}, "
+            f"got {joint_entities!r}"
+        )
+    if not is_joint_design(run):
+        return None
+    for spec in run.problem_specs():
+        ids = [entity.entity_id for entity in spec.entities]
+        if len(ids) < 2 or entity_id not in ids:
+            continue
+        if joint_entities == "refuse":
+            raise JointEntitiesError(
+                f"payout_sweep: the {series.parameter} sweep of {series.scope} "
+                f"is a joint design (problem {spec.problem_id!r} calibrates "
+                f"{len(ids)} entities jointly), so the payout functions of "
+                f"{entity_id!r} are one of several optimal designs, chosen by "
+                "the solver. Pass joint_entities='caption' to draw them with a "
+                "caption that says so, or read the portfolio-level KPIs"
+            )
+        return pd.DataFrame(
+            [
+                {
+                    "scope": run.scope,
+                    "problem_id": spec.problem_id,
+                    "entity_ids": entity_id,
+                    "caption": JOINT_CAPTION,
+                }
+            ],
+            columns=list(CAPTION_COLUMNS),
+        )
+    return None
+
+
+def _draw_sweep_caption(fig: Figure, ax: Axes) -> None:
+    """Draw :data:`~.payout_functions.JOINT_CAPTION` above the axes title.
+
+    Wrapped to the figure width in lines of about equal length, in the
+    payout grid's caption style. Call after the layout is final; the PNG is
+    saved with a tight bounding box, which takes the caption in.
+    """
+    size = style.FONT.subtitle_size
+    fits = max(20, int(fig.get_figwidth() * 72.0 / (size * _CAPTION_CHAR_WIDTH)))
+    n_lines = math.ceil(len(JOINT_CAPTION) / fits)
+    width = math.ceil(len(JOINT_CAPTION) / n_lines) + 8
+    fig.draw_without_rendering()
+    box = ax.get_tightbbox()
+    top = 1.0 if box is None else fig.transFigure.inverted().transform((0.0, box.y1))[1]
+    fig.text(
+        0.5,
+        float(top) + _CAPTION_GAP,
+        textwrap.fill(JOINT_CAPTION, width=width),
+        ha="center",
+        va="bottom",
+        fontsize=size,
+        fontstyle="italic",
+    )
+
+
 def payout_sweep(
     series: SweepSeries,
     entity_id: str,
@@ -884,6 +995,7 @@ def payout_sweep(
     labels: AxisLabels | None = None,
     figsize: tuple[float, float] = _FIGSIZE,
     name: str | None = None,
+    joint_entities: JointEntities = "caption",
 ) -> FigureOutput:
     """Draw one entity's payout function at every value of a sweep.
 
@@ -897,6 +1009,14 @@ def payout_sweep(
     :func:`~.payout_functions.payout_grid`: the first bin's level under
     ``"first_bin"`` (the default and the thesis), 0 under ``"zero"``, with a
     step up to the first level at ``b_0``.
+
+    If the entity belongs to a joint design problem (more than one entity:
+    the portfolio scope, a joint cluster scope with more than one cluster;
+    :func:`~.payout_functions.is_joint_design`), its payout functions are
+    one of several optimal designs, chosen by the solver (design review F8,
+    MAR-222). As in :func:`~.payout_functions.payout_grid`, the figure then
+    carries :data:`~.payout_functions.JOINT_CAPTION` above its title, or is
+    refused. Figures of other entities are unchanged.
 
     Parameters
     ----------
@@ -915,13 +1035,18 @@ def payout_sweep(
         Figure size in inches.
     name : str, optional
         Default ``"payout_sweep_<scope>_<entity>_<parameter>"`` (lowercase).
+    joint_entities : {"caption", "refuse"}, default "caption"
+        If the entity belongs to a joint design problem of the first drawn
+        sweep point: draw it under :data:`~.payout_functions.JOINT_CAPTION`,
+        or refuse it (``payout_functions``, "Joint designs").
 
     Returns
     -------
     FigureOutput
         Main table :data:`SWEEP_STEP_COLUMNS` (for a ``"zero"`` run also its
         zero row below the attachment); ``events`` with the scatter when
-        ``events`` is given.
+        ``events`` is given; for an entity of a joint design the ``caption``
+        table (:data:`~.payout_functions.CAPTION_COLUMNS`, one row).
 
     Raises
     ------
@@ -932,7 +1057,11 @@ def payout_sweep(
         ``"zero"`` run written before MAR-178
         (:func:`~.payout_functions.below_attachment_mode`).
     FigureDataError
-        If a drawn run records an unknown ``below_attachment`` mode.
+        If a drawn run records an unknown ``below_attachment`` mode, or
+        ``joint_entities`` is not a mode.
+    JointEntitiesError
+        Under ``joint_entities="refuse"``, if the entity belongs to a joint
+        design problem.
     """
     labels = labels or AxisLabels()
     ok = [(p, r) for p, r in series.sorted_points() if r.complete]
@@ -942,6 +1071,7 @@ def payout_sweep(
             "has no successful point to draw"
         )
     runs = [r for _, r in ok]
+    caption = _sweep_caption(series, runs[0], entity_id, joint_entities)
     drawn = runs + ([benchmark] if benchmark is not None else [])
     attachment, limit = shared_attachment_limit(drawn)
     modes: dict[str, BelowAttachment] = {
@@ -1047,10 +1177,14 @@ def payout_sweep(
             below = 0.0
         handles, _ = ax.get_legend_handles_labels()
         _figure_legend(fig, handles, ncol=2, y=below)
+        if caption is not None:
+            _draw_sweep_caption(fig, ax)
 
     data = {MAIN_TABLE: table}
     if rows is not None:
         data["events"] = rows
+    if caption is not None:
+        data["caption"] = caption
     entity = entity_id.lower()
     default = f"payout_sweep_{series.scope}_{entity}_{series.parameter}"
     return FigureOutput(name=name or default.lower(), figure=fig, data=data)
@@ -1930,6 +2064,11 @@ def _cluster_figures(
         if (s.scope_kind, s.objective) != ("cluster", FOCUS_OBJECTIVE) or not s.swept:
             continue
         names = (f"net_advantage_{scope.key}", f"breakeven_cost_{scope.key}")
+        if s.scope_name == style.SEPARATE_CLUSTER_SCOPE:
+            yield from (
+                SkippedFigure(n, SEPARATE_CLUSTER_REASON, failed=False) for n in names
+            )
+            continue
         if not portfolio:
             yield from (
                 SkippedFigure(

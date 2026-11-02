@@ -116,6 +116,26 @@ rows miss a location in one of its evaluations is refused
 (:class:`BundleError`). The split filter applies to the map rows as to the
 other split slices; the ``map`` section is per run, so it is unaffected.
 
+Joint designs (MAR-222)
+-----------------------
+A design problem that calibrates more than one payout entity (the portfolio
+scope; a cluster scope calibrated jointly, with more than one cluster) is
+identified only through the sum over its entities, so its per-entity payout
+functions are one of several optimal designs, the one the solver returned
+(review finding F8; ``payout_functions``, "Joint designs"). Every payout row
+says whether it belongs to such a problem: the ``joint`` column (Arrow
+``bool``, never null) is true for the rows of a problem with more than one
+entity and false otherwise, in every ``payouts`` table (baseline, sweeps,
+k-fold). The individual scope and a cluster scope calibrated cluster by
+cluster (``joint: false``, ``scope_key`` ``cluster_separate``) have one
+entity per problem, so their rows are false. The manifest records it under
+``joint``: ``rule`` (the text above), ``caption``
+(``payout_functions.JOINT_CAPTION``, the caption a page shows with such
+rows) and ``runs`` (the exported runs with a joint problem,
+``payout_functions.is_joint_design``, in ``runs.json`` order). A page that
+shows per-entity payouts of a joint design shows the caption with them. The
+key and the column are additive, so the format version stays 1.
+
 Rules (stated in the manifest, under ``rules``)
 -----------------------------------------------
 * **Infinity.** Strict JSON has no infinities, and Arrow JS hands them to
@@ -219,7 +239,9 @@ from parametric_insurance_design_viz.errors import (
 )
 from parametric_insurance_design_viz.kpi_figures import KFoldRunsError
 from parametric_insurance_design_viz.payout_functions import (
+    JOINT_CAPTION,
     below_attachment_mode,
+    is_joint_design,
     payout_steps,
 )
 from parametric_insurance_design_viz.reader import (
@@ -361,6 +383,18 @@ _MAP_RULE: Final[str] = (
     "several optimal splits of the design problem's payout, the one the "
     "solver returned, and are never shown as per-location cover. runs gives "
     "the source of each run's numbers, allocations the rules in the bundle."
+)
+_JOINT_RULE: Final[str] = (
+    "Per-entity payout functions of a joint design are not unique. A payouts "
+    "row has joint true when its design problem calibrates more than one "
+    "payout entity jointly (the portfolio scope; a cluster scope calibrated "
+    "jointly, with more than one cluster): such a problem is identified only "
+    "through the sum over its entities, so the split of its payout across "
+    "them is one of several optimal designs, the one the solver returned. A "
+    "page that shows these rows per entity shows caption with them. runs "
+    "lists the exported runs with such a problem. The individual scope and a "
+    "cluster scope calibrated cluster by cluster (scope_key cluster_separate) "
+    "have one entity per problem: their rows have joint false."
 )
 _NO_NAME: Final[str] = "the EventSet gives the location no name"
 _NO_POOLED_CI: Final[str] = (
@@ -577,7 +611,7 @@ class ExportReport:
 # Columns and encoding
 # --------------------------------------------------------------------------
 
-_Kind = Literal["str", "int", "float"]
+_Kind = Literal["str", "int", "float", "bool"]
 
 
 @dataclass(frozen=True)
@@ -631,6 +665,18 @@ def _refuse(where: str, col: _Col, count: int, what: str) -> BundleValueError:
 
 
 def _encode_column(series: pd.Series, col: _Col, where: str) -> pa.Array:
+    if col.kind == "bool":
+        missing = series.isna().to_numpy()
+        if missing.any() and col.null is None:
+            raise _refuse(where, col, int(missing.sum()), "null")
+        values = [None if m else v for v, m in zip(series, missing, strict=True)]
+        if any(v is not None and not isinstance(v, bool | np.bool_) for v in values):
+            raise BundleValueError(
+                f"{where}: column {col.name!r} holds a value that is not a boolean"
+            )
+        return pa.array(
+            [None if v is None else bool(v) for v in values], type=pa.bool_()
+        )
     if col.kind == "str":
         missing = series.isna().to_numpy()
         if missing.any() and col.null is None:
@@ -799,6 +845,7 @@ _PAYOUT_COLUMNS: Final[tuple[_Col, ...]] = (
     _Col("lower", "float", null="-inf", infinite="-inf"),
     _Col("upper", "float"),
     _Col("value", "float"),
+    _Col("joint", "bool"),
 )
 _EVAL_COLUMNS: Final[tuple[_Col, ...]] = (
     _Col("problem_id", "str"),
@@ -1064,12 +1111,22 @@ def _labelled(frame: pd.DataFrame, run: _Exported) -> pd.DataFrame:
 
 
 def _payouts(runs: Sequence[_Exported]) -> pd.DataFrame:
-    """Payout grids, with the zero row of each ``"zero"`` entity (MAR-178)."""
+    """Payout grids, with the zero row of each ``"zero"`` entity (MAR-178).
+
+    ``joint`` marks the rows of a design problem with more than one entity
+    (module docstring, "Joint designs").
+    """
     parts: list[pd.DataFrame] = []
     for item in runs:
         steps = payout_steps([item.run])
         mode = below_attachment_mode(item.run)
-        steps = steps.assign(below_attachment=mode)
+        joint = {
+            spec.problem_id: len(spec.entities) > 1 for spec in item.run.problem_specs()
+        }
+        steps = steps.assign(
+            below_attachment=mode,
+            joint=[joint[str(p)] for p in steps["problem_id"]],
+        )
         if mode == "zero":
             pieces: list[pd.DataFrame] = []
             for _, bins in steps.groupby(["problem_id", "entity_id"], sort=False):
@@ -1522,8 +1579,10 @@ def export_site(
     split kept or null, the slices filtered, the rows removed per file) and
     the ``rules``; a non-k-fold bundle also its ``map`` section (the source
     of each run's per-location numbers: allocation rule, entity rows of the
-    individual scope, or none), a k-fold bundle its ``kfold`` section
-    (module docstring).
+    individual scope, or none), a k-fold bundle its ``kfold`` section; and
+    every bundle its ``joint`` section (the rule, the caption and the runs
+    with a joint design problem, whose payout rows have ``joint`` true;
+    module docstring).
     """
     k = _check_kfold(config, parameters, include_events, pooled_kpis)
     _check_split(config, eval_split, k)
@@ -1668,6 +1727,13 @@ def export_site(
         manifest["map"] = map_section
     if kfold_section is not None:
         manifest["kfold"] = kfold_section
+    manifest["joint"] = {
+        "rule": _JOINT_RULE,
+        "caption": JOINT_CAPTION,
+        "runs": [
+            r for r in all_ids if r not in skipped and is_joint_design(results[r])
+        ],
+    }
     manifest_bytes = _json_bytes(manifest, MANIFEST, indent=2)
     builder.check_budget(len(manifest_bytes))
     directory = Path(out_dir)
