@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import contextlib
 import io
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -29,8 +29,9 @@ from matplotlib.text import Text
 
 from parametric_insurance_design import cli
 from parametric_insurance_design.experiment.sweeps import run_sweeps
-from parametric_insurance_design_viz import command
+from parametric_insurance_design_viz import command, kpi_figures, sweep_figures
 from parametric_insurance_design_viz.command import SweepRun
+from parametric_insurance_design_viz.errors import InconsistentRunsError
 from parametric_insurance_design_viz.figure_data import (
     FigureOutput,
     WrittenFigure,
@@ -312,6 +313,19 @@ def test_figure_split_prefers_test(drawn: Drawn, toy: Fixture) -> None:
     assert figure_split([full]) == "full"
     assert figure_split([holdout], "train") == "train"
     assert figure_split([]) == "full"
+
+
+def test_kpi_and_sweep_figures_share_one_split_rule(drawn: Drawn) -> None:
+    """One function for both figure sets (MAR-232), with one error class."""
+    assert sweep_figures.figure_split is kpi_figures.figure_split
+    assert sweep_figures.MissingKpiError is kpi_figures.MissingKpiError
+    assert issubclass(MissingKpiError, InconsistentRunsError)
+    holdout = drawn.run(drawn.toy.run_id("portfolio", "weighted_cvar"))
+    # a split counts if any of the named tables has rows on it
+    only_curves = replace(holdout, kpis=holdout.kpis.iloc[0:0])
+    with pytest.raises(MissingKpiError, match="share no evaluation split"):
+        figure_split([only_curves])
+    assert figure_split([only_curves], tables=("kpis", "exceedance")) == "test"
 
 
 def test_an_in_sample_figure_says_so(drawn: Drawn) -> None:

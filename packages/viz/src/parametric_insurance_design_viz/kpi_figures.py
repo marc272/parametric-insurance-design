@@ -31,7 +31,9 @@ Which rows are read
   or ``train`` rows also states it, in its subtitle (heatmaps, overview)
   or axes title (exceedance): "out of sample (test years)" or "in sample
   (train years)" (:func:`split_note`, MAR-229). A figure on the ``full``
-  rows carries no note, so the thesis figures are unchanged.
+  rows carries no note, so the thesis figures are unchanged. The sweep
+  figures choose their split with the same function, :func:`figure_split`
+  (MAR-232).
 * **Samples:** ``full`` and ``holdout`` runs. The functions that take runs
   (:func:`kpi_table`, :func:`kpi_heatmap`, :func:`performance_overview`,
   :func:`exceedance_curves`) refuse runs of a ``kfold`` sample with
@@ -163,7 +165,9 @@ __all__ = [
     "SPLIT_PREFERENCE",
     "Baseline",
     "KFoldRunsError",
+    "MissingKpiError",
     "exceedance_curves",
+    "figure_split",
     "interval_note",
     "kpi_figures",
     "kpi_heatmap",
@@ -198,6 +202,17 @@ year, in sample) states nothing, so the thesis figures stay byte-identical;
 
 KFOLD_SAMPLE: Final[str] = "kfold"
 """``runs.parameters["sample"]`` of a k-fold run, which the figures refuse."""
+
+
+class MissingKpiError(InconsistentRunsError):
+    """A run lacks the KPI row a figure needs (or has several candidates).
+
+    Raised by :func:`figure_split` and the sweep figures (``sweep_figures``
+    re-exports it). Defined here since MAR-232, when the split rule became
+    one function; it was a :class:`~.errors.VizError` of ``sweep_figures``,
+    and is now also an :class:`~.errors.InconsistentRunsError`, which the
+    KPI figures raised for a missing split before.
+    """
 
 
 class KFoldRunsError(InconsistentRunsError):
@@ -482,22 +497,68 @@ def _runs(scopes: ScopeGrid) -> list[tuple[str, RunResult]]:
     return [(key, run) for key in scopes for run in scopes[key]]
 
 
-def _eval_split(runs: Sequence[RunResult], eval_split: str | None) -> str:
-    """Return the split every run has: ``eval_split`` or the preferred one."""
-    have = [set(r.kpis["eval_split"]) | set(r.exceedance["eval_split"]) for r in runs]
-    common = set.intersection(*have) if have else set()
+def figure_split(
+    runs: Sequence[RunResult],
+    eval_split: str | None = None,
+    *,
+    tables: Sequence[str] = ("kpis",),
+) -> str:
+    """Return the evaluation split a figure reads from its runs (MAR-229).
+
+    The one rule of the KPI figures and the sweep figures (``sweep_figures``
+    re-exports it; MAR-232). Every row of one figure is read on one split:
+    ``eval_split`` if given, else the first of :data:`SPLIT_PREFERENCE`
+    (``test``, ``full``, ``train``) on which every complete run has rows. A
+    holdout run has ``train`` and ``test`` rows, so its figures read
+    ``test`` (out of sample); a full-sample run has ``full`` rows only.
+
+    Parameters
+    ----------
+    runs : sequence of RunResult
+        The figure's runs. Failed runs have no rows and are not considered.
+    eval_split : str, optional
+        The split to read; it must be one every complete run has.
+    tables : sequence of str, default ("kpis",)
+        The run tables whose ``eval_split`` column counts: a run has a split
+        if one of them has a row on it. The KPI figures pass ``("kpis",
+        "exceedance")``.
+
+    Returns
+    -------
+    str
+        The split. Without a complete run no row is read, and it is
+        ``eval_split`` or ``"full"``.
+
+    Raises
+    ------
+    MissingKpiError
+        If a complete run lacks ``eval_split``, or the complete runs share
+        no split.
+    """
+    have = [
+        (r, set().union(*(set(getattr(r, t)["eval_split"]) for t in tables)))
+        for r in runs
+        if r.complete
+    ]
+    common = set.intersection(*(h for _, h in have)) if have else set()
     if eval_split is not None:
-        if eval_split not in common:
-            raise InconsistentRunsError(
-                f"not every run has KPI rows on the {eval_split!r} split"
+        lacking = [(r, h) for r, h in have if eval_split not in h]
+        if lacking:
+            run, splits = lacking[0]
+            raise MissingKpiError(
+                f"{len(lacking)} of {len(have)} runs have no KPI rows on the "
+                f"{eval_split!r} split, e.g. run {run.run_id} ({run.scope} x "
+                f"{run.objective}) has the splits {sorted(splits)}"
             )
         return eval_split
+    if not have:
+        return "full"
     for split in SPLIT_PREFERENCE:
         if split in common:
             return split
-    raise InconsistentRunsError(
-        "the runs share no evaluation split with KPI rows; "
-        f"splits per run: {[sorted(h) for h in have]}"
+    raise MissingKpiError(
+        "the runs of the figure share no evaluation split with KPI rows; "
+        f"splits per run: {[(r.run_id, sorted(h)) for r, h in have]}"
     )
 
 
@@ -581,7 +642,7 @@ def kpi_table(
     _grid(scopes)
     pairs = _runs(scopes)
     runs = [r for _, r in pairs]
-    split = _eval_split(runs, eval_split)
+    split = figure_split(runs, eval_split, tables=("kpis", "exceedance"))
     level = _beta(runs, beta)
     rows: list[dict[str, object]] = []
     for key, run in pairs:
@@ -1563,7 +1624,7 @@ def exceedance_curves(
     key = scope_key or style.run_scope_name(runs[0])
     _grid({key: runs})
     labels = labels or AxisLabels()
-    split = _eval_split(runs, eval_split)
+    split = figure_split(runs, eval_split, tables=("kpis", "exceedance"))
     level = _beta(runs, beta)
     # rounded so that e.g. beta 0.95 gives 20, not 19.999999999999982
     var_period = float(f"{1.0 / (1.0 - level):.12g}") if level < 1.0 else math.inf

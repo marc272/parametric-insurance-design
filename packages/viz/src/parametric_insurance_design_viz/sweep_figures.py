@@ -81,7 +81,9 @@ Evaluation split
 ----------------
 The figures that read KPIs (the premium reallocation, the sensitivity,
 trade-off, net-advantage and break-even figures) read every KPI of one
-figure on one split (:func:`figure_split`, MAR-229): the first of
+figure on one split (:func:`figure_split`, MAR-229; since MAR-232 the KPI
+figures' own function, :func:`~.kpi_figures.figure_split`, re-exported
+here with :class:`MissingKpiError`): the first of
 :data:`~.kpi_figures.SPLIT_PREFERENCE` that every complete run of the figure
 has, as the KPI figures choose. A holdout run stores KPI rows on its train
 years (``eval_split = "train"``, in sample) and its test years (``"test"``,
@@ -150,10 +152,13 @@ from parametric_insurance_design.payout import BelowAttachment
 from parametric_insurance_design_viz import style
 from parametric_insurance_design_viz.errors import (
     InconsistentRunsError,
-    VizError,
 )
 from parametric_insurance_design_viz.figure_data import MAIN_TABLE, FigureOutput
-from parametric_insurance_design_viz.kpi_figures import SPLIT_PREFERENCE, split_note
+from parametric_insurance_design_viz.kpi_figures import (
+    MissingKpiError,
+    figure_split,
+    split_note,
+)
 from parametric_insurance_design_viz.payout_functions import (
     STEP_COLUMNS,
     AxisLabels,
@@ -428,10 +433,6 @@ _ANNOTATE_OFFSET: Final[float] = 7.0  # points, thesis _tick_dist
 _CAPTION_GAP: Final[float] = 0.01  # figure fraction between title and caption
 
 
-class MissingKpiError(VizError):
-    """A run lacks the KPI row a figure needs (or has several candidates)."""
-
-
 # --------------------------------------------------------------------------
 # Labels
 # --------------------------------------------------------------------------
@@ -589,59 +590,6 @@ def _where(frame: pd.DataFrame, mask: object) -> pd.DataFrame:
 
 def _evaluation_beta(run: RunResult) -> float:
     return float(run.parameters["evaluation_beta"])
-
-
-def figure_split(runs: Sequence[RunResult], eval_split: str | None = None) -> str:
-    """Return the evaluation split a figure reads from its runs (MAR-229).
-
-    Every KPI of one figure is read on one split: ``eval_split`` if given,
-    else the first of :data:`~.kpi_figures.SPLIT_PREFERENCE` (``test``,
-    ``full``, ``train``) on which every complete run has KPI rows, as the
-    KPI figures choose. A holdout run has ``train`` and ``test`` rows, so its
-    figures read ``test`` (out of sample); a full-sample run has ``full``
-    rows only.
-
-    Parameters
-    ----------
-    runs : sequence of RunResult
-        The figure's runs. Failed runs have no KPI rows and are not
-        considered.
-    eval_split : str, optional
-        The split to read; it must be one every complete run has.
-
-    Returns
-    -------
-    str
-        The split. Without a complete run no KPI is read, and it is
-        ``eval_split`` or ``"full"``.
-
-    Raises
-    ------
-    MissingKpiError
-        If a complete run lacks ``eval_split``, or the complete runs share
-        no split.
-    """
-    have = [(r, set(r.kpis["eval_split"])) for r in runs if r.complete]
-    common = set.intersection(*(h for _, h in have)) if have else set()
-    if eval_split is not None:
-        lacking = [(r, h) for r, h in have if eval_split not in h]
-        if lacking:
-            run, splits = lacking[0]
-            raise MissingKpiError(
-                f"{len(lacking)} of {len(have)} runs have no KPI rows on the "
-                f"{eval_split!r} split, e.g. run {run.run_id} ({run.scope} x "
-                f"{run.objective}) has the splits {sorted(splits)}"
-            )
-        return eval_split
-    if not have:
-        return "full"
-    for split in SPLIT_PREFERENCE:
-        if split in common:
-            return split
-    raise MissingKpiError(
-        "the runs of the figure share no evaluation split with KPI rows; "
-        f"splits per run: {[(r.run_id, sorted(h)) for r, h in have]}"
-    )
 
 
 def _split_table(split: str) -> pd.DataFrame | None:
