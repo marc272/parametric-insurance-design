@@ -78,6 +78,41 @@ Run from the repository root, after ``c1_checkpoint.py`` and ``c1_rq2.py``
     uv run python research/scripts/c1_combination.py --jobs 3
     uv run python research/scripts/c1_combination_tables.py
 
+**Addendum (MAR-194).** Three more phases, on the same thesis portfolio:
+
+``kfold_addendum`` (item 1)
+    Solves the pooled 5-fold runs at kappa 0.5 (pure and r 0.06) and at
+    r 0.10 (kappa 1): MAR-158's k-fold configs with another pricing or budget
+    loading, written to ``research/configs/c1-combination/`` by
+    ``--write-configs`` and checked to hash as derived. 180 runs into
+    ``results/c1-combination/kfold-store`` (not committed), with the
+    installed core version; then the pooled contrasts as phase ``kfold``.
+
+``sites`` (item 2)
+    Per-site KPIs of the **individual** designs: each site's own annual
+    uncovered loss (its loss minus its own design's payout), train and
+    holdout test for every main-line variant, pooled 5-fold for every k-fold
+    variant; and per site weighted CVaR minus MSE / E[U], with paired
+    intervals. Each site is its own design problem, so these KPIs are
+    defined (unlike a joint design's per-asset split, MAR-100). Reads phase
+    ``holdout``'s grid (the sites' expected values must add up to it).
+
+``alt`` (item 3)
+    The kappa-1 contrasts (pure and r 0.06) with the joint designs replaced
+    by their second optimum ``alt`` (``c1_rq2.ALT_POLICY``): the thetas that
+    MAR-206 family (e) stored (``result_joint_*.json``); nothing is
+    re-solved. Every combination of C1 / ``alt`` for the joint tail and
+    baseline designs. Checked against family (e)'s, family (b)'s and C1
+    observation 32's test KPIs of the same designs.
+
+The C1 and MAR-158 runs were solved with core ``0.1.0.dev0``, and the core
+version is part of a run id (MAR-188): ``--c1-package-version`` (default
+``0.1.0.dev0``) finds them under a later core. Run after the phases above::
+
+    uv run python research/scripts/c1_combination.py \
+        --phases kfold_addendum sites alt --jobs 2
+    uv run python research/scripts/c1_combination_tables.py --parts addendum
+
 Observations only. The interpretation is the owner's.
 """
 
