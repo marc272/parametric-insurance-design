@@ -1,0 +1,60 @@
+/* The portfolio explorer (portfolio.qmd): additions to explorer.css, which
+   it shares with the payout explorer. Text and layout only: the chart
+   colours are set in the page and follow the light/dark theme through the
+   body's quarto-dark class; everything here inherits the theme's colours. */
+
+/* The method note: a quiet box, in the theme's text colour. */
+.method-note {
+  border-left: 3px solid currentColor;
+  padding: 0.25rem 0 0.25rem 0.9rem;
+  margin: 1rem 0 1.25rem;
+}
+.method-note p:first-child {
+  margin-bottom: 0.4rem;
+}
+.method-note ul {
+  margin-bottom: 0;
+}
+
+/* Scope legends: a swatch (colour, dash, symbol) and the scope's name. */
+.scope-legend {
+  list-style: none;
+  padding: 0;
+  margin: 0.25rem 0 0.25rem;
+  font-size: 0.85rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 1rem;
+}
+.scope-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.scope-swatch {
+  flex: none;
+  vertical-align: middle;
+}
+
+/* The totals table: one row per design. It scrolls inside its own box on
+   phones (.table-scroll, styles/site.scss), never the page. */
+.totals-table th[scope="row"] {
+  font-weight: 600;
+  min-width: 11rem;
+}
+.totals-table thead th {
+  vertical-align: bottom;
+}
+.explorer-table .unit,
+.explorer-table .ci {
+  font-size: 0.75rem;
+  font-weight: normal;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+.explorer-table tr.cluster-first td {
+  border-top-width: 2px;
+}
+.explorer-table caption {
+  text-align: left;
+}

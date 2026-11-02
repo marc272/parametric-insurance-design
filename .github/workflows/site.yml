@@ -6,24 +6,28 @@ name: Site
 # (source "GitHub Actions", the github-pages environment,
 # https://marc272.github.io/parametric-insurance-design/).
 #
-# The site's one bundle (ADR 0003, "Where bundles come from in CI"):
-# bundles/explorer/, the explorer bundle, solved and exported here on every
-# build from site/configs/explorer.yaml (out of sample, annual basis) on the
-# committed thesis parity event set. No download, no cache: the run keys do
-# not include the code version, so a cached store could serve results of older
-# code. It is exported with --split test (MAR-213), so it holds the
-# out-of-sample rows only, written into the rendered site and checked against
-# its manifest (SHA-256, sizes, no other files) and the publication rule
-# (annual basis, out of sample, config hash, no failed run, no row of an
-# evaluation split other than "test") before the Pages artifact is uploaded.
+# The site's two bundles (ADR 0003, "Where bundles come from in CI"), each
+# solved and exported here on every build from its config (out of sample,
+# annual basis) on the committed thesis parity event set:
+#   - bundles/explorer/, the explorer bundle, from site/configs/explorer.yaml
+#     (the payout explorer);
+#   - bundles/portfolio/, the portfolio bundle, from site/configs/portfolio.yaml
+#     (the portfolio explorer).
+# No download, no cache: the run keys do not include the code version, so a
+# cached store could serve results of older code. Each is exported with
+# --split test (MAR-213), so it holds the out-of-sample rows only, written
+# into the rendered site and checked against its manifest (SHA-256, sizes, no
+# other files) and the publication rule (annual basis, out of sample, config
+# hash, no failed run, no row of an evaluation split other than "test")
+# before the Pages artifact is uploaded.
 #
 # The committed bundles under site/fixtures/ are test fixtures (in sample),
 # checked by packages/viz/tests/test_site_export.py in the CI workflow; they
 # are not copied into the site, and the build fails if they are (MAR-210).
 
 # The two path lists are the same: the site, the concept docs the method pages
-# include at render time (MAR-166), this workflow, and the code, lock and event
-# set the explorer bundle is solved and exported from.
+# include at render time (MAR-166), this workflow, the code, lock and event set
+# the bundles are solved and exported from, and the portfolio bundle's check.
 on:
   pull_request:
     paths:
@@ -37,6 +41,7 @@ on:
       - "pyproject.toml"
       - "uv.lock"
       - "parity/tests/data/thesis_eventset/**"
+      - "scripts/check_site_portfolio_bundle.py"
   push:
     branches: [main]
     paths:
@@ -50,6 +55,7 @@ on:
       - "pyproject.toml"
       - "uv.lock"
       - "parity/tests/data/thesis_eventset/**"
+      - "scripts/check_site_portfolio_bundle.py"
   workflow_dispatch:
 
 permissions:
@@ -64,12 +70,15 @@ concurrency:
 env:
   # Pinned Quarto CLI. site/_quarto.yml requires the same version
   # (quarto-required); change both together. The build fails early when they
-  # differ (step "Check the Quarto pin", MAR-210).
+  # differ (step "Check the Quarto pin").
   QUARTO_VERSION: "1.10.19"
   # The explorer bundle, solved and exported in CI from its config: the
   # config, and where the bundle goes in the site.
   EXPLORER_CONFIG: site/configs/explorer.yaml
   EXPLORER_BUNDLE: site/_site/bundles/explorer
+  # The portfolio bundle, likewise.
+  PORTFOLIO_CONFIG: site/configs/portfolio.yaml
+  PORTFOLIO_BUNDLE: site/_site/bundles/portfolio
 
 jobs:
   build:
@@ -116,6 +125,14 @@ jobs:
           start=$SECONDS
           uv run --locked parametric-insurance-design sweep "$EXPLORER_CONFIG" --jobs 4
           echo "solve time: $((SECONDS - start)) s"
+      # The portfolio config has no sweeps: its 12 single runs (4 scopes x 3
+      # objectives), one after the other. A failed run exits 1 and fails the
+      # build.
+      - name: Solve the portfolio runs
+        run: |
+          start=$SECONDS
+          uv run --locked parametric-insurance-design run "$PORTFOLIO_CONFIG"
+          echo "solve time: $((SECONDS - start)) s"
       # A check only (MAR-233): draw the config's figures from the same store,
       # so a figure that breaks on a holdout config fails the build (MAR-229).
       # They go to the runner's temp directory, outside site/_site, and are
@@ -141,38 +158,46 @@ jobs:
       # build.
       - name: Export the explorer bundle into the site
         run: uv run --locked parametric-insurance-design export-site "$EXPLORER_CONFIG" --split test --out "$EXPLORER_BUNDLE"
+      # The same for the portfolio bundle; it has no sweeps.
+      - name: Export the portfolio bundle into the site
+        run: uv run --locked parametric-insurance-design export-site "$PORTFOLIO_CONFIG" --no-sweeps --split test --out "$PORTFOLIO_BUNDLE"
       # site/fixtures/ holds test fixtures, in sample: never in the site. Every
       # page links the favicon, so no browser asks for /favicon.ico (a 404).
       - name: Check the rendered pages and the bundles
         run: |
           pages="index.html about.html method/index.html method/tail-risk-objective.html
                  method/portfolio-calibration.html method/combination.html
-                 explorers/alpha-beta.html blog/index.html"
+                 explorers/alpha-beta.html explorers/portfolio.html blog/index.html"
           for f in $pages blog/index.xml favicon.svg \
-                   bundles/explorer/manifest.json bundles/explorer/sweep.alpha.payouts.arrow; do
+                   bundles/explorer/manifest.json bundles/explorer/sweep.alpha.payouts.arrow \
+                   bundles/portfolio/manifest.json bundles/portfolio/baseline.kpis.arrow; do
             test -s "site/_site/$f" || { echo "missing: site/_site/$f"; exit 1; }
           done
           for f in $pages; do
             grep -qF 'rel="icon"' "site/_site/$f" || { echo "no favicon link: site/_site/$f"; exit 1; }
           done
           test ! -e site/_site/fixtures || { echo "site/_site/fixtures/: test fixtures must not be published"; exit 1; }
-          du -sh site/_site "$EXPLORER_BUNDLE"
+          du -sh site/_site "$EXPLORER_BUNDLE" "$PORTFOLIO_BUNDLE"
       # The last step before the upload: what is checked is what is deployed.
-      - name: Check the explorer bundle against its manifest and the publication rule
+      # Each bundle with the config it came from.
+      - name: Check the bundles against their manifests and the publication rule
         run: |
-          manifest="$EXPLORER_BUNDLE/manifest.json"
+          check_bundle() {
+          local config=$1 bundle=$2
+          local manifest="$bundle/manifest.json"
+          echo "==== $bundle (from $config)"
           echo "== checksums"
-          (cd "$EXPLORER_BUNDLE" && jq -r '.files[] | "\(.sha256 | ltrimstr("sha256:"))  \(.path)"' manifest.json | sha256sum --check --strict)
+          (cd "$bundle" && jq -r '.files[] | "\(.sha256 | ltrimstr("sha256:"))  \(.path)"' manifest.json | sha256sum --check --strict)
           echo "== sizes"
           jq -r '.files[] | "\(.bytes) \(.path)"' "$manifest" | while read -r bytes path; do
-            actual=$(stat -c %s "$EXPLORER_BUNDLE/$path")
+            actual=$(stat -c %s "$bundle/$path")
             test "$actual" = "$bytes" || { echo "size of $path: $actual, manifest: $bytes"; exit 1; }
           done
           echo "== no files beyond the manifest's"
-          diff <(jq -r '.files[].path, "manifest.json"' "$manifest" | sort) <(ls -A "$EXPLORER_BUNDLE" | sort)
+          diff <(jq -r '.files[].path, "manifest.json"' "$manifest" | sort) <(ls -A "$bundle" | sort)
           echo "== the config it came from"
-          hash=$(uv run --locked python -c 'import sys; from parametric_insurance_design.experiment.config import config_hash, load_config; print(config_hash(load_config(sys.argv[1])))' "$EXPLORER_CONFIG")
-          test "$(jq -r '.config.hash' "$manifest")" = "$hash" || { echo "config hash differs from $EXPLORER_CONFIG ($hash)"; exit 1; }
+          hash=$(uv run --locked python -c 'import sys; from parametric_insurance_design.experiment.config import config_hash, load_config; print(config_hash(load_config(sys.argv[1])))' "$config")
+          test "$(jq -r '.config.hash' "$manifest")" = "$hash" || { echo "config hash differs from $config ($hash)"; exit 1; }
           echo "== publication rule: annual basis, out of sample, no run left out"
           jq -e '.setup.basis == "annual" and .setup.split.out_of_sample == true and .setup.split.kind != "full" and (.runs.skipped | length) == 0' "$manifest"
           echo "== publication rule: out-of-sample rows only (MAR-213)"
@@ -180,7 +205,7 @@ jobs:
           # Read every table back: each kpis, exceedance and map file must have
           # an eval_split column holding "test" alone, so no in-sample (train)
           # row is deployed.
-          uv run --locked python - "$EXPLORER_BUNDLE" <<'PY'
+          uv run --locked python - "$bundle" <<'PY'
           import json
           import sys
           from pathlib import Path
@@ -210,6 +235,14 @@ jobs:
               sys.exit(f"checked {checked} tables with eval_split, expected {expected}")
           PY
           jq '{label, config, budget: .budget, split: .setup.split, split_filter: (.split_filter | {eval_split, rows_removed}), files: (.files | length)}' "$manifest"
+          }
+          check_bundle "$EXPLORER_CONFIG" "$EXPLORER_BUNDLE"
+          check_bundle "$PORTFOLIO_CONFIG" "$PORTFOLIO_BUNDLE"
+          # Every number the portfolio explorer shows equals the result
+          # store's (KPIs and intervals, curves, premiums, per-site cover,
+          # clusters), and no joint design has per-site numbers.
+          echo "==== $PORTFOLIO_BUNDLE against the result store"
+          uv run --locked python scripts/check_site_portfolio_bundle.py "$PORTFOLIO_CONFIG" "$PORTFOLIO_BUNDLE"
       - name: Upload the Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
