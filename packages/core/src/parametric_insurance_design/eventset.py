@@ -1,35 +1,36 @@
-"""EventSet: the data contract between all streams (schema v1, SPEC §5).
+"""EventSet: the data contract of event-level losses and indices (schema v1).
 
 An EventSet holds a simulated event catalogue for a set of locations: for every
 event row (an event, or one noise/vulnerability draw of an event) and every
-location, the parametric index value and the ground-truth loss.
+location, the parametric index value and the ground-truth loss. Every design
+reads one, whichever source produced it.
 
 In memory
-    Dense ``(n_rows, n_locations)`` float64 matrices :attr:`EventSet.index` and
-    :attr:`EventSet.loss`, an aligned ``events`` table (one row per matrix row),
-    a ``locations`` table (one row per matrix column) and
-    :class:`EventSetMetadata`.
+---------
+Dense ``(n_rows, n_locations)`` float64 matrices :attr:`EventSet.index` and
+:attr:`EventSet.loss`, an aligned ``events`` table (one row per matrix row),
+a ``locations`` table (one row per matrix column) and
+:class:`EventSetMetadata`.
 
 On disk
-    One directory holding ``events.parquet``, ``locations.parquet``,
-    ``values.parquet`` (long format) and ``metadata.json``. See
-    :meth:`EventSet.to_parquet` and :meth:`EventSet.from_parquet`.
+-------
+One directory holding ``events.parquet``, ``locations.parquet``,
+``values.parquet`` (long format) and ``metadata.json``. See
+:meth:`EventSet.to_parquet` and :meth:`EventSet.from_parquet`.
 
 Tables
-    ``events``
-        ``event_id`` (str), ``year`` (int, 0-based simulation year in
-        ``[0, n_years)``), ``rate`` (float, annual frequency, > 0),
-        ``draw_id`` (int, >= 0; 0 if no draws), ``scenario_id`` (str). The key
-        is ``(event_id, draw_id)``.
-    ``locations``
-        ``location_id`` (str, key), ``lat`` (float, degrees in [-90, 90]),
-        ``lon`` (float, degrees in [-180, 180]), ``value`` (float, >= 0),
-        ``name`` (str), plus free metadata columns.
-    ``values``
-        ``event_id``, ``draw_id``, ``location_id``, ``index`` (float),
-        ``loss`` (float, >= 0). The key is ``(event_id, draw_id,
-        location_id)`` and the table must cover every event row and location
-        exactly once.
+------
+* ``events``: ``event_id`` (str), ``year`` (int, 0-based simulation year in
+  ``[0, n_years)``), ``rate`` (float, annual frequency, > 0),
+  ``draw_id`` (int, >= 0; 0 if no draws), ``scenario_id`` (str). The key
+  is ``(event_id, draw_id)``.
+* ``locations``: ``location_id`` (str, key), ``lat`` (float, degrees in
+  [-90, 90]), ``lon`` (float, degrees in [-180, 180]), ``value`` (float,
+  >= 0), ``name`` (str), plus free metadata columns.
+* ``values``: ``event_id``, ``draw_id``, ``location_id``, ``index`` (float),
+  ``loss`` (float, >= 0). The key is ``(event_id, draw_id,
+  location_id)`` and the table must cover every event row and location
+  exactly once.
 
 Rates are never rescaled. :meth:`EventSet.filter_threshold` drops rows only to
 make solving faster: the dropped rows count as zero-loss mass, and every
@@ -39,11 +40,15 @@ that change rows, locations or values, such as a location subset
 are recorded in :attr:`EventSetMetadata.transforms` (:class:`TransformRecord`).
 
 Content hash
-    :meth:`EventSet.content_hash` returns a ``"sha256:<hex>"`` checksum of the
-    data, for result provenance (SPEC §4.3, ``runs.eventset_checksum``). It
-    hashes a canonical byte serialisation, not the Parquet files, so it does
-    not depend on the pandas, pyarrow or Parquet version.
+------------
+:meth:`EventSet.content_hash` returns a ``"sha256:<hex>"`` checksum of the
+data, for result provenance: every result records the checksum of its input
+data (``runs.eventset_checksum``). It hashes a canonical byte serialisation,
+not the Parquet files, so it does not depend on the pandas, pyarrow or
+Parquet version.
 
+Errors
+------
 Every validation failure raises a subclass of :class:`EventSetError`, which is
 both a :class:`~parametric_insurance_design.errors.ParametricInsuranceDesignError`
 and a :class:`ValueError`.
@@ -178,7 +183,7 @@ class EventSetError(ParametricInsuranceDesignError, ValueError):
 
     It derives from the library base
     :class:`~parametric_insurance_design.errors.ParametricInsuranceDesignError`
-    (ADR 0002 §6, §9 row 8) and from :class:`ValueError`.
+    and from :class:`ValueError`.
 
     Parameters
     ----------
@@ -812,8 +817,8 @@ class EventSet:
     Notes
     -----
     Years are 0-based: ``year`` is in ``[0, n_years)``, as in IRIS, the thesis
-    and the parity fixture (ADR 0002 §5). SPEC §6 writes ``y = 1..Y`` as
-    notation only.
+    and the parity fixture. The method's notation writes ``y = 1..Y``; that
+    is notation only.
 
     Examples
     --------
@@ -906,9 +911,9 @@ class EventSet:
     def content_hash(self) -> str:
         """Return a SHA-256 checksum of the EventSet's content.
 
-        The checksum identifies the data for result provenance (SPEC §4.3):
-        it is the value of ``runs.eventset_checksum`` in the result store
-        (ADR 0002 §7). It is computed from a canonical byte serialisation of
+        The checksum identifies the data for result provenance:
+        it is the value of ``runs.eventset_checksum`` in the result store.
+        It is computed from a canonical byte serialisation of
         the tables, the matrices and the metadata, never from Parquet bytes,
         so it is the same before and after a Parquet round trip and across
         pandas, pyarrow and numpy versions.
