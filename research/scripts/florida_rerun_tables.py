@@ -1296,6 +1296,7 @@ def markdown(t: dict[str, pd.DataFrame]) -> str:
         "",
     ]
     parts += t14
+    parts += _hash_table(t)
     return "\n".join(parts)
 
 
@@ -1703,6 +1704,81 @@ def _solver_table(t: dict[str, pd.DataFrame]) -> list[str]:
                 "Re-solved objective",
                 "Gap",
                 "Hash",
+            ],
+            rows,
+        ),
+        "",
+    ]
+
+
+def _hash_table(t: dict[str, pd.DataFrame]) -> list[str]:
+    r = t["runs"].copy()
+    r["h"] = r["config_hash"].map(_short)
+    rows = []
+    hold = r.loc[r["kind"] != "kfold"]
+    for idx in INDICES:
+        for pricing in PRICINGS:
+            for kappa in KAPPAS:
+                for scope in (*SCOPES, "cluster_separate", "portfolio_matched"):
+                    x = hold.loc[
+                        (hold["eventset"] == idx)
+                        & (hold["pricing"] == pricing)
+                        & (hold["kappa"] == kappa)
+                        & (hold["scope"] == scope)
+                    ]
+                    if x.empty:
+                        continue
+                    by = dict(zip(x["design"], x["h"], strict=True))
+                    rows.append(
+                        [
+                            idx,
+                            "holdout",
+                            PRICING_LABEL[pricing],
+                            f"{kappa:g}",
+                            scope,
+                            *(f"`{by[d]}`" if d in by else "" for d in DESIGNS),
+                        ]
+                    )
+    kf = r.loc[r["kind"] == "kfold"]
+    for idx in INDICES:
+        for pricing in PRICINGS:
+            for scope in SCOPES:
+                x = kf.loc[
+                    (kf["eventset"] == idx)
+                    & (kf["pricing"] == pricing)
+                    & (kf["scope"] == scope)
+                ]
+                if x.empty:
+                    continue
+                cells = []
+                for d in DESIGNS:
+                    y = x.loc[x["design"] == d].sort_values("fold")
+                    cells.append(" ".join(f"`{h}`" for h in y["h"]))
+                rows.append(
+                    [
+                        idx,
+                        "k-fold (folds 0–4)",
+                        PRICING_LABEL[pricing],
+                        "1",
+                        scope,
+                        *cells,
+                    ]
+                )
+    return [
+        "## T15. Config hash of every run",
+        "",
+        "First 12 hex digits of each run's `sha256:` config hash (`d:` a "
+        "derived `cluster_separate` design's id); `runs.csv` has the full "
+        "hashes and run ids. A k-fold cell lists the 5 fold runs in fold order.",
+        "",
+        _table(
+            [
+                "Index",
+                "Split",
+                "Pricing",
+                "κ",
+                "Scope",
+                *(DESIGN_LABEL[d] for d in DESIGNS),
             ],
             rows,
         ),

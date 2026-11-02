@@ -693,3 +693,70 @@ Every run of the plan with an OSQP-solved problem (43 runs, all MSE designs) and
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | cic75 | kfold | 0 | pure | 1 | portfolio | MSE | optimal | 2.2797e+21 | 1.3728e+21 | +66.1 % | `5318734bca7e` |
 | cic75 | kfold | 4 | pure | 1 | portfolio | MSE | optimal | 2.4803e+21 | 1.4863e+21 | +66.9 % | `8dd6c28a7ed9` |
+
+## T15. Config hash of every run
+
+First 12 hex digits of each run's `sha256:` config hash (`d:` a derived `cluster_separate` design's id); `runs.csv` has the full hashes and run ids. A k-fold cell lists the 5 fold runs in fold order.
+
+| Index | Split | Pricing | κ | Scope | MSE | E[U] | wCVaR β 0.99 | wCVaR β 0.995 |
+|---|---|---|---|---|---|---|---|---|
+| a | holdout | pure | 0.5 | individual | `6756721265d2` | `fc7117eea58d` | `687e6add7769` | `04c98548d0ab` |
+| a | holdout | pure | 0.5 | cluster | `744731dd6003` | `73bee5db66ef` | `9c6f4f047932` | `2f686eb9df1c` |
+| a | holdout | pure | 0.5 | portfolio | `db6cf50b2ef0` | `b4a9714ca8af` | `0ffd1a8cb293` | `028a8158afd8` |
+| a | holdout | pure | 0.5 | cluster_separate | `d:078a7162ad` | `d:c5634caead` | `d:f772a324f4` | `d:1b10668060` |
+| a | holdout | pure | 1 | individual | `f467b5a7b8e6` | `e3ff8084b6bf` | `deba6f85c20d` | `3e8ccff6c79c` |
+| a | holdout | pure | 1 | cluster | `e44379e09d23` | `2c78caa81e4d` | `0f2a62badcf3` | `cbe59a70bc0a` |
+| a | holdout | pure | 1 | portfolio | `f217321a0cb2` | `4e81f420a449` | `7e418da0af6e` | `778fddec1c66` |
+| a | holdout | pure | 1 | cluster_separate | `d:6a3d23173d` | `d:be93724931` | `d:eb8dbd77b6` | `d:454db0704c` |
+| a | holdout | pure | 1.5 | individual | `bdb9aca577a2` | `f1353e7309a4` | `633f85fcb303` | `8adfbd137e20` |
+| a | holdout | pure | 1.5 | cluster | `8d3ab65e6642` | `f447f40c38ae` | `6e9b58627ad9` | `5e7e04b5adc4` |
+| a | holdout | pure | 1.5 | portfolio | `213062cb5edb` | `49910e8823cc` | `8ab6ec7fcfdb` | `534acf146b3d` |
+| a | holdout | pure | 1.5 | cluster_separate | `d:83ae595a22` | `d:6f9348abb1` | `d:99809cdae5` | `d:2bbfecbf1b` |
+| a | holdout | CoC r 0.06 | 0.5 | individual | `dfa1f449c947` | `3bec11b738dd` | `15800f734ff3` | `5a49ea328036` |
+| a | holdout | CoC r 0.06 | 0.5 | cluster | `611c7441b9d6` | `8ec3ead75125` | `0ecaf109decb` | `e0fa8a6adfbe` |
+| a | holdout | CoC r 0.06 | 0.5 | portfolio | `c45b1cb40a2f` | `9bc9a1d90dc8` | `3dda1df6b10a` | `f15a12abe3e7` |
+| a | holdout | CoC r 0.06 | 0.5 | cluster_separate | `d:85a6f8eae2` | `d:5a42dac678` | `d:3b6da0fdd8` | `d:9258709d93` |
+| a | holdout | CoC r 0.06 | 0.5 | portfolio_matched | `e1261b68c64e` | `0f87c93eba50` | `bb1faac655f0` | `6c261c36226a` |
+| a | holdout | CoC r 0.06 | 1 | individual | `2a55b1a110be` | `f0852331c01d` | `2f7564292e6c` | `02eb7bff4f51` |
+| a | holdout | CoC r 0.06 | 1 | cluster | `d115a4f290c4` | `def0e135f6d4` | `0b3a79938f78` | `45a5271f80e7` |
+| a | holdout | CoC r 0.06 | 1 | portfolio | `9396af2a79ca` | `800fe59814f0` | `5bf45a618cf8` | `01d8cfcb0928` |
+| a | holdout | CoC r 0.06 | 1 | cluster_separate | `d:6f0ac82942` | `d:db93fcfdf1` | `d:0f2f85ef19` | `d:ec4faf11bf` |
+| a | holdout | CoC r 0.06 | 1 | portfolio_matched | `a3baa19d77f4` | `f106fbed0f79` | `5cba17c6240a` | `be8135c729b2` |
+| a | holdout | CoC r 0.06 | 1.5 | individual | `f63f514700f4` | `49722193ffa3` | `eac888e00fe5` | `4e9b0aae49a5` |
+| a | holdout | CoC r 0.06 | 1.5 | cluster | `ca5bf397d5ee` | `6b8dbc82b90f` | `4e4c065477c4` | `c53e152cd6d3` |
+| a | holdout | CoC r 0.06 | 1.5 | portfolio | `6d5d6dab3f2c` | `08c255bf4e50` | `a1c2f727ae3b` | `73d96c4b9d5d` |
+| a | holdout | CoC r 0.06 | 1.5 | cluster_separate | `d:fe9895af48` | `d:daa0580c5a` | `d:1ce6a8d165` | `d:34758e2324` |
+| a | holdout | CoC r 0.06 | 1.5 | portfolio_matched | `3f3567f402ac` | `58d2dc52de88` | `509d9ef47c91` | `d3b7cee8bade` |
+| cic75 | holdout | pure | 0.5 | individual | `4590491e2a87` | `dcf801f2e80e` | `9e4868dedf72` | `e15029a77c14` |
+| cic75 | holdout | pure | 0.5 | cluster | `ba83dcf9ba07` | `67abab12cdb0` | `767085ba7c27` | `d3f509e2f8f9` |
+| cic75 | holdout | pure | 0.5 | portfolio | `9827c2e64e5e` | `d54da4b2d16f` | `6083827842c6` | `c409676f3d55` |
+| cic75 | holdout | pure | 0.5 | cluster_separate | `d:a547ff54c2` | `d:8389c41149` | `d:aac5070eb3` | `d:752c08fc72` |
+| cic75 | holdout | pure | 1 | individual | `6f05a131012a` | `d90fac2e60e4` | `47392858965c` | `43eb1268b3d4` |
+| cic75 | holdout | pure | 1 | cluster | `c0e813d14798` | `8d38147d2564` | `8d68fde52dbd` | `3bb3b70c3bef` |
+| cic75 | holdout | pure | 1 | portfolio | `e0b902f40ff8` | `ea013291535a` | `a13e2361a39d` | `8753ee1c4d75` |
+| cic75 | holdout | pure | 1 | cluster_separate | `d:84e8517e83` | `d:876e45bfe0` | `d:6e27771fcd` | `d:8a50bee332` |
+| cic75 | holdout | pure | 1.5 | individual | `09e845c2e4be` | `f09994572dd5` | `b313db4f77d6` | `4cf8428ede68` |
+| cic75 | holdout | pure | 1.5 | cluster | `1cd5042942d5` | `f68db93537a3` | `a00056b449a1` | `0c071508389d` |
+| cic75 | holdout | pure | 1.5 | portfolio | `72cf401b81ea` | `c07992100fa5` | `cb1b8d4eb1d1` | `444cb0b5a8fc` |
+| cic75 | holdout | pure | 1.5 | cluster_separate | `d:0db57dd396` | `d:5d468235ef` | `d:04e2eff462` | `d:da08c0232d` |
+| cic75 | holdout | CoC r 0.06 | 0.5 | individual | `6bc55f225203` | `7a89caa222d1` | `59ad369c38f6` | `7bde56da18d3` |
+| cic75 | holdout | CoC r 0.06 | 0.5 | cluster | `ddc0d22fd7ba` | `8df1c3ac60d9` | `8e330f200c34` | `864319545411` |
+| cic75 | holdout | CoC r 0.06 | 0.5 | portfolio | `af41a19f35dc` | `3c6e24774b5a` | `5a32b01dbc21` | `6c660eba6927` |
+| cic75 | holdout | CoC r 0.06 | 0.5 | cluster_separate | `d:fbce42e4af` | `d:a7096f800c` | `d:795b59062e` | `d:6c42e2a559` |
+| cic75 | holdout | CoC r 0.06 | 0.5 | portfolio_matched | `c1bb325f1ba2` | `f3fbd2cf17be` | `d0834012d38e` | `e206a1e04f45` |
+| cic75 | holdout | CoC r 0.06 | 1 | individual | `3ec0f0c62137` | `9e36ee96f4c3` | `ee40ba2cdf6c` | `d046ebc331cc` |
+| cic75 | holdout | CoC r 0.06 | 1 | cluster | `65f29aff5cc0` | `fdfdab794724` | `b71fab70a36d` | `1bb99f72c721` |
+| cic75 | holdout | CoC r 0.06 | 1 | portfolio | `34c62ccb0f89` | `db40c7f4f94d` | `847ddfeaa35d` | `4bd5136560b1` |
+| cic75 | holdout | CoC r 0.06 | 1 | cluster_separate | `d:a5292f0063` | `d:8de37f3ecc` | `d:0d6ffbe91b` | `d:58d9bfe04f` |
+| cic75 | holdout | CoC r 0.06 | 1 | portfolio_matched | `9e6dcf5e5f18` | `7e9f8e003173` | `9d41e6d3c4e4` | `aa5cd734883c` |
+| cic75 | holdout | CoC r 0.06 | 1.5 | individual | `47f68a3e8739` | `040a79743218` | `543b67945921` | `0b511d7c2e44` |
+| cic75 | holdout | CoC r 0.06 | 1.5 | cluster | `7b64194aa071` | `5df0082fac1c` | `adf745dc65e6` | `b9bf053a24fd` |
+| cic75 | holdout | CoC r 0.06 | 1.5 | portfolio | `e24c4581edf1` | `7bd771115cff` | `b155d8d7c1f8` | `1e6dd340dbcf` |
+| cic75 | holdout | CoC r 0.06 | 1.5 | cluster_separate | `d:e13df33607` | `d:5d2a471f3f` | `d:67a3183bba` | `d:05fe3e44c5` |
+| cic75 | holdout | CoC r 0.06 | 1.5 | portfolio_matched | `ebaa98367f0a` | `777407f71b77` | `a8f13214dd8c` | `3eac51edd08f` |
+| a | k-fold (folds 0–4) | pure | 1 | individual | `d32c87bd9657` `c0a08c4ce012` `5924cfe33668` `4b013278ef3e` `c68e6bea52aa` | `6ae207daad07` `31734e0367c6` `04e7a488c356` `138f53c4851e` `43799f33acfd` | `2da52b316105` `f13bceccf5ca` `85c7db61a47c` `b0a90439d0de` `1b711dfd3bb7` | `3381ebd4f0a9` `b3e53680bc06` `db064856bb06` `815e8e65bfb7` `e18dee253259` |
+| a | k-fold (folds 0–4) | pure | 1 | cluster | `0014dfd48758` `3b1cedb6eb90` `9c6f34e1cb62` `cdf104554bc3` `9c0703bed340` | `37c93530fd74` `1559e8ec7932` `5fa729961446` `2085923e67ec` `9cad1f91907e` | `aeccbacf853f` `c83b0eadf287` `d218e4143122` `9f549357b5c7` `fc744b2119c6` | `e01911ac63e3` `bdac4b157fd2` `249a13d0d34d` `c02a48577231` `b8a47b80d3f2` |
+| a | k-fold (folds 0–4) | pure | 1 | portfolio | `62b97c4fe5c9` `74cbb5959800` `54247494c388` `ebb9005d6b9d` `3975e51555e0` | `6680aca8324e` `489a89dc2bcb` `87d5bf4c3e22` `6cb12374872f` `29033860cfa2` | `091213711b0d` `e5ae4cd788c6` `2fb09f5b4789` `a37be410bca6` `a096a6e0d71a` | `595ef5fd559e` `6765236f7c2a` `a2854a8147ad` `66e408784342` `dbf0f735d3a8` |
+| cic75 | k-fold (folds 0–4) | pure | 1 | individual | `24e4e63102ed` `3aa9b70d3936` `84393e6e8d37` `3011d4eed042` `cf27acaefc03` | `cf2d3576cb83` `db06c632f0dd` `36bb4fee3bf8` `80b0f89abcdd` `f1141e23a0ac` | `c33b7324738e` `4934efd126ea` `6cf346b4a069` `d70b310d9e6d` `870e7077d3f8` | `5f5d5b86644e` `2de5b8f0f37f` `014f27ef48c8` `464300a754b6` `3b8fc348f55d` |
+| cic75 | k-fold (folds 0–4) | pure | 1 | cluster | `20d7e0a4e6c2` `f78984dbe5b6` `5d84a7ab275c` `9b8c35fa0a52` `c0d6a0d16cac` | `b9c22b221b2c` `08bcf9119842` `5f031508b620` `64c3c05165a6` `29c385485a21` | `1252833b8930` `c1f3d3ff8cf5` `dfdbb6806b0a` `06efcec40440` `dce0160d4739` | `a650691405bb` `25743e0d35db` `d0748dbaa98d` `987b0e3c9ad5` `fb46d495b916` |
+| cic75 | k-fold (folds 0–4) | pure | 1 | portfolio | `5318734bca7e` `40a9aa720afb` `92e79d85466a` `93322adfddba` `8dd6c28a7ed9` | `95a63e55c55d` `7038eb84ad4b` `c756815878e3` `1587deef9fee` `01c0b6c02d6b` | `ce8381d36f61` `500706603c57` `a027d4cc33c1` `a890918d6ab0` `0032d207fdbd` | `1e3411c090bd` `668427852d26` `9413d1fab422` `49d43b165081` `7c212e83e4bd` |
