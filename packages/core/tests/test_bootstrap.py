@@ -850,10 +850,14 @@ def test_paired_difference_names_missing_columns(
     for dropped in (["level"], ["value", "run_id"]):
         bare = dataclasses.replace(b, table=b.table.drop(columns=dropped))
         missing = ", ".join(c for c in (*PAIR_KEY, "run_id", "value") if c in dropped)
-        with pytest.raises(BootstrapError, match=rf"design b's .* column\(s\) {missing};"):
+        with pytest.raises(
+            BootstrapError, match=rf"design b's .* column\(s\) {missing};"
+        ):
             paired_difference(a, bare, across_scopes=across_scopes)
         bare = dataclasses.replace(a, table=a.table.drop(columns=dropped))
-        with pytest.raises(BootstrapError, match=rf"design a's .* column\(s\) {missing};"):
+        with pytest.raises(
+            BootstrapError, match=rf"design a's .* column\(s\) {missing};"
+        ):
             paired_difference(bare, b, across_scopes=across_scopes)
     # A table with every column (extra ones included) pairs as before.
     extra = dataclasses.replace(b, table=b.table.assign(note="hand-built"))

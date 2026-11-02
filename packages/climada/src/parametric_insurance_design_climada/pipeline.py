@@ -1,4 +1,4 @@
-"""Track → wind → impact pipeline writing an EventSet (MAR-73, SPEC §7 F-07).
+"""Track → wind → impact pipeline writing an EventSet (SPEC §7 F-07).
 
 Port of the thesis ``src/CLIMADA/engine.py``. :func:`build_eventset` runs:
 
@@ -17,15 +17,15 @@ Port of the thesis ``src/CLIMADA/engine.py``. :func:`build_eventset` runs:
    loss draws with a
    :class:`~parametric_insurance_design_climada.hooks.VulnerabilityDraws`
    (default: none, ``draw_id`` 0; the config's ``vulnerability`` section
-   selects Emanuel ``v_half`` draws, MAR-25, see
+   selects Emanuel ``v_half`` draws, see
    :func:`make_vulnerability_draws`). A prior recentred to the base
-   expected loss (MAR-160) runs steps 3 and 4 twice: first without draws
+   expected loss runs steps 3 and 4 twice: first without draws
    (the base), then with the draws;
 5. assemble the EventSet (schema v1): ``index`` from the builder, ``loss`` = impact,
    ``rate`` = ``1 / n_years`` (divided by the number of draws), ``year`` from
    IRIS.
 
-**STORM tracks** (D7, MAR-32). With ``tracks: {kind: storm}`` step 1 reads
+**STORM tracks** (D7). With ``tracks: {kind: storm}`` step 1 reads
 the STORM files of one basin instead
 (:func:`~parametric_insurance_design_climada.storm.read_storm_catalogue`,
 which rebuilds ``year`` as ``1000 * file index + year in file``), and step 3
@@ -40,10 +40,10 @@ IRIS path, so the two scenarios differ only in the tracks. The build record's
 ``source_checksums`` has one entry per file. IRIS builds are unchanged, so
 their content hashes stay as they were.
 
-**Loss per cell** (MAR-114, D2). By default the loss is the impact at the
+**Loss per cell** (D2). By default the loss is the impact at the
 location's centroid, as in the thesis (``loss: {kind: centroid}``). With
 ``loss: {kind: cells, cells: <parquet>}`` each location is an aggregate of
-gridded cells (e.g. a county of LitPop cells, MAR-113), and its loss is the
+gridded cells (e.g. a county of LitPop cells), and its loss is the
 sum of the impacts on its cells (:func:`read_cells`). Per batch the pipeline
 then also computes the wind at the cells, the base impact on the cell
 exposures and the vulnerability draws on a *cell batch* (a
@@ -53,7 +53,7 @@ index is unchanged: the index builder still sees the location batch (wind at
 the location's ``lat``/``lon``, or the cat-in-a-circle around it). The draws
 hook is called once per batch, on the cell batch only, so its generator is
 consumed as with centroid losses and one ``v_half`` per (storm, draw) is
-shared by every cell of every location (MAR-25). The proximity filter still
+shared by every cell of every location. The proximity filter still
 tests the locations; :func:`build_eventset` checks that no storm it removes
 can reach a cell (``max_dist_eye_km`` plus the farthest cell from its
 location must not exceed ``proximity_km``).
@@ -72,7 +72,7 @@ Differences from the thesis, all deliberate:
   :class:`~parametric_insurance_design_climada.config.WindConfig`).
 
 **Provenance.** ``hazard.release`` and the catalogue checksum come from the
-IRIS manifest (``iris_manifest.json``, MAR-72). The metadata's first
+IRIS manifest (``iris_manifest.json``). The metadata's first
 :class:`~parametric_insurance_design.eventset.TransformRecord`, named
 :data:`BUILD_RECORD_NAME`, records the CLIMADA version, the catalogue
 checksum and counts, the proximity radius, the skipped storms, the unit
@@ -554,7 +554,7 @@ class _TrackSource:
 
 
 def _iris_track_conversion() -> dict[str, Any]:
-    """Return the IRIS track conversion of the build record (as in MAR-73)."""
+    """Return the IRIS track conversion of the build record."""
     return {
         "vmax_m_s_to_kn": tracks.MS_TO_KT,
         "rmw_r18_km_to_nm": tracks.KM_TO_NM,
@@ -925,7 +925,7 @@ def _match_expected_loss(
     rng: np.random.Generator | None,
     created_at: datetime | None,
 ) -> EmanuelVHalfDraws:
-    """Match a recentred prior to the base build's expected loss (MAR-160).
+    """Match a recentred prior to the base build's expected loss.
 
     Returns ``draws`` unchanged unless its match is pending; otherwise builds
     the base (this build without draws) and returns
@@ -971,7 +971,7 @@ def build_eventset(
         selects (:func:`make_vulnerability_draws`; :class:`NoDraws` unless the
         config says otherwise). A hook passed here replaces the config's. An
         :class:`~parametric_insurance_design_climada.vulnerability.EmanuelVHalfDraws`
-        with ``match_expected_loss`` (config ``prior.recentre``, MAR-160) is
+        with ``match_expected_loss`` (config ``prior.recentre``) is
         first matched: the build runs once without draws (the base), then
         with the prior recentred to the base's expected annual loss
         (:meth:`~parametric_insurance_design_climada.vulnerability.EmanuelVHalfDraws.matched`).

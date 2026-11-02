@@ -1,4 +1,4 @@
-"""Cat-in-a-circle index from storm tracks (MAR-26, SPEC §6.3 index (b)).
+"""Cat-in-a-circle index from storm tracks (SPEC §6.3 index (b)).
 
 The industry-standard tropical-cyclone trigger: for each asset and storm, the
 highest Saffir-Simpson category that the storm's **track** reaches within a
