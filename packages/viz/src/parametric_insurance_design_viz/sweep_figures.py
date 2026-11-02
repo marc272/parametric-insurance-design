@@ -96,6 +96,31 @@ figure data gain the :data:`SPLIT_TABLE` table (``<name>.split.csv``). On
 payout-sweep figures read no KPI: they show designs, which have no
 evaluation split.
 
+Degenerate tail objectives
+--------------------------
+A weighted-CVaR run whose manifest flags a design problem
+(:mod:`~parametric_insurance_design_viz.degenerate_tail`: ``beta <=
+P(L_o = 0)`` on the calibration years, so the objective equals E[U]; or a
+CVaR tail of at most one outcome) is marked in every figure here that reads
+it, with the flag's ring (``degenerate_tail.mark_points``):
+
+* ``sensitivity_<param>`` and ``tradeoff_<scope>_<param>``: the point of a
+  flagged run (for an ``n_assets`` mean, of any of its runs);
+* ``net_advantage_<scope>`` and ``breakeven_cost_<scope>``: the points at a
+  cluster count whose run, or the portfolio benchmark, is flagged (the
+  penalty reads both), on every cost curve;
+* ``premium_reallocation``: each location's share whose own design problem
+  is flagged (``degenerate_tail.entity_flags``), under either scope;
+* ``payout_sweep_*``: the colour bar at each value whose design problem of
+  the drawn entity is flagged; with a single value (no colour bar), the
+  flag's symbol after the curve's legend label.
+
+A note under the figure states the mechanism
+(``degenerate_tail.degenerate_tail_notes``), and the figure data gain the
+``degenerate_tail`` table (``<name>.degenerate_tail.csv``), one row per
+flagged design problem of the runs the figure reads. Figures and figure
+data without a flagged run are unchanged.
+
 No silent failures
 ------------------
 * A figure whose baseline run failed is not drawn: a
@@ -489,11 +514,16 @@ def _value_text(value: float) -> str:
     return f"{float(value):.2f}"
 
 
-def _figure_legend(fig: Figure, handles: list, *, ncol: int, y: float = 0.0) -> None:
-    """Legend centred below the figure, without a frame (thesis)."""
+def _figure_legend(
+    fig: Figure, handles: list, *, ncol: int, y: float = 0.0
+) -> Legend | None:
+    """Legend centred below the figure, without a frame (thesis).
+
+    Returns the legend; None, and nothing drawn, without handles.
+    """
     if not handles:
-        return
-    fig.legend(
+        return None
+    return fig.legend(
         handles,
         [str(h.get_label()) for h in handles],
         loc="upper center",
@@ -815,6 +845,9 @@ def premium_reallocation(
     FigureOutput
         Main table :data:`REALLOCATION_COLUMNS`; on a ``test`` or ``train``
         split also :data:`SPLIT_TABLE`, and the axes title states the split.
+        A share whose design problem is flagged is ringed, and the data gain
+        ``degenerate_tail`` (module docstring, "Degenerate tail
+        objectives").
 
     Raises
     ------
@@ -901,6 +934,10 @@ def premium_reallocation(
     marker_ind = _scope_style(individual.scope).marker
     marker_pf = _scope_style(portfolio.scope).marker
     x = np.arange(len(entities))
+    ind_flags = degenerate_tail.entity_flags(individual)
+    pf_flags = degenerate_tail.entity_flags(portfolio)
+    flags_ind = [ind_flags.get(e) for e in entities]
+    flags_pf = [pf_flags.get(e) for e in entities]
 
     with style.style():
         fig, ax1 = plt.subplots(figsize=figsize)
@@ -962,6 +999,9 @@ def premium_reallocation(
         ax1.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v * 100:.0f}%"))
         top = float(np.nanmax(np.concatenate([ind_share, pf_share])))
         ax1.set_ylim(0, top * 1.18)
+        xs = x.astype(float).tolist()
+        degenerate_tail.mark_points(ax1, xs, ind_share.tolist(), flags_ind)
+        degenerate_tail.mark_points(ax1, xs, pf_share.tolist(), flags_pf)
         title = _split_heading(split)
         if title is not None:
             ax1.set_title(title, fontsize=style.FONT.label_size)
@@ -969,9 +1009,16 @@ def premium_reallocation(
         if ax2 is not None:
             _frame(ax2)
         fig.tight_layout()
-        _figure_legend(fig, handles, ncol=2)
+        legend = _figure_legend(fig, handles, ncol=2)
+        degenerate_tail.note_legend(
+            fig, degenerate_tail.problem_notes(flags_ind + flags_pf), below=legend
+        )
     return FigureOutput(
-        name=name, figure=fig, data=_with_split({MAIN_TABLE: table}, split)
+        name=name,
+        figure=fig,
+        data=degenerate_tail.with_degenerate_tail(
+            _with_split({MAIN_TABLE: table}, split), (individual, portfolio)
+        ),
     )
 
 
@@ -1117,7 +1164,10 @@ def payout_sweep(
         ``events`` is given; for an entity of a joint design the ``caption``
         table (:data:`~.payout_functions.CAPTION_COLUMNS`, one row per
         distinct joint problem among the drawn points; one row when the
-        sweep leaves the problems unchanged).
+        sweep leaves the problems unchanged); ``degenerate_tail`` when a drawn
+        run is flagged (module docstring, "Degenerate tail objectives"). The
+        values at which the entity's design problem is flagged are ringed on
+        the colour bar.
 
     Raises
     ------
@@ -1165,6 +1215,10 @@ def payout_sweep(
         parameter_value=[value_of.get(rid) for rid in table["run_id"]],
     ).loc[:, list(SWEEP_STEP_COLUMNS)]
     values = np.array([float(p.value) for p, _ in ok])
+    # The entity's own design problem: under the individual scope another
+    # location's problem may be flagged and this one not.
+    flags = [degenerate_tail.entity_flags(r).get(entity_id) for r in runs]
+    tail_notes = degenerate_tail.problem_notes(flags)
     aggregate = len(set(steps["location_ids"].iloc[0].split(";"))) > 1
     symbol = parameter_symbol(series.parameter)
     rows = None
@@ -1199,16 +1253,17 @@ def payout_sweep(
         cmap = _sweep_cmap(0.0, 0.9)
         colorbar = len(np.unique(values)) > 1
         norm = Normalize(vmin=float(values.min()), vmax=float(values.max()))
-        for (point, run), value in zip(ok, values, strict=True):
+        for (point, run), value, flag in zip(ok, values, flags, strict=True):
             bins = _where(steps, steps["run_id"] == run.run_id)
             x, y = _sweep_step_xy(bins, xlim, modes[run.run_id])
+            mark = f" {degenerate_tail.DEGENERATE_TAIL_SYMBOLS[flag]}" if flag else ""
             ax.step(
                 x,
                 y,
                 where="post",
                 color=cmap(norm(value) if colorbar else 0.0),
                 linewidth=1.5,
-                label=None if colorbar else f"{symbol} = {point.value}",
+                label=None if colorbar else f"{symbol} = {point.value}{mark}",
             )
         for x0, text in ((attachment, r"Attachment $x_-$"), (limit, r"Limit $x^-$")):
             ax.axvline(x=x0, color="grey", linestyle="--", linewidth=1)
@@ -1241,16 +1296,23 @@ def payout_sweep(
             unique = sorted(set(values.tolist()))
             if len(unique) <= 8:
                 bar.set_ticks(unique)
+            # The colour bar's short axis spans 0 to 1; ring the flagged values.
+            degenerate_tail.mark_points(
+                bar.ax, values.tolist(), [0.5] * len(values), flags, clip_on=False
+            )
             below = _below(fig, bar.ax)
         else:
             fig.tight_layout()
             below = 0.0
         handles, _ = ax.get_legend_handles_labels()
-        _figure_legend(fig, handles, ncol=2, y=below)
+        legend = _figure_legend(fig, handles, ncol=2, y=below)
+        degenerate_tail.note_legend(
+            fig, tail_notes, symbols=not colorbar, below=legend, y=below
+        )
         if caption is not None:
             _draw_sweep_caption(fig, ax)
 
-    data = {MAIN_TABLE: table}
+    data = degenerate_tail.with_degenerate_tail({MAIN_TABLE: table}, runs)
     if rows is not None:
         data["events"] = rows
     if caption is not None:
@@ -1739,6 +1801,27 @@ def _cluster_split(
     return figure_split([benchmark, *(r for _, r in series.points)], eval_split)
 
 
+def _cluster_groups(
+    series: SweepSeries, benchmark: RunResult, run_ids: Sequence[object]
+) -> tuple[list[list[RunResult]], list[str | None]]:
+    """Return the runs behind each drawn cluster count, and their flags.
+
+    The penalty at a count reads the count's run and the portfolio
+    benchmark, so a point is flagged if either is.
+    """
+    runs = series.points_by_run()
+    groups = [[runs[str(r)], benchmark] for r in run_ids]
+    return groups, [degenerate_tail.group_flag(g) for g in groups]
+
+
+def _cluster_data(
+    data: dict[str, pd.DataFrame], series: SweepSeries, benchmark: RunResult
+) -> dict[str, pd.DataFrame]:
+    """Add ``degenerate_tail`` of the runs a cluster figure reads to its data."""
+    read = [benchmark, *(r for _, r in series.points if r.complete)]
+    return degenerate_tail.with_degenerate_tail(data, read)
+
+
 def net_advantage(
     series: SweepSeries,
     benchmark: RunResult,
@@ -1781,7 +1864,9 @@ def net_advantage(
         Main table :data:`NET_ADVANTAGE_COLUMNS` (successful points only);
         ``penalty`` (:data:`PENALTY_COLUMNS`, every point); on a ``test`` or
         ``train`` split also :data:`SPLIT_TABLE`, and the axes title states
-        the split.
+        the split. A point whose cluster run or benchmark is flagged is
+        ringed on every curve, and the data gain ``degenerate_tail`` (module
+        docstring, "Degenerate tail objectives").
 
     Raises
     ------
@@ -1819,6 +1904,7 @@ def net_advantage(
             for ci, p, d in zip(c, pi, delta, strict=True)
         )
     table = pd.DataFrame(rows, columns=list(NET_ADVANTAGE_COLUMNS))
+    groups, flags = _cluster_groups(series, benchmark, ok["run_id"].tolist())
     cmap = _sweep_cmap(0.15, 0.85)
     norm = Normalize(vmin=costs[0], vmax=costs[-1] if len(costs) > 1 else costs[0] + 1)
 
@@ -1833,6 +1919,9 @@ def net_advantage(
                 markersize=4,
                 linewidth=1.6,
                 zorder=3,
+            )
+            degenerate_tail.mark_points(
+                ax, c.astype(float).tolist(), delta.tolist(), flags
             )
         ax.axhline(0.0, color="black", linestyle="--", linewidth=1.2, zorder=2)
         ax.set_xlim(0.5, k + 0.5)
@@ -1864,11 +1953,22 @@ def net_advantage(
             linewidth=1.2,
             label=r"Break-even ($\Delta = 0$)",
         )
-        _figure_legend(fig, [handle], ncol=1, y=_below(fig, bar.ax))
+        legend = _figure_legend(fig, [handle], ncol=1, y=_below(fig, bar.ax))
+        degenerate_tail.note_legend(
+            fig,
+            degenerate_tail.degenerate_tail_notes(
+                g for g, f in zip(groups, flags, strict=True) if f
+            ),
+            below=legend,
+        )
     return FigureOutput(
         name=name or f"net_advantage_{series.scope}",
         figure=fig,
-        data=_with_split({MAIN_TABLE: table, "penalty": penalty}, split),
+        data=_cluster_data(
+            _with_split({MAIN_TABLE: table, "penalty": penalty}, split),
+            series,
+            benchmark,
+        ),
     )
 
 
@@ -1907,7 +2007,10 @@ def breakeven_cost(
     FigureOutput
         Main table :data:`BREAKEVEN_COLUMNS`, the points with ``C < K``
         (failed ones with no values); on a ``test`` or ``train`` split also
-        :data:`SPLIT_TABLE`, and the axes title states the split.
+        :data:`SPLIT_TABLE`, and the axes title states the split. A point
+        whose cluster run or benchmark is flagged is ringed, and the data
+        gain ``degenerate_tail`` (module docstring, "Degenerate tail
+        objectives").
 
     Raises
     ------
@@ -1935,10 +2038,12 @@ def breakeven_cost(
         )
     x = drawn["n_clusters"].to_numpy(dtype=int)
     y = drawn["breakeven_cost"].to_numpy(dtype=float)
+    groups, flags = _cluster_groups(series, benchmark, drawn["run_id"].tolist())
 
     with style.style():
         fig, ax = plt.subplots(figsize=figsize)
         ax.plot(x, y, color="black", marker="o", markersize=5, linewidth=1.8, zorder=3)
+        degenerate_tail.mark_points(ax, x.astype(float).tolist(), y.tolist(), flags)
         top = float(np.nanmax(y)) * 1.15 if np.nanmax(y) > 0 else 1.0
         bottom = min(0.0, float(np.nanmin(y)) * 1.15)
         ax.set_xlim(0.5, k + 0.5)
@@ -1968,11 +2073,18 @@ def breakeven_cost(
                 label="Portfolio scope regime",
             ),
         ]
-        _figure_legend(fig, handles, ncol=2)
+        legend = _figure_legend(fig, handles, ncol=2)
+        degenerate_tail.note_legend(
+            fig,
+            degenerate_tail.degenerate_tail_notes(
+                g for g, f in zip(groups, flags, strict=True) if f
+            ),
+            below=legend,
+        )
     return FigureOutput(
         name=name or f"breakeven_cost_{series.scope}",
         figure=fig,
-        data=_with_split({MAIN_TABLE: table}, split),
+        data=_cluster_data(_with_split({MAIN_TABLE: table}, split), series, benchmark),
     )
 
 
