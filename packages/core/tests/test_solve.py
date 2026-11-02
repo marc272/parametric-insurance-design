@@ -674,7 +674,6 @@ def test_polish_guard_ignores_other_solvers(
     assert [a.solver for a in result.attempts] == ["CLARABEL"]
 
 
-
 # -- MAR-14 acceptance on the parity fixture ---------------------------------
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
