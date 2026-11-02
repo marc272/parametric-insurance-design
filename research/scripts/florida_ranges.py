@@ -480,11 +480,11 @@ def descend_kpi(
             return current, step - 1, f"stopped: {status}"
         d = vertex - current
 
-        def f(g: float, d: np.ndarray = d) -> float:
-            return sd.value(list((current + g * d) * scale), kpi, beta)
+        def f(g: float, d: np.ndarray = d, x0: np.ndarray = current) -> float:
+            return sd.value(list((x0 + g * d) * scale), kpi, beta)
 
         gamma = _line_min(f)
-        nxt, note = ranger.admit(current + gamma * d)
+        nxt, _ = ranger.admit(current + gamma * d)
         if nxt is None:
             return current, step - 1, f"stopped: {status}, step outside the set"
         new = sd.value(list(nxt * scale), kpi, beta)
@@ -839,14 +839,33 @@ SIGN: Final[dict[str, float]] = {"a": 1.0, "b": -1.0, "c": -1.0, "d": 1.0}
 
 
 def _end(r: dict[str, Any], low: bool, sign: float, lab: str, near: bool) -> str:
-    """Candidate of a design that lowers (``low``) a contrast's term."""
+    """Candidate of a design that lowers (``low``) a contrast's term.
+
+    Free-bin variants: the free-bin end. Near-optimal variants (joint terms):
+    the member of the near-optimal set, among every candidate found and
+    checked (:func:`members`), with the smallest or largest test KPI.
+    """
     want_small = (sign > 0) == low  # a + term lowers the contrast if small
     if near and r["design"][0] in JOINT_SCOPES:
-        name = f"{'min' if want_small else 'max'}|test|{lab}"
-        if name in r["thetas"]:
-            return name
-        return "MISSING:" + name
+        names = members(r)
+        if not names:
+            return "MISSING: no checked member"
+        values = {n: r["point"][n]["test"][lab] for n in names}
+        pick = min if want_small else max
+        return pick(names, key=lambda n: values[n])
     return "free_hi" if want_small else "free_lo"
+
+
+def members(r: dict[str, Any]) -> list[str]:
+    """Candidates of a joint design checked to lie in its near-optimal set."""
+    tol = float(r["meta"]["rel_tol"]) + inu.OBJ_CHECK_RTOL
+    return [
+        n
+        for n, c in r["checks"].items()
+        if c["objective_excess"] <= tol
+        and c["budget_excess"] <= inu.OBJ_CHECK_RTOL
+        and c["structure_violation"] <= inu.OBJ_CHECK_RTOL
+    ]
 
 
 def variants(
