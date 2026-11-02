@@ -8,6 +8,7 @@ code never solves is checked in ``test_imports.py``.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,6 +18,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
@@ -157,6 +159,20 @@ def build_fixture(directory: Path, **changes: Any) -> Fixture:  # noqa: ANN401
         run_ids=run_ids,
         eventset=prepare_eventset(config, data.eventset),
     )
+
+
+@pytest.fixture(autouse=True)
+def close_figures() -> Iterator[None]:
+    """Close every pyplot figure after each test (MAR-232).
+
+    The figure functions draw with ``plt.subplots``, so pyplot keeps each
+    figure until it is closed; without this, a module draws more than
+    matplotlib's ``figure.max_open_warning`` (20) figures and the suite fails
+    under ``-W error::RuntimeWarning``. A closed figure can still be read and
+    saved, so module-scoped fixtures that hold figures keep working.
+    """
+    yield
+    plt.close("all")
 
 
 @pytest.fixture(scope="session")
