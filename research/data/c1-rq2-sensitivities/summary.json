@@ -37,8 +37,8 @@
       "scs": "3.3.1",
       "highspy": "1.15.1"
     },
-    "joint_ranges_designs": 1,
-    "joint_ranges_seconds": 418.1
+    "joint_ranges_designs": 8,
+    "joint_ranges_seconds": 1007.1
   },
   "summary_nclusters": {
     "issue": "MAR-206",
