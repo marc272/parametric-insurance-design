@@ -27,7 +27,11 @@ Which rows are read
 -------------------
 * **Evaluation split:** the ``test`` rows where every run has them (holdout
   samples, out of sample), else ``full`` (in sample), else ``train``. The
-  figure data record the split.
+  figure data record the split (``eval_split``). A figure on the ``test``
+  or ``train`` rows also states it, in its subtitle (heatmaps, overview)
+  or axes title (exceedance): "out of sample (test years)" or "in sample
+  (train years)" (:func:`split_note`, MAR-229). A figure on the ``full``
+  rows carries no note, so the thesis figures are unchanged.
 * **Samples:** ``full`` and ``holdout`` runs. The functions that take runs
   (:func:`kpi_table`, :func:`kpi_heatmap`, :func:`performance_overview`,
   :func:`exceedance_curves`) refuse runs of a ``kfold`` sample with
@@ -155,6 +159,7 @@ __all__ = [
     "OVERVIEW_KPIS",
     "POOLED_EXCEEDANCE_REASON",
     "POOLED_KPI_COLUMNS",
+    "SPLIT_NOTES",
     "SPLIT_PREFERENCE",
     "Baseline",
     "KFoldRunsError",
@@ -167,6 +172,7 @@ __all__ = [
     "performance_overview",
     "pooled_kpi_table",
     "return_period_label",
+    "split_note",
 ]
 
 ScopeGrid = Mapping[str, Sequence[RunResult]]
@@ -178,6 +184,17 @@ SPLIT_PREFERENCE: Final[tuple[str, ...]] = (
     Split.TRAIN.value,
 )
 """Evaluation split read when every run has it, in order of preference."""
+
+SPLIT_NOTES: Final[Mapping[str, str]] = {
+    Split.TEST.value: "out of sample (test years)",
+    Split.TRAIN.value: "in sample (train years)",
+}
+"""What a figure on a split of a holdout run says about it (MAR-229).
+
+A figure on the ``test`` or ``train`` rows states the split in its title or
+subtitle, and its figure data record it. A figure on the ``full`` rows (every
+year, in sample) states nothing, so the thesis figures stay byte-identical;
+:func:`split_note` returns None for it."""
 
 KFOLD_SAMPLE: Final[str] = "kfold"
 """``runs.parameters["sample"]`` of a k-fold run, which the figures refuse."""
@@ -315,6 +332,31 @@ def kpi_label(kpi: str, *, unit: str | None = None) -> str:
     label = KPI_LABELS.get(kpi)
     text = f"{label.name} {label.symbol}" if label else kpi.replace("_", " ")
     return f"{text} [{unit}]" if unit else text
+
+
+def split_note(split: str) -> str | None:
+    """Return what a figure says about its evaluation split (MAR-229).
+
+    Parameters
+    ----------
+    split : str
+        ``kpis.eval_split`` of the rows a figure shows.
+
+    Returns
+    -------
+    str or None
+        :data:`SPLIT_NOTES` of ``split``, e.g. ``"out of sample (test
+        years)"``; None for ``full`` (and any other split), whose figures
+        carry no note.
+    """
+    return SPLIT_NOTES.get(split)
+
+
+def _split_subtitle(text: str, table: pd.DataFrame) -> str | None:
+    """``text`` with the split note of a KPI table, or None without a note."""
+    splits = sorted({str(x) for x in table["eval_split"]})
+    note = split_note(splits[0]) if len(splits) == 1 else None
+    return f"{text}, {note}" if note else None
 
 
 def _refuse_kfold(runs: Sequence[RunResult]) -> None:
@@ -925,7 +967,9 @@ def kpi_heatmap(
         Figure size in inches (thesis notebook).
     title, subtitle : str, optional
         Figure titles. Default title "Portfolio-level performance
-        comparison"; default subtitle the KPI's name and symbol.
+        comparison"; default subtitle the KPI's name and symbol, followed
+        by the split note (:func:`split_note`) on a ``test`` or ``train``
+        split (MAR-229).
     name : str, optional
         Figure name; default ``"kpi_heatmap_<kpi>"``.
 
@@ -948,9 +992,12 @@ def kpi_heatmap(
     if n_legend_bins < 1:
         raise FigureDataError(f"n_legend_bins must be >= 1, got {n_legend_bins}")
     layout = _Layout.of_runs(scopes)
+    table = kpi_table(scopes, [kpi], eval_split=eval_split)
+    if subtitle is None:
+        subtitle = _split_subtitle(kpi_label(kpi), table)
     return _draw_heatmap(
         layout,
-        kpi_table(scopes, [kpi], eval_split=eval_split),
+        table,
         kpi,
         baseline=baseline or layout.default_baseline(),
         lower_is_better=lower_is_better,
@@ -1187,7 +1234,8 @@ def performance_overview(
     scope group one bar per objective in its colour; a dotted line marks the
     baseline's value. A bar whose KPI row has bootstrap bounds carries an
     interval bar from ``ci_low`` to ``ci_high`` (module docstring,
-    "Confidence intervals").
+    "Confidence intervals"). On a ``test`` or ``train`` split a subtitle
+    states it ("Portfolio KPIs, out of sample (test years)", MAR-229).
 
     Parameters
     ----------
@@ -1222,14 +1270,16 @@ def performance_overview(
         not in the grid.
     """
     layout = _Layout.of_runs(scopes)
+    table = kpi_table(scopes, kpis, eval_split=eval_split)
     return _draw_overview(
         layout,
-        kpi_table(scopes, kpis, eval_split=eval_split),
+        table,
         kpis,
         baseline=baseline or layout.default_baseline(),
         labels=labels,
         figsize=figsize,
         name=name,
+        subtitle=_split_subtitle("Portfolio KPIs", table),
     )
 
 
@@ -1459,6 +1509,10 @@ def exceedance_curves(
     "kpis"``) when that return period lies inside the stored range but is
     not one of the stored points.
 
+    On a ``test`` or ``train`` split the axes title states it
+    (:func:`split_note`, MAR-229); the ``eval_split`` column of the figure
+    data records it on every split.
+
     Parameters
     ----------
     runs : sequence of RunResult
@@ -1600,6 +1654,9 @@ def exceedance_curves(
         )
         ax.yaxis.set_major_formatter(style.MoneyFormatter(prefix))
         _box(ax)
+        note = split_note(split)
+        if note is not None:
+            ax.set_title(note[0].upper() + note[1:], fontsize=style.FONT.label_size)
         fig.tight_layout()
         objectives = [str(f["objective"].iloc[0]) for f in frames]
         handles = [  # lines without markers, as the thesis legend
