@@ -1120,7 +1120,8 @@ def table_kfold_counts(con: pd.DataFrame) -> list[str]:
         "0.995 and E[U])",
         "",
         "Cells: below zero / above zero / containing zero, of 16 per contrast "
-        "and joint scope (8 for adds RQ2). Holdout test counts in brackets, on "
+        "and joint scope (8 for adds RQ2 and RQ2 alone). Holdout test counts in "
+        "brackets, on "
         "the same cells.",
         "",
         "| Pricing | κ | Joint scope | Both | Adds RQ2 | Adds RQ1 | RQ2 alone | "
