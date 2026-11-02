@@ -1,0 +1,247 @@
+name: Release
+
+# Publishes the core and viz distributions, parametric-insurance-design and
+# parametric-insurance-design-viz, to TestPyPI and then to PyPI (ADR 0004 Q7,
+# option P1; MAR-189). The two adapters (climada, crc) are never built or
+# published here: CLIMADA comes from conda-forge, and the CRC adapter depends on
+# the CRC SDK's terms.
+#
+# Trigger: pushing a tag v<version> whose commit is on main, for example v0.1.0.
+# Nothing else runs this workflow: no pull request, no push to a branch.
+#
+#   check            the tag is v + the core and viz versions (which are equal),
+#                    the tagged commit is on main, and the package READMEs no
+#                    longer say "not yet on PyPI" (PyPI shows the README of the
+#                    release forever)
+#   build            one wheel and one sdist each for core and viz, exactly these
+#                    four files; twine check --strict and the licence metadata
+#   publish-testpypi upload to TestPyPI (environment "testpypi")
+#   verify-testpypi  download the two wheels back from TestPyPI, check that they
+#                    are byte-identical to the built ones, install them on
+#                    Python 3.11 with their dependencies from PyPI, then import
+#                    them and run the command line
+#   publish-pypi     upload the same files to PyPI (environment "pypi", which
+#                    has required reviewers: the run waits for the owner's
+#                    approval)
+#
+# Uploads use PyPI trusted publishing (OIDC): no token is stored in the
+# repository. The owner registers a trusted publisher for each project on each
+# index (repository marc272/parametric-insurance-design, workflow release.yml,
+# environment testpypi or pypi). The steps are in the MAR-189 pull request.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+# One release run per tag at a time, never cancelled halfway through an upload.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CORE: parametric-insurance-design
+  VIZ: parametric-insurance-design-viz
+
+jobs:
+  check:
+    name: check (tag, versions, main, READMEs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.versions.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: The tag is v + the core and viz versions
+        id: versions
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'EOF'
+          import os
+          import sys
+          import tomllib
+
+          versions = {}
+          for name in ("core", "viz"):
+              with open(f"packages/{name}/pyproject.toml", "rb") as f:
+                  versions[name] = tomllib.load(f)["project"]["version"]
+          tag = os.environ["TAG"]
+          print(f"tag {tag}; core {versions['core']}; viz {versions['viz']}")
+          if versions["core"] != versions["viz"]:
+              sys.exit("::error::the core and viz versions differ; release them together")
+          if tag != "v" + versions["core"]:
+              sys.exit(f"::error::tag {tag} is not v{versions['core']}, the core and viz version")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"version={versions['core']}\n")
+          EOF
+      - name: The tagged commit is on main
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo "::error::the tagged commit $GITHUB_SHA is not on main"
+            exit 1
+          }
+      - name: The package READMEs no longer say "not yet on PyPI"
+        run: |
+          if grep -n "not yet on PyPI" packages/core/README.md packages/viz/README.md; then
+            echo "::error::update the version lines above before tagging: PyPI renders these READMEs"
+            exit 1
+          fi
+
+  build:
+    name: build (core and viz, wheel and sdist)
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - name: Build core and viz (only these two)
+        run: |
+          uv build --package "$CORE" --out-dir dist
+          uv build --package "$VIZ" --out-dir dist
+      - name: Exactly the four expected files
+        run: |
+          expected=$(printf '%s\n' \
+            "parametric_insurance_design-$VERSION-py3-none-any.whl" \
+            "parametric_insurance_design-$VERSION.tar.gz" \
+            "parametric_insurance_design_viz-$VERSION-py3-none-any.whl" \
+            "parametric_insurance_design_viz-$VERSION.tar.gz" | sort)
+          actual=$(cd dist && printf '%s\n' * | sort)
+          echo "$actual"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::dist/ holds other files than the core and viz $VERSION wheels and sdists"
+            exit 1
+          fi
+      - name: twine check (metadata and README rendering)
+        run: uvx twine@7.0.0 check --strict dist/*
+      - name: Check licence metadata (ADR 0001)
+        run: |
+          check() {
+            meta=$(unzip -p dist/"$1"-*.whl '*.dist-info/METADATA')
+            echo "$meta" | grep -E '^(Name|Version|Requires-Python|License-Expression|License-File):'
+            echo "$meta" | grep -qx "Version: $VERSION"
+            echo "$meta" | grep -qx "License-Expression: BSD-3-Clause"
+            echo "$meta" | grep -qx "License-File: LICENSE"
+            echo
+          }
+          check parametric_insurance_design
+          check parametric_insurance_design_viz
+      - name: Record the SHA-256 of each file
+        run: |
+          {
+            echo '### Distributions'
+            echo '```'
+            (cd dist && sha256sum -- *)
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dists
+          path: dist/
+          if-no-files-found: error
+
+  publish-testpypi:
+    name: publish (TestPyPI)
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/parametric-insurance-design/${{ needs.check.outputs.version }}/
+    permissions:
+      id-token: write # trusted publishing
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dists
+          path: dist/
+      # skip-existing: a re-run of this job does not fail on files already on
+      # TestPyPI; verify-testpypi then checks that they are the built ones.
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+
+  verify-testpypi:
+    name: verify (install and import from TestPyPI, py3.11)
+    needs: [check, publish-testpypi]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dists
+          path: built/
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - name: Create a Python 3.11 env
+        run: uv venv --seed --python 3.11 .venv-release
+      # Only the two wheels come from TestPyPI (--no-deps), so no dependency is
+      # ever taken from TestPyPI, where anyone can upload any name. The index
+      # can take a few minutes to list a new upload, hence the retries.
+      - name: Download the two wheels from TestPyPI
+        run: |
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if .venv-release/bin/python -m pip download --no-deps --no-cache-dir \
+                --only-binary=:all: --index-url https://test.pypi.org/simple/ \
+                --dest testpypi "$CORE==$VERSION" "$VIZ==$VERSION"; then
+              exit 0
+            fi
+            echo "attempt $attempt: not on the TestPyPI index yet; retrying in 30 s"
+            sleep 30
+          done
+          echo "::error::$CORE and $VIZ $VERSION are not on the TestPyPI index"
+          exit 1
+      - name: The TestPyPI wheels are the built ones
+        run: |
+          ls -l testpypi
+          set -- testpypi/*.whl
+          [ "$#" -eq 2 ] || { echo "::error::expected 2 wheels, got $#"; exit 1; }
+          for whl in "$@"; do
+            cmp "$whl" "built/$(basename "$whl")"
+          done
+      - name: Install them, with their dependencies from PyPI
+        run: .venv-release/bin/python -m pip install --no-cache-dir testpypi/*.whl
+      - name: Import them and run the command line
+        run: |
+          .venv-release/bin/python - <<'EOF'
+          import os
+
+          import parametric_insurance_design as pid
+          import parametric_insurance_design_viz as viz
+
+          version = os.environ["VERSION"]
+          assert pid.__version__ == version, pid.__version__
+          assert viz.__version__ == version, viz.__version__
+          assert callable(pid.design)
+          print(f"parametric_insurance_design {pid.__version__}, viz {viz.__version__}")
+          EOF
+          .venv-release/bin/parametric-insurance-design --help
+
+  publish-pypi:
+    name: publish (PyPI, after approval)
+    needs: [check, verify-testpypi]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/parametric-insurance-design/${{ needs.check.outputs.version }}/
+    permissions:
+      id-token: write # trusted publishing
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dists
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
