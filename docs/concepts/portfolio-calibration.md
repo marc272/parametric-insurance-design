@@ -157,7 +157,7 @@ So the per-entity results of a joint design show one member of a set of optimal 
 
 The rows then depend on the problem's total payout only, not on the solver's split, and their `level` names the rule (`location_by_value`, `location_by_loss`). The thesis allocates a cluster's payout to its assets by value weight within the cluster (eq. (3.23)). The `"value"` rule allocates over the whole design problem instead, because the split across clusters isn't unique either. The rules, their properties and their limits are in [allocating a joint payout to assets](../methodology/payout-allocation.md).
 
-**Per-asset payout functions have no such rule.** The payout-function figures of a joint design (`payout_grid`, `normalised_payout` in the viz package) carry a caption saying that they show one of several optimal designs, and `joint_entities="refuse"` makes them raise instead. An external output (website, posts, examples) shows a joint design's per-entity payout functions only with that caption, and reads its results at the portfolio level.
+**Per-asset payout functions have no such rule.** The payout-function figures of a joint design (`payout_grid`, `normalised_payout` in the viz package) carry a caption saying that they show one of several optimal designs, and `joint_entities="refuse"` makes them raise instead. Wherever this project shows the per-entity payout functions of a joint design, on the website, in the posts or in the examples, they come with that caption: each is one of several optimal designs. Read such a design's results at the portfolio level.
 
 ## Code map
 
