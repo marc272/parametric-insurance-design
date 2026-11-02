@@ -92,6 +92,9 @@ SOLVER_GAP: Final[float] = 1e-3
 """``florida_rerun.SOLVER_GAP``: a stored design this much (relative) above
 the interior-point re-solve's objective is not optimal."""
 NOT_OPTIMAL: Final[str] = "not optimal (T14)"
+T14_FILE: Final[str] = "t14_replacements.csv"
+"""Phase ``t14`` of ``florida_rerun.py`` (MAR-203): the k-fold runs that failed
+the solver check, re-solved with CLARABEL first and used in their place."""
 """Markdown cell for a number that uses a design the solver check rejects."""
 CONTRAST_DESIGNS: Final[dict[str, tuple[tuple[str, str], ...]]] = {
     "rq1_alone": (("I", "W"), ("I", "O")),
@@ -103,10 +106,10 @@ CONTRAST_DESIGNS: Final[dict[str, tuple[tuple[str, str], ...]]] = {
 }
 """The (scope, design) terms of each ``c1_combination`` contrast."""
 NOT_UNIQUE: Final[str] = (
-    "Individual-scope near-optimal ranges are not measured yet for Florida "
-    "(MAR-203): the individual design here is the one member of its optimal "
-    "set the default solver policy returned, and individual designs are not "
-    "unique either (MAR-198)."
+    "Every design here is the one member of its optimal set the default "
+    "solver policy returned; neither joint nor individual designs are unique "
+    "(MAR-100, MAR-198). MAR-203 recomputes these differences at other "
+    "members of the optimal sets: `ranges_tables.md`."
 )
 """One line next to every Florida RQ2 or combination difference."""
 CONFOUNDED: Final[str] = (
@@ -348,6 +351,7 @@ def build(full: Path) -> dict[str, pd.DataFrame]:
         "run_id",
         "experiment_config_hash",
         "base_config_hash",
+        "replaces_run_id",
     ]
     out["runs"] = pd.concat([hold, kf], ignore_index=True).reindex(columns=cols)
     grid = pd.concat(
@@ -471,10 +475,39 @@ def build(full: Path) -> dict[str, pd.DataFrame]:
     ids = out["runs"][
         ["run_id", "kind", "eventset", "pricing", "kappa", "scope", "design"]
     ]
+    # a run replaced by phase t14 (MAR-203) is found under the run it replaced
+    rep_ids = out["runs"].dropna(subset=["replaces_run_id"])
+    ids = pd.concat(
+        [
+            ids.loc[~ids["run_id"].isin(rep_ids["run_id"])],
+            rep_ids[[*ids.columns[1:], "replaces_run_id"]].rename(
+                columns={"replaces_run_id": "run_id"}
+            ),
+        ],
+        ignore_index=True,
+    )
     sc = sc.merge(ids, on="run_id", how="left", validate="one_to_one")
     if sc["eventset"].isna().any():
         raise RuntimeError("solver_check.csv has runs that runs.csv does not")
     sc["not_optimal"] = sc["rel_gap"] > SOLVER_GAP
+    t14 = _read(full / T14_FILE)
+    t14_cols = {
+        "replacement_run_id": "replacement_run_id",
+        "solvers": "replacement_solvers",
+        "statuses": "replacement_statuses",
+        "objective": "replacement_objective",
+    }
+    if t14.empty:
+        t14 = pd.DataFrame(columns=["run_id", *t14_cols])
+    sc = sc.merge(
+        t14[["run_id", *t14_cols]].rename(columns=t14_cols),
+        on="run_id",
+        how="left",
+        validate="one_to_one",
+    )
+    sc["replaced"] = sc["replacement_run_id"].notna()
+    if (sc["replaced"] & ~sc["not_optimal"]).any():
+        raise RuntimeError("t14 replaced a run that passed the solver check")
     out["solver_check"] = sc
     t = _read(full / "guard_tails.csv")
     if not t.empty:
@@ -531,7 +564,8 @@ class Look:
         c = c.fillna({"joint_scope": "", "tail_design": "", "base_design": ""})
         self.c = c
         self.g = t["grid"]
-        bad = t["solver_check"].loc[t["solver_check"]["not_optimal"]]
+        sc = t["solver_check"]
+        bad = sc.loc[sc["not_optimal"] & ~sc["replaced"]]
         self.bad: set[tuple[str, str, float, str, str, str]] = set()
         for r in bad.itertuples():
             splits = ("pooled",) if r.kind == "kfold" else ("train", "test")
@@ -1625,6 +1659,7 @@ def _fold_table(t: dict[str, pd.DataFrame]) -> list[str]:
                 sc = t["solver_check"]
                 bad = sc.loc[
                     sc["not_optimal"]
+                    & ~sc["replaced"]
                     & (sc["kind"] == "kfold")
                     & (sc["eventset"] == idx)
                     & (sc["pricing"] == pricing)
@@ -1653,6 +1688,22 @@ def _solver_table(t: dict[str, pd.DataFrame]) -> list[str]:
     sc = t["solver_check"]
     ok = sc.loc[~sc["not_optimal"]]
     bad = sc.loc[sc["not_optimal"]]
+    replaced = bad.loc[bad["replaced"]]
+    if len(replaced) == len(bad):
+        use = (
+            "MAR-203 re-solved each of them through the runner with CLARABEL "
+            "first (`florida_rerun.py` phase `t14`, `T14_POLICY`), under a run "
+            "id of its own next to the OSQP run; the re-solved run is used in "
+            "its place in every table (T1–T12 and the CSVs; `runs.csv` gives "
+            "its run id, solver and the run it replaces)."
+        )
+    else:
+        use = (
+            f"Every number that uses one of them reads '{NOT_OPTIMAL}' in "
+            "T1–T12 (the CSVs keep the values, with the run ids in "
+            f"`solver_check.csv`). {len(replaced)} were re-solved with CLARABEL "
+            "(phase `t14`) and are used in their place."
+        )
     head = [
         "## T14. Solver check: OSQP designs against an interior-point re-solve",
         "",
@@ -1665,10 +1716,7 @@ def _solver_table(t: dict[str, pd.DataFrame]) -> list[str]:
         f"{len(ok)} of {len(sc)} agree: relative objective gap within "
         f"{ok['rel_gap'].abs().max():.1e}. "
         f"{len(bad)} do not (gap above {SOLVER_GAP:g}): OSQP returned status "
-        "`optimal` for a design that is not optimal. Every number that uses "
-        f"one of them reads '{NOT_OPTIMAL}' in T1–T12 (the CSVs keep the "
-        "values, with the run ids in `solver_check.csv`). The re-solved designs "
-        "are not used anywhere.",
+        "`optimal` for a design that is not optimal. " + use,
         "",
     ]
     rows = [
@@ -1684,6 +1732,12 @@ def _solver_table(t: dict[str, pd.DataFrame]) -> list[str]:
             f"{r.stored_objective:.4e}",
             f"{r.alt_objective:.4e}",
             _pct(float(r.rel_gap)),
+            (
+                f"{r.replacement_solvers}, {r.replacement_statuses}, "
+                f"{r.replacement_objective:.4e}"
+                if r.replaced
+                else "not replaced"
+            ),
             f"`{_short(r.config_hash)}`",
         ]
         for r in bad.sort_values(["eventset", "fold"]).itertuples()
@@ -1703,6 +1757,7 @@ def _solver_table(t: dict[str, pd.DataFrame]) -> list[str]:
                 "Stored objective",
                 "Re-solved objective",
                 "Gap",
+                "Run used (MAR-203 `t14`)",
                 "Hash",
             ],
             rows,

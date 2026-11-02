@@ -3317,7 +3317,7 @@ cic75,pure,1,pooled,individual,wcvar@0.99,cvar_uncovered,0.95,7.427319e+10,6.752
 cic75,pure,1,pooled,cluster,mse,cvar_uncovered,0.95,8.75198e+10,7.969886e+10,9.507798e+10,a2e2c3b6875f
 cic75,pure,1,pooled,cluster,eu,cvar_uncovered,0.95,7.762294e+10,7.081202e+10,8.442313e+10,a2e2c3b6875f
 cic75,pure,1,pooled,cluster,wcvar@0.99,cvar_uncovered,0.95,7.852463e+10,7.192426e+10,8.534226e+10,a2e2c3b6875f
-cic75,pure,1,pooled,portfolio,mse,cvar_uncovered,0.95,1.022709e+11,9.300924e+10,1.112586e+11,a2e2c3b6875f
+cic75,pure,1,pooled,portfolio,mse,cvar_uncovered,0.95,7.671404e+10,6.921922e+10,8.393065e+10,a2e2c3b6875f
 cic75,pure,1,pooled,portfolio,eu,cvar_uncovered,0.95,7.492239e+10,6.768322e+10,8.202051e+10,a2e2c3b6875f
 cic75,pure,1,pooled,portfolio,wcvar@0.99,cvar_uncovered,0.95,7.681588e+10,7.045028e+10,8.315634e+10,a2e2c3b6875f
 cic75,pure,1,pooled,individual,wcvar@0.995,cvar_uncovered,0.95,7.547385e+10,6.856494e+10,8.239525e+10,0e7dc2834399
@@ -3348,9 +3348,9 @@ cic75,pure,1,pooled,cluster,wcvar@0.99,expected_payout,,7.679678e+09,6.982464e+0
 cic75,pure,1,pooled,cluster,wcvar@0.99,expected_uncovered,,4.398003e+09,4.032631e+09,4.756978e+09,a2e2c3b6875f
 cic75,pure,1,pooled,cluster,wcvar@0.99,cvar_uncovered,0.99,2.552403e+11,2.322815e+11,2.779474e+11,a2e2c3b6875f
 cic75,pure,1,pooled,portfolio,mse,expected_loss,,7.615673e+09,7.003447e+09,8.211971e+09,a2e2c3b6875f
-cic75,pure,1,pooled,portfolio,mse,expected_payout,,4.505035e+09,4.147182e+09,4.871495e+09,a2e2c3b6875f
-cic75,pure,1,pooled,portfolio,mse,expected_uncovered,,5.473841e+09,4.988783e+09,5.962377e+09,a2e2c3b6875f
-cic75,pure,1,pooled,portfolio,mse,cvar_uncovered,0.99,3.338033e+11,3.035267e+11,3.619481e+11,a2e2c3b6875f
+cic75,pure,1,pooled,portfolio,mse,expected_payout,,7.665891e+09,7.201658e+09,8.148286e+09,a2e2c3b6875f
+cic75,pure,1,pooled,portfolio,mse,expected_uncovered,,3.955356e+09,3.570638e+09,4.327937e+09,a2e2c3b6875f
+cic75,pure,1,pooled,portfolio,mse,cvar_uncovered,0.99,2.748374e+11,2.480198e+11,3.002825e+11,a2e2c3b6875f
 cic75,pure,1,pooled,portfolio,eu,expected_loss,,7.615673e+09,7.003447e+09,8.211971e+09,a2e2c3b6875f
 cic75,pure,1,pooled,portfolio,eu,expected_payout,,7.587939e+09,7.060254e+09,8.105255e+09,a2e2c3b6875f
 cic75,pure,1,pooled,portfolio,eu,expected_uncovered,,3.87797e+09,3.505147e+09,4.247518e+09,a2e2c3b6875f
@@ -3377,7 +3377,7 @@ cic75,pure,1,pooled,individual,wcvar@0.99,cvar_uncovered,0.995,3.88886e+11,3.527
 cic75,pure,1,pooled,cluster,mse,cvar_uncovered,0.995,4.268199e+11,3.881181e+11,4.65132e+11,a2e2c3b6875f
 cic75,pure,1,pooled,cluster,eu,cvar_uncovered,0.995,3.81803e+11,3.473277e+11,4.165548e+11,a2e2c3b6875f
 cic75,pure,1,pooled,cluster,wcvar@0.99,cvar_uncovered,0.995,3.762655e+11,3.436637e+11,4.084929e+11,a2e2c3b6875f
-cic75,pure,1,pooled,portfolio,mse,cvar_uncovered,0.995,4.764598e+11,4.334291e+11,5.160852e+11,a2e2c3b6875f
+cic75,pure,1,pooled,portfolio,mse,cvar_uncovered,0.995,4.0657e+11,3.685174e+11,4.436494e+11,a2e2c3b6875f
 cic75,pure,1,pooled,portfolio,eu,cvar_uncovered,0.995,3.940123e+11,3.585898e+11,4.293713e+11,a2e2c3b6875f
 cic75,pure,1,pooled,portfolio,wcvar@0.99,cvar_uncovered,0.995,3.583876e+11,3.258896e+11,3.906939e+11,a2e2c3b6875f
 cic75,pure,1,pooled,individual,wcvar@0.995,cvar_uncovered,0.995,3.824537e+11,3.473741e+11,4.163089e+11,0e7dc2834399

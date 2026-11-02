@@ -1,0 +1,18 @@
+{
+  "core_version": "0.1.0.dev0",
+  "designs": 144,
+  "contrast_rows": 13632,
+  "flips": 1298,
+  "pooled_contrast_rows": 2144,
+  "pooled_flips": 79,
+  "kfold_fold_designs": 120,
+  "ranges_kpis_bytes": 109674,
+  "ranges_designs_bytes": 30011,
+  "ranges_counties_bytes": 169993,
+  "ranges_entities_bytes": 296040,
+  "ranges_contrasts_bytes": 384269,
+  "ranges_flips_bytes": 219632,
+  "ranges_contrasts_pooled_bytes": 51217,
+  "ranges_flips_pooled_bytes": 12615,
+  "ranges_kfold_designs_bytes": 8904
+}

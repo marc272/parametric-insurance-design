@@ -88,8 +88,12 @@
       "kfold_runs": 120,
       "kfold_checked_against_pooled_difference": 108,
       "kfold_decompositions_checked": 144,
-      "kfold_seconds": 103.6,
-      "phase_seconds": 103.6
+      "kfold_replaced_runs": {
+        "sha256:0e496b2db9c8e542e60f71d21e335ce611a0d9235012b488d0c18af49fd01c0a": "sha256:3db0dfb41be6b74784a8fcd76b9925f2906cc969f0b1d13e426c7687ac511ff0",
+        "sha256:4973fcdf6e3a93e2a14833679c84f359b02145ff42ea38a7e12bc18dff09f62d": "sha256:f9437ae84b0f3aaca4c539a2927d151f429ee9e414791798492c9d80a00fec0e"
+      },
+      "kfold_seconds": 237.5,
+      "phase_seconds": 237.6
     },
     "matched": {
       "issue": "MAR-202",
@@ -178,6 +182,42 @@
       ],
       "solvercheck_max_abs_gap_others": 9.78545252285248e-06,
       "phase_seconds": 519.5
+    },
+    "t14": {
+      "issue": "MAR-202",
+      "plan": "research/configs/florida/plan.yaml",
+      "package_versions": {
+        "parametric-insurance-design": "0.1.0.dev0",
+        "numpy": "2.5.4",
+        "scipy": "1.18.1",
+        "pandas": "3.1.0",
+        "pyarrow": "26.0.0",
+        "pydantic": "2.14.1",
+        "pyyaml": "6.0.3",
+        "cvxpy": "1.9.3",
+        "clarabel": "0.11.1",
+        "osqp": "1.1.3",
+        "scs": "3.3.1",
+        "highspy": "1.15.1"
+      },
+      "solver_policy": "DEFAULT_POLICY",
+      "t14_issue": "MAR-203",
+      "t14_policy": {
+        "lp_solvers": [
+          "CLARABEL",
+          "HIGHS",
+          "SCS"
+        ],
+        "qp_solvers": [
+          "CLARABEL",
+          "OSQP"
+        ]
+      },
+      "t14_replaced": {
+        "sha256:0e496b2db9c8e542e60f71d21e335ce611a0d9235012b488d0c18af49fd01c0a": "sha256:3db0dfb41be6b74784a8fcd76b9925f2906cc969f0b1d13e426c7687ac511ff0",
+        "sha256:4973fcdf6e3a93e2a14833679c84f359b02145ff42ea38a7e12bc18dff09f62d": "sha256:f9437ae84b0f3aaca4c539a2927d151f429ee9e414791798492c9d80a00fec0e"
+      },
+      "phase_seconds": 350.0
     }
   },
   "guard_fires": 0,

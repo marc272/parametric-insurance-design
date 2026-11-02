@@ -52,7 +52,7 @@ Expected annual loss, index (a), wind at the centroid: train 7,450, test 8,001, 
 | cluster | E[U] | 259,968 | 250,522 [217,491, 282,884] | 256,753 [232,603, 280,404] | 4,443 [3,887, 4,999] | 4,325 [3,963, 4,687] | 1.000 | `8d38147d2564` |
 | cluster | wCVaR β 0.99 | 256,250 | 249,127 [217,138, 280,844] | 255,240 [232,281, 277,947] | 4,538 [3,982, 5,085] | 4,398 [4,033, 4,757] | 1.000 | `8d68fde52dbd` |
 | cluster | wCVaR β 0.995 | 259,384 | 253,843 [220,487, 286,330] | 259,623 [237,023, 283,174] | 4,688 [4,104, 5,267] | 4,542 [4,176, 4,910] | 1.000 | `3bb3b70c3bef` |
-| portfolio | MSE | 267,266 | 265,441 [226,646, 302,374] | not optimal (T14) | 3,959 [3,364, 4,538] | not optimal (T14) | 1.000 | `e0b902f40ff8` |
+| portfolio | MSE | 267,266 | 265,441 [226,646, 302,374] | 274,837 [248,020, 300,283] | 3,959 [3,364, 4,538] | 3,955 [3,571, 4,328] | 1.000 | `e0b902f40ff8` |
 | portfolio | E[U] | 261,451 | 254,779 [218,549, 289,781] | 266,079 [240,436, 289,867] | 3,820 [3,250, 4,365] | 3,878 [3,505, 4,248] | 1.000 | `ea013291535a` |
 | portfolio | wCVaR β 0.99 | 234,765 | 228,374 [198,054, 259,810] | 244,596 [222,758, 266,351] | 4,111 [3,620, 4,606] | 4,324 [3,981, 4,670] | 1.000 | `a13e2361a39d` |
 | portfolio | wCVaR β 0.995 | 237,041 | 228,847 [199,755, 257,558] | 246,510 [224,582, 267,964] | 4,258 [3,735, 4,742] | 4,458 [4,108, 4,809] | 1.000 | `8753ee1c4d75` |
@@ -114,9 +114,9 @@ Read at the KPI β that matches the design β; ΔE[U] relative to the baseline d
 | cic75 | pure | cluster | wCVaR β 0.99 − E[U] | 0.99 | −1.4 % | −0.6 % [−3.0, +1.8] | −0.6 % [−2.0, +0.8] | +2.1 %* [+0.1, +4.1] | +1.7 %* [+0.6, +2.8] |
 | cic75 | pure | cluster | wCVaR β 0.995 − MSE | 0.995 | −13.7 % | −11.5 %* [−16.5, −6.6] | −10.8 %* [−13.7, −8.0] | −4.6 % [−10.1, +0.3] | −2.7 %* [−5.3, −0.2] |
 | cic75 | pure | cluster | wCVaR β 0.995 − E[U] | 0.995 | −3.3 % | −0.3 % [−4.3, +3.7] | −0.3 % [−2.4, +1.7] | +5.5 %* [+2.1, +9.0] | +5.0 %* [+3.1, +6.8] |
-| cic75 | pure | portfolio | wCVaR β 0.99 − MSE | 0.99 | −12.2 % | −14.0 %* [−18.8, −8.9] | not optimal (T14) | +3.8 % [−2.2, +9.4] | not optimal (T14) |
+| cic75 | pure | portfolio | wCVaR β 0.99 − MSE | 0.99 | −12.2 % | −14.0 %* [−18.8, −8.9] | −11.0 %* [−13.8, −8.3] | +3.8 % [−2.2, +9.4] | +9.3 %* [+6.3, +12.2] |
 | cic75 | pure | portfolio | wCVaR β 0.99 − E[U] | 0.99 | −10.2 % | −10.4 %* [−14.4, −6.3] | −8.1 %* [−10.4, −5.8] | +7.6 %* [+2.8, +12.3] | +11.5 %* [+8.9, +13.7] |
-| cic75 | pure | portfolio | wCVaR β 0.995 − MSE | 0.995 | −13.7 % | −14.1 %* [−19.4, −8.5] | not optimal (T14) | +7.5 %* [+0.4, +14.0] | not optimal (T14) |
+| cic75 | pure | portfolio | wCVaR β 0.995 − MSE | 0.995 | −13.7 % | −14.1 %* [−19.4, −8.5] | −12.1 %* [−15.4, −9.0] | +7.5 %* [+0.4, +14.0] | +12.7 %* [+9.1, +16.1] |
 | cic75 | pure | portfolio | wCVaR β 0.995 − E[U] | 0.995 | −12.6 % | −11.4 %* [−16.8, −5.9] | −9.3 %* [−12.3, −6.4] | +11.5 %* [+5.4, +17.6] | +15.0 %* [+11.8, +17.9] |
 | cic75 | CoC r 0.06 | individual | wCVaR β 0.99 − MSE | 0.99 | +0.4 % | +1.3 % [−0.2, +2.8] | not run | −2.3 %* [−3.6, −1.0] | not run |
 | cic75 | CoC r 0.06 | individual | wCVaR β 0.99 − E[U] | 0.99 | −0.2 % | +0.0 % [−0.2, +0.3] | not run | +1.8 %* [+1.4, +2.4] | not run |
@@ -286,7 +286,7 @@ Weighted CVaR minus MSE / minus E[U], test CVaR at KPI β 0.95, 0.99, 0.995.
 
 Cluster: a different index (value-weighted mean wind or category of 3 clusters). The cluster scope confounds the cluster index with the joint calibration: MAR-180 (a separate cluster index) has not merged. T6 splits the difference as C1 section 6b.6 does.
 
-Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203): the individual design here is the one member of its optimal set the default solver policy returned, and individual designs are not unique either (MAR-198).
+Every design here is the one member of its optimal set the default solver policy returned; neither joint nor individual designs are unique (MAR-100, MAR-198). MAR-203 recomputes these differences at other members of the optimal sets: `ranges_tables.md`.
 
 | Index | Pricing | Comparison | Design | Train CVaR₀.₉₉ | Test CVaR₀.₉₉ | Pooled CVaR₀.₉₉ | Train CVaR₀.₉₉₅ | Test CVaR₀.₉₉₅ | Pooled CVaR₀.₉₉₅ | Test ΔE[U] | Pooled ΔE[U] |
 |---|---|---|---|---|---|---|---|---|---|---|---|
@@ -306,7 +306,7 @@ Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203):
 | a | CoC r 0.06 | cluster − individual | E[U] | −1.2 % | −1.2 %* [−1.7, −0.6] | not run | −0.6 % | −0.5 %* [−1.0, −0.0] | not run | −5.5 %* [−6.8, −4.2] | not run |
 | a | CoC r 0.06 | cluster − individual | wCVaR β 0.99 | −6.0 % | −5.1 %* [−7.4, −3.1] | not run | −5.9 % | −5.0 %* [−7.1, −3.2] | not run | +0.5 % [−2.0, +2.7] | not run |
 | a | CoC r 0.06 | cluster − individual | wCVaR β 0.995 | −2.4 % | −0.9 % [−4.3, +2.2] | not run | −3.5 % | −0.9 % [−4.0, +2.2] | not run | +1.3 % [−1.9, +4.3] | not run |
-| cic75 | pure | portfolio − individual | MSE | −7.9 % | −5.9 %* [−8.2, −3.6] | not optimal (T14) | −8.0 % | −4.1 %* [−6.0, −2.2] | not optimal (T14) | −7.4 %* [−10.2, −4.7] | not optimal (T14) |
+| cic75 | pure | portfolio − individual | MSE | −7.9 % | −5.9 %* [−8.2, −3.6] | −5.2 %* [−6.4, −4.0] | −8.0 % | −4.1 %* [−6.0, −2.2] | −4.6 %* [−5.8, −3.5] | −7.4 %* [−10.2, −4.7] | −6.0 %* [−7.4, −4.6] |
 | cic75 | pure | portfolio − individual | E[U] | −2.1 % | −0.1 % [−2.5, +2.4] | +0.1 % [−1.2, +1.4] | −2.3 % | +0.4 % [−1.7, +2.1] | −0.5 % [−1.8, +0.9] | −0.8 % [−3.3, +1.7] | +0.2 % [−1.0, +1.5] |
 | cic75 | pure | portfolio − individual | wCVaR β 0.99 | −10.4 % | −8.2 %* [−12.7, −3.8] | −6.3 %* [−8.8, −3.9] | −11.8 % | −8.2 %* [−11.8, −4.2] | −7.8 %* [−10.5, −5.5] | +6.6 %* [+1.6, +11.4] | +10.3 %* [+7.8, +12.7] |
 | cic75 | pure | portfolio − individual | wCVaR β 0.995 | −8.2 % | −6.7 %* [−11.9, −1.7] | −4.6 %* [−7.6, −1.8] | −11.1 % | −7.4 %* [−12.2, −2.3] | −6.6 %* [−9.6, −3.8] | +9.1 %* [+4.0, +14.2] | +10.6 %* [+7.9, +13.4] |
@@ -327,7 +327,7 @@ Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203):
 
 The cluster scope confounds the cluster index with the joint calibration: MAR-180 (a separate cluster index) has not merged.
 
-Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203): the individual design here is the one member of its optimal set the default solver policy returned, and individual designs are not unique either (MAR-198).
+Every design here is the one member of its optimal set the default solver policy returned; neither joint nor individual designs are unique (MAR-100, MAR-198). MAR-203 recomputes these differences at other members of the optimal sets: `ranges_tables.md`.
 
 | Index | Pricing | κ | Design | Portfolio − ind., train | Portfolio − ind., test | Cluster − ind., train | Cluster − ind., test |
 |---|---|---|---|---|---|---|---|
@@ -384,7 +384,7 @@ Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203):
 
 Index part: `cluster_separate` (the clusters and their index, each cluster calibrated on its own) − individual. Joint part: cluster − `cluster_separate`. Cluster − individual is in T4. The cluster scope confounds the cluster index with the joint calibration: MAR-180 (a separate cluster index) has not merged.
 
-Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203): the individual design here is the one member of its optimal set the default solver policy returned, and individual designs are not unique either (MAR-198).
+Every design here is the one member of its optimal set the default solver policy returned; neither joint nor individual designs are unique (MAR-100, MAR-198). MAR-203 recomputes these differences at other members of the optimal sets: `ranges_tables.md`.
 
 | Index | Pricing | Design | Index part, train | Index part, test | Joint part, train | Joint part, test | Id separate |
 |---|---|---|---|---|---|---|---|
@@ -489,7 +489,7 @@ Every individual design's ratio and every portfolio design's ratio, summarised o
 
 A = the premium of the individual designs' summed payout (train), S = the sum of their 67 stand-alone premiums; credit = 1 − A / S. `portfolio_matched` = the portfolio design problem budgeted at A. Portfolio − individual = cross-coverage (matched − individual) + pricing diversification (portfolio − matched); CVaR₀.₉₉(U), every part relative to the individual design's value, so the parts add up.
 
-Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203): the individual design here is the one member of its optimal set the default solver policy returned, and individual designs are not unique either (MAR-198).
+Every design here is the one member of its optimal set the default solver policy returned; neither joint nor individual designs are unique (MAR-100, MAR-198). MAR-203 recomputes these differences at other members of the optimal sets: `ranges_tables.md`.
 
 | Index | κ | Design | Credit 1 − A/S | Matched loading A/E[L] | Matched budget use | Cross-cov., train | Cross-cov., test | Pricing div., train | Pricing div., test | Total, train | Total, test | Hash matched |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -522,7 +522,7 @@ Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203):
 
 Read at the KPI β that matches the design β.
 
-Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203): the individual design here is the one member of its optimal set the default solver policy returned, and individual designs are not unique either (MAR-198).
+Every design here is the one member of its optimal set the default solver policy returned; neither joint nor individual designs are unique (MAR-100, MAR-198). MAR-203 recomputes these differences at other members of the optimal sets: `ranges_tables.md`.
 
 | Index | Pricing | Design | Comparison | Train ΔCVaR | Test ΔCVaR | Pooled ΔCVaR | Test ΔE[U] | Pooled ΔE[U] |
 |---|---|---|---|---|---|---|---|---|
@@ -540,10 +540,10 @@ Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203):
 | a | CoC r 0.06 | wCVaR β 0.995 | vs portfolio MSE (adds RQ1) | −1.2 % | +0.3 % [−2.6, +2.7] | not run | +6.5 %* [+4.0, +8.9] | not run |
 | cic75 | pure | wCVaR β 0.99 | vs individual MSE (both) | −19.1 % | −19.0 %* [−25.0, −13.1] | −15.6 %* [−18.9, −12.4] | −3.9 % [−11.0, +2.6] | +2.7 % [−0.6, +6.0] |
 | cic75 | pure | wCVaR β 0.99 | vs individual wCVaR β 0.99 (adds RQ2) | −10.4 % | −8.2 %* [−12.7, −3.8] | −6.3 %* [−8.8, −3.9] | +6.6 %* [+1.6, +11.4] | +10.3 %* [+7.8, +12.7] |
-| cic75 | pure | wCVaR β 0.99 | vs portfolio MSE (adds RQ1) | −12.2 % | −14.0 %* [−18.8, −8.9] | not optimal (T14) | +3.8 % [−2.2, +9.4] | not optimal (T14) |
+| cic75 | pure | wCVaR β 0.99 | vs portfolio MSE (adds RQ1) | −12.2 % | −14.0 %* [−18.8, −8.9] | −11.0 %* [−13.8, −8.3] | +3.8 % [−2.2, +9.4] | +9.3 %* [+6.3, +12.2] |
 | cic75 | pure | wCVaR β 0.995 | vs individual MSE (both) | −20.6 % | −17.6 %* [−23.3, −11.4] | −16.2 %* [−20.1, −12.5] | −0.4 % [−8.2, +6.5] | +5.9 %* [+2.0, +9.8] |
 | cic75 | pure | wCVaR β 0.995 | vs individual wCVaR β 0.995 (adds RQ2) | −11.1 % | −7.4 %* [−12.2, −2.3] | −6.6 %* [−9.6, −3.8] | +9.1 %* [+4.0, +14.2] | +10.6 %* [+7.9, +13.4] |
-| cic75 | pure | wCVaR β 0.995 | vs portfolio MSE (adds RQ1) | −13.7 % | −14.1 %* [−19.4, −8.5] | not optimal (T14) | +7.5 %* [+0.4, +14.0] | not optimal (T14) |
+| cic75 | pure | wCVaR β 0.995 | vs portfolio MSE (adds RQ1) | −13.7 % | −14.1 %* [−19.4, −8.5] | −12.1 %* [−15.4, −9.0] | +7.5 %* [+0.4, +14.0] | +12.7 %* [+9.1, +16.1] |
 | cic75 | CoC r 0.06 | wCVaR β 0.99 | vs individual MSE (both) | −7.4 % | −6.6 %* [−8.1, −5.1] | not run | −9.1 %* [−11.4, −6.9] | not run |
 | cic75 | CoC r 0.06 | wCVaR β 0.99 | vs individual wCVaR β 0.99 (adds RQ2) | −7.8 % | −7.8 %* [−8.7, −6.7] | not run | −7.0 %* [−9.1, −4.9] | not run |
 | cic75 | CoC r 0.06 | wCVaR β 0.99 | vs portfolio MSE (adds RQ1) | −0.4 % | −0.2 % [−1.1, +0.8] | not run | −0.8 % [−1.8, +0.2] | not run |
@@ -555,7 +555,7 @@ Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203):
 
 Relative to the individual MSE design's value.
 
-Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203): the individual design here is the one member of its optimal set the default solver policy returned, and individual designs are not unique either (MAR-198).
+Every design here is the one member of its optimal set the default solver policy returned; neither joint nor individual designs are unique (MAR-100, MAR-198). MAR-203 recomputes these differences at other members of the optimal sets: `ranges_tables.md`.
 
 | Index | Pricing | Design | KPI | Split | Both | RQ1 alone | RQ2 alone | Interaction |
 |---|---|---|---|---|---|---|---|---|
@@ -585,16 +585,16 @@ Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203):
 | a | CoC r 0.06 | wCVaR β 0.995 | E[U] | pooled | not run | not run | not run | not run |
 | cic75 | pure | wCVaR β 0.99 | CVaR 0.99 | train | −19.1 % | −9.7 % | −7.9 % | −1.5 % |
 | cic75 | pure | wCVaR β 0.99 | CVaR 0.99 | test | −19.0 %* [−25.0, −13.1] | −11.8 %* [−14.4, −9.0] | −5.9 %* [−8.2, −3.6] | −1.4 % [−3.9, +1.4] |
-| cic75 | pure | wCVaR β 0.99 | CVaR 0.99 | pooled | −15.6 %* [−18.9, −12.4] | −10.0 %* [−11.5, −8.4] | not optimal (T14) | not optimal (T14) |
+| cic75 | pure | wCVaR β 0.99 | CVaR 0.99 | pooled | −15.6 %* [−18.9, −12.4] | −10.0 %* [−11.5, −8.4] | −5.2 %* [−6.4, −4.0] | −0.5 % [−2.0, +1.0] |
 | cic75 | pure | wCVaR β 0.99 | E[U] | train | +1.0 % | −6.6 % | −7.1 % | +14.8 % |
 | cic75 | pure | wCVaR β 0.99 | E[U] | test | −3.9 % [−11.0, +2.6] | −9.8 %* [−13.3, −6.6] | −7.4 %* [−10.2, −4.7] | +13.3 %* [+10.2, +16.6] |
-| cic75 | pure | wCVaR β 0.99 | E[U] | pooled | +2.7 % [−0.6, +6.0] | −6.9 %* [−8.6, −5.2] | not optimal (T14) | not optimal (T14) |
+| cic75 | pure | wCVaR β 0.99 | E[U] | pooled | +2.7 % [−0.6, +6.0] | −6.9 %* [−8.6, −5.2] | −6.0 %* [−7.4, −4.6] | +15.6 %* [+13.9, +17.3] |
 | cic75 | pure | wCVaR β 0.995 | CVaR 0.995 | train | −20.6 % | −10.7 % | −8.0 % | −1.9 % |
 | cic75 | pure | wCVaR β 0.995 | CVaR 0.995 | test | −17.6 %* [−23.3, −11.4] | −11.0 %* [−13.9, −8.1] | −4.1 %* [−6.0, −2.2] | −2.5 % [−6.0, +1.3] |
-| cic75 | pure | wCVaR β 0.995 | CVaR 0.995 | pooled | −16.2 %* [−20.1, −12.5] | −10.3 %* [−12.4, −8.4] | not optimal (T14) | not optimal (T14) |
+| cic75 | pure | wCVaR β 0.995 | CVaR 0.995 | pooled | −16.2 %* [−20.1, −12.5] | −10.3 %* [−12.4, −8.4] | −4.6 %* [−5.8, −3.5] | −1.2 % [−3.1, +0.6] |
 | cic75 | pure | wCVaR β 0.995 | E[U] | train | +3.9 % | −4.0 % | −7.1 % | +15.0 % |
 | cic75 | pure | wCVaR β 0.995 | E[U] | test | −0.4 % [−8.2, +6.5] | −8.8 %* [−13.3, −4.6] | −7.4 %* [−10.2, −4.7] | +15.7 %* [+12.0, +19.5] |
-| cic75 | pure | wCVaR β 0.995 | E[U] | pooled | +5.9 %* [+2.0, +9.8] | −4.3 %* [−6.6, −1.9] | not optimal (T14) | not optimal (T14) |
+| cic75 | pure | wCVaR β 0.995 | E[U] | pooled | +5.9 %* [+2.0, +9.8] | −4.3 %* [−6.6, −1.9] | −6.0 %* [−7.4, −4.6] | +16.2 %* [+14.2, +18.3] |
 | cic75 | CoC r 0.06 | wCVaR β 0.99 | CVaR 0.99 | train | −7.4 % | +0.4 % | −7.1 % | −0.8 % |
 | cic75 | CoC r 0.06 | wCVaR β 0.99 | CVaR 0.99 | test | −6.6 %* [−8.1, −5.1] | +1.3 % [−0.2, +2.8] | −6.4 %* [−7.5, −5.3] | −1.5 %* [−2.5, −0.4] |
 | cic75 | CoC r 0.06 | wCVaR β 0.99 | CVaR 0.99 | pooled | not run | not run | not run | not run |
@@ -641,7 +641,7 @@ Every pricing, κ, tail design, base design and KPI β (0.95, 0.99, 0.995).
 
 Range over the 5 folds; train = the fold's 8,000 calibration years, test = its held-out block.
 
-Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203): the individual design here is the one member of its optimal set the default solver policy returned, and individual designs are not unique either (MAR-198).
+Every design here is the one member of its optimal set the default solver policy returned; neither joint nor individual designs are unique (MAR-100, MAR-198). MAR-203 recomputes these differences at other members of the optimal sets: `ranges_tables.md`.
 
 | Index | Pricing | Design | Train (5 folds) | Test (5 folds) |
 |---|---|---|---|---|
@@ -649,7 +649,7 @@ Individual-scope near-optimal ranges are not measured yet for Florida (MAR-203):
 | a | pure | E[U] | −0.9 % to −0.3 % | −1.1 % to +0.8 % |
 | a | pure | wCVaR β 0.99 | −15.0 % to −13.6 % | −13.0 % to −6.2 % |
 | a | pure | wCVaR β 0.995 | −10.3 % to −9.5 % | −9.1 % to −4.9 % |
-| cic75 | pure | MSE | −8.1 % to +40.0 % (folds 0, 4: not optimal (T14)) | −5.5 % to +38.4 % (folds 0, 4: not optimal (T14)) |
+| cic75 | pure | MSE | −8.1 % to −7.1 % | −6.4 % to −3.9 % |
 | cic75 | pure | E[U] | −2.5 % to −1.7 % | −2.4 % to +2.0 % |
 | cic75 | pure | wCVaR β 0.99 | −10.5 % to −9.1 % | −9.5 % to −0.5 % |
 | cic75 | pure | wCVaR β 0.995 | −8.3 % to −7.2 % | −8.9 % to +2.5 % |
@@ -687,12 +687,12 @@ Rate-weighted share of the prepared rows with zero portfolio loss; the guard fir
 
 ## T14. Solver check: OSQP designs against an interior-point re-solve
 
-Every run of the plan with an OSQP-solved problem (43 runs, all MSE designs) and every MSE `cluster_separate` design (12) was rebuilt and solved again with CLARABEL first (`c1_rq2.ALT_POLICY`); the `portfolio_matched` runs (CoC) had no OSQP-solved problem. 53 of 55 agree: relative objective gap within 9.8e-06. 2 do not (gap above 0.001): OSQP returned status `optimal` for a design that is not optimal. Every number that uses one of them reads 'not optimal (T14)' in T1–T12 (the CSVs keep the values, with the run ids in `solver_check.csv`). The re-solved designs are not used anywhere.
+Every run of the plan with an OSQP-solved problem (43 runs, all MSE designs) and every MSE `cluster_separate` design (12) was rebuilt and solved again with CLARABEL first (`c1_rq2.ALT_POLICY`); the `portfolio_matched` runs (CoC) had no OSQP-solved problem. 53 of 55 agree: relative objective gap within 9.8e-06. 2 do not (gap above 0.001): OSQP returned status `optimal` for a design that is not optimal. MAR-203 re-solved each of them through the runner with CLARABEL first (`florida_rerun.py` phase `t14`, `T14_POLICY`), under a run id of its own next to the OSQP run; the re-solved run is used in its place in every table (T1–T12 and the CSVs; `runs.csv` gives its run id, solver and the run it replaces).
 
-| Index | Split | Fold | Pricing | κ | Scope | Design | OSQP status | Stored objective | Re-solved objective | Gap | Hash |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| cic75 | kfold | 0 | pure | 1 | portfolio | MSE | optimal | 2.2797e+21 | 1.3728e+21 | +66.1 % | `5318734bca7e` |
-| cic75 | kfold | 4 | pure | 1 | portfolio | MSE | optimal | 2.4803e+21 | 1.4863e+21 | +66.9 % | `8dd6c28a7ed9` |
+| Index | Split | Fold | Pricing | κ | Scope | Design | OSQP status | Stored objective | Re-solved objective | Gap | Run used (MAR-203 `t14`) | Hash |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| cic75 | kfold | 0 | pure | 1 | portfolio | MSE | optimal | 2.2797e+21 | 1.3728e+21 | +66.1 % | CLARABEL, optimal, 1.3728e+21 | `5318734bca7e` |
+| cic75 | kfold | 4 | pure | 1 | portfolio | MSE | optimal | 2.4803e+21 | 1.4863e+21 | +66.9 % | CLARABEL, optimal, 1.4863e+21 | `8dd6c28a7ed9` |
 
 ## T15. Config hash of every run
 
