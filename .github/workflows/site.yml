@@ -6,7 +6,7 @@ name: Site
 # (source "GitHub Actions", the github-pages environment,
 # https://marc272.github.io/parametric-insurance-design/).
 #
-# The site's one bundle (ADR 0003, "Where bundles come from in CI"; MAR-208):
+# The site's one bundle (ADR 0003, "Where bundles come from in CI"):
 # bundles/explorer/, the explorer bundle, solved and exported here on every
 # build from site/configs/explorer.yaml (out of sample, annual basis) on the
 # committed thesis parity event set. No download, no cache: the run keys do
@@ -66,7 +66,8 @@ env:
   # (quarto-required); change both together. The build fails early when they
   # differ (step "Check the Quarto pin", MAR-210).
   QUARTO_VERSION: "1.10.19"
-  # The explorer bundle (MAR-208): its config, and where it goes in the site.
+  # The explorer bundle, solved and exported in CI from its config: the
+  # config, and where the bundle goes in the site.
   EXPLORER_CONFIG: site/configs/explorer.yaml
   EXPLORER_BUNDLE: site/_site/bundles/explorer
 
@@ -140,12 +141,19 @@ jobs:
       # build.
       - name: Export the explorer bundle into the site
         run: uv run --locked parametric-insurance-design export-site "$EXPLORER_CONFIG" --split test --out "$EXPLORER_BUNDLE"
-      # site/fixtures/ holds test fixtures, in sample: never in the site.
+      # site/fixtures/ holds test fixtures, in sample: never in the site. Every
+      # page links the favicon, so no browser asks for /favicon.ico (a 404).
       - name: Check the rendered pages and the bundles
         run: |
-          for f in index.html explorers/alpha-beta.html blog/index.html blog/index.xml \
+          pages="index.html about.html method/index.html method/tail-risk-objective.html
+                 method/portfolio-calibration.html method/combination.html
+                 explorers/alpha-beta.html blog/index.html"
+          for f in $pages blog/index.xml favicon.svg \
                    bundles/explorer/manifest.json bundles/explorer/sweep.alpha.payouts.arrow; do
             test -s "site/_site/$f" || { echo "missing: site/_site/$f"; exit 1; }
+          done
+          for f in $pages; do
+            grep -qF 'rel="icon"' "site/_site/$f" || { echo "no favicon link: site/_site/$f"; exit 1; }
           done
           test ! -e site/_site/fixtures || { echo "site/_site/fixtures/: test fixtures must not be published"; exit 1; }
           du -sh site/_site "$EXPLORER_BUNDLE"
