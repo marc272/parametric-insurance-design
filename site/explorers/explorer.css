@@ -81,9 +81,13 @@
   text-align: right;
 }
 
-/* The controls column is narrow: every label above its control. Observable
-   Inputs in Quarto's OJS runtime name their forms "oi-<hash>" (not
-   "inputs-<hash>", which styles/site.scss targets). */
+/* The controls column is narrow: every label above its control, at every
+   width. Observable Inputs in Quarto's OJS runtime name their forms
+   "oi-<hash>". styles/site.scss stacks the labels of every OJS input
+   (.observablehq form[class^="oi-"]) on phone-width screens only; this rule
+   does it in the controls column at desktop widths too, where the column is
+   narrow but Observable Inputs would put the label beside the control
+   (MAR-210). */
 .explorer-controls form[class^="oi-"] {
   flex-wrap: wrap;
   --label-width: 100%;

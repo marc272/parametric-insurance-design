@@ -43,7 +43,13 @@ The explorer bundle is the one the payout explorer (MAR-54) reads: the thesis po
 
 The workflow [`.github/workflows/site.yml`](../.github/workflows/site.yml) builds the site on every pull request that touches `site/`, the workflow, or the code and data of the explorer bundle (above), and builds and deploys it to GitHub Pages on `main`. It checks that the two Quarto pins agree (below), solves and exports the explorer bundle, checks that no fixture bundle is in the site, and checks the explorer bundle.
 
-**The Quarto pin.** The Quarto CLI is pinned twice, and Dependabot tracks neither: `QUARTO_VERSION` in the workflow (what the build installs) and `quarto-required` in `_quarto.yml` (what the render requires). Change both together: the workflow's step "Check the Quarto pin" fails the build, before the solve, when they differ (MAR-210).
+**The Quarto pin.** The Quarto CLI is pinned twice: `QUARTO_VERSION` in the workflow (what `quarto-dev/quarto-actions/setup` installs) and `quarto-required` in `_quarto.yml` (what the render requires). Change both together: the workflow's step "Check the Quarto pin" fails the build, before the solve, when they differ (MAR-210). That step catches drift between the two pins, not a pin that has fallen behind Quarto's releases.
+
+Dependabot can't track the pin, so it is checked by hand (MAR-227). Dependabot's `github-actions` ecosystem updates the `uses:` reference of an action: it bumps `quarto-dev/quarto-actions/setup` itself (SHA and version comment), but never a `with:` input or an `env:` value such as `QUARTO_VERSION`. No ecosystem reads `quarto-required` in `_quarto.yml`, and Dependabot has no custom or pattern-based ecosystem for a version string in a file. The manual check, before a site release and whenever Dependabot's weekly Actions PR bumps `quarto-dev/quarto-actions`:
+
+1. Find the latest stable release: `gh release view -R quarto-dev/quarto-cli --json tagName,publishedAt` (the release marked "Latest"; the pre-releases of the next minor version are not), or https://quarto.org/docs/download/.
+2. If it is newer than the pin and at least a week old (the cooldown of `.github/dependabot.yml`), read its release notes, then set the version, without the leading `v`, in both `QUARTO_VERSION` (`.github/workflows/site.yml`) and `quarto-required` (`_quarto.yml`), in one PR.
+3. The Site workflow builds the site with the new version on that PR, and its pin check fails if only one of the two changed. Look at the rendered pages (the local build below) before merging.
 
 Locally, with the pinned Quarto CLI and no system install, from the repository root on macOS (`V` is read from `_quarto.yml`):
 
