@@ -1,5 +1,5 @@
 --[[
-Inline a schematic SVG into the page (MAR-166).
+Inline a schematic SVG into the page.
 
     ::: {.schematic src="figures/tail-objective.svg"}
     Caption text, in Markdown.

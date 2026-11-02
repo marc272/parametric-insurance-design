@@ -1,5 +1,5 @@
 --[[
-Site layer for the method pages (MAR-166).
+Site layer for the method pages.
 
 The pages in site/method/ include the repository's concept docs
 (docs/concepts/*.md) with Quarto's include shortcode, so the site never forks

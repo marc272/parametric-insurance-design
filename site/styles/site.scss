@@ -54,7 +54,7 @@
   }
 }
 
-// Schematics on the home page (MAR-166): inline SVGs drawn in currentColor,
+// Schematics on the home page: inline SVGs drawn in currentColor,
 // so they follow the light and the dark theme.
 figure.schematic {
   max-width: 480px;
@@ -71,7 +71,7 @@ figure.schematic figcaption {
   opacity: 0.8;
 }
 
-// Method pages (MAR-166): the concept docs, rendered from docs/concepts/.
+// Method pages: the concept docs, rendered from docs/concepts/.
 // Wide tables (wrapped in .table-scroll) and display equations scroll inside
 // their own box, never the page, and long code names may break.
 .concept-figure,
