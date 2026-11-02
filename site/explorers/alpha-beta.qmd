@@ -8,9 +8,9 @@ css: explorer.css
 ---
 
 <!--
-The payout explorer (MAR-54). It reads the explorer bundle that the Site
+The payout explorer. It reads the explorer bundle that the Site
 workflow solves and exports on every build from site/configs/explorer.yaml
-(MAR-208, MAR-213) and writes into the rendered site at bundles/explorer/,
+and writes into the rendered site at bundles/explorer/,
 after the render: so every bundle file is read here at run time, with a
 relative URL. Nothing on this page filters rows by evaluation split: the
 bundle holds the out-of-sample ("test") rows only, and the page states the

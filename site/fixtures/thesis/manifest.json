@@ -4,7 +4,7 @@
   "label": "thesis-fixture data: the thesis experiment (parity/configs/thesis.yaml) on the thesis parity event set, in-sample, event-conditional basis. A test fixture of the site bundle export, not a result to publish.",
   "config": {
     "name": "thesis",
-    "description": "The thesis experiment (parametric-insurance-framework, configs/*.yaml and notebook globals), migrated by parity/scripts/migrate_thesis_config.py for the parity runs (MAR-68).",
+    "description": "The thesis experiment (parametric-insurance-framework, configs/*.yaml and notebook globals), migrated by parity/scripts/migrate_thesis_config.py for the parity runs.",
     "hash": "sha256:155d5f8978a1e03056d4e15c8bdf495e0091f25fb4b678275a87a9221a8b280e"
   },
   "versions": {

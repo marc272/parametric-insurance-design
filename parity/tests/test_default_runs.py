@@ -199,7 +199,7 @@ def test_committed_report_explains_every_finding() -> None:
     assert match is not None, "the committed report has unexplained findings"
     assert re.search(r"\n- Golden records compared: [a-z_, ]*single_run\.\n", text)
     assert "## Appendix: the thesis payouts under our design problems" in text
-    assert "Solver policy: by owner decision (MAR-98)" in text
+    assert "Solver policy: by owner decision" in text
     assert "`solve.THESIS_POLICY`" in text
     assert "Thesis MSE solver error:" in text
     assert "Noise draws:" in text

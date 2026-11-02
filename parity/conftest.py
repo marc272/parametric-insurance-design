@@ -1,4 +1,4 @@
-"""pytest setup for ``parity/`` (MAR-67).
+"""pytest setup for ``parity/``.
 
 Markers
     ``parity``
@@ -7,7 +7,7 @@ Markers
         ``parity/`` that is not marked ``parity_full`` gets this marker here,
         so ``-m parity`` selects exactly that subset.
     ``parity_full``
-        Slow parity runs (solving the thesis experiment, MAR-68/69/70),
+        Slow parity runs (solving the thesis experiment),
         meant for a nightly or manual job. They are skipped unless they are
         asked for: with ``-m parity_full`` (or any ``-m`` expression that
         names the marker) or with the environment variable

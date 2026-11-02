@@ -1,5 +1,5 @@
 {
-  "description": "Thesis parity fixture (MAR-9). Written by parity/scripts/convert_thesis_eventset.py; checked by parity/tests.",
+  "description": "Thesis parity fixture. Written by parity/scripts/convert_thesis_eventset.py; checked by parity/tests.",
   "thesis_repo": "https://github.com/marc272/parametric-insurance-framework",
   "thesis_commit": "ec9c782d8687af519acef7e81c07b727844ea9a2",
   "sources": {

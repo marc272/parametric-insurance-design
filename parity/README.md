@@ -2,12 +2,12 @@
 
 Thesis golden data and the parity tests that check the new core reproduces the thesis results (`docs/SPEC.md` §4). The parity report goes in `parity/REPORT.md`.
 
-- Owner: Linear project **Foundation: core rework**. The parity gate is MAR-18; no method change lands before it is signed off.
-- The parity source is the thesis code, <https://github.com/marc272/parametric-insurance-framework>. Its `thesis-v1` tag is pending (MAR-7).
+- The parity gate (`docs/SPEC.md` §7, F-06): no method change lands before the owner signs it off.
+- The parity source is the thesis code, <https://github.com/marc272/parametric-insurance-framework>. Its `thesis-v1` tag is pending.
 - Only small fixtures are committed. Anything larger is fetched by a script with checksums.
-- Licences (ADR 0001, amendment 1; owner decisions MAR-79 and MAR-94):
+- Licences (owner decisions; ADR 0001, amendment 1):
   - the code under `parity/` is BSD-3-Clause (`LICENSE`);
-  - the thesis result tables in `golden/`, the simulation-sweep tables in `golden/simulation_sweeps/` included, are CC-BY-4.0 (`golden/LICENSE`). They were computed from IRIS-derived losses, so they follow the IRIS treatment below (owner decision MAR-94, revised 2026-10-27; it supersedes the earlier CC0-1.0);
+  - the thesis result tables in `golden/`, the simulation-sweep tables in `golden/simulation_sweeps/` included, are CC-BY-4.0 (`golden/LICENSE`). They were computed from IRIS-derived losses, so they follow the IRIS treatment below (owner decision of 2026-10-27; it supersedes the earlier CC0-1.0);
   - the fixture data in `tests/data/thesis_eventset/` is CC-BY-4.0, recorded in its `metadata.json`. It is derived from IRIS, whose licence records differ (CC0 on the figshare items, CC BY 4.0 on the collection's DataCite record); IRIS-derived data is treated as CC BY 4.0, the stricter of the two (`docs/data-sources.md`).
 
 ## Contents
@@ -15,39 +15,39 @@ Thesis golden data and the parity tests that check the new core reproduces the t
 | Path | What it is |
 |---|---|
 | `tests/data/thesis_eventset/` | The thesis event-loss table as an EventSet (schema v1, `docs/SPEC.md` §5): 6,057 storm rows × 9 Miami assets, `n_years` 10,000, rate 1/10,000 per row, `draw_id` 0. Index: max sustained wind at the asset (m/s). Loss: USD |
-| `golden/LICENSE` | CC-BY-4.0 for every file under `golden/`, with the attribution to give (owner decision MAR-94, revised 2026-10-27) |
+| `golden/LICENSE` | CC-BY-4.0 for every file under `golden/`, with the attribution to give (owner decision of 2026-10-27) |
 | `golden/full_optimization_results.csv.gz` | The thesis optimisation results, the parity targets. Gzipped copy, byte-identical to the thesis file after decompression (the raw CSV is 803 kB, over the repository's 500 kB limit) |
 | `golden/benchmarking_kpis.csv.gz` | The thesis KPI table, the parity targets. Gzipped the same way |
-| `golden/thesis_cluster_assignments.json` | Thesis cluster assignments (`n_clusters` 1 to 9) and clustering features of the 9 assets, on the thesis' prepared data (noise layer, 20 m/s filter) and without the noise layer. Derived from the thesis code by `scripts/derive_thesis_clusters.py` (MAR-12) |
+| `golden/thesis_cluster_assignments.json` | Thesis cluster assignments (`n_clusters` 1 to 9) and clustering features of the 9 assets, on the thesis' prepared data (noise layer, 20 m/s filter) and without the noise layer. Derived from the thesis code by `scripts/derive_thesis_clusters.py` |
 | `manifest.json` | SHA256 and row/column counts of the thesis sources, the fixture files and the golden tables, plus the thesis commit |
 | `scripts/convert_thesis_eventset.py` | Writes all of the above from a thesis checkout |
 | `scripts/derive_thesis_clusters.py` | Runs the thesis clustering from a thesis checkout and writes `golden/thesis_cluster_assignments.json` |
-| `golden/noise_digests.json` | SHA256 of the noisy loss matrix that the thesis noise layer (`add_noise_to_asset_losses`, seed 42, η = 0.3, 13 copies, heteroscedastic and homoscedastic) returns on the fixture, with the thesis module's checksum (MAR-10) |
+| `golden/noise_digests.json` | SHA256 of the noisy loss matrix that the thesis noise layer (`add_noise_to_asset_losses`, seed 42, η = 0.3, 13 copies, heteroscedastic and homoscedastic) returns on the fixture, with the thesis module's checksum |
 | `scripts/thesis_noise_digests.py` | Writes `golden/noise_digests.json` from a thesis checkout. It loads the thesis `src/utils/data_processing.py` on its own (numpy and pandas only), so no thesis dependency is needed |
-| `golden/golden_objectives.csv` | One golden objective value per thesis design problem (759 rows), which the thesis never wrote. Each row records how it was obtained (`Derivation`, `KPI_Source`); see [Golden objective values](#golden-objective-values) (MAR-68) |
+| `golden/golden_objectives.csv` | One golden objective value per thesis design problem (759 rows), which the thesis never wrote. Each row records how it was obtained (`Derivation`, `KPI_Source`); see [Golden objective values](#golden-objective-values) |
 | `golden/golden_objectives.json` | Provenance of that table: inputs and their SHA256, formulas, the check of the thesis KPI pipeline, counts, and the list of problems not compared (none) |
 | `scripts/derive_golden_objectives.py` | Writes the two files above from the golden tables and a thesis checkout |
-| `harness.py` | Loads the golden tables, matches each golden record to a store run and compares KPIs, objective values, payout vectors and cluster assignments; every gap is a *finding* (MAR-67) |
-| `report.py` | Renders a comparison as `REPORT.md` and merges in the explanations (MAR-67) |
+| `harness.py` | Loads the golden tables, matches each golden record to a store run and compares KPIs, objective values, payout vectors and cluster assignments; every gap is a *finding* |
+| `report.py` | Renders a comparison as `REPORT.md` and merges in the explanations |
 | `explanations.yaml` | The explanation of each finding, keyed by finding id or by a glob over its path |
-| `golden/simulation_sweeps/` | The thesis noise-level and asset-count sweep results, which the thesis kept in memory only, regenerated by running the thesis code on its event-loss table (MAR-70): payouts, KPIs and objectives per sweep point and, for the asset-count sweep, per asset subset, one gzipped shard per sweep and asset count (`simulation_<table>_<shard>.csv.gz`); `thesis_output.csv`, what the thesis functions returned for the sensitivity figures; `provenance.json`, the thesis commit, file checksums, versions, the subsets drawn, every exception the thesis swallowed, and the check against the figure data stored in the notebook. See [The simulation sweeps](#the-simulation-sweeps) |
+| `golden/simulation_sweeps/` | The thesis noise-level and asset-count sweep results, which the thesis kept in memory only, regenerated by running the thesis code on its event-loss table: payouts, KPIs and objectives per sweep point and, for the asset-count sweep, per asset subset, one gzipped shard per sweep and asset count (`simulation_<table>_<shard>.csv.gz`); `thesis_output.csv`, what the thesis functions returned for the sensitivity figures; `provenance.json`, the thesis commit, file checksums, versions, the subsets drawn, every exception the thesis swallowed, and the check against the figure data stored in the notebook. See [The simulation sweeps](#the-simulation-sweeps) |
 | `scripts/derive_simulation_sweeps.py` | Writes `golden/simulation_sweeps/` from a thesis checkout (about 15 minutes) |
-| `scripts/run_default_parity.py` | Runs the thesis default runs (3 scopes × 3 objectives, MAR-68), the optimisation-parameter sweeps (MAR-69) and the simulation sweeps (MAR-70) with the parity solver policy, checks the noise draws and the thesis payouts, and writes `REPORT.md` and `reports/` |
+| `scripts/run_default_parity.py` | Runs the thesis default runs (3 scopes × 3 objectives), the optimisation-parameter sweeps and the simulation sweeps with the parity solver policy, checks the noise draws and the thesis payouts, and writes `REPORT.md` and `reports/` |
 | `analysis/thesis_payouts.md` | Written by that script: every thesis payout evaluated under our design problem, the MSE payouts against accurate optima, the extra runs that have no golden record with their cause, and the MSE records under the accurate policy (informational); appended to `REPORT.md` |
 | `reports/noise_value_sweep.md`, `reports/n_assets_sweep.md` | The parity reports of the two simulation sweeps (generated), indexed in `REPORT.md`; one file per sweep keeps each under the 500 kB limit |
 | `analysis/noise_value_sweep.md`, `analysis/n_assets_sweep.md` | Their analysis appendices, as `analysis/thesis_payouts.md` |
-| `analysis/adapter.md` | The adapter section of `REPORT.md`: the CLIMADA adapter's rebuild of the thesis event set against the fixture (MAR-20). Written by `packages/climada/scripts/thesis_adapter_parity.py`; see [The adapter check](#the-adapter-check) |
+| `analysis/adapter.md` | The adapter section of `REPORT.md`: the CLIMADA adapter's rebuild of the thesis event set against the fixture. Written by `packages/climada/scripts/thesis_adapter_parity.py`; see [The adapter check](#the-adapter-check) |
 | `REPORT.md` | The parity report (generated; do not edit by hand) |
-| `configs/thesis.yaml` | The thesis experiment config, migrated by `scripts/migrate_thesis_config.py` (MAR-63) |
+| `configs/thesis.yaml` | The thesis experiment config, migrated by `scripts/migrate_thesis_config.py` |
 | `tests/` | Checks the committed files against the manifest and fixed checksums; with a thesis checkout, also recomputes the source checksums and regenerates the fixture |
 
 ## The parity report
 
 `REPORT.md` compares a result store with the golden tables. Today it covers:
 
-- the thesis baseline, the golden `single_run` records: the 9 default runs of `configs/thesis.yaml` (noise seed 42, η = 0.3, 13 copies, α 0.9, β 0.95, budget loading 1, 15 bins, 3 clusters), MAR-68;
-- the optimisation-parameter sweeps, the golden `alpha_sweep`, `beta_sweep`, `budget_loading_sweep`, `n_bins_sweep` and `n_clusters_sweep` records: one parameter varied at a time over the values of `configs/thesis.yaml`, 231 sweep points (27 of them equal to a baseline run), MAR-69;
-- an index of the simulation-sweep reports, `reports/noise_value_sweep.md` (η from 0 to 1, 99 points) and `reports/n_assets_sweep.md` (1 to 9 assets, 169 asset subsets, 1,521 points), MAR-70: see [The simulation sweeps](#the-simulation-sweeps).
+- the thesis baseline, the golden `single_run` records: the 9 default runs of `configs/thesis.yaml` (noise seed 42, η = 0.3, 13 copies, α 0.9, β 0.95, budget loading 1, 15 bins, 3 clusters);
+- the optimisation-parameter sweeps, the golden `alpha_sweep`, `beta_sweep`, `budget_loading_sweep`, `n_bins_sweep` and `n_clusters_sweep` records: one parameter varied at a time over the values of `configs/thesis.yaml`, 231 sweep points (27 of them equal to a baseline run);
+- an index of the simulation-sweep reports, `reports/noise_value_sweep.md` (η from 0 to 1, 99 points) and `reports/n_assets_sweep.md` (1 to 9 assets, 169 asset subsets, 1,521 points): see [The simulation sweeps](#the-simulation-sweeps).
 
 To regenerate them, from the repository root:
 
@@ -55,23 +55,23 @@ To regenerate them, from the repository root:
 uv run python parity/scripts/run_default_parity.py --check --jobs 8
 ```
 
-From an empty store the first run takes about 95 minutes serially (measured in MAR-109): the 1,860 runs of the baseline and the sweep points take about 65 of them (MAR-112), and the thesis-payout checks with the accurate MSE reference runs most of the rest. `--jobs N` (default 1) solves the sweep points in `N` worker processes (MAR-105), and then the 646 accurate MSE reference runs (MAR-129), and writes byte-identical reports. The script compares every report and runs its thesis-payout checks first, so that it knows every reference run before it writes a report. The reference runs are solved on the workers while the next report is compared, and go into `results/thesis-reference`. At `--jobs 8` the first run took 17 minutes (1,009 s, MAR-129), against 47 minutes before the reference runs were parallel (2,808 s, MAR-125). Both runs were on a 10-core Mac shared with other jobs. The MAR-129 run had a load average between 2 and 10, and a run under heavier load (up to 27) took 20 minutes. The baseline and the sweep points took 7.5 minutes, the comparisons and checks 2, and the reference runs still pending after the checks 7. Writing the reports took under a minute. Later runs reuse both stores and take about 2 minutes (103 s measured), mostly the thesis-payout checks of the 1,419 asset-count records. `--sweep PARAM` (repeatable) chooses the sweeps, by default all seven, and `--no-sweeps` runs and reports the baseline only.
+From an empty store the first run takes about 95 minutes serially: the 1,860 runs of the baseline and the sweep points take about 65 of them, and the thesis-payout checks with the accurate MSE reference runs most of the rest. `--jobs N` (default 1) solves the sweep points in `N` worker processes, and then the 646 accurate MSE reference runs, and writes byte-identical reports. The script compares every report and runs its thesis-payout checks first, so that it knows every reference run before it writes a report. The reference runs are solved on the workers while the next report is compared, and go into `results/thesis-reference`. At `--jobs 8` the first run took 17 minutes (1,009 s), against 47 minutes before the reference runs were parallel (2,808 s). Both runs were on a 10-core Mac shared with other jobs. The 17-minute run had a load average between 2 and 10, and a run under heavier load (up to 27) took 20 minutes. The baseline and the sweep points took 7.5 minutes, the comparisons and checks 2, and the reference runs still pending after the checks 7. Writing the reports took under a minute. Later runs reuse both stores and take about 2 minutes (103 s measured), mostly the thesis-payout checks of the 1,419 asset-count records. `--sweep PARAM` (repeatable) chooses the sweeps, by default all seven, and `--no-sweeps` runs and reports the baseline only.
 
-To run the parity sweeps by hand, without the reports, use the CLI (MAR-66) with the thesis policy; `-p` (repeatable) chooses the sweeps, by default all:
+To run the parity sweeps by hand, without the reports, use the CLI with the thesis policy; `-p` (repeatable) chooses the sweeps, by default all:
 
 ```bash
 uv run parametric-insurance-design sweep parity/configs/thesis.yaml --policy thesis -p noise_level -p n_assets
 ```
 
-`--jobs N` runs the sweep points in `N` worker processes (MAR-105) with the same results: the full grid takes about 15 minutes at `--jobs 8`, against about 65 minutes serially.
+`--jobs N` runs the sweep points in `N` worker processes with the same results: the full grid takes about 15 minutes at `--jobs 8`, against about 65 minutes serially.
 
 It writes the same cached runs into `results/thesis`, so the script then only compares. The cluster scope fails on 1 or 2 assets (102 points, below), so the CLI exits with status 1 for the `n_assets` sweep.
 
 The script:
 
-1. runs the 9 runs, then every point of the sweeps (`sweeps.run_sweeps`), into `results/thesis` (not committed; cached by content hash) with `PARITY_POLICY`, defined at the top of the script. By owner decision (MAR-98) it is `solve.THESIS_POLICY`, which reproduces the thesis solves: OSQP at cvxpy's default accuracy for MSE. The thesis MSE solutions carry that solver error, which `BENCHMARK.md` documents. A sweep point equal to the baseline is a cache hit, so its run keeps the `single_run` tag;
+1. runs the 9 runs, then every point of the sweeps (`sweeps.run_sweeps`), into `results/thesis` (not committed; cached by content hash) with `PARITY_POLICY`, defined at the top of the script. By owner decision it is `solve.THESIS_POLICY`, which reproduces the thesis solves: OSQP at cvxpy's default accuracy for MSE. The thesis MSE solutions carry that solver error, which `BENCHMARK.md` documents. A sweep point equal to the baseline is a cache hit, so its run keeps the `single_run` tag;
 2. checks that the runner's noise draws equal the thesis noise layer (`golden/noise_digests.json`);
-3. evaluates each golden thesis payout under our objective and constraints, next to our stored solution of the matched run, and gives each design problem a verdict: *alternative optimum* (feasible, same objective within solver tolerance, and so is the midpoint of the two payouts), *OSQP accuracy*, *infeasible* or *potential porting bug*. An MSE problem that fails the strict test is compared with the accurate optimum of our problem (`DEFAULT_POLICY`, OSQP at 1e-8) at the loading the payout actually spends; those reference runs go to a separate store, `results/thesis-reference` (`--reference-store`), because in the parity store a run at a golden loading would be a second match. It also lists the extra runs, not compared: design problems we solved that have no golden record, because the thesis solves failed there, each with its cause (owner's MAR-18 answer 8). Last, for every MSE record it solves the same problems with `DEFAULT_POLICY` and shows them next to the `THESIS_POLICY` results and the thesis's, informational and not gated (answer 5). All this goes to `analysis/thesis_payouts.md`;
+3. evaluates each golden thesis payout under our objective and constraints, next to our stored solution of the matched run, and gives each design problem a verdict: *alternative optimum* (feasible, same objective within solver tolerance, and so is the midpoint of the two payouts), *OSQP accuracy*, *infeasible* or *potential porting bug*. An MSE problem that fails the strict test is compared with the accurate optimum of our problem (`DEFAULT_POLICY`, OSQP at 1e-8) at the loading the payout actually spends; those reference runs go to a separate store, `results/thesis-reference` (`--reference-store`), because in the parity store a run at a golden loading would be a second match. It also lists the extra runs, not compared: design problems we solved that have no golden record, because the thesis solves failed there, each with its cause (the owner's gate criteria, 2026-10-27). Last, for every MSE record it solves the same problems with `DEFAULT_POLICY` and shows them next to the `THESIS_POLICY` results and the thesis's, informational and not gated. All this goes to `analysis/thesis_payouts.md`;
 4. writes the report with `report.write_report`, which for `REPORT.md` is equivalent to:
 
 ```bash
@@ -85,9 +85,9 @@ uv run python parity/report.py --store results/thesis --source single_run \
     --appendix parity/analysis/adapter.md --compact --check
 ```
 
-except that the script compares only the runs of the baseline and the sweeps of that report (the CLI has no such option) and adds the index of the simulation-sweep reports. The script also passes the setup notes: solver policy, noise check, versions, and per sweep its values, points, failures and sweep manifest id (MAR-65). With `--check` it exits with status 1 if a finding of any report has no explanation, or an explanation claims evidence the thesis-payout check does not give (below).
+except that the script compares only the runs of the baseline and the sweeps of that report (the CLI has no such option) and adds the index of the simulation-sweep reports. The script also passes the setup notes: solver policy, noise check, versions, and per sweep its values, points, failures and sweep manifest id. With `--check` it exits with status 1 if a finding of any report has no explanation, or an explanation claims evidence the thesis-payout check does not give (below).
 
-The overview of every report splits the KPI values into *gated* (portfolio level, and entity level in the individual scope) and *reported, not gated* (entity level in the cluster and portfolio scopes). By the owner's MAR-18 criteria (2026-10-27, answer 4) the latter are not gated at non-unique optima, where the thesis-payout check backs them: their explanations claim an alternative optimum, which the evidence rule checks.
+The overview of every report splits the KPI values into *gated* (portfolio level, and entity level in the individual scope) and *reported, not gated* (entity level in the cluster and portfolio scopes). By the owner's gate criteria (2026-10-27) the latter are not gated at non-unique optima, where the thesis-payout check backs them: their explanations claim an alternative optimum, which the evidence rule checks.
 
 `report.py` options:
 
@@ -98,14 +98,14 @@ The overview of every report splits the KPI values into *gated* (portfolio level
 - `--baseline NAME=VALUE` (`noise_level`, `n_assets`) is the value a run must have where a golden record names none (every thesis-table record). Without it, a store that holds simulation-sweep runs gives several matches per thesis record.
 - `--strict-source` requires `runs.source` to agree. By default it doesn't, because the runner's cache keeps the tag a run was first written with.
 - `--notes`, `--notes-file`, `--setup-note` and `--appendix` add text.
-- `--compact` writes the compact form (MAR-69), which keeps the sweep report under the repository's 500 kB file limit: findings grouped by record, each explanation cell a label (`E1`, `E2`, …) whose text is listed once under *Explanations*, and only the objective values that do not match. Finding ids and counts are those of the full form.
+- `--compact` writes the compact form, which keeps the sweep report under the repository's 500 kB file limit: findings grouped by record, each explanation cell a label (`E1`, `E2`, …) whose text is listed once under *Explanations*, and only the objective values that do not match. Finding ids and counts are those of the full form.
 - `--manifest` is the manifest the decompressed golden checksums are checked against (default `manifest.json`).
 
 The report holds no timestamp, so the same store gives the same text.
 
 **Explanations.** `explanations.yaml` maps a finding id (`P-…`) or a glob over the finding path `kind/approach/method/source/parameters/subject/item` to text. An id wins; otherwise the first matching glob in file order applies. A key without a glob character is read as an id, so name a single finding by its id. Keep globs narrow: the baseline's names asset subjects only (`…/A?/*`), so a new portfolio-level finding of the same run stays unexplained.
 
-**Evidence rule (MAR-69).** The sweeps have hundreds of findings, explained by a few globs. A text that starts with `Alternative optimum` claims that every checked design problem of the finding's record has that verdict in the appendix; one that starts with `OSQP accuracy` allows `alternative optimum` or `OSQP accuracy`. `run_default_parity.py --check` fails while a finding's record lacks that evidence (`unsupported_explanations`), so a broad glob cannot explain a gap the thesis-payout check does not support. A potential porting bug is never explained by a glob: it is listed on its own in the appendix.
+**Evidence rule.** The sweeps have hundreds of findings, explained by a few globs. A text that starts with `Alternative optimum` claims that every checked design problem of the finding's record has that verdict in the appendix; one that starts with `OSQP accuracy` allows `alternative optimum` or `OSQP accuracy`. `run_default_parity.py --check` fails while a finding's record lacks that evidence (`unsupported_explanations`), so a broad glob cannot explain a gap the thesis-payout check does not support. A potential porting bug is never explained by a glob: it is listed on its own in the appendix.
 
 ### The simulation sweeps
 
@@ -122,13 +122,13 @@ Checks recorded in `golden/simulation_sweeps/provenance.json`:
 
 - **Figure check.** The notebook stores both figures' data (CVaR of the portfolio's uncovered loss, 7 significant digits). The regenerated thesis output reproduces all 43 values of the asset-count figure within 4.7e-7 (the print's rounding) and the 55 of the noise figure within 4.1e-6; the two noise values beyond the rounding are the individual scope at η 0.9 and 1.0, where the portfolio CVaR is not an objective and the workspace's newer cvxpy and Clarabel pick another optimum.
 - **Subsets.** The thesis drew the same 169 subsets as `sweeps.n_assets_subsets`, in the same order.
-- **Thesis failures.** 102 scope × objective solves raised in the thesis, all in the cluster scope with `n_clusters` 3: on one asset (27) scipy's `linkage` raises (`The number of observations cannot be determined on an empty distance matrix.`), on two assets (75) `fcluster(maxclust=3)` gives two clusters and the empty third makes `np.column_stack` raise (`need at least one array to concatenate`). Our runner fails at the same 102 points (`InputMismatchError`). These points have no golden record; the reports list them under *Extra runs* as not compared, with the thesis exception, and `run_default_parity.py` does not count them as failures. Capping `n_clusters` at the subset size would be a method change (MAR-70 kept the failures).
+- **Thesis failures.** 102 scope × objective solves raised in the thesis, all in the cluster scope with `n_clusters` 3: on one asset (27) scipy's `linkage` raises (`The number of observations cannot be determined on an empty distance matrix.`), on two assets (75) `fcluster(maxclust=3)` gives two clusters and the empty third makes `np.column_stack` raise (`need at least one array to concatenate`). Our runner fails at the same 102 points (`InputMismatchError`). These points have no golden record; the reports list them under *Extra runs* as not compared, with the thesis exception, and `run_default_parity.py` does not count them as failures. Capping `n_clusters` at the subset size would be a method change, so the parity runs keep the failures.
 
 The golden tables have the columns of the thesis tables plus `Noise_Value` (noise sweep), `N_Assets` and `Location_IDs` (asset-count sweep) and `Subset_Index`. A record names its noise level or its subset in the finding path (`…/noise_level=0.4/…`, `…/n_assets=3, locations=A1+A4+A7/…`).
 
 ### The adapter check
 
-The last section of `REPORT.md` checks that the CLIMADA adapter (`packages/climada`, MAR-73) regenerates the thesis input, the fixture under `tests/data/thesis_eventset/` (MAR-20). The adapter runs in its own pixi env, so `run_default_parity.py` doesn't rebuild the event set: it appends the committed `analysis/adapter.md` (option `--adapter`). To rewrite that file, with the merged IRIS catalogue in `data/iris/` (`pixi run iris`), from `packages/climada`:
+The last section of `REPORT.md` checks that the CLIMADA adapter (`packages/climada`) regenerates the thesis input, the fixture under `tests/data/thesis_eventset/`. The adapter runs in its own pixi env, so `run_default_parity.py` doesn't rebuild the event set: it appends the committed `analysis/adapter.md` (option `--adapter`). To rewrite that file, with the merged IRIS catalogue in `data/iris/` (`pixi run iris`), from `packages/climada`:
 
 ```bash
 pixi run python scripts/thesis_adapter_parity.py   # about 30 s; --catalogue <file> to point elsewhere
@@ -150,7 +150,7 @@ Each value is obtained in one of three ways:
 - **`b_thesis_code`** (102 rows): recomputed with the thesis' own `benchmarking.py` on the golden payouts and the thesis-prepared data, at the record's β. This covers the β-sweep points with β ≠ 0.95, and A1 of the three individual-MSE budget points that the thesis dropped from its KPI table. Before it is used, the same pipeline recomputes all 1,776 golden KPI rows. They must agree within 1e-5 relative plus 1e-6 absolute. The CSV keeps payout levels to 8 significant digits, so they are not bit-identical. `single_run` deviates by at most 4.3e-8.
 - **Not compared**: none.
 
-The owner decides at the MAR-18 sign-off whether this suffices. To regenerate:
+The owner decides at the parity-gate sign-off whether this suffices. To regenerate:
 
 ```bash
 uv run python parity/scripts/derive_golden_objectives.py \
@@ -199,7 +199,7 @@ uv run pytest parity/tests
 PARITY_THESIS_REPO=../parametric-insurance-framework uv run pytest parity/tests
 ```
 
-To rewrite the noise digests (MAR-10):
+To rewrite the noise digests:
 
 ```bash
 uv run python parity/scripts/thesis_noise_digests.py \

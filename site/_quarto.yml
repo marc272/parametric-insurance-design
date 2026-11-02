@@ -4,7 +4,7 @@
 #
 # The Quarto version is pinned: here (quarto-required) and in the workflow
 # (QUARTO_VERSION). Change both together: the Site workflow fails when they
-# differ (MAR-210).
+# differ.
 project:
   type: website
   output-dir: _site
@@ -15,7 +15,7 @@ project:
     - explorers/*.qmd
     - blog/index.qmd
   # No resources: the committed bundles under fixtures/ are test fixtures
-  # (thesis-fixture data, in sample) and stay out of the site (MAR-210). The
+  # (thesis-fixture data, in sample) and stay out of the site. The
   # pages read the explorer bundle, which the Site workflow exports into
   # _site/bundles/explorer/ after the render (site/README.md, "Bundles").
 

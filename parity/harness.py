@@ -1,4 +1,4 @@
-"""Parity harness: compare a result store with the thesis golden tables (MAR-67).
+"""Parity harness: compare a result store with the thesis golden tables.
 
 SPEC §7 F-06: on the thesis event set, every objective value and every
 portfolio and asset KPI must match the thesis within 1e-4 relative; payout
@@ -25,9 +25,9 @@ Golden tables
         can be passed to :func:`load_golden`; without one, the objective
         comparison is reported as unavailable. Optional columns
         ``Derivation`` and ``KPI_Source`` say how each value was obtained
-        (``golden/golden_objectives.csv``, MAR-68, is such a table).
+        (``golden/golden_objectives.csv`` is such a table).
 
-    Simulation sweeps (MAR-70)
+    Simulation sweeps
         ``golden/simulation_sweeps/`` holds the thesis noise-level and
         asset-count sweep results, which the thesis kept in memory only,
         regenerated with the thesis code (``scripts/derive_simulation_sweeps.py``):
@@ -63,7 +63,7 @@ Matching rules
     the points of the sweeps compared).
 
     The ``source`` tag is **not** required to agree by default: the runner's
-    cache keeps the tag a run was first written with (MAR-64), so the
+    cache keeps the tag a run was first written with, so the
     baseline run of every sweep carries one tag only, while the thesis wrote
     the same numbers under every sweep (the golden KPIs of records that
     differ only in ``Source`` are identical). ``strict_source=True``
@@ -153,11 +153,11 @@ GOLDEN_DIR: Final[Path] = PARITY_DIR / "golden"
 RESULTS_FILE: Final[str] = "full_optimization_results.csv.gz"
 KPIS_FILE: Final[str] = "benchmarking_kpis.csv.gz"
 OBJECTIVES_FILE: Final[str] = "golden_objectives.csv"
-"""The golden objective table derived for MAR-68 (in :data:`GOLDEN_DIR`)."""
+"""The derived golden objective table (in :data:`GOLDEN_DIR`)."""
 MANIFEST: Final[Path] = PARITY_DIR / "manifest.json"
-"""The parity manifest: SHA256 of the decompressed golden CSVs (MAR-9)."""
+"""The parity manifest: SHA256 of the decompressed golden CSVs."""
 SIMULATION_DIR: Final[Path] = GOLDEN_DIR / "simulation_sweeps"
-"""The regenerated thesis simulation-sweep tables (MAR-70)."""
+"""The regenerated thesis simulation-sweep tables."""
 SIMULATION_TABLES: Final[tuple[str, str, str]] = (
     "simulation_results",
     "simulation_kpis",
@@ -190,13 +190,13 @@ PARAMETER_COLUMNS: Final[Mapping[str, str]] = {
     "N_Bins": "n_bins",
     "N_Clusters": "n_clusters",
 }
-"""Thesis parameter column to ``runs.parameters`` key (sweep names, MAR-64)."""
+"""Thesis parameter column to ``runs.parameters`` key (sweep names)."""
 
 EXTRA_PARAMETER_COLUMNS: Final[Mapping[str, str]] = {
     "Noise_Value": "noise_level",
     "N_Assets": "n_assets",
 }
-"""Optional key columns (simulation sweeps, MAR-70) to ``runs.parameters`` key.
+"""Optional key columns (simulation sweeps) to ``runs.parameters`` key.
 
 Unlike :data:`PARAMETER_COLUMNS`, an empty or absent value does not require
 the run to lack the parameter (every run has both): it stands for the
@@ -540,7 +540,7 @@ class RecordKey:
         """Set parameters as ``name=value`` pairs, e.g. ``alpha=0.9, n_bins=15``.
 
         The optional key parameters follow where set, then the subset as
-        ``locations=A1+A4``; a thesis-table key reads as before (MAR-70).
+        ``locations=A1+A4``; a thesis-table key reads as before.
         """
         items = [
             f"{name}={_format_number(value)}"
@@ -803,7 +803,7 @@ def load_golden(
 
 
 def load_simulation_golden(directory: str | Path = SIMULATION_DIR) -> Golden:
-    """Read the regenerated thesis simulation-sweep tables (MAR-70).
+    """Read the regenerated thesis simulation-sweep tables.
 
     Parameters
     ----------
@@ -1234,7 +1234,7 @@ class ParityResult:
         if none or several match), ``problems`` and ``failed`` (counts).
     baseline_parameters : mapping of str to object
         The values a run must have for an optional key parameter a golden
-        record leaves empty (MAR-70).
+        record leaves empty.
     restricted : bool
         Whether only some of the store's runs were considered (``run_ids``);
         ``n_store_runs`` counts those.

@@ -1,4 +1,4 @@
-r"""Migrate the thesis configuration to ``parity/configs/thesis.yaml`` (MAR-63).
+r"""Migrate the thesis configuration to ``parity/configs/thesis.yaml``.
 
 The thesis (``parametric-insurance-framework``) configures its experiment in
 four YAML files under ``configs/`` and in notebook globals:
@@ -87,7 +87,7 @@ THESIS_RETURN_PERIODS: Final[tuple[float, ...]] = (
 )
 """Return periods of the thesis exceedance curves (Figure 5.6): the default
 of ``plot_exceedance_curves`` in the thesis ``src/utils/plotting.py``, which
-the notebook does not override (MAR-117)."""
+the notebook does not override."""
 
 OBJECTIVE_KINDS: Final[Mapping[str, str]] = {
     "pure_basis_risk_minimization": "mse",
@@ -192,7 +192,7 @@ TO_EVENTSET: Final[tuple[tuple[str, str], ...]] = (
     ("global_settings.N_YEARS", "metadata.n_years"),
     (
         "global_settings.DATA_PATH",
-        "the EventSet itself (convert_thesis_eventset.py, MAR-9); config "
+        "the EventSet itself (convert_thesis_eventset.py); config "
         "eventset.path and eventset.checksum",
     ),
 )
@@ -204,7 +204,7 @@ DROPPED: Final[tuple[tuple[str, str], ...]] = (
     (
         "experiment_config.EXPERIMENT_INPUTS.risk_loading",
         "unused by the thesis code (SPEC §3.1 C8); loaded pricing is "
-        "pricing.kind: cost_of_capital (MAR-27)",
+        "pricing.kind: cost_of_capital",
     ),
     (
         "global_settings.OPTIMIZATION_RESULT_DIR",
@@ -234,7 +234,7 @@ DROPPED: Final[tuple[tuple[str, str], ...]] = (
 IMPLICIT: Final[tuple[tuple[str, str], ...]] = (
     ("schema_version", "1"),
     ("name", "thesis"),
-    ("eventset.path", f"{EVENTSET_PATH} (the MAR-9 fixture of DATA_PATH)"),
+    ("eventset.path", f"{EVENTSET_PATH} (the parity fixture of DATA_PATH)"),
     ("eventset.checksum", "content_hash() of that fixture"),
     (
         "threshold.column",
@@ -527,7 +527,7 @@ def migrate(
         "description": (
             "The thesis experiment (parametric-insurance-framework, configs/*.yaml "
             "and notebook globals), migrated by parity/scripts/"
-            "migrate_thesis_config.py for the parity runs (MAR-68)."
+            "migrate_thesis_config.py for the parity runs."
         ),
         "eventset": {"path": EVENTSET_PATH, "checksum": eventset_checksum},
         "portfolio": {"location_ids": list(value("experiment_config.ASSETS"))},
@@ -614,7 +614,7 @@ def render(config: ExperimentConfig, checksums: Mapping[str, str]) -> str:
         checkout.
     """
     header = [
-        "Thesis experiment configuration (MAR-63). GENERATED, do not edit:",
+        "Thesis experiment configuration. GENERATED, do not edit:",
         "  uv run python parity/scripts/migrate_thesis_config.py \\",
         "      --thesis-repo ../parametric-insurance-framework --overwrite",
         "",
