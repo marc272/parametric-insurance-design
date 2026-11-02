@@ -322,7 +322,7 @@ DEFAULT_POLICY: SolverPolicy = SolverPolicy()
 """The default solver policy (module docstring)."""
 
 THESIS_POLICY: SolverPolicy = SolverPolicy(solver_options={"SCS": {"max_iters": 20000}})
-"""Solver policy that reproduces the thesis solves; for the parity gate only.
+"""Solver policy that reproduces the thesis solves; for the parity check only.
 
 The same solver lists and acceptance rule as :data:`DEFAULT_POLICY`, with
 OSQP at cvxpy's defaults (``eps_abs = eps_rel =
