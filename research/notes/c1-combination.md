@@ -183,3 +183,113 @@ In sample (train), the same rows are −8.3 %, −13.7 %, −13.9 %, −24.2 %, 
 3. **Library support for contrasts:** when MAR-179 (cross-scope pairing) merges, replace the `problem_id` relabelling; a contrast of more than two designs (`difference_bootstrap`) could live next to `paired_difference` in `bootstrap.py` (an addition, not an interface change).
 4. **Per-site KPIs of the individual designs**, for the single-site use case.
 5. **Carry the `_alt` designs into the contrasts**, to see how much of the joint terms depends on the solver's choice among optimal designs.
+
+## 12. Addendum (MAR-194): k-fold at κ 0.5 and r 0.10, per-site KPIs of the individual designs, and the second optima of the joint designs
+
+- Issue: MAR-194, 2026-11-02. It fills three gaps of sections 10 and 11 (items 2, 4 and 5), on the thesis portfolio. **Observations only.** Sections 1–11 and their files are unchanged: `c1_combination_tables.py --parts main` rewrites `grid*.csv`, `contrasts*.csv`, `runs.csv`, `tables.md` and `summary.json` byte for byte, and the rewritten phase `kfold` reproduces MAR-182's full k-fold tables byte for byte.
+- Scripts: `research/scripts/c1_combination.py`, new phases `kfold_addendum` (item 1), `sites` (item 2) and `alt` (item 3); `research/scripts/c1_combination_tables.py --parts addendum`. Configs: `research/configs/c1-combination/` (item 1). Data, in `research/data/c1-combination/`: `kfold_addendum_{grid,contrasts,runs}.csv`, `sites_grid*.csv`, `sites_contrasts_{test,pooled,train}.csv`, `alt_{grid,contrasts,contrasts_train,designs}.csv`, `tables_addendum.md` (T11–T20) and `summary_addendum.json` (checks, timings, versions). Every CSV row carries its config hash.
+
+### 12.1 Setup
+
+Everything in section 2 applies (thesis portfolio, 9 Miami assets; annual basis; thesis noise layer η 0.3, 13 copies, seed 42, independent across assets; step payout, 15 bins, `below_attachment = "first_bin"`; MSE, E[U], weighted CVaR α 0.9 at design β 0.99 and 0.995; paired year-block bootstrap B 1000, seed 0, level 0.9). What this addendum adds:
+
+| Item | Setting |
+|---|---|
+| Item 1: new k-fold runs | MAR-158's k-fold configs (year-block 5-fold, the 3 scopes and 4 designs; pooled out-of-sample KPIs: every year evaluated by the design that did not see it, one resample of all 10,000 years) at **pure, κ 0.5**, **CoC r 0.06 (q 0.99), κ 0.5** and **CoC r 0.10 (q 0.99), κ 1**. 180 runs, all `optimal` (CLARABEL; OSQP for some pure MSE folds), budget use 0.999997–1.000001 on every fold. Experiment config hashes: pure κ 0.5 `a9d749c58ee4` (MSE, E[U], wCVaR β 0.99) / `b84de968f71f` (β 0.995); r 0.06 κ 0.5 `f8458d01d528` / `4e8089ad75b8`; r 0.10 κ 1 `1f136037a6ee` / `b94216aebb65`. The script derives them from MAR-158's configs (at pure and r 0.06, κ 1 the derivation hashes as MAR-158's; checked) and checks that the committed YAML files hash as derived |
+| Item 1: core version | The new runs were solved with core **0.1.0** (branch cut from `origin/main` at 28a0dd2, with the OSQP polishing guard of MAR-224). The κ 1 pure and r 0.06 pooled values are MAR-158's runs, core **0.1.0.dev0**. The holdout test values are C1's runs, core 0.1.0.dev0 |
+| Item 1: compute | 41 min 30 s of solving (2,490 s wall) and 43 min in all, at `--jobs 2`, on a machine shared with another worker's solves |
+| Item 2: per-site KPIs | The **individual** designs only: each site is its own design problem with its own budget, κ·E[L_i] on the calibration years. Per site i, the annual uncovered loss U_i = Σ_e (L_ie − π_ie)⁺ per (year, copy) slot, from the site's own loss and its own design's payout; CVaR over slots, as for the portfolio. Train (in sample) and holdout test (C1 resample, paired intervals) for the 9 main-line variants (C1 runs, 0.1.0.dev0); pooled 5-fold for the 5 k-fold variants (MAR-158's and item 1's runs). Contrasts per site: weighted CVaR (β 0.99, 0.995) − MSE and − E[U]. The per-site test KPIs equal MAR-158's entity rows (1,944 rows, values and bounds). No per-asset KPIs of joint designs (MAR-100) |
+| Item 2: not a split of the portfolio KPI | The portfolio KPI of the individual scope nets one site's excess payout against another's shortfall within an event; the sites' U_i do not. Summed over the 9 sites, E[U_i] is 2.0 (train) and 2.1 (test) times the portfolio E[U] of the individual MSE design (pure, κ 1: 20,462 against 10,220; 22,350 against 10,552), and the sum of the sites' CVaR₀.₉₉(U_i) is 2.0 and 2.1 times the portfolio CVaR₀.₉₉(U). The sites' E[L_i] and E[π_i] add up to the portfolio's (144 sums checked) |
+| Item 3: second optima | κ 1, pricing pure and CoC r 0.06, cluster and portfolio scopes, the 4 designs: each C1 joint design replaced by its **`alt`** optimum (the same design problem solved with `c1_rq2.ALT_POLICY`, HiGHS first for LPs, CLARABEL first for QPs). Nothing is re-solved: the `alt` thetas are those MAR-206 family (e) stored (`research/notes/c1-rq2-sensitivities.md`). They are the same designs as family (b)'s `alt` and C1 observation 32's `_alt`: test KPIs equal to a relative 4·10⁻¹⁰ (64 rows each), so one set of second optima is carried. Under CoC the MSE and E[U] `alt` designs test within a relative 3·10⁻⁶ of C1's; only the weighted-CVaR designs differ (by up to 16 %). Train objective of `alt` over C1's, relative: +5.1·10⁻⁵ and +5.9·10⁻⁵ for the pure MSE designs (CLARABEL against C1's OSQP), at most 3.5·10⁻⁷ in absolute value for the others (T20) |
+| Item 3: versions | Each (J, ·) term in two versions: the joint weighted-CVaR design W and the joint baseline design O are each C1's or `alt`. "alt / alt" replaces both; "C1 / alt" and "alt / C1" one of them. The individual designs are C1's in every version. The C1 / C1 version reproduces sections 4 and 5 (1,296 rows, values and bounds); the decomposition identity holds in every version (1,152 checks) |
+| Item 3: not covered | r 0.10, and κ 0.5 and 1.5: their `alt` designs exist only as family (b)'s KPIs, without thetas or replicates, so their cross-scope contrasts would need re-solves (56 joint designs), which this issue does not make |
+| Items 2 and 3: compute | Bootstraps only, under core 0.1.0 on the stored designs: 8 min 7 s wall at `--jobs 2` |
+| Reading 0.1.0.dev0 runs under 0.1.0 | The run ids hash the core version (MAR-188), so the script looks the C1 and MAR-158 runs up with `--c1-package-version 0.1.0.dev0`. The prepared EventSet's transform records name the core version too, so its content hash, which the k-fold drift guard checks, differs; the script relabels the records and checks that the result hashes as C1's prepared EventSet (`008057c84ba2`, C1.md erratum E.2). The recomputed holdout KPIs and contrasts equal C1's and MAR-182's (`summary_addendum.json`) |
+
+### 12.2 Item 1: pooled 5-fold at κ 0.5 and at r 0.10
+
+T11 has the pooled grid, T12 and T13 the contrasts next to the holdout test values, T14 the counts. Portfolio scope, relative to the stated design; `*`: the paired 90 % interval excludes zero.
+
+| Pricing, κ | Design, KPI | Contrast | Test [90 % CI] | Pooled [90 % CI] |
+|---|---|---|---|---|
+| pure, 0.5 | wCVaR β 0.99, CVaR₀.₉₉ | both, vs individual MSE | −0.9 % [−5.1, +4.4] | −1.4 % [−3.9, +1.2] |
+| | | interaction, MSE baseline | −6.7 %* [−12.9, −1.5] | −2.3 % [−5.3, +0.7] |
+| | wCVaR β 0.99, CVaR₀.₉₉₅ | both, vs individual MSE | +3.0 % [−3.9, +10.3] | +1.9 % [−1.7, +5.5] |
+| | | RQ1 alone (I, W) − (I, MSE) | +13.1 % [−0.2, +29.1] | +8.1 %* [+1.2, +14.9] |
+| | | adds RQ1 (P, W) − (P, MSE) | +0.4 % [−6.8, +8.6] | +0.6 % [−2.7, +4.2] |
+| | | adds RQ2 (P, W) − (I, W) | −8.9 %* [−18.3, −0.4] | −5.7 %* [−9.7, −1.5] |
+| | | interaction, MSE baseline | −12.6 %* [−21.3, −4.9] | −7.5 %* [−11.8, −3.1] |
+| | wCVaR β 0.995, CVaR₀.₉₉₅ | both, vs individual MSE | −0.3 % [−5.1, +4.4] | +0.7 % [−1.4, +2.7] |
+| | | interaction, MSE baseline | −2.1 % [−5.2, +1.5] | −0.4 % [−1.6, +0.8] |
+| | wCVaR β 0.99, CVaR₀.₉₉ | interaction, E[U] baseline | +10.1 % [−1.6, +23.7] | +8.0 %* [+1.8, +14.6] |
+| | wCVaR β 0.99, CVaR₀.₉₉₅ | interaction, E[U] baseline | +22.1 %* [+6.5, +35.9] | +17.9 %* [+10.4, +24.5] |
+| | wCVaR β 0.995, CVaR₀.₉₉₅ | interaction, E[U] baseline | +29.1 %* [+8.7, +50.3] | +23.1 %* [+12.8, +32.8] |
+| | E[U] design, CVaR₀.₉₉ | RQ2 alone (P, E[U]) − (I, E[U]) | −13.8 % [−31.7, +2.2] | −9.3 %* [−18.1, −0.8] |
+| CoC r 0.06, 0.5 | wCVaR β 0.99, CVaR₀.₉₉ | both, vs individual MSE | +0.7 % [−6.4, +11.6] | +0.0 % [−4.2, +4.7] |
+| | | interaction, MSE baseline | −0.0 % [−2.1, +2.0] | −0.5 % [−1.5, +0.5] |
+| | wCVaR β 0.995, CVaR₀.₉₉₅ | both, vs individual MSE | −0.9 % [−8.1, +10.3] | −0.3 % [−4.3, +4.3] |
+| CoC r 0.10, 1 | wCVaR β 0.99, CVaR₀.₉₉ | both, vs individual MSE | +1.2 % [−7.5, +13.4] | −0.2 % [−5.0, +4.9] |
+| | | adds RQ2 | +0.4 % [−0.6, +1.5] | −0.3 % [−1.0, +0.4] |
+| | | interaction, MSE baseline | +0.3 % [−0.7, +1.5] | −0.5 % [−1.4, +0.3] |
+| | wCVaR β 0.995, CVaR₀.₉₉₅ | both, vs individual MSE | −0.8 % [−8.4, +10.2] | −0.7 % [−4.6, +3.7] |
+
+Hashes: holdout as in section 4 and T5 (`contrasts.csv`); pooled, the experiment hashes of 12.1 (each row of `kfold_addendum_contrasts.csv` carries its own).
+
+Observations:
+
+21. **Scarce budget, pure pricing, MSE baseline: observation 12's interaction contains zero pooled at KPI 0.99 and excludes it at KPI 0.995.** For the β 0.99 design the interaction is −2.3 % [−5.3, +0.7] pooled at CVaR₀.₉₉ (test −6.7 %*) and −7.5 % [−11.8, −3.1] at CVaR₀.₉₉₅ (test −12.6 %*). For the β 0.995 design at its matched KPI it is −0.4 % pooled (test −2.1 %), interval containing zero.
+22. **The parts of the κ 0.5 interaction at KPI 0.995** (pure, β 0.99, pooled). In the individual scope the weighted-CVaR design's CVaR₀.₉₉₅ is 8.1 % [+1.2, +14.9] above the MSE design's (test +13.1 %, interval containing zero); in the portfolio scope +0.6 % [−2.7, +4.2]. Joint calibration lowers the weighted-CVaR design's CVaR₀.₉₉₅ by 5.7 % [−9.7, −1.5] (adds RQ2) and not the MSE design's (RQ2 alone +1.3 % [−0.7, +3.3]).
+23. **The combination against individual MSE at κ 0.5, pure, is within −1.4 to +1.9 % pooled** at the matched KPI β and, for the β 0.99 design, at KPI 0.995, every interval containing zero (test −0.9 to +3.0 %).
+24. **E[U] baseline at κ 0.5, pure: the positive interaction of observation 12 excludes zero pooled.** +8.0 % [+1.8, +14.6] (β 0.99, KPI 0.99), +17.9 % [+10.4, +24.5] (β 0.99, KPI 0.995) and +23.1 % [+12.8, +32.8] (β 0.995, KPI 0.995). The joint E[U] design is below the individual one pooled (RQ2 alone −9.3 % [−18.1, −0.8] at CVaR₀.₉₉, −22.4 % [−31.7, −12.5] at CVaR₀.₉₉₅; T13), as on test (C1.md observation 23).
+25. **Under the loads (r 0.06 at κ 0.5; r 0.10 at κ 1) the MSE-baseline comparisons of the table are within −0.7 to +0.0 % pooled**, every interval containing zero; the pooled interaction at CVaR₀.₉₉ and CVaR₀.₉₉₅ is within −0.8 to +0.3 % over both joint scopes, both baselines and both tail designs (32 cells), every interval containing zero (T12–T14, `kfold_addendum_contrasts.csv`). Against E[U] the tail difference of the combination is about RQ1 alone, as at r 0.06, κ 1: at r 0.10, κ 1, the β 0.995 combination's CVaR₀.₉₉₅ is 10.3 % [−17.1, −4.0] below individual E[U]'s pooled, RQ1 alone −9.9 %, and the β 0.99 combination's E[U] 14.1 % above (T13).
+26. **Counts (T14).** Pooled interaction intervals excluding zero, of 16 per joint scope: pure κ 0.5, 1 below and 4 above zero in both scopes (test: 2 and 2 in the portfolio scope, 0 and 4 in the cluster scope); every loaded variant, 0 of 16 in both scopes (test: one cell, at r 0.06, κ 1).
+
+### 12.3 Item 2: per-site KPIs of the individual designs
+
+T15a (pure, κ 1) and T15b (CoC r 0.06, κ 1) list every site; T16 counts the intervals over the 9 sites for every variant. Each site's own U_i, relative to the site's MSE (or E[U]) design.
+
+27. **Pure pricing, κ 1, β 0.99 at CVaR₀.₉₉(U_i).** The weighted-CVaR design is 6.7 to 8.7 % below the MSE design at every site in sample; on the holdout test years −12.1 to +3.5 %, all 9 intervals containing zero; pooled −3.3 to −9.5 %, 7 of 9 intervals excluding zero (A3 −4.5 % and A7 −3.3 % contain zero). Hashes `f89028d0ef02` / `b6a790bd484c` (holdout), `dcfc293da286` (pooled).
+28. **Pure, κ 1, β 0.995 at CVaR₀.₉₉₅(U_i).** −17.5 to −21.5 % in sample; test −7.8 to −24.8 %, 5 of 9 excluding zero; pooled −16.1 to −21.5 %, all 9 excluding zero. Hashes `28ac9b153c21` / `b6a790bd484c`; pooled `0b9b994ccdda` / `dcfc293da286`.
+29. **The cost in E[U_i]** (pure, κ 1, β 0.99): +8.1 to +13.0 % in sample, +7.8 to +31.2 % on test (7 of 9 excluding zero), +7.9 to +14.6 % pooled (8 of 9 excluding zero; A4 +7.9 % [−0.7, +15.4]). For the 9-site portfolio of individual designs (section 9, RQ1 alone) the same comparison is +36.6 % (test) and +33.8 % (pooled).
+30. **Under CoC r 0.06, κ 1, weighted CVaR − MSE per site is within −1.1 to +0.0 % in sample**, and within −6.6 to +7.5 % (test) and −2.1 to +0.8 % (pooled) at the matched KPI β, every interval containing zero (T15b). Against E[U] as the baseline, at every loaded variant with k-fold runs, the β 0.995 design's CVaR₀.₉₉₅(U_i) is below at all 9 sites pooled and the β 0.99 design's E[U_i] above at all 9 (T16).
+31. **Across variants (T16).** Pure κ 0.5, MSE baseline: at most 3 of 9 sites exclude zero in any column, pooled or test. Pure κ 1.5, holdout test: the weighted-CVaR designs are below the MSE designs at all 9 sites in every column, E[U_i] included; the MSE designs use 0.665–0.673 of each site's budget there (`sites_grid_train.csv`), as in the 9-site sum (observation 13). Loaded variants, MSE baseline: 0 or 1 of 9 sites exclude zero in every column.
+
+### 12.4 Item 3: the joint designs' second optima in the contrasts
+
+T17 (portfolio) and T18 (cluster) give every contrast with a joint term in the four versions, T19 counts the changed verdicts, T20 the `alt` designs' KPIs. κ 1, holdout test.
+
+| Pricing | Design, KPI | Contrast | C1 / C1 | alt / alt | C1 / alt | alt / C1 |
+|---|---|---|---|---|---|---|
+| pure | wCVaR β 0.99, CVaR₀.₉₉ | both, vs individual MSE | −14.7 % [−37.4, +4.0] | −12.5 % [−35.4, +7.2] | as C1 / C1 | as alt / alt |
+| | | adds RQ2 | −0.9 % [−14.5, +13.7] | +1.6 % [−13.3, +18.0] | as C1 / C1 | as alt / alt |
+| | | adds RQ1, MSE baseline | −14.0 %* [−26.2, −2.1] | −12.8 % [−29.5, +2.2] | −15.0 %* [−28.8, −2.2] | −11.8 % [−25.7, +1.9] |
+| | | interaction, MSE baseline | +0.1 % [−9.8, +14.0] | +1.1 % [−12.7, +17.8] | −1.1 % [−11.4, +12.7] | +2.3 % [−9.5, +16.9] |
+| | wCVaR β 0.99, E[U] | interaction, MSE baseline | −17.1 %* [−28.8, −2.7] | −16.3 % [−31.0, +1.9] | −18.4 %* [−30.5, −3.9] | −14.9 % [−28.3, +1.5] |
+| | wCVaR β 0.995, CVaR₀.₉₉₅ | both, vs individual MSE | −30.1 %* [−61.5, −2.6] | −31.4 %* [−63.9, −2.6] | as C1 / C1 | as alt / alt |
+| | | interaction, MSE baseline | +3.7 % [−8.5, +18.1] | +1.1 % [−11.9, +17.3] | +2.4 % [−9.5, +18.2] | +2.3 % [−8.7, +16.4] |
+| CoC r 0.06 | wCVaR β 0.99, CVaR₀.₉₉ | both, vs individual MSE | +0.8 % [−9.2, +13.7] | +2.5 % [−11.5, +20.6] | as C1 / C1 | as alt / alt |
+| | | adds RQ2 | +0.7 % [−0.9, +2.5] | +2.4 % [−3.0, +9.1] | as C1 / C1 | as alt / alt |
+| | | interaction, MSE baseline | +1.1 % [−2.0, +4.9] | +2.8 % [−4.2, +11.3] | as C1 / C1 | as alt / alt |
+
+Hashes (C1 runs; the `alt` designs are derived from them): pure portfolio wCVaR β 0.99 `7d700f7bd02d`, β 0.995 `af7553a9ab56`, MSE `4d63dddd3335`; CoC r 0.06 portfolio wCVaR β 0.99 `a705dea1563a`, MSE `0ada0ff98fb2`; individual designs as in section 4. "As C1 / C1": the contrast has no O term, or (CoC) the O design's `alt` equals C1's.
+
+Observations:
+
+32. **The combination's tail difference to individual MSE moves by 1.3 to 2.2 points with the `alt` optima** (matched KPI β; pure −14.7 → −12.5 % and −30.1 → −31.4 %; CoC r 0.06 +0.8 → +2.5 %); every interval keeps its verdict.
+33. **Adds RQ1 at CVaR₀.₉₉ (pure, β 0.99, MSE baseline) loses its exclusion of zero when the joint weighted-CVaR design is `alt`** (alt / alt −12.8 %, alt / C1 −11.8 %) and keeps it when only the baseline is (C1 / alt −15.0 %*). This is C1 section 3.1's cell, as in MAR-206 observation 25.
+34. **The interaction at the matched KPI β contains zero in every version**: pure −1.1 to +2.3 % (β 0.99) and +1.1 to +3.7 % (β 0.995); CoC r 0.06 +1.1 to +2.8 %. **The E[U] interaction** (observation 9: −17.1 %* with C1's designs) is −14.9 to −18.4 % over the versions; its interval excludes zero when the joint weighted-CVaR design is C1's and contains zero when it is `alt`.
+35. **Counts (T19).** Of the 160 test cells per pricing with a joint term (both joint scopes, both tail designs, both baselines, five KPIs), alt / alt changes 17 verdicts under pure pricing (10 lose an exclusion of zero, 7 gain one) and 13 under CoC r 0.06 (4 lose, 9 gain); the point value changes sign in 17 and 27 cells. The largest shift is 8.2 points under pure pricing (adds RQ1, β 0.995 against E[U], E[U] as the KPI) and 15.6 points under CoC (the cluster β 0.99 design's E[π], adds RQ2: −3.1 → −18.7 %).
+36. **The cluster scope** (T18; pure, β 0.99, CVaR₀.₉₉, MSE baseline): RQ2 alone is +22.7 % with C1's cluster MSE design (interval containing zero) and +26.0 % [+1.8, +55.4] with its `alt`; the combination against individual MSE +8.0 → +10.6 %, intervals containing zero; the interaction −0.7 % (C1) and −4.1 to +1.9 % over the other versions.
+
+### 12.5 Coverage gaps and limitations of the addendum
+
+- **Item 1:** no k-fold at κ 1.5, at r 0.10 with κ ≠ 1, or at r 0.06 with κ 1.5; no F-12 k-fold. The new runs and MAR-158's were solved under two core versions (0.1.0 and 0.1.0.dev0). Between them only the OSQP polishing guard changed the solver code, and it changes no thesis-portfolio design (`research/notes/solver-check.md` section 4); the new runs were not also solved under 0.1.0.dev0.
+- **Item 2:** a site's KPIs are those of its own design problem, not a split of the portfolio KPI (12.1). Per-site KPIs of joint designs stay out (MAR-100).
+- **Item 3:** one other optimum per design (`alt`), at κ 1, pure and r 0.06 only (12.1). The near-optimal ranges of MAR-206 family (e) are not carried into the combination contrasts.
+- **Interval coverage** of a difference of differences was not measured (section 10).
+
+### 12.6 Proposed follow-ups (not done here)
+
+1. **`alt` designs at r 0.10 and at κ 0.5 and 1.5**: 56 joint re-solves with `ALT_POLICY` (family (b) solved them but kept no thetas). κ 0.5 is where MAR-206 observation 30 found the largest `alt` change (the cluster E[U] design).
+2. **Combination contrasts over the near-optimal sets** (MAR-206 family (e)'s end designs, κ 1): ranges of the interaction, as family (e) did for portfolio − individual.
+3. **Pooling runs of an earlier core version**: the k-fold drift guard refuses them because the prepared EventSet's transform records carry the core version; the script relabels the records (12.1). If the paper's reruns need this again, a documented library option could replace the script logic.

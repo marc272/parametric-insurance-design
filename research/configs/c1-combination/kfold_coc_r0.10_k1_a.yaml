@@ -1,0 +1,70 @@
+# MAR-194 item 1: pooled 5-fold runs of the C1 main line at coc_r0.10, kappa 1, objective set 'a'.
+# Written by research/scripts/c1_combination.py --write-configs; the script
+# checks that this file hashes as the configs it derives from MAR-158's
+# (c1_rq2.kfold_configs) with this pricing and budget loading.
+#
+# Paths are relative to this file.
+schema_version: 1
+name: c1-combination-kfold-coc_r0.10-k1-a
+description: 'MAR-194 (C1 combination view follow-ups): the C1 main line on a year-block 5-fold
+  split, for pooled out-of-sample KPIs (MAR-151); MAR-158''s k-fold configs at another pricing
+  or budget loading.'
+eventset:
+  path: ../../../parity/tests/data/thesis_eventset
+  checksum: sha256:404b0c3a3aefa38965ad3ace2747d308685a67e3b218cb835d45a9ab375294df
+portfolio:
+  location_ids: [A1, A2, A3, A4, A5, A6, A7, A8, A9]
+noise:
+  kind: heteroscedastic
+  level: 0.3
+  n_copies: 13
+  seed: 42
+  bounds: [20.0, 70.0]
+threshold:
+  value: 20.0
+  column: index
+basis: annual
+sample:
+  kind: kfold
+  k: 5
+  fold: null
+payout:
+  kind: step
+  attachment: 20.0
+  limit: 70.0
+  n_bins: 15
+  breakpoints: null
+scopes:
+- kind: individual
+  index: null
+- kind: cluster
+  n_clusters: 3
+  strategy:
+    kind: thesis_ward
+    beta_tail: 0.9
+    linkage: ward
+  index: null
+- kind: portfolio
+  index: null
+objectives:
+- kind: mse
+- kind: expected_uncovered
+- kind: weighted_cvar
+  alpha: 0.9
+  beta: 0.99
+pricing:
+  kind: cost_of_capital
+  rate: 0.1
+  q: 0.99
+constraints:
+- kind: budget
+  loading: 1.0
+evaluation:
+  beta: 0.99
+bootstrap:
+  seed: 0
+  n_bootstrap: 1000
+  level: 0.9
+sweeps: []
+output:
+  directory: ../../../results/c1-combination/kfold-store
