@@ -802,6 +802,8 @@ def _run_pool(
         def fill() -> None:
             while queue and len(running) < jobs:
                 name, fn, args = queue.pop()
+                if (out_dir / f"{name}.pkl").is_file():  # written by another process
+                    continue
                 running[pool.submit(fn, *args)] = name
 
         fill()
@@ -877,6 +879,8 @@ def run_joint(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any]:
             continue
         for (scope, design), (cfg, rid) in members.items():
             if scope not in JOINT_SCOPES or (args.scopes and scope not in args.scopes):
+                continue
+            if args.designs and design not in args.designs:
                 continue
             near = (key[1], key[2]) in near_groups
             payouts = (key[1], key[2]) in payout_groups and (
@@ -1009,6 +1013,8 @@ def run_payouts(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any
             continue
         for (scope, design), (cfg, rid) in members.items():
             if scope not in JOINT_SCOPES or (args.scopes and scope not in args.scopes):
+                continue
+            if args.designs and design not in args.designs:
                 continue
             tasks.append(
                 (
@@ -1353,6 +1359,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--scopes", nargs="*", default=None, help="joint phase: only these scopes"
+    )
+    parser.add_argument(
+        "--designs", nargs="*", default=None, help="joint phases: only these designs"
     )
     parser.add_argument(
         "--payout-skip",

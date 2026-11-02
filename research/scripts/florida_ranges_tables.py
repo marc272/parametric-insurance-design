@@ -105,6 +105,18 @@ def _ci(rel: float, lo: float, hi: float) -> str:
     return f"{_pct(rel)}{star} [{a}, {b}]"
 
 
+def _in_set(inside: bool, structure: float, budget: float) -> str:
+    """Return 'yes', or why a design fails the set's numpy check."""
+    if inside:
+        return "yes"
+    parts = []
+    if structure > 1e-6:
+        parts.append(f"structure {structure:.1e}")
+    if math.isfinite(budget) and budget > 1e-6:
+        parts.append(f"budget {budget:+.1e}")
+    return "no" + (f" ({', '.join(parts)})" if parts else " (objective)")
+
+
 def _table(header: list[str], rows: list[list[str]]) -> str:
     out = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
     out += ["| " + " | ".join(r) + " |" for r in rows]
@@ -192,6 +204,13 @@ def design_rows(results: dict[Any, dict[str, Any]]) -> pd.DataFrame:
                 if m["objective_stored"]
                 else math.nan,
                 "alt_in_set": "alt" in frg.members(r),
+                "alt_objective_excess": r["checks"]["alt"]["objective_excess"],
+                "alt_budget_excess": r["checks"]["alt"]["budget_excess"],
+                "alt_structure_violation": r["checks"]["alt"]["structure_violation"],
+                "stored_in_set": "stored" in frg.members(r),
+                "stored_structure_violation": r["checks"]["stored"][
+                    "structure_violation"
+                ],
                 "optimum_from": m["optimum_from"],
                 "near": m["near"],
                 "payouts": m["payouts"],
@@ -503,7 +522,8 @@ def markdown(
                 f"{r.stored_solvers}",
                 f"{r.alt_solver} ({r.alt_status})",
                 f"{r.alt_objective_rel:+.1e}",
-                "yes" if r.alt_in_set else "no",
+                _in_set(r.alt_in_set, r.alt_structure_violation, r.alt_budget_excess),
+                _in_set(r.stored_in_set, r.stored_structure_violation, math.nan),
                 f"`{r.hash}`",
             ]
         )
@@ -512,7 +532,11 @@ def markdown(
         "",
         "Every holdout cluster and portfolio design solved again with "
         "`c1_rq2.ALT_POLICY`; its train objective relative to the stored "
-        "design's (numpy), and whether it lies in the near-optimal set.",
+        "design's (numpy), and whether it and the stored design pass the "
+        "near-optimal set's numpy check (objective within 10⁻⁵ + 10⁻⁶ of the "
+        "smaller of the two objectives, budget within 10⁻⁶, payout structure "
+        "within 10⁻⁶ of the cap); if not, the largest structure violation "
+        "relative to the cap (a solver tolerance).",
         "",
         _table(
             [
@@ -524,7 +548,8 @@ def markdown(
                 "Stored solvers",
                 "alt solver",
                 "alt objective − stored",
-                "In set",
+                "alt in set",
+                "Stored in set",
                 "Hash",
             ],
             rows,
