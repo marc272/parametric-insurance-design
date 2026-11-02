@@ -1,4 +1,4 @@
-/* The payout explorer (alpha-beta.qmd, MAR-54): layout of the controls and
+/* The payout explorer (alpha-beta.qmd): layout of the controls and
    charts, captions and setup notes. Colours of the charts are set in the
    page (they follow the light/dark theme through the body's quarto-dark
    class); here, only text and layout, which inherit the theme's colours. */
@@ -86,8 +86,7 @@
    "oi-<hash>". styles/site.scss stacks the labels of every OJS input
    (.observablehq form[class^="oi-"]) on phone-width screens only; this rule
    does it in the controls column at desktop widths too, where the column is
-   narrow but Observable Inputs would put the label beside the control
-   (MAR-210). */
+   narrow but Observable Inputs would put the label beside the control. */
 .explorer-controls form[class^="oi-"] {
   flex-wrap: wrap;
   --label-width: 100%;

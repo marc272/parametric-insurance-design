@@ -1,8 +1,9 @@
-# The site's explorer bundle (MAR-208): built in CI by the Site workflow
+# The site's explorer bundle: built in CI by the Site workflow
 # (.github/workflows/site.yml), never committed. It is the bundle the payout
-# explorer (MAR-54) reads: the alpha, beta, budget-loading (kappa) and
-# bin-count (n_bins, MAR-220) sweeps of the three objectives, out of sample,
-# on the annual basis (the publication rule, AGENTS.md).
+# explorer (site/explorers/alpha-beta.qmd) reads: the alpha, beta,
+# budget-loading (kappa) and bin-count (n_bins) sweeps of the three
+# objectives, out of sample, on the annual basis (the publication rule,
+# AGENTS.md).
 #
 # The setup is checkpoint C1's main line (research/configs/c1/c1_main.yaml):
 # the thesis portfolio (9 Miami locations), the thesis noise layer, the
@@ -27,12 +28,11 @@
 #      statement (the RQ2 rule).
 #   2. Bootstrap B = 200, not C1's 1000: at B = 1000 the bootstrap took
 #      about 30 s per sweep point on a GitHub runner (325 s for the solve).
-# (Until MAR-220, the bundle had no n_bins sweep, a third reduction. Until
-# MAR-213, kappa had 9 values: with the train rows in the bundle, the
-# thesis' 11 put sweep.budget_loading.exceedance.arrow over 2 MB. The test
-# rows alone take about 1.0 MB.)
+# (The bundle holds the test rows only, so kappa can have the thesis' 11
+# values: with the train rows too, sweep.budget_loading.exceedance.arrow
+# would be over 2 MB. The test rows alone take about 1.0 MB.)
 #
-# Out of sample only (MAR-213). A holdout run stores KPIs and exceedance
+# Out of sample only. A holdout run stores KPIs and exceedance
 # curves on the train years (eval_split "train", in sample) and on the test
 # years ("test", out of sample). The bundle is exported with --split test,
 # so its kpis, exceedance and map files hold the "test" rows only (the
@@ -52,8 +52,8 @@
 schema_version: 1
 name: site-explorer
 description: >-
-  Site explorer bundle (MAR-208), built in CI from site/configs/explorer.yaml on
-  the thesis parity event set. Setup - the thesis portfolio (9 Miami locations),
+  Site explorer bundle, built in CI from site/configs/explorer.yaml on the
+  thesis parity event set. Setup - the thesis portfolio (9 Miami locations),
   thesis noise layer, annual basis, holdout split (years 0-6999 train, 7000-9999
   test), pure pricing, budget loading 1.0, 15 bins from 20 to 70 m/s, evaluation
   beta 0.99; objectives MSE, E[U] and weighted CVaR (alpha 0.9, beta 0.99).

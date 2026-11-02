@@ -17,7 +17,7 @@
 
 // Observable Inputs: every label above its control on phone-width screens.
 // Quarto's OJS runtime names the inputs' forms "oi-<hash>" (as its own
-// quarto-ojs.css does), not "inputs-<hash>" (MAR-210). Observable Inputs puts
+// quarto-ojs.css does), not "inputs-<hash>". Observable Inputs puts
 // the label beside the control from 30em (480 px) up, with a style it injects
 // at run time, after this sheet ("form.oi-<hash>", flex-wrap: nowrap); the
 // .observablehq ancestor (Quarto's OJS cell) makes these rules more specific.
