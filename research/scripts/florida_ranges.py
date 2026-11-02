@@ -409,10 +409,88 @@ class StoredSet(sens.JointSet):
         ]
 
 
+class WarmLP:
+    """The ranger's linear program ``min cost . theta`` over the set, in HiGHS.
+
+    The LP data come from cvxpy's own canonicalisation of ``ranger.lp``
+    (``get_problem_data(HIGHS)``: ``min c'x`` subject to ``A x <= b``, the
+    first ``dims.zero`` rows as equalities), passed to one HiGHS instance
+    that is kept between solves. Only the cost changes from one solve to the
+    next, so HiGHS restarts from the previous optimal basis (a warm start)
+    instead of from scratch, as a fresh cvxpy solve does. ``theta`` is the
+    first block of columns (column-major, as cvxpy flattens variables).
+    Every solution is checked in numpy by the caller (``admit``), as before.
+    """
+
+    def __init__(self, ranger: sens.JointRanger) -> None:
+        import highspy
+
+        theta = ranger.js.ctx.theta
+        ranger.cost.value = np.zeros(ranger.cost.shape)
+        data, _, inv = ranger.lp.get_problem_data(cp.HIGHS)
+        offsets = [
+            i.var_offsets for i in inv if hasattr(i, "var_offsets")
+        ]  # the last is the stuffed problem's
+        self.offset = int(offsets[-1][theta.id])
+        self.shape = tuple(theta.shape)
+        self.n = int(theta.size)
+        a = data["A"].tocsc()
+        b = np.asarray(data["b"], dtype=np.float64)
+        n_eq = int(data["dims"].zero)
+        if data.get("lower_bounds") is not None or data.get("upper_bounds") is not None:
+            raise RuntimeError("WarmLP expects free variables")
+        lp = highspy.HighsLp()
+        lp.num_col_, lp.num_row_ = a.shape[1], a.shape[0]
+        lp.col_cost_ = np.zeros(a.shape[1])
+        lp.col_lower_ = np.full(a.shape[1], -highspy.kHighsInf)
+        lp.col_upper_ = np.full(a.shape[1], highspy.kHighsInf)
+        lower = np.full(a.shape[0], -highspy.kHighsInf)
+        lower[:n_eq] = b[:n_eq]
+        lp.row_lower_, lp.row_upper_ = lower, b
+        lp.a_matrix_.format_ = highspy.MatrixFormat.kColwise
+        lp.a_matrix_.start_ = a.indptr
+        lp.a_matrix_.index_ = a.indices
+        lp.a_matrix_.value_ = a.data
+        lp.a_matrix_.num_col_, lp.a_matrix_.num_row_ = a.shape[1], a.shape[0]
+        self.h = highspy.Highs()
+        self.h.setOptionValue("output_flag", False)
+        self.h.passModel(lp)
+        self.idx = np.arange(self.offset, self.offset + self.n, dtype=np.int32)
+
+    def solve(self, cost: np.ndarray) -> tuple[np.ndarray | None, str]:
+        """Minimise ``cost . theta``; return theta (scaled) and the status."""
+        c = np.asarray(cost, dtype=np.float64).ravel(order="F")
+        self.h.changeColsCost(self.n, self.idx, c)
+        self.h.run()
+        status = self.h.modelStatusToString(self.h.getModelStatus())
+        if status != "Optimal":
+            return None, f"{status} (HIGHS warm)"
+        x = np.asarray(self.h.getSolution().col_value)
+        theta = x[self.offset : self.offset + self.n].reshape(self.shape, order="F")
+        return theta, "optimal (HIGHS warm)"
+
+
 def _lp_ranger(js: StoredSet, lp: bool) -> sens.JointRanger:
-    """MAR-206's ranger with this script's solver order (:func:`_solve_range`)."""
-    inu.solve_range = lambda prob: _solve_range(prob, lp)  # type: ignore[assignment]
-    return sens.JointRanger(js)
+    """MAR-206's ranger with this script's solver order (:func:`_solve_range`).
+
+    For the LP sets, the ranger's cost-parametrised LP (the linearisation
+    steps, the descent steps and the per-entity payout ranges) is solved by
+    :class:`WarmLP` first; if HiGHS does not end ``Optimal`` there, by
+    :func:`_solve_range` as every other program.
+    """
+    ranger = sens.JointRanger(js)
+    warm = WarmLP(ranger) if lp else None
+
+    def solve_range(prob: cp.Problem) -> str:
+        if warm is not None and prob is ranger.lp:
+            theta, status = warm.solve(np.asarray(ranger.cost.value))
+            if theta is not None:
+                js.ctx.theta.value = theta
+                return status
+        return _solve_range(prob, lp)
+
+    inu.solve_range = solve_range  # type: ignore[assignment]
+    return ranger
 
 
 FW_STEPS: Final[int] = 8
@@ -650,7 +728,7 @@ def joint_worker(
                 top = float(np.max(np.abs(c), initial=0.0))
                 ranger.cost.value = c / top if top > 0 else c
                 js.ctx.theta.value = None
-                st = _solve_range(ranger.lp, lp)
+                st = inu.solve_range(ranger.lp)
                 raw = ranger._theta()
                 th, note = (None, "no iterate") if raw is None else ranger.admit(raw)
                 row[f"status_{sense}"] = f"{st} {note}".strip()
@@ -801,7 +879,9 @@ def run_joint(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any]:
             if scope not in JOINT_SCOPES or (args.scopes and scope not in args.scopes):
                 continue
             near = (key[1], key[2]) in near_groups
-            payouts = (key[1], key[2]) in payout_groups
+            payouts = (key[1], key[2]) in payout_groups and (
+                f"{key[0]}/{scope}" not in (args.payout_skip or [])
+            )
             if args.near_scopes and scope not in args.near_scopes:
                 near = payouts = False
             stem = _stem(key, (scope, design))
@@ -831,7 +911,116 @@ def load_results(full: Path) -> dict[tuple[Key, Design], dict[str, Any]]:
         for path in sorted((full / sub).glob("*.pkl")):
             r = pickle.loads(path.read_bytes())
             out[(tuple(r["key"]), tuple(r["design"]))] = r  # type: ignore[index]
+    # per-entity payout ranges solved on their own (phase payouts)
+    for path in sorted((full / "payouts").glob("*.pkl")):
+        p = pickle.loads(path.read_bytes())
+        r = out.get((tuple(p["key"]), tuple(p["design"])))  # type: ignore[arg-type]
+        if r is None or r["meta"]["payouts"]:
+            continue
+        ranges = {e["entity_id"]: e for e in p["entities"]}
+        for e in r["entities"]:
+            x = ranges[e["entity_id"]]
+            for col in ("ratio_min", "ratio_max", "status_min", "status_max"):
+                e[col] = x[col]
+        r["meta"]["payouts"] = True
+        r["meta"]["payouts_seconds"] = p["meta"]["seconds"]
     return out
+
+
+def payouts_worker(
+    key: Key, design: Design, cfg: ExperimentConfig, rid: str, store_root: str
+) -> dict[str, Any]:
+    """C1 T11's per-entity payout ranges of one joint design, on their own.
+
+    The same set and programs as :func:`joint_worker` with ``payouts``: the
+    design problem rebuilt with the stored design, the second optimum solved
+    again (its optimum is the set's when lower), and each entity's smallest
+    and largest train ``E[pi_j] / E[L_j]`` over the near-optimal set, every
+    end checked in numpy.
+    """
+    t0 = time.perf_counter()
+    store = ResultStore(Path(store_root))
+    stored = rq2._stored(cfg, rid, store)
+    comps = cfg.to_components()
+    prepared = c1._prepared(cfg)
+    train, _ = splits.holdout(prepared, train_fraction=0.7)
+    (built,) = build_problems(
+        prepared,
+        stored.scope,
+        comps.payout,
+        comps.objectives[0],
+        comps.pricing,
+        comps.constraints,
+        basis=comps.basis,
+        sample=train,
+        specs=[r.spec for r in stored.results],
+    )
+    scale = float(built.context.scale)
+    (res,) = stored.results
+    theta_stored = np.asarray(res.theta, dtype=np.float64)
+    alt = solve(built, rq2.ALT_POLICY, pricing=comps.pricing)
+    if alt.theta is None:
+        raise RuntimeError(f"{rid}: the alt solve failed ({alt.status})")
+    js = StoredSet(
+        built,
+        cfg,
+        RANGE_REL_TOL,
+        {"stored": theta_stored / scale, "alt": np.asarray(alt.theta) / scale},
+    )
+    lp = design[1] != "mse"
+    ranger = _lp_ranger(js, lp)
+    m = js.ctx.measure
+    p = np.asarray(m.probability, dtype=np.float64)
+    rows = []
+    for j, ent in enumerate(js.ctx.problem.spec.entities):
+        cost_j = np.asarray(m.aggregate(js.basis[j])).T @ p
+        row: dict[str, Any] = {"entity_id": ent.entity_id}
+        for sense, sign in (("min", 1.0), ("max", -1.0)):
+            c = np.zeros(ranger.cost.shape)
+            c[j] = sign * cost_j
+            top = float(np.max(np.abs(c), initial=0.0))
+            ranger.cost.value = c / top if top > 0 else c
+            js.ctx.theta.value = None
+            st = inu.solve_range(ranger.lp)
+            raw = ranger._theta()
+            th, note = (None, "no iterate") if raw is None else ranger.admit(raw)
+            row[f"status_{sense}"] = f"{st} {note}".strip()
+            row[f"ratio_{sense}"] = math.nan if th is None else js.entity_ratio(th, j)
+        rows.append(row)
+    return {
+        "key": key,
+        "design": design,
+        "entities": rows,
+        "meta": {
+            "config_hash": config_hash(cfg),
+            "run_id": rid,
+            "optimum_from": js.optimum_from,
+            "seconds": round(time.perf_counter() - t0, 1),
+        },
+    }
+
+
+def run_payouts(args: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any]:
+    """Phase payouts: per-entity payout ranges of joint designs, on their own."""
+    groups = {(p, float(k)) for p, k in args.payouts}
+    tasks = []
+    for key, members in holdout_groups(plan).items():
+        if not _selected(key, args.only) or (key[1], key[2]) not in groups:
+            continue
+        for (scope, design), (cfg, rid) in members.items():
+            if scope not in JOINT_SCOPES or (args.scopes and scope not in args.scopes):
+                continue
+            tasks.append(
+                (
+                    _stem(key, (scope, design)),
+                    payouts_worker,
+                    (key, (scope, design), cfg, rid, str(args.store)),
+                )
+            )
+    failed = _run_pool(tasks, args.full / "payouts", args.jobs)
+    if failed:
+        raise RuntimeError("failed:\n" + "\n".join(failed))
+    return {"payout_designs": len(tasks)}
 
 
 SIGN: Final[dict[str, float]] = {"a": 1.0, "b": -1.0, "c": -1.0, "d": 1.0}
@@ -1055,6 +1244,7 @@ def check_stored(con: pd.DataFrame, mar202: pd.DataFrame) -> int:
             f[k] = f[k].fillna("").astype(str)
         f["eval_beta"] = f["eval_beta"].fillna(-1.0)
     theirs = theirs.loc[theirs["kpi"].isin(["expected_uncovered", "cvar_uncovered"])]
+    theirs.loc[theirs["kpi"] == "expected_uncovered", "eval_beta"] = -1.0  # beta-free
     theirs = theirs.drop_duplicates(keys)
     m = mine.merge(theirs, on=keys, suffixes=("", "_202"), validate="one_to_one")
     if len(m) != len(mine):
@@ -1134,7 +1324,7 @@ def main(argv: list[str] | None = None) -> int:
         "--phases",
         nargs="+",
         required=True,
-        choices=["individual", "joint", "contrasts", "tables"],
+        choices=["individual", "joint", "payouts", "contrasts", "tables"],
     )
     parser.add_argument("--jobs", type=int, default=3)
     parser.add_argument("--store", type=Path, default=STORE)
@@ -1164,6 +1354,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--scopes", nargs="*", default=None, help="joint phase: only these scopes"
     )
+    parser.add_argument(
+        "--payout-skip",
+        nargs="*",
+        default=None,
+        help="index/scope without payout ranges, e.g. cic75/portfolio",
+    )
     args = parser.parse_args(argv)
     args.near = _pairs(args.near)
     args.payouts = _pairs(args.payouts)
@@ -1174,9 +1370,10 @@ def main(argv: list[str] | None = None) -> int:
     ] = {
         "individual": run_individual,
         "joint": run_joint,
+        "payouts": run_payouts,
         "contrasts": run_contrasts,
     }
-    for name in ("individual", "joint", "contrasts", "tables"):
+    for name in ("individual", "joint", "payouts", "contrasts", "tables"):
         if name not in args.phases:
             continue
         t = time.perf_counter()

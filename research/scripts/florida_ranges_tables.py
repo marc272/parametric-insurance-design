@@ -304,10 +304,10 @@ def contrast_frames(con: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
         )
         wide_parts.append(part.set_index(KEYS))
     wide = pd.concat(wide_parts, axis=1).reset_index()
-    hashes = c.loc[
-        c["variant"] == "stored", [*KEYS, "hash_a", "hash_b", "hash_c", "hash_d"]
-    ]
-    wide = wide.merge(hashes, on=KEYS, validate="one_to_one")
+    hcols = [h for h in ("hash_a", "hash_b", "hash_c", "hash_d") if h in c.columns]
+    if hcols:  # holdout: per term; pooled: the k-fold experiment configs (T15)
+        hashes = c.loc[c["variant"] == "stored", [*KEYS, *hcols]]
+        wide = wide.merge(hashes, on=KEYS, validate="one_to_one")
     flips = c.loc[
         (c["variant"] != "stored") & (c["sign_flip"] | c["verdict_flip"]),
         [
@@ -725,6 +725,156 @@ def markdown(
     return "\n".join(out)
 
 
+def kfold_design_rows(full: Path) -> pd.DataFrame:
+    """Per k-fold fold design: the alt solve and its free bins."""
+    import pickle
+
+    rows = []
+    for path in sorted((full / "kfold").glob("*.pkl")):
+        r = pickle.loads(path.read_bytes())
+        m = r["meta"]
+        stem = path.stem
+        index, rest = stem.split("_", 1)
+        pricing = "pure"
+        scope = (
+            "portfolio"
+            if "_portfolio_" in rest
+            else ("cluster" if "_cluster_" in rest else "individual")
+        )
+        design = rest.split(f"_{scope}_", 1)[1].rsplit("_f", 1)[0]
+        row: dict[str, Any] = {
+            "eventset": index,
+            "pricing": pricing,
+            "kappa": 1.0,
+            "scope": scope,
+            "design": design,
+            "fold": m["fold"],
+            "stored_solvers": m["solvers"],
+            "free_bins": m.get("free_bins", 0),
+            "alt_solver": m.get("alt_solver", ""),
+            "alt_status": m.get("alt_status", ""),
+            "alt_objective_rel": (
+                m["objective_alt"] / m["objective_stored"] - 1.0
+                if m.get("objective_stored")
+                else math.nan
+            ),
+            "hash": _short(m["config_hash"]),
+        }
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def pooled_markdown(wide: pd.DataFrame, c: pd.DataFrame, kd: pd.DataFrame) -> str:
+    """Return the pooled 5-fold tables (R8-R10) as Markdown."""
+    out = [
+        "## R8. Pooled 5-fold contrasts (pure, κ 1) whose sign or verdict changes",
+        "",
+        "As R6, on MAR-202's pooled 5-fold contrasts: each fold design replaced "
+        "by its second optimum (`alt`) or its free-bin ends, then pooled (every "
+        "year evaluated by the fold design that did not see it). No "
+        "near-optimal programs for the folds. The two T14 folds are their "
+        "CLARABEL re-solves. Experiment config hashes: MAR-202 T15 "
+        "(index (a) `2ace43bd99c8`, `e030e975389d`; index (b) `a2e2c3b6875f`, "
+        "`0e7dc2834399`); per fold design: `ranges_kfold_designs.csv`.",
+        "",
+    ]
+    kinds = {
+        "cross-scope": c["contrast"].isin(CROSS),
+        "within a joint scope (adds RQ1)": c["contrast"] == "adds_rq1",
+        "individual only (RQ1 alone)": c["contrast"] == "rq1_alone",
+    }
+    rows = []
+    for kind, ks in kinds.items():
+        for idx in INDICES:
+            for r in _count_rows(c, ks & (c["eventset"] == idx)):
+                rows.append([kind, idx, *r])
+    out += [
+        _table(
+            [
+                "Contrasts",
+                "Index",
+                "Family",
+                "Contrasts × KPIs",
+                "Sign changes",
+                "Verdict changes",
+            ],
+            rows,
+        ),
+        "",
+        "## R9. Pooled RQ2 and combination cells at the ends (CVaR 0.99)",
+        "",
+    ]
+    rows = []
+    sel = wide.loc[
+        (wide["kpi"] == "cvar_uncovered")
+        & (wide["eval_beta"] == 0.99)
+        & wide["contrast"].isin(["rq2_alone", "adds_rq2", "both", "interaction"])
+    ]
+    for r in sel.sort_values(["eventset", "contrast", "joint_scope"]).itertuples():
+        if r.contrast in ("both", "interaction") and r.base_design != "mse":
+            continue
+        design = r.tail_design or r.base_design
+        rows.append(
+            [
+                str(r.eventset),
+                CONTRAST_NAME[str(r.contrast)],
+                str(r.joint_scope),
+                DESIGN_NAME[str(design)],
+                _ci(r.stored_rel, r.stored_lo, r.stored_hi),
+                _ci(r.alt_rel, r.alt_lo, r.alt_hi),
+                _ci(r.free_low_rel, r.free_low_lo, r.free_low_hi),
+                _ci(r.free_high_rel, r.free_high_lo, r.free_high_hi),
+            ]
+        )
+    out += [
+        _table(
+            [
+                "Index",
+                "Contrast",
+                "J",
+                "W or O",
+                "Stored (MAR-202, T14 re-solved)",
+                "alt",
+                "Free bins: low",
+                "Free bins: high",
+            ],
+            rows,
+        ),
+        "",
+    ]
+    j = kd.loc[kd["scope"] != "individual"]
+    rows = []
+    for (idx, scope), g in j.groupby(["eventset", "scope"]):
+        rows.append(
+            [
+                str(idx),
+                str(scope),
+                str(len(g)),
+                f"{g['alt_objective_rel'].min():+.1e} to "
+                f"{g['alt_objective_rel'].max():+.1e}",
+                ", ".join(sorted(set(g["alt_solver"]))),
+                str(int(g["free_bins"].sum())),
+            ]
+        )
+    out += [
+        "## R10. The k-fold fold designs' second optima",
+        "",
+        _table(
+            [
+                "Index",
+                "Scope",
+                "Fold designs",
+                "alt objective − stored (relative)",
+                "alt solvers",
+                "Free bins (all fold designs)",
+            ],
+            rows,
+        ),
+        "",
+    ]
+    return "\n".join(out)
+
+
 def write(full: Path, out: Path) -> dict[str, Any]:
     """Write the committed tables; return summary entries."""
     from parametric_insurance_design.experiment.runner import package_versions
@@ -736,11 +886,17 @@ def write(full: Path, out: Path) -> dict[str, Any]:
     ents = entity_rows(results)
     con = pd.read_csv(full / "contrasts.csv")
     wide, flips, c = contrast_frames(con)
+    pcon = pd.read_csv(full / "kfold_contrasts.csv")
+    pwide, pflips, pc = contrast_frames(pcon)
+    kd = kfold_design_rows(full)
     summary = {
         "core_version": package_versions()["parametric-insurance-design"],
         "designs": len(results),
         "contrast_rows": len(con),
         "flips": len(flips),
+        "pooled_contrast_rows": len(pcon),
+        "pooled_flips": len(pflips),
+        "kfold_fold_designs": len(kd),
     }
     out.mkdir(parents=True, exist_ok=True)
     frames = {
@@ -750,16 +906,23 @@ def write(full: Path, out: Path) -> dict[str, Any]:
         "ranges_entities": ents,
         "ranges_contrasts": wide,
         "ranges_flips": flips,
+        "ranges_contrasts_pooled": pwide,
+        "ranges_flips_pooled": pflips,
+        "ranges_kfold_designs": kd,
     }
     for name, f in frames.items():
         path = out / f"{name}.csv"
-        f.to_csv(path, index=False, float_format="%.6g")
+        fmt = "%.4g" if "contrasts" in name or "flips" in name else "%.6g"
+        f.to_csv(path, index=False, float_format=fmt)
         size = path.stat().st_size
         if size > 500_000:
             raise RuntimeError(f"{path} is {size} bytes (over 500 kB)")
         summary[f"{name}_bytes"] = size
     (out / "ranges_tables.md").write_text(
-        markdown(k, d, counties, ents, wide, c, summary) + "\n"
+        markdown(k, d, counties, ents, wide, c, summary)
+        + "\n"
+        + pooled_markdown(pwide, pc, kd)
+        + "\n"
     )
     (out / "ranges_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     return summary

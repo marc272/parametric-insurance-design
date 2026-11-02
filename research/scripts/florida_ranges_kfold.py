@@ -325,6 +325,7 @@ def check_pooled(con: pd.DataFrame, mar202: pd.DataFrame) -> int:
             f[kk] = f[kk].fillna("").astype(str)
         f["eval_beta"] = f["eval_beta"].fillna(-1.0)
     theirs = theirs.loc[theirs["kpi"].isin(["expected_uncovered", "cvar_uncovered"])]
+    theirs.loc[theirs["kpi"] == "expected_uncovered", "eval_beta"] = -1.0  # beta-free
     theirs = theirs.drop_duplicates(keys)
     m = mine.merge(theirs, on=keys, suffixes=("", "_202"), validate="one_to_one")
     if len(m) != len(mine):
