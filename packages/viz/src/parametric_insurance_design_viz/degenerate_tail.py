@@ -24,12 +24,17 @@ show them:
   flagged design problem of the runs a figure reads.
   :func:`with_degenerate_tail` adds it to a figure's data only when a run is
   flagged, so the figures of unflagged runs are unchanged.
-* :func:`mark_points` rings a flagged point of a line figure (the
-  sensitivity and trade-off figures) with the flag's marker
-  (:data:`DEGENERATE_TAIL_MARKERS`); the KPI figures mark a flagged cell, bar
-  or curve with the flag's symbol (:data:`DEGENERATE_TAIL_SYMBOLS`).
+* :func:`mark_points` rings a flagged point of a line figure with the
+  flag's marker (:data:`DEGENERATE_TAIL_MARKERS`): the sensitivity,
+  trade-off, net-advantage and break-even figures, the premium reallocation
+  (one ring per flagged location and scope, by :func:`entity_flags`) and the
+  colour bar of the payout sweep (at the flagged values). The KPI figures
+  mark a flagged cell, bar or curve with the flag's symbol
+  (:data:`DEGENERATE_TAIL_SYMBOLS`), and so does the payout sweep of a
+  single value, after its legend label.
 * :func:`degenerate_tail_notes`: the legend note of each flag drawn
-  (:data:`DEGENERATE_TAIL_NOTES`). It states the mechanism, the condition on
+  (:data:`DEGENERATE_TAIL_NOTES`); :func:`problem_notes` for marks of one
+  design problem each. It states the mechanism, the condition on
   the calibration years, and nothing else. When a marked result also holds
   design problems without the flag (e.g. the individual scope, where only
   some locations have ``beta <= P(L_o = 0)``), the note says so
@@ -78,10 +83,12 @@ __all__ = [
     "ProblemTail",
     "degenerate_tail_notes",
     "degenerate_tail_table",
+    "entity_flags",
     "group_flag",
     "legend_handles",
     "mark_points",
     "note_legend",
+    "problem_notes",
     "problem_tails",
     "run_degenerate_tail",
     "with_degenerate_tail",
@@ -368,9 +375,60 @@ def degenerate_tail_notes(groups: Iterable[Sequence[RunResult]]) -> dict[str, st
     }
 
 
+def problem_notes(flags: Iterable[str | None]) -> dict[str, str]:
+    """Return the legend note of each flag among marks of one design problem.
+
+    For marks that each stand for a single design problem (e.g. one
+    location's design under the individual scope,
+    :func:`entity_flags`), so no note is partial.
+
+    Parameters
+    ----------
+    flags : iterable of str or None
+        The flag of each mark (None: not marked).
+
+    Returns
+    -------
+    dict
+        Flag to note (:data:`DEGENERATE_TAIL_NOTES`), in
+        :data:`DEGENERATE_TAILS` order.
+    """
+    present = set(flags)
+    return {f: DEGENERATE_TAIL_NOTES[f] for f in DEGENERATE_TAILS if f in present}
+
+
 def group_flag(group: Sequence[RunResult]) -> str | None:
     """Return the flag that marks a result read from ``group``'s runs."""
     return _strongest(run_degenerate_tail(r) for r in group)
+
+
+def entity_flags(run: RunResult) -> dict[str, str | None]:
+    """Return the flag of each entity's design problem.
+
+    A result of one entity (e.g. a location's premium under the individual
+    scope) is marked by the flag of the design problem that calibrates it,
+    not by the run's.
+
+    Parameters
+    ----------
+    run : RunResult
+        The run.
+
+    Returns
+    -------
+    dict
+        Entity id to the flag of its design problem (``entities`` table,
+        ``problem_id``), in the table's order; None for every entity of a
+        run without a record (:func:`problem_tails` is None).
+    """
+    tails = problem_tails(run)
+    flag_of = {t.problem_id: t.degenerate_tail for t in tails or ()}
+    return {
+        str(e): flag_of.get(str(p))
+        for e, p in zip(
+            run.entities["entity_id"], run.entities["problem_id"], strict=True
+        )
+    }
 
 
 def mark_points(
@@ -378,6 +436,8 @@ def mark_points(
     xs: Sequence[float],
     ys: Sequence[float],
     flags: Sequence[str | None],
+    *,
+    clip_on: bool = True,
 ) -> None:
     """Ring each flagged point with its flag's marker.
 
@@ -389,6 +449,9 @@ def mark_points(
         The points.
     flags : sequence of str or None
         The flag of each point (None: not flagged, not ringed).
+    clip_on : bool, default True
+        Clip the rings to the axes; False for an axes narrower than a ring,
+        such as a colour bar's.
     """
     for flag in DEGENERATE_TAILS:
         chosen = [i for i, f in enumerate(flags) if f == flag]
@@ -404,6 +467,7 @@ def mark_points(
             markeredgecolor=DEGENERATE_TAIL_COLOR,
             markeredgewidth=_RING_WIDTH,
             zorder=5,
+            clip_on=clip_on,
         )
 
 
@@ -431,6 +495,7 @@ def note_legend(
     *,
     symbols: bool = False,
     below: Legend | None = None,
+    y: float = 0.0,
 ) -> Legend | None:
     """Draw the notes as a one-column legend centred under the figure.
 
@@ -444,7 +509,10 @@ def note_legend(
         Start each note with its flag's symbol (:data:`DEGENERATE_TAIL_SYMBOLS`,
         the KPI figures) instead of the ring of :func:`mark_points`.
     below : matplotlib.legend.Legend, optional
-        A legend under the figure to draw the notes beneath; default at the
+        A legend under the figure to draw the notes beneath; default at
+        ``y``.
+    y : float, default 0.0
+        Figure height of the notes' top edge without ``below``; default the
         bottom edge of the figure.
 
     Returns
@@ -454,7 +522,6 @@ def note_legend(
     """
     if not notes:
         return None
-    y = 0.0
     if below is not None:
         fig.draw_without_rendering()
         box = below.get_window_extent()

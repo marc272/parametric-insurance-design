@@ -13,6 +13,13 @@ individual problems and 0 for the portfolio problem, and the CVaR tail holds
 * beta 0.99: every problem is flagged ``single_outcome`` (0.51 outcomes).
 
 The session ``toy`` store (beta 0.9) has no flag: its figures carry no mark.
+
+The ``clustered`` store (a joint cluster scope and the portfolio scope,
+weighted CVaR at beta 0.9, an ``n_clusters`` sweep over 1, 2 and 3) has no
+flag either. A joint cluster scope is one design problem over every location,
+so its flag cannot change with the cluster count; the net-advantage and
+break-even tests set a run's manifest record (:func:`flag_run`) to have a
+flagged and an unflagged point in one figure.
 """
 
 from __future__ import annotations
@@ -46,6 +53,10 @@ from parametric_insurance_design_viz.reader import ResultReader, RunResult
 from parametric_insurance_design_viz.site_export import export_site, read_bundle
 from parametric_insurance_design_viz.sweep_figures import (
     SweepSeries,
+    breakeven_cost,
+    net_advantage,
+    payout_sweep,
+    premium_reallocation,
     sensitivity,
     tradeoff,
 )
@@ -265,6 +276,167 @@ def test_an_unflagged_sweep_has_no_marks(toy: Fixture, tmp_path: Path) -> None:
         assert "Weighted CVaR" not in texts(out.figure)
 
 
+def test_the_payout_sweep_rings_the_flagged_values(flagged: Flagged) -> None:
+    series = flagged.series("individual")
+    # A2's own design problem: expected_uncovered at 0.05, single_outcome at
+    # 0.99, unflagged at 0.9. The rings are on the colour bar (second axes).
+    out = payout_sweep(series, "A2")
+    assert len(out.figure.axes) == 2
+    assert sorted(rings(out.figure)) == [("D", [0.99]), ("o", [0.05])]
+    bar = out.figure.axes[1]
+    assert all(line.axes is bar for line in bar.get_lines())
+    drawn = texts(out.figure)
+    assert dt.DEGENERATE_TAIL_NOTES[dt.EXPECTED_UNCOVERED] in drawn
+    assert dt.DEGENERATE_TAIL_NOTES[dt.SINGLE_OUTCOME] in drawn
+    assert dt.PARTIAL_NOTE not in drawn  # each ring is one design problem
+    table = out.data[dt.DEGENERATE_TAIL_TABLE]
+    assert set(table["beta"]) == {0.05, 0.99}
+    # A1's design problem is not flagged at 0.05 (its P(L_o = 0) is below
+    # beta), so its figure rings 0.99 only, though the run is flagged at A2.
+    a1 = payout_sweep(series, "A1")
+    assert rings(a1.figure) == [("D", [0.99])]
+    assert dt.DEGENERATE_TAIL_NOTES[dt.EXPECTED_UNCOVERED] not in texts(a1.figure)
+
+
+def test_a_payout_sweep_of_one_value_marks_its_label(flagged: Flagged) -> None:
+    series = flagged.series("individual")
+    at = {float(p.value): (p, r) for p, r in series.points}
+    out = payout_sweep(dataclasses.replace(series, points=(at[0.05],)), "A2")
+    assert rings(out.figure) == []  # no colour bar: the label carries the mark
+    symbol = dt.DEGENERATE_TAIL_SYMBOLS[dt.EXPECTED_UNCOVERED]
+    labels = [str(t.get_text()) for t in out.figure.legends[0].get_texts()]
+    assert any(label.endswith(f"= 0.05 {symbol}") for label in labels)
+    note = f"{symbol} {dt.DEGENERATE_TAIL_NOTES[dt.EXPECTED_UNCOVERED]}"
+    assert note in texts(out.figure)
+    plain = payout_sweep(dataclasses.replace(series, points=(at[0.9],)), "A2")
+    assert symbol not in texts(plain.figure)
+    assert "Weighted CVaR" not in texts(plain.figure)
+    assert dt.DEGENERATE_TAIL_TABLE not in plain.data
+
+
+def test_the_premium_reallocation_rings_the_flagged_locations(
+    flagged: Flagged,
+) -> None:
+    individual = flagged.run("individual", "weighted_cvar")
+    portfolio = flagged.run("portfolio", "weighted_cvar")
+    assert dt.entity_flags(individual) == {
+        "A1": None,
+        "A2": dt.EXPECTED_UNCOVERED,
+        "A3": dt.EXPECTED_UNCOVERED,
+    }
+    assert set(dt.entity_flags(portfolio).values()) == {None}
+    out = premium_reallocation(individual, portfolio)
+    main = out.data[""]
+    # Entities in run order (no insured values): A1, A2, A3 at x 0, 1, 2.
+    assert main["entity_id"].tolist() == ["A1", "A2", "A3"]
+    assert rings(out.figure) == [("o", [1.0, 2.0])]
+    [ring] = [
+        line
+        for line in out.figure.axes[0].get_lines()
+        if line.get_markerfacecolor() == "none"
+    ]
+    ys = [float(y) for y in ring.get_ydata()]  # pyright: ignore[reportGeneralTypeIssues]
+    assert ys == pytest.approx(main["individual_share"].iloc[1:].tolist())
+    drawn = texts(out.figure)
+    assert dt.DEGENERATE_TAIL_NOTES[dt.EXPECTED_UNCOVERED] in drawn
+    assert dt.PARTIAL_NOTE not in drawn
+    table = out.data[dt.DEGENERATE_TAIL_TABLE]
+    assert sorted(table["problem_id"]) == ["A2", "A3"]
+
+
+def test_an_unflagged_premium_reallocation_has_no_marks(toy: Fixture) -> None:
+    reader = ResultReader(toy.store)
+    out = premium_reallocation(
+        reader.run(toy.run_id("individual", "weighted_cvar")),
+        reader.run(toy.run_id("portfolio", "weighted_cvar")),
+    )
+    assert rings(out.figure) == []
+    assert dt.DEGENERATE_TAIL_TABLE not in out.data
+    assert "Weighted CVaR" not in texts(out.figure)
+
+
+@dataclass(frozen=True)
+class Clustered:
+    series: SweepSeries  # the n_clusters sweep of the cluster scope
+    benchmark: RunResult  # the portfolio scope's weighted-CVaR run
+
+
+@pytest.fixture(scope="module")
+def clustered(tmp_path_factory: pytest.TempPathFactory) -> Clustered:
+    toy = build_fixture(
+        tmp_path_factory.mktemp("clustered"),
+        scopes=[
+            {
+                "kind": "cluster",
+                "n_clusters": 2,
+                "strategy": {"kind": "thesis_ward", "beta_tail": 0.9},
+            },
+            {"kind": "portfolio"},
+        ],
+        objectives=[{"kind": "weighted_cvar", "alpha": 0.9, "beta": 0.9}],
+        sweeps=[{"parameter": "n_clusters", "values": [1, 2, 3]}],
+    )
+    run_sweeps(toy.config, store=toy.store, baseline=False)
+    reader = ResultReader(toy.store)
+    points = [p for p in command_sweep_runs(toy.config) if p.single == 0]
+    series = SweepSeries(
+        "n_clusters",
+        "cluster",
+        reader.run(toy.run_id("cluster", "weighted_cvar")),
+        tuple(zip(points, reader.runs(p.run_id for p in points), strict=True)),
+    )
+    return Clustered(series, reader.run(toy.run_id("portfolio", "weighted_cvar")))
+
+
+def flag_run(run: RunResult, flag: str) -> RunResult:
+    """The run with every design problem's record set to ``flag``."""
+    problems = [{**p, "degenerate_tail": flag} for p in run.manifest["problems"]]
+    return dataclasses.replace(run, manifest={**run.manifest, "problems": problems})
+
+
+def test_the_cluster_figures_ring_the_flagged_count(clustered: Clustered) -> None:
+    assert [p.value for p, _ in clustered.series.points] == [1, 2, 3]
+    assert {dt.run_degenerate_tail(r) for _, r in clustered.series.points} == {None}
+    points = tuple(
+        (p, flag_run(r, dt.SINGLE_OUTCOME) if p.value == 2 else r)
+        for p, r in clustered.series.points
+    )
+    series = dataclasses.replace(clustered.series, points=points)
+    [flagged_id] = [r.run_id for p, r in points if p.value == 2]
+    net = net_advantage(series, clustered.benchmark)
+    costs = len(sweep_figures.THESIS_TRANSACTION_COSTS)
+    # C = 2 on every cost curve; C = 1 and C = 3 are not ringed.
+    assert rings(net.figure) == [("D", [2.0])] * costs
+    breakeven = breakeven_cost(series, clustered.benchmark)
+    assert rings(breakeven.figure) == [("D", [2.0])]
+    for out in (net, breakeven):
+        assert set(out.data[dt.DEGENERATE_TAIL_TABLE]["run_id"]) == {flagged_id}
+        # The penalty also reads the unflagged benchmark: the note says so.
+        note = dt.DEGENERATE_TAIL_NOTES[dt.SINGLE_OUTCOME] + dt.PARTIAL_NOTE
+        assert note in texts(out.figure)
+
+
+def test_a_flagged_benchmark_rings_every_count(clustered: Clustered) -> None:
+    benchmark = flag_run(clustered.benchmark, dt.EXPECTED_UNCOVERED)
+    net = net_advantage(clustered.series, benchmark)
+    costs = len(sweep_figures.THESIS_TRANSACTION_COSTS)
+    assert rings(net.figure) == [("o", [1.0, 2.0, 3.0])] * costs
+    breakeven = breakeven_cost(clustered.series, benchmark)
+    assert rings(breakeven.figure) == [("o", [1.0, 2.0])]  # C < K only
+    table = breakeven.data[dt.DEGENERATE_TAIL_TABLE]
+    assert list(table["run_id"]) == [benchmark.run_id]
+
+
+def test_unflagged_cluster_figures_have_no_marks(clustered: Clustered) -> None:
+    for out in (
+        net_advantage(clustered.series, clustered.benchmark),
+        breakeven_cost(clustered.series, clustered.benchmark),
+    ):
+        assert rings(out.figure) == []
+        assert dt.DEGENERATE_TAIL_TABLE not in out.data
+        assert "Weighted CVaR" not in texts(out.figure)
+
+
 # -- KPI figures --------------------------------------------------------------
 
 
@@ -347,6 +519,8 @@ def test_the_figures_command_writes_the_tables(flagged: Flagged) -> None:
         "exceedance_individual",
         "sensitivity_beta",
         "tradeoff_portfolio_beta",
+        "payout_sweep_individual_a1_beta",
+        "premium_reallocation",
     } <= with_table
     assert "exceedance_portfolio" not in with_table
     csv = pd.read_csv(written["sensitivity_beta"].tables[dt.DEGENERATE_TAIL_TABLE])

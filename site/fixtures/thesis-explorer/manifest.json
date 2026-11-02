@@ -8,15 +8,15 @@
     "hash": "sha256:19d35dcb12b0fb20cb17d0ddca87a9a98981019990966cdb7304f0994a802a38"
   },
   "versions": {
-    "parametric-insurance-design": "0.1.0.dev0",
-    "parametric-insurance-design-viz": "0.1.0.dev0",
+    "parametric-insurance-design": "0.1.0",
+    "parametric-insurance-design-viz": "0.1.0",
     "pyarrow": "26.0.0"
   },
   "eventset": {
     "input_checksums": [
       "sha256:404b0c3a3aefa38965ad3ace2747d308685a67e3b218cb835d45a9ab375294df"
     ],
-    "prepared_content_hash": "sha256:a4d1cda7e72084fc0717228bacd43a3ddea6cfb8d189ae8d78fb669df0e19d43",
+    "prepared_content_hash": "sha256:c21bfcc2411eafd10232aafcb5a82a2cebe6cb667ca8b97a0580b49a68ad44f5",
     "hazard": {
       "name": "IRIS",
       "release": "Sparks & Toumi (2024) 10,000-year event set, figshare collection 10.6084/m9.figshare.c.6724251.v1 (Main dataset 10.6084/m9.figshare.24894186.v1), North Atlantic basin"
@@ -95,110 +95,110 @@
   },
   "runs": {
     "baseline": [
-      "sha256:74c5fbf1cf3d00f0cd6c57c5983b2b1baa6c592f732116d9816947f4ff743e11"
+      "sha256:d24248ea6efb3a6b4e0e3f6b478b2bcc230f33f84ef1b23817efed7c977af4c6"
     ],
     "sweeps": {
       "alpha": [
         {
           "value": 0.1,
-          "run_id": "sha256:f4c4f58abec816d95d1674be61d8496eef998914215a44d89f8706cd6491e05c",
+          "run_id": "sha256:dfc50df606a02f92c856925c3a2f8f6104cf54a34490a699a7a695640734383e",
           "single": 0
         },
         {
           "value": 0.2,
-          "run_id": "sha256:dfdbcd23626d6aff20931ea9193f75bf91c47960de4f16ebdac984379d696dfa",
+          "run_id": "sha256:46a5f0280c3c8114ea1ab4c6a4589b3d7ec6bfff89ca735107a9580f0d3c45a0",
           "single": 0
         },
         {
           "value": 0.3,
-          "run_id": "sha256:6b3d56a9645aed0a19842c99d85052250c3a03f9dc3ff6723133ecfb1510788a",
+          "run_id": "sha256:734d2428be3ba755e082461d7d17e5562e150019da8a8d0791569b1103585033",
           "single": 0
         },
         {
           "value": 0.4,
-          "run_id": "sha256:512805cc32e77aa0e96892090c0a950f342f8911edbbc921a9bd26a02bb78074",
+          "run_id": "sha256:ad0ee57d6bb691b1a88f31b5ccf1173ebdda64dc7add8e98749e285135dff999",
           "single": 0
         },
         {
           "value": 0.5,
-          "run_id": "sha256:2153ad3fd79d37cf974eb0f407354d9534455dd71ebba1caf98a3e0147b239e6",
+          "run_id": "sha256:49770b9a69f51838379f44078292a13925417b4b943be9a1e4a93f0472ce8fc9",
           "single": 0
         },
         {
           "value": 0.6,
-          "run_id": "sha256:d6aa8223aac6fb7a5b2d717eea22b8527203bcfb9cdc2ea5a04a231ebb327245",
+          "run_id": "sha256:b6d1212a99f7613d552c32e582794a4d63c3643b87bad8e0e540f08e48e9dd07",
           "single": 0
         },
         {
           "value": 0.7,
-          "run_id": "sha256:900d9d07f2ea86d0b9d350770fd28a15cce137628c9c342a5a1dae92587076d2",
+          "run_id": "sha256:e699a869cd445442e2542641010f5d67d6ba795043311d0553ae485429c74bec",
           "single": 0
         },
         {
           "value": 0.8,
-          "run_id": "sha256:5a1553c209c6c4703f0d347736b8c2b3166d35f51d60e6b3c65e29a02fe91d64",
+          "run_id": "sha256:b37183955e6bd01f89cb595887829685174614109dcbec383ef941157af0a459",
           "single": 0
         },
         {
           "value": 0.9,
-          "run_id": "sha256:74c5fbf1cf3d00f0cd6c57c5983b2b1baa6c592f732116d9816947f4ff743e11",
+          "run_id": "sha256:d24248ea6efb3a6b4e0e3f6b478b2bcc230f33f84ef1b23817efed7c977af4c6",
           "single": 0
         },
         {
           "value": 1.0,
-          "run_id": "sha256:4b5b3eb2226237a68650d65633a9387940326bcce11421d5ba872bf33b23f73d",
+          "run_id": "sha256:00f365e7aac57677b0926965fb580ed16f71d1fd197185a1282d32baf1eaf772",
           "single": 0
         }
       ],
       "beta": [
         {
           "value": 0.9,
-          "run_id": "sha256:525070e0f4eefa07cc107a446d9a2d0b40b85355ff1170544a0c0802a0a0c924",
+          "run_id": "sha256:5f9641fce15e8d07db1cf2e4374b5cbc5d56dce694b8df1d85b6631d88c85ac2",
           "single": 0
         },
         {
           "value": 0.91,
-          "run_id": "sha256:13d7e43bd74787221bc9821d128f9e7a9a33f6de44c7d17aa0e310dce9dc02d3",
+          "run_id": "sha256:00d3bd7b4783aa5f562439bff9d80b437331ac21453b377995a5d8bcd77ce7d1",
           "single": 0
         },
         {
           "value": 0.92,
-          "run_id": "sha256:4a5e3350a00b923a1e7212079cecc363b9620ffe650398731db2e03dc95e93fb",
+          "run_id": "sha256:bd65be54b68058d9bc882a8afeef1f688aa198db8aa8f10e00928e99ff46523a",
           "single": 0
         },
         {
           "value": 0.93,
-          "run_id": "sha256:38a33615ad8f072c6515e17c5efbe2e84c1bf4f02ef0eb8585f1aa8983ad0110",
+          "run_id": "sha256:6b806176a83f769a8ad73477a3094016601e9c5a0a45b3cfe6de654c29237c1f",
           "single": 0
         },
         {
           "value": 0.94,
-          "run_id": "sha256:59e7ddf2be97f8690243d3d95ff74dbcb378d8cc97edad97b2fcc83f127b4886",
+          "run_id": "sha256:769ce4dfcc88864eb2fcc8323136a0b62380170e7ee9bfb6bbc39a33557a119e",
           "single": 0
         },
         {
           "value": 0.95,
-          "run_id": "sha256:74c5fbf1cf3d00f0cd6c57c5983b2b1baa6c592f732116d9816947f4ff743e11",
+          "run_id": "sha256:d24248ea6efb3a6b4e0e3f6b478b2bcc230f33f84ef1b23817efed7c977af4c6",
           "single": 0
         },
         {
           "value": 0.96,
-          "run_id": "sha256:8992a9f3f499c07900381ad9a7614740dea2eff7709527d97ee94b984a5b0b0d",
+          "run_id": "sha256:e7da652ac29bc5fc18d724cbf25810d1b7380878e57386d98f20537122e9c18a",
           "single": 0
         },
         {
           "value": 0.97,
-          "run_id": "sha256:9b9411d71bb3145700252bc5e1ae45b19389a1d877a0bf557b1199ce3f2707e6",
+          "run_id": "sha256:b83824f2916ea38d28154da8ad551e1113f918bf106c38b49c4771341142b7df",
           "single": 0
         },
         {
           "value": 0.98,
-          "run_id": "sha256:e9db8001af01f171c95b1ce3e8b2bf646c4aabd5d63e67b1d4ebf1048ba1c4f5",
+          "run_id": "sha256:7b516765cd99b140340e6016cf6a777b589425b8b8d43a2264478c71b47d0dcf",
           "single": 0
         },
         {
           "value": 0.99,
-          "run_id": "sha256:ba87f631ef9a82e295dac9781c1d51ea7ee09bc070231aab00c88f37ed7153a2",
+          "run_id": "sha256:86ee7451e4bb188a940a323b936e02b389c130b1a0d7331f63707c7e364caf62",
           "single": 0
         }
       ]
@@ -214,7 +214,7 @@
   "budget": {
     "max_file_bytes": 2000000,
     "max_bundle_bytes": 10000000,
-    "bundle_bytes": 184233
+    "bundle_bytes": 192718
   },
   "files": [
     {
@@ -223,8 +223,8 @@
       "slice": "runs",
       "group": null,
       "parameter": null,
-      "bytes": 14877,
-      "sha256": "sha256:3407357f7606ef0c310f6398c6660763b4dacbdbad50b1ec095589bdf6768a78"
+      "bytes": 16610,
+      "sha256": "sha256:78f4eee1b2e6618361a74ccd8f1e2d37ff429cbe65d3393a97c1d227b4bc62f1"
     },
     {
       "path": "locations.json",
@@ -242,7 +242,7 @@
       "group": "baseline",
       "parameter": null,
       "bytes": 5266,
-      "sha256": "sha256:220c44827c46c776232b9bdf55fc687582c40d4e9bebcdde079e0309d0e14c12",
+      "sha256": "sha256:f74b023083285274ff380afaf4834a5c95d90fba59edb0e8a7dcdd07c98ba7f6",
       "rows": 15,
       "columns": [
         {
@@ -331,8 +331,8 @@
       "slice": "kpis",
       "group": "baseline",
       "parameter": null,
-      "bytes": 7642,
-      "sha256": "sha256:d22817f6f8a5339aee8ba0fe79d78712d67c3a83514937096c6a8840d8200785",
+      "bytes": 8474,
+      "sha256": "sha256:345fb75fc1609e6658d2f59723703e431089c4bc07311538e0242b1410a5c0d8",
       "rows": 26,
       "columns": [
         {
@@ -436,6 +436,18 @@
           "type": "int32",
           "nulls": 26,
           "null_means": "no confidence bounds (the config has no bootstrap section)"
+        },
+        {
+          "name": "p_zero_loss",
+          "type": "double",
+          "nulls": 0,
+          "null_means": "not recorded: a row of several design problems (problem_id '*'; each problem's value is in runs.json), or a run whose manifest predates the record (listed under the manifest's degenerate_tail.not_recorded)"
+        },
+        {
+          "name": "degenerate_tail",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 26,
+          "null_means": "no flag: the row's design problem (on a problem_id '*' row, every design problem of the run) is not flagged, its objective is not weighted CVaR, or its run's manifest predates the record (listed under the manifest's degenerate_tail.not_recorded)"
         }
       ]
     },
@@ -446,7 +458,7 @@
       "group": "baseline",
       "parameter": null,
       "bytes": 8002,
-      "sha256": "sha256:ec09f52a0c02bcd030d5f6ff447442b912944862207a069147a5f8960121325b",
+      "sha256": "sha256:e3e12cb7e38fb0fcc9da8ccd83eee20e2816f4407cf0dfb95b5bf35bf7016cdc",
       "rows": 72,
       "columns": [
         {
@@ -542,7 +554,7 @@
       "group": "baseline",
       "parameter": null,
       "bytes": 6034,
-      "sha256": "sha256:a08002ba27832c6708314c8f20c33d62154ffde284659031c2cb177d75e3a6c6",
+      "sha256": "sha256:240bf3ee9b9ad86f7a1f01a54eacf1ba1df6b2ddb9d7ae195fbf387e9ff60f62",
       "rows": 1,
       "columns": [
         {
@@ -644,7 +656,7 @@
       "group": "sweep",
       "parameter": "alpha",
       "bytes": 12186,
-      "sha256": "sha256:d80b2b6b7e4c8e2485ccaa31b67a3d02a7ebda3a8974fe4748f5980ddf3b0717",
+      "sha256": "sha256:49a5f5bb29188def6dadea02bf0fb673b164253e0ed4ce60432aa96a0e45790c",
       "rows": 150,
       "columns": [
         {
@@ -739,8 +751,8 @@
       "slice": "kpis",
       "group": "sweep",
       "parameter": "alpha",
-      "bytes": 24274,
-      "sha256": "sha256:86553385769a713be0b4ca90895560360e8ae49f500842ddeadde7233a1b5664",
+      "bytes": 27234,
+      "sha256": "sha256:184d6cc2651e1090f62b60d4e677641f14d2266d19148117ae3e425d976d9482",
       "rows": 260,
       "columns": [
         {
@@ -850,6 +862,18 @@
           "type": "int32",
           "nulls": 260,
           "null_means": "no confidence bounds (the config has no bootstrap section)"
+        },
+        {
+          "name": "p_zero_loss",
+          "type": "double",
+          "nulls": 0,
+          "null_means": "not recorded: a row of several design problems (problem_id '*'; each problem's value is in runs.json), or a run whose manifest predates the record (listed under the manifest's degenerate_tail.not_recorded)"
+        },
+        {
+          "name": "degenerate_tail",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 260,
+          "null_means": "no flag: the row's design problem (on a problem_id '*' row, every design problem of the run) is not flagged, its objective is not weighted CVaR, or its run's manifest predates the record (listed under the manifest's degenerate_tail.not_recorded)"
         }
       ]
     },
@@ -860,7 +884,7 @@
       "group": "sweep",
       "parameter": "alpha",
       "bytes": 34690,
-      "sha256": "sha256:2832e6a9746018e14248c06f9ef7d52d7a87b336705a87c0f950a644e8d7e2fc",
+      "sha256": "sha256:d21b4473353917656851151c9e42baa3b544f304f42ec60924a23b533dc5e1af",
       "rows": 720,
       "columns": [
         {
@@ -962,7 +986,7 @@
       "group": "sweep",
       "parameter": "beta",
       "bytes": 12186,
-      "sha256": "sha256:5142c1ce953e7a19b50902c5d8862fc6852e306408d159a3eddfecd7addc8dca",
+      "sha256": "sha256:ee0782098037c6f673ec0e1d6b68032e2428aeef822113c2fac9df199a124e1c",
       "rows": 150,
       "columns": [
         {
@@ -1057,8 +1081,8 @@
       "slice": "kpis",
       "group": "sweep",
       "parameter": "beta",
-      "bytes": 24274,
-      "sha256": "sha256:fa57094edf9874fe473b3c249736544f9f702f6e9926da57e40ac5dc214e33ec",
+      "bytes": 27234,
+      "sha256": "sha256:bbb528d3c9c4210aedd37084dd4dffdbab0e1e64263305059929388be50f350c",
       "rows": 260,
       "columns": [
         {
@@ -1168,6 +1192,18 @@
           "type": "int32",
           "nulls": 260,
           "null_means": "no confidence bounds (the config has no bootstrap section)"
+        },
+        {
+          "name": "p_zero_loss",
+          "type": "double",
+          "nulls": 0,
+          "null_means": "not recorded: a row of several design problems (problem_id '*'; each problem's value is in runs.json), or a run whose manifest predates the record (listed under the manifest's degenerate_tail.not_recorded)"
+        },
+        {
+          "name": "degenerate_tail",
+          "type": "dictionary<int8, utf8>",
+          "nulls": 260,
+          "null_means": "no flag: the row's design problem (on a problem_id '*' row, every design problem of the run) is not flagged, its objective is not weighted CVaR, or its run's manifest predates the record (listed under the manifest's degenerate_tail.not_recorded)"
         }
       ]
     },
@@ -1178,7 +1214,7 @@
       "group": "sweep",
       "parameter": "beta",
       "bytes": 34690,
-      "sha256": "sha256:0f9bc980aef07e27a7b7471e229641b915fe2d7934eebe3cd67a68e0ca6f3433",
+      "sha256": "sha256:abf6e10410c8c9a80a48049901d27b1b9cf89a5f2eabc69de117b8d56d5d6298",
       "rows": 720,
       "columns": [
         {
@@ -1293,13 +1329,22 @@
     "allocations": [],
     "runs": [
       {
-        "run_id": "sha256:74c5fbf1cf3d00f0cd6c57c5983b2b1baa6c592f732116d9816947f4ff743e11",
+        "run_id": "sha256:d24248ea6efb3a6b4e0e3f6b478b2bcc230f33f84ef1b23817efed7c977af4c6",
         "scope_key": "individual",
         "objective": "weighted_cvar",
         "kpi_level": "entity",
         "allocation": "none"
       }
     ]
+  },
+  "degenerate_tail": {
+    "rule": "The runner records, per design problem on its calibration sample, p_zero_loss = P(L_o = 0), the probability of the outcomes without loss, and flags a weighted-CVaR problem: expected_uncovered when beta <= P(L_o = 0), single_outcome when its CVaR tail holds at most one outcome (notes states each). The kpis tables carry p_zero_loss and the flag of each row's design problem; a problem_id '*' row has the run's flag (that of any of its problems, expected_uncovered first). runs lists the flagged runs with their flagged problems, not_recorded the runs whose manifest predates the record.",
+    "notes": {
+      "expected_uncovered": "Weighted CVaR equals E[U] at the design's β, because β ≤ P(L_o = 0) on the calibration years: VaR_β of the uncovered loss is 0 for every design, so the objective is a positive multiple of E[U], with the same minimisers.",
+      "single_outcome": "Weighted CVaR is the worst outcome at the design's β: 1 - β is at most the probability of every outcome of the calibration years, so the CVaR tail holds at most one outcome and the objective is a minimax over outcomes."
+    },
+    "runs": [],
+    "not_recorded": []
   },
   "joint": {
     "rule": "Per-entity payout functions of a joint design are not unique. A payouts row has joint true when its design problem calibrates more than one payout entity jointly (the portfolio scope; a cluster scope calibrated jointly, with more than one cluster): such a problem is identified only through the sum over its entities, so the split of its payout across them is one of several optimal designs, the one the solver returned. A page that shows these rows per entity shows caption with them. runs lists the exported runs with such a problem. The individual scope and a cluster scope calibrated cluster by cluster (scope_key cluster_separate) have one entity per problem: their rows have joint false.",
