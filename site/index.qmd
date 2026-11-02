@@ -1,19 +1,83 @@
 ---
 title: "Parametric insurance design"
-subtitle: "Site skeleton: one placeholder page, no results yet"
+subtitle: "Two ideas for designing parametric payouts, a tail-risk objective and joint calibration across one owner's sites, and the open-source library that implements them"
+filters:
+  - filters/inline-svg.lua
 ---
 
-This site will hold interactive explorers and posts on designing parametric insurance payouts. The method has two ideas:
+A parametric cover pays a set function of a hazard index, such as the peak wind at an insured site, instead of the assessed loss. So the payout and the loss can differ. The part of a loss that the payout doesn't cover is the **uncovered loss**: the basis risk that the policyholder keeps.
 
-- **Tail-risk–optimised payout design.** The payout is chosen to minimise a weighted mix of the expected uncovered loss and its conditional value-at-risk (CVaR, the mean of its worst outcomes), solved as a linear programme.
-- **Portfolio-level calibration.** When one owner holds many sites, their payouts can be calibrated for each site on its own, jointly per cluster of sites, or jointly for the whole portfolio (the individual, cluster and portfolio scopes).
+Designing a cover means choosing that function. This site presents the two ideas of a master's thesis on how to choose it, and the library that implements them. Each idea stands on its own, and the two can be combined.
 
-The site only reads precomputed bundles. It never runs an optimisation.
+::: {.callout-note}
+## The site is being built
 
-::: {.callout-warning}
-## Placeholder
-
-The site is being built. Its one page, the [α/β payout explorer](explorers/alpha-beta.qmd), shows **thesis-fixture data**: a small in-sample test set that checks the site's layout and data pipeline. It shows no results.
+The [payout and exceedance explorer](explorers/alpha-beta.qmd) is live. The other explorers and the posts are coming.
 :::
 
-The code, the method and the documentation are in the [GitHub repository](https://github.com/marc272/parametric-insurance-design).
+## The tail-risk objective {#tail}
+
+::: {.schematic src="figures/tail-objective.svg"}
+*Schematic, not data.* The uncovered loss of each simulated year, sorted. E[U] is the mean over all years; CVaR<sub>β</sub>(U) is the mean over the worst 1 − β of them.
+:::
+
+A design is scored by what it leaves uncovered. The expected uncovered loss, E[U], counts every year by its probability alone. The tail-risk objective also weights the bad years. It minimises
+
+$$\alpha \, \mathrm{CVaR}_\beta(U) + (1-\alpha) \, \mathbb{E}[U],$$
+
+a mix of the mean uncovered loss and its mean over the worst 1 − β of the outcomes. On the annual basis, where an outcome is a simulated year, β = 0.99 means the worst 1 % of years. α sets how much of the objective is on the tail; α = 0 is E[U] itself. Under a premium budget, the design problem stays a linear program.
+
+Whether a tail-optimised design leaves less uncovered loss in the bad years than an E[U] or a mean-squared-error (MSE) design depends on the setup: the portfolio, the basis, the basis-risk model and the pricing, and the years it is tested on. This project measures it on years the design wasn't calibrated on, and states that setup for every number it shows.
+
+- **Method:** [the tail-risk objective](method/tail-risk-objective.qmd)
+- **Explorer:** the [payout and exceedance explorer](explorers/alpha-beta.qmd): move α, β, the budget loading κ or the number of bins, and see the step payout of one site and its out-of-sample exceedance curves under the MSE, E[U] and weighted-CVaR objectives, with the setup stated under each chart.
+- **Post:** coming
+
+## Portfolio (joint) calibration {#portfolio}
+
+::: {.schematic src="figures/portfolio-calibration.svg"}
+*Schematic, not data.* Top: each site has its own payout and its own budget. Bottom: each site keeps its own payout, but one objective and one budget apply to the owner's total.
+:::
+
+When one owner holds many sites, such as a company with several plants or a state with many counties, the loss that matters to them is the total across the sites. Joint calibration designs the payouts for that total. Each site keeps its own payout on its own index, but the objective and the premium budget apply to the sum. So, within an event, a payout at one site can cover a shortfall at another: **cross-coverage**.
+
+The library has three scopes:
+
+- **individual:** each site calibrated on its own, with its own budget;
+- **portfolio:** one payout per site, all calibrated jointly, with one budget on the total;
+- **cluster:** one payout per cluster of sites, calibrated jointly in the same way.
+
+Joint calibration works with any objective: MSE, E[U] or the tail-risk objective. It needs one owner of all the losses and all the payouts. With separate owners, a payout at one site doesn't help the owner of another.
+
+- **Method:** [portfolio calibration](method/portfolio-calibration.qmd)
+- **Explorer:** the cross-coverage explorer is coming
+- **Post:** coming
+
+## The two ideas together {#combination}
+
+::: {.schematic src="figures/combination.svg"}
+*Schematic, not data.* The objective and the scope are separate choices, so the two ideas form a grid.
+:::
+
+The objective and the scope are separate choices in the library, so the ideas combine: the tail-risk objective on the owner's total uncovered loss, with the sites calibrated jointly in one design problem. The tail objective sets which years count most, here the owner's worst ones, and cross-coverage sets which sites' payouts can be spent in them.
+
+Which view fits depends on who holds the risk and what the cover is for. This is not a ranking of the methods:
+
+::: {.table-scroll}
+| Owner | Mandate | View |
+|---|---|---|
+| One site | the shortfall in the bad years, not only on average | the tail-risk objective |
+| Many sites, one owner | the total shortfall on average, or a total payout that tracks the total loss | joint calibration with E[U] or MSE |
+| Many sites, one owner | the total shortfall in the owner's bad years | the combination |
+| Many sites, separate owners | each owner's own cover | one single-site case per owner |
+:::
+
+- **Method:** [combining the two ideas](method/combination.qmd)
+
+## The library {#library}
+
+`parametric_insurance_design` is an open-source Python library (BSD-3-Clause). Given simulated events with the hazard index and the loss at each site, it calibrates a step payout on the index under a premium budget, for any objective and any scope, and evaluates the designs out of sample. It is in development, with no release yet. This site only reads results that the library computed; it never runs an optimisation.
+
+- **Code:** [github.com/marc272/parametric-insurance-design](https://github.com/marc272/parametric-insurance-design)
+- **Quickstart:** [install from a clone and design a payout for one site](https://github.com/marc272/parametric-insurance-design#quickstart)
+- **Method:** [overview and glossary](method/index.qmd)

@@ -1,0 +1,11 @@
+---
+description: "Joint calibration of one owner's sites: the individual, portfolio and cluster scopes, and cross-coverage."
+---
+
+{{< include ../../docs/concepts/portfolio-calibration.md >}}
+
+---
+
+::: {.source-note}
+This page is the repository's [`docs/concepts/portfolio-calibration.md`](https://github.com/marc272/parametric-insurance-design/blob/main/docs/concepts/portfolio-calibration.md), rendered for the site.
+:::
