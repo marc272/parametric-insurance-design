@@ -153,7 +153,7 @@ The adapter and viz distributions import as `parametric_insurance_design_viz`, `
 | `splits.py` | Year-block train/test and k-fold. Copies of an event (noise/vulnerability draws) never cross folds |
 | `robust.py` | Scenario-robust (R1) and distributionally robust (R2) wrappers (§6.5) |
 | `experiment/` | Subpackage (ADR 0002 §8): `config.py` config schema, `runner.py` run executor and content-hashed caching, `store.py` result store, `sweeps.py` one-factor-at-a-time sweeps, `kfold.py` pooled k-fold out-of-sample KPIs at the portfolio level, computed on demand from the store (MAR-151) |
-| `cli.py` | The `parametric-insurance-design` command (run, sweep, and later figures and export-site) |
+| `cli.py` | The `parametric-insurance-design` command: `run`, `sweep`, `figures` (MAR-110, MAR-112) and `export-site` (MAR-200). `figures` and `export-site` import viz lazily; the core never depends on it |
 | `noise.py` | Thesis noise layer (homo/heteroscedastic lognormal), bit-identical port for parity. The thesis baseline of §6.3, supported. Off the top level: imported by its full name, `parametric_insurance_design.noise` (ADR 0004 Q2, ADR 0002 §10) |
 | `interfaces.py` | Shared contract types and ABCs: `Sample`, `Entity`, `ProblemSpec`, `DesignProblem`, `ProblemContext`, `PayoutStructure`, `Scope`, `Objective`, `Pricing`, `Constraint`, `SolveResult` (ADR 0002) |
 | `basis.py` | `Basis` (`event_conditional`, `event`, `annual`) and `OutcomeMeasure`, the probability measure over outcomes shared by objectives, pricing and evaluation |
@@ -353,7 +353,7 @@ Positioning: Steinmann et al. 2023 (CLIMADA parametric framework), Maier & Scher
 **Website & Blog**
 
 v1, an early release that needs F-09 and F-10:
-- W-01 Export bundle format: `parametric-insurance-design export-site` writes JSON and Arrow IPC slices, JSON for the manifest and small indexes and uncompressed Arrow IPC for the tables (Quarto OJS reads both; Parquet is not a documented OJS format). The manifest gives each file's size and SHA-256, the setup of every number and the bundle rules (infinities, NaN, size budget). Site skeleton in Quarto, deployed to GitHub Pages (D5, ADR 0003)
+- W-01 Export bundle format: `parametric-insurance-design export-site` writes JSON and Arrow IPC slices, JSON for the manifest and small indexes and uncompressed Arrow IPC for the tables (Quarto OJS reads both; Parquet is not a documented OJS format). The manifest gives each file's size and SHA-256, the setup of every number and the bundle rules (infinities, NaN, size budget). Site skeleton in Quarto, deployed to GitHub Pages (D5, ADR 0003). Where the deployed bundle comes from: ADR 0003, "Where bundles come from in CI" (MAR-208: the Site workflow solves and exports `site/configs/explorer.yaml` itself)
 - W-02 Explorers from precomputed grids:
   - α/β → payout shape and exceedance curves;
   - portfolio cross-coverage map.

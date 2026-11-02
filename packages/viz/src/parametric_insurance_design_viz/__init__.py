@@ -10,8 +10,9 @@ reader), :mod:`.figure_data` (image plus figure-data CSVs),
 :mod:`.payout_functions` (payout figures), :mod:`.kpi_figures` (KPI
 heatmaps, performance overview, exceedance curves), :mod:`.sweep_figures`
 (sweep plots, premium reallocation, trade-off and cluster figures),
-:mod:`.command` (the figure set of ``parametric-insurance-design figures``) and
-:mod:`.errors`.
+:mod:`.command` (the figure set of ``parametric-insurance-design figures``),
+:mod:`.site_export` (the site bundles of ``parametric-insurance-design
+export-site``: JSON, Arrow IPC and a checksummed manifest) and :mod:`.errors`.
 """
 
 from importlib.metadata import version

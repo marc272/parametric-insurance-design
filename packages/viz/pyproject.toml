@@ -12,6 +12,7 @@ dependencies = [
     "numpy>=1.26",
     "pandas>=2.1",
     "parametric-insurance-design",
+    "pyarrow>=15",
     "scipy>=1.15.2",
 ]
 classifiers = [

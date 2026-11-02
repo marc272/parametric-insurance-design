@@ -214,7 +214,7 @@
   "budget": {
     "max_file_bytes": 2000000,
     "max_bundle_bytes": 10000000,
-    "bundle_bytes": 183769
+    "bundle_bytes": 184233
   },
   "files": [
     {
@@ -241,8 +241,8 @@
       "slice": "payouts",
       "group": "baseline",
       "parameter": null,
-      "bytes": 5122,
-      "sha256": "sha256:e882ccf2676ef72f4e40326fb393bbd87f38f798aa1ba4da742ed01782028b4f",
+      "bytes": 5266,
+      "sha256": "sha256:220c44827c46c776232b9bdf55fc687582c40d4e9bebcdde079e0309d0e14c12",
       "rows": 15,
       "columns": [
         {
@@ -314,6 +314,12 @@
         {
           "name": "value",
           "type": "double",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "joint",
+          "type": "bool",
           "nulls": 0,
           "null_means": null
         }
@@ -637,8 +643,8 @@
       "slice": "payouts",
       "group": "sweep",
       "parameter": "alpha",
-      "bytes": 12026,
-      "sha256": "sha256:8220dad8cc6ecc95e48cf2b26c56afeb9da0cc4ff5e22e810a88a61d2d43ab69",
+      "bytes": 12186,
+      "sha256": "sha256:d80b2b6b7e4c8e2485ccaa31b67a3d02a7ebda3a8974fe4748f5980ddf3b0717",
       "rows": 150,
       "columns": [
         {
@@ -716,6 +722,12 @@
         {
           "name": "value",
           "type": "double",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "joint",
+          "type": "bool",
           "nulls": 0,
           "null_means": null
         }
@@ -949,8 +961,8 @@
       "slice": "payouts",
       "group": "sweep",
       "parameter": "beta",
-      "bytes": 12026,
-      "sha256": "sha256:458aa9441b13fca59b2d6a93c04ad49352f6f083404aa5c7617dd4b22e5b9bba",
+      "bytes": 12186,
+      "sha256": "sha256:5142c1ce953e7a19b50902c5d8862fc6852e306408d159a3eddfecd7addc8dca",
       "rows": 150,
       "columns": [
         {
@@ -1028,6 +1040,12 @@
         {
           "name": "value",
           "type": "double",
+          "nulls": 0,
+          "null_means": null
+        },
+        {
+          "name": "joint",
+          "type": "bool",
           "nulls": 0,
           "null_means": null
         }
@@ -1282,5 +1300,10 @@
         "allocation": "none"
       }
     ]
+  },
+  "joint": {
+    "rule": "Per-entity payout functions of a joint design are not unique. A payouts row has joint true when its design problem calibrates more than one payout entity jointly (the portfolio scope; a cluster scope calibrated jointly, with more than one cluster): such a problem is identified only through the sum over its entities, so the split of its payout across them is one of several optimal designs, the one the solver returned. A page that shows these rows per entity shows caption with them. runs lists the exported runs with such a problem. The individual scope and a cluster scope calibrated cluster by cluster (scope_key cluster_separate) have one entity per problem: their rows have joint false.",
+    "caption": "Joint design: the payout split across entities is not unique. These per-entity payout functions are one of several optimal designs, chosen by the solver; read the portfolio level.",
+    "runs": []
   }
 }
