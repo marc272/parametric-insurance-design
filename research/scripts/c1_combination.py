@@ -43,15 +43,19 @@ objective O (MSE or E[U]), with I the individual scope:
   objective" are the same number. And ``both`` = ``rq1_alone`` +
   ``rq2_alone`` + ``interaction`` exactly (checked on every row).
 
-**Pairing across scopes** (MAR-158's method; C1.md section 6b.1):
-``bootstrap.paired_difference`` pairs KPI rows on ``PAIR_KEY``, which
-includes ``problem_id`` (``"*"`` for the individual scope, ``"portfolio"``
-for a joint one). ``c1_rq2.portfolio_rows`` keeps each design's
-portfolio-level rows with a common ``problem_id`` on a copy, and
-``paired_difference`` is called unchanged, with its same-resample check. The
-interaction is ``paired_difference`` of two difference bootstraps
-(:func:`difference_bootstrap`: point values and replicates subtracted row by
-row, after the same check). The k-fold contrasts use ``kpi_replicates`` of
+**Pairing across scopes** (MAR-179, MAR-212; C1.md section 6b.1): every
+design's bootstrap is cut to its portfolio-level rows
+(``KpiBootstrap.portfolio_rows``), and every contrast is
+``paired_difference(..., across_scopes=True)``. It pairs on
+``PORTFOLIO_PAIR_KEY``, ``PAIR_KEY`` without ``problem_id`` (``"*"`` for a
+run with several design problems, here the individual scope; the problem's
+id for a run with one, here ``"portfolio"`` for the C1 cluster and portfolio
+scopes), with the same resample check. MAR-182 relabelled ``problem_id`` to a
+common value instead (``c1_rq2.portfolio_rows``); the two give the same
+contrasts bit for bit (MAR-212). The interaction is ``paired_difference`` of
+two difference bootstraps (:func:`difference_bootstrap`: point values and
+replicates of two designs of one scope subtracted row by row, after the same
+check). The k-fold contrasts use ``kpi_replicates`` of
 ``kfold.pooled_designs`` on the one shared resample, and are checked against
 ``kfold.pooled_difference`` wherever both designs are in one k-fold config.
 
@@ -275,8 +279,11 @@ def difference_bootstrap(a: KpiBootstrap, b: KpiBootstrap) -> KpiBootstrap:
     Parameters
     ----------
     a, b : KpiBootstrap
-        Two designs' bootstraps with the same subjects and resample (for
-        designs of different scopes: their :func:`c1_rq2.portfolio_rows`).
+        Two designs' bootstraps with the same subjects and resample: two
+        designs of one scope, as in every interaction (``(J, W) - (J, O)``,
+        ``(I, W) - (I, O)``). ``PAIR_KEY`` includes ``problem_id``, so an
+        individual design (``"*"``) and a joint one (``"portfolio"``) don't
+        pair and raise ``BootstrapError``.
 
     Returns
     -------
@@ -337,8 +344,8 @@ def contrast_rows(
     Parameters
     ----------
     boots : dict
-        Each design's portfolio-level bootstrap at ``beta``, all on one
-        resample, with a common ``problem_id``.
+        Each design's portfolio-level bootstrap at ``beta``
+        (``KpiBootstrap.portfolio_rows``), all on one resample.
     hashes : dict
         Each design's config hash.
     items : iterable of Contrast
@@ -357,11 +364,12 @@ def contrast_rows(
     rows: list[dict[str, Any]] = []
     for c in items:
         if c.c is None or c.d is None:
-            diff = paired_difference(boots[c.a], boots[c.b])
+            diff = paired_difference(boots[c.a], boots[c.b], across_scopes=True)
         else:
             diff = paired_difference(
                 difference_bootstrap(boots[c.a], boots[c.b]),
                 difference_bootstrap(boots[c.c], boots[c.d]),
+                across_scopes=True,
             )
         values = {t: boots[t].table.set_index("kpi")["value"] for t in c.terms}
         for row in diff.itertuples():
@@ -573,7 +581,7 @@ def holdout_worker(
                 pricing=price,
                 level=level,
             )
-            pb = rq2.portfolio_rows(boot)
+            pb = boot.portfolio_rows()
             boots[beta][(scope, design)] = pb
             tr = kpis(
                 prepared,

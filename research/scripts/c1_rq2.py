@@ -37,14 +37,18 @@ not committed) and solves nothing it can reuse. Two phases:
       point values and intervals against the C1 tables;
     * evaluates the train KPIs (in sample, point values).
 
-    ``bootstrap.paired_difference`` pairs KPI rows on ``PAIR_KEY``, which
-    includes ``problem_id``: the individual scope's portfolio rows have
-    ``problem_id = "*"`` (several design problems), the joint scopes'
-    ``"portfolio"``, so it refuses to pair them as they are. The script
-    restricts both ``KpiBootstrap`` objects to their portfolio-level rows
-    and gives both the same ``problem_id`` label (:func:`portfolio_rows`),
-    then calls ``paired_difference`` unchanged: its resample check still
-    applies, and the replicates are not touched. No library code changes.
+    Scopes are paired with the library's pairing across scopes (MAR-179,
+    MAR-212): ``paired_difference(a.portfolio_rows(), b.portfolio_rows(),
+    across_scopes=True)``. It pairs the two designs' portfolio-level rows on
+    ``PORTFOLIO_PAIR_KEY`` (``PAIR_KEY`` without ``problem_id``, which is
+    ``"*"`` for a run with several design problems, here the individual
+    scope, and the problem's id for a run with one, here ``"portfolio"`` for
+    the C1 cluster and portfolio scopes), with the same resample check, and
+    keeps each
+    design's own ``problem_id`` (``problem_id_a``, ``problem_id_b`` in the
+    full ``paired`` tables). MAR-158 relabelled ``problem_id`` here instead
+    (:func:`portfolio_rows`); the two give the same differences and
+    intervals bit for bit (MAR-212).
 
 ``kfold``
     Year-block 5-fold runs (MAR-22) of the same design problems at kappa 1,
@@ -325,10 +329,14 @@ def derived_hash(base_hash: str, derivation: str) -> str:
 def portfolio_rows(boot: KpiBootstrap) -> KpiBootstrap:
     """Keep a bootstrap's portfolio-level rows, with a common ``problem_id``.
 
-    ``paired_difference`` pairs rows on ``PAIR_KEY``, which includes
-    ``problem_id``: ``"*"`` for a scope with several design problems,
-    ``"portfolio"`` for a joint scope. Both sides get :data:`ALL_PROBLEMS`;
-    the replicates and the resample are unchanged.
+    MAR-158's relabelling for pairing across scopes. This script no longer
+    pairs with it: it calls ``paired_difference(..., across_scopes=True)``
+    on :meth:`KpiBootstrap.portfolio_rows` (MAR-212). It is kept because
+    ``individual_nonuniqueness.py`` imports it. ``problem_id`` is ``"*"``
+    for a run with several design problems (the individual scope) and the
+    problem's id for a run with one (``"portfolio"`` for the C1 cluster and
+    portfolio scopes); here every row gets :data:`ALL_PROBLEMS`. The
+    replicates and the resample are unchanged.
 
     Parameters
     ----------
@@ -561,7 +569,9 @@ def holdout_worker(
             continue
         for beta in EVAL_BETAS:
             diff = paired_difference(
-                portfolio_rows(boots[(a, beta)]), portfolio_rows(boots[(b, beta)])
+                boots[(a, beta)].portfolio_rows(),
+                boots[(b, beta)].portfolio_rows(),
+                across_scopes=True,
             )
             diff["split"] = "test"
             diff["scope_a"], diff["scope_b"] = a, b
