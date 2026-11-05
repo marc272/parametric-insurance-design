@@ -34,6 +34,12 @@ the hook can't parse (an unterminated quote, for example) is refused when it
 mentions ``gh`` with ``pr`` or ``issue`` and may touch a fork. Everything else
 passes: the hook prints nothing and exits 0.
 
+If the hook itself fails (input that isn't the documented JSON, or an
+exception), it refuses a command that mentions the words ``gh`` and ``pr`` or
+``issue``, and lets every other command through. If ``python3`` is missing,
+the hook can't start: Claude Code treats that as a non-blocking error and runs
+the command.
+
 Contract (Claude Code hooks reference): the hook reads the ``PreToolUse`` JSON
 on stdin (``tool_name``, ``tool_input.command``, ``cwd``) and refuses a call by
 exiting 2 with the reason on stderr, which Claude sees. It never exits with
@@ -833,15 +839,18 @@ def _when_in_doubt(command: str, cwd: str, problem: str) -> str | None:
     )
 
 
-def decide(payload: object, default_cwd: str, home: str) -> str | None:
-    """Return the refusal message for a hook input, or ``None`` to allow.
+def decide(command: str, cwd: str, home: str) -> str | None:
+    """Return the refusal message for a Bash command, or ``None`` to allow it.
+
+    A command the hook can't parse is refused only if it may run ``gh pr`` or
+    ``gh issue`` in a fork path.
 
     Parameters
     ----------
-    payload
-        The parsed ``PreToolUse`` hook input.
-    default_cwd
-        The directory to assume when the input has no ``cwd``.
+    command
+        The Bash tool's ``command``.
+    cwd
+        The directory the command starts in.
     home
         The home directory, for ``~`` and ``$HOME``.
 
@@ -850,47 +859,81 @@ def decide(payload: object, default_cwd: str, home: str) -> str | None:
     str or None
         Why the call is refused, or ``None``.
     """
-    if not isinstance(payload, dict):
-        return "Refused by the fork gh guard: the hook input is not a JSON object."
-    if payload.get("tool_name", "Bash") != "Bash":
-        return None
-    tool_input = payload.get("tool_input")
-    command = tool_input.get("command") if isinstance(tool_input, dict) else None
-    if not isinstance(command, str):
-        return "Refused by the fork gh guard: no tool_input.command in the hook input."
-    cwd = payload.get("cwd")
-    if not isinstance(cwd, str) or not cwd:
-        cwd = default_cwd
-    cwd = os.path.join(default_cwd, cwd)
     try:
         return evaluate(command, cwd, home)
     except ParseError as exc:
         return _when_in_doubt(command, cwd, str(exc))
-    except Exception as exc:  # a bug in the hook: decide as for a parse error
-        problem = f"internal error {type(exc).__name__}: {exc}"
-        message = _when_in_doubt(command, cwd, problem)
-        if message is None:
-            sys.stderr.write(f"fork gh guard: {problem}; command allowed\n")
-        return message
+
+
+def fail_closed_for_gh(text: str, problem: str) -> int:
+    """Handle a failure of the hook itself: refuse gh pr/issue, pass the rest.
+
+    Used when the input can't be read or the hook raises. It only looks for
+    the words ``gh`` and ``pr`` or ``issue`` in ``text``, so it doesn't depend
+    on the code that failed.
+
+    Parameters
+    ----------
+    text
+        The Bash command, or the raw hook input if the command is unknown.
+    problem
+        What went wrong.
+
+    Returns
+    -------
+    int
+        The exit status: 2 if ``text`` mentions gh with pr or issue, else 0.
+    """
+    if not (_GH_WORD.search(text) and _CHECKED_WORD.search(text)):
+        return 0
+    if len(problem) > 200:
+        problem = problem[:197] + "..."
+    lines = [
+        "Refused by the fork gh guard (.claude/hooks/fork_gh_guard.py, MAR-253):",
+        f"fork_gh_guard failed internally ({problem});",
+        "refusing this gh pr/issue command. Commands without gh pr or gh issue",
+        "still pass.",
+        "Fix: report the error to the orchestrator, so that the hook is fixed and",
+        "a case added to scripts/check_fork_gh_guard.py. Meanwhile a simpler form",
+        f"may get through: one gh command per Bash call, with --repo {OWNER}/<repo>.",
+    ]
+    sys.stderr.write("\n".join(lines) + "\n")
+    return 2
 
 
 def main() -> int:
     """Run the hook: read the input on stdin, exit 2 to refuse, 0 to allow.
+
+    Any failure (input that isn't a ``PreToolUse`` JSON object with a
+    ``tool_input.command``, or an exception) goes to ``fail_closed_for_gh``.
 
     Returns
     -------
     int
         The exit status: 2 if the call is refused, 0 otherwise.
     """
-    home = os.environ.get("HOME") or os.path.expanduser("~")
+    text = ""  # what a failure is judged on: the raw input, then the command
     try:
-        payload = json.loads(sys.stdin.read())
-    except ValueError as exc:
-        sys.stderr.write(
-            f"Refused by the fork gh guard: the hook input is not JSON ({exc}).\n"
-        )
-        return 2
-    message = decide(payload, os.getcwd(), home)
+        text = sys.stdin.read()
+        payload = json.loads(text)
+        if not isinstance(payload, dict):
+            return fail_closed_for_gh(text, "the hook input is not a JSON object")
+        if payload.get("tool_name", "Bash") != "Bash":
+            return 0
+        tool_input = payload.get("tool_input")
+        command = tool_input.get("command") if isinstance(tool_input, dict) else None
+        if not isinstance(command, str):
+            return fail_closed_for_gh(text, "the hook input has no tool_input.command")
+        text = command
+        default_cwd = os.getcwd()
+        cwd = payload.get("cwd")
+        if not isinstance(cwd, str) or not cwd:
+            cwd = default_cwd
+        cwd = os.path.join(default_cwd, cwd)
+        home = os.environ.get("HOME") or os.path.expanduser("~")
+        message = decide(command, cwd, home)
+    except Exception as exc:  # the hook failed: refuse gh pr/issue only
+        return fail_closed_for_gh(text, f"{type(exc).__name__}: {exc}")
     if message is None:
         return 0
     sys.stderr.write(message + "\n")

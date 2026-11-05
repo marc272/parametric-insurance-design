@@ -80,6 +80,9 @@
       "Bash(gh * -R riskthinking*)",
       "Bash(gh * github.com/riskthinking*)",
       "Bash(gh api *riskthinking*)",
+      "Bash(GH_REPO=*)",
+      "Bash(env GH_REPO=*)",
+      "Bash(export GH_REPO*)",
       "Bash(gh pr merge * --admin *)",
       "Bash(gh pr merge * --admin)",
       "Bash(gh pr merge --admin*)",
@@ -99,8 +102,7 @@
           {
             "type": "command",
             "command": "python3 -I \"$CLAUDE_PROJECT_DIR/.claude/hooks/fork_gh_guard.py\"",
-            "timeout": 10,
-            "onFailure": "block"
+            "timeout": 10
           }
         ]
       }

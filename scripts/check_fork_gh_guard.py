@@ -42,6 +42,48 @@ ROOT = Path(__file__).resolve().parent.parent
 HOOK = ROOT / ".claude" / "hooks" / "fork_gh_guard.py"
 SETTINGS = ROOT / ".claude" / "settings.json"
 
+# The keys that the published settings schema allows in a command hook and in
+# a matcher group: https://json.schemastore.org/claude-code-settings.json,
+# $defs/hookCommand ("Bash command hook") and $defs/hookMatcher, both with
+# additionalProperties: false. A key outside them risks Claude Code rejecting
+# the whole settings file, deny rules included. "onFailure", documented in
+# the hooks reference for v2.1.295+, isn't in the schema (MAR-253 review).
+HOOK_COMMAND_KEYS = frozenset(
+    {
+        "args",
+        "async",
+        "asyncRewake",
+        "command",
+        "if",
+        "shell",
+        "statusMessage",
+        "timeout",
+        "type",
+    }
+)
+HOOK_MATCHER_KEYS = frozenset({"matcher", "hooks"})
+HOOK_PROBE = {"type": "command", "command": "true"}
+# Only --repo or -R may pick the repository of a gh command (MAR-253).
+GH_REPO_DENY_RULES = (
+    "Bash(GH_REPO=*)",
+    "Bash(env GH_REPO=*)",
+    "Bash(export GH_REPO*)",
+)
+
+# Loads the hook as a module, makes evaluate() raise, and runs main(), so
+# that main's handling of an internal error runs in a real hook process.
+FORCE_INTERNAL_ERROR = """\
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("fork_gh_guard", sys.argv[1])
+hook = importlib.util.module_from_spec(spec)
+sys.modules["fork_gh_guard"] = hook
+spec.loader.exec_module(hook)
+def broken(*args, **kwargs):
+    raise RuntimeError("forced by check_fork_gh_guard")
+hook.evaluate = broken
+sys.exit(hook.main())
+"""
+
 HOME = "/Users/marcprinzing"
 WS = f"{HOME}/Parametric_Insurance"
 FORKS = f"{WS}/forks"
@@ -252,7 +294,11 @@ CASES: list[tuple[str, str, str]] = [
 
 
 def run_hook(
-    python: str, payload: object, env: dict[str, str], raw: str | None = None
+    python: str,
+    payload: object,
+    env: dict[str, str],
+    raw: str | None = None,
+    force_error: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Run the hook once, as Claude Code does, and return the finished process.
 
@@ -266,14 +312,19 @@ def run_hook(
         The environment of the hook process.
     raw
         Text to send on stdin instead of ``payload``.
+    force_error
+        Make the hook's analysis raise, through ``FORCE_INTERNAL_ERROR``.
 
     Returns
     -------
     subprocess.CompletedProcess
         The finished process, with its stdout and stderr.
     """
+    argv = [python, "-I", str(HOOK)]
+    if force_error:
+        argv = [python, "-I", "-c", FORCE_INTERNAL_ERROR, str(HOOK)]
     return subprocess.run(
-        [python, "-I", str(HOOK)],
+        argv,
         input=json.dumps(payload) if raw is None else raw,
         capture_output=True,
         text=True,
@@ -372,8 +423,75 @@ def check_cases(
     return lines, failures, results
 
 
-def check_inputs(python: str, env: dict[str, str]) -> list[str]:
-    """Check bad hook input and other tools; return the failures.
+def input_cases() -> list[tuple[str, str, object, str | None, bool]]:
+    """Return the cases for other tools, bad input and internal errors.
+
+    Returns
+    -------
+    list of tuple
+        ``(expected, label, payload, raw stdin or None, force an internal
+        error)``. A failure of the hook refuses a command that mentions gh
+        with pr or issue, without parsing it, and lets the rest through.
+    """
+    no_cwd = bash_input(SDK, "gh pr list")
+    del no_cwd["cwd"]
+    gh_elsewhere = {"tool_name": "Bash", "tool_input": {"cmd": "gh issue create"}}
+    return [
+        (
+            "allow",
+            "another tool (Edit)",
+            bash_input(SDK, "gh pr x", "Edit"),
+            None,
+            False,
+        ),
+        ("allow", "no cwd: the process cwd, this checkout", no_cwd, None, False),
+        ("allow", "stdin that isn't JSON", None, "not json", False),
+        ("refuse", "stdin that isn't JSON, with gh pr", None, "gh pr create", False),
+        ("allow", "a JSON array", [], None, False),
+        ("refuse", "a JSON array with gh pr", ["gh pr create"], None, False),
+        ("allow", "no tool_input.command", {"tool_name": "Bash"}, None, False),
+        (
+            "refuse",
+            "no tool_input.command, gh issue elsewhere",
+            gh_elsewhere,
+            None,
+            False,
+        ),
+        (
+            "refuse",
+            "internal error: gh pr list, this repo",
+            bash_input(REPO, "gh pr list"),
+            None,
+            True,
+        ),
+        (
+            "refuse",
+            "internal error: gh issue list --repo marc272/crc-sdk (not parsed)",
+            bash_input(SDK, "gh issue list --repo marc272/crc-sdk"),
+            None,
+            True,
+        ),
+        (
+            "allow",
+            "internal error: ls -la, a fork",
+            bash_input(SDK, "ls -la"),
+            None,
+            True,
+        ),
+        (
+            "allow",
+            "internal error: git push, a fork",
+            bash_input(SDK, "git push"),
+            None,
+            True,
+        ),
+    ]
+
+
+def check_inputs(
+    python: str, env: dict[str, str]
+) -> tuple[list[str], list[str], list[str]]:
+    """Run the cases of ``input_cases``; return the report, failures, results.
 
     Parameters
     ----------
@@ -384,26 +502,58 @@ def check_inputs(python: str, env: dict[str, str]) -> list[str]:
 
     Returns
     -------
-    list of str
-        A description of each check that failed.
+    tuple of list of str
+        One report line per case, the lines of the failed cases, and the
+        result of each case (see ``verdict``).
     """
-    failures = []
-    edit = bash_input(SDK, "gh pr create --base parametric", tool="Edit")
-    if verdict(run_hook(python, edit, env)) != "allow":
-        failures.append("a tool other than Bash is not allowed")
-    for label, payload, raw in (
-        ("stdin that is not JSON", None, "not json"),
-        ("a JSON array", [], None),
-        ("no tool_input.command", {"tool_name": "Bash", "cwd": SDK}, None),
-    ):
-        proc = run_hook(python, payload, env, raw=raw)
-        if proc.returncode != 2 or "fork gh guard" not in proc.stderr:
-            failures.append(f"{label} is not refused (exit {proc.returncode})")
-    no_cwd = bash_input(SDK, "gh pr list")
-    del no_cwd["cwd"]
-    if verdict(run_hook(python, no_cwd, env)) != "allow":
-        failures.append("an input without cwd isn't checked in the process cwd")
-    return failures
+    lines, failures, results = [], [], []
+    for expected, label, payload, raw, force_error in input_cases():
+        proc = run_hook(python, payload, env, raw=raw, force_error=force_error)
+        got = verdict(proc)
+        results.append(got)
+        line = f"    [{expected}] {label}"
+        if got == expected:
+            lines.append(f"ok   {line}")
+        else:
+            lines.append(f"FAIL {line}\n     got: {got}")
+            failures.append(line)
+    return lines, failures, results
+
+
+def hook_key_problems(settings: dict[str, object]) -> list[str]:
+    """Return the hook entries of a settings object with keys the schema lacks.
+
+    Parameters
+    ----------
+    settings
+        A parsed settings file.
+
+    Returns
+    -------
+    list of str
+        One line per matcher group or command hook with a key outside
+        ``HOOK_MATCHER_KEYS`` or ``HOOK_COMMAND_KEYS``.
+    """
+    problems = []
+    events = settings.get("hooks") or {}
+    if not isinstance(events, dict):
+        return ["settings.json: hooks is not an object"]
+    for event, groups in events.items():
+        for group in groups if isinstance(groups, list) else []:
+            extra = sorted(set(group) - HOOK_MATCHER_KEYS)
+            if extra:
+                problems.append(
+                    f"{event} matcher group: keys not in the schema {extra}"
+                )
+            for hook in group.get("hooks", []):
+                if hook.get("type") != "command":
+                    continue
+                extra = sorted(set(hook) - HOOK_COMMAND_KEYS)
+                if extra:
+                    problems.append(
+                        f"{event} command hook: keys not in the schema {extra}"
+                    )
+    return problems
 
 
 def check_settings(env: dict[str, str]) -> list[str]:
@@ -424,9 +574,18 @@ def check_settings(env: dict[str, str]) -> list[str]:
         A description of each check that failed.
     """
     settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
-    failures = []
-    if not settings.get("permissions", {}).get("deny"):
+    failures = hook_key_problems(settings)
+    probe: dict[str, object] = {
+        "hooks": {"PreToolUse": [{"hooks": [{**HOOK_PROBE, "onFailure": "block"}]}]}
+    }
+    if not hook_key_problems(probe):
+        failures.append("the schema key check doesn't fire on onFailure")
+    deny = settings.get("permissions", {}).get("deny") or []
+    if not deny:
         failures.append("settings.json lost its permissions.deny rules")
+    for rule in GH_REPO_DENY_RULES:
+        if rule not in deny:
+            failures.append(f"settings.json lacks the deny rule {rule}")
     hooks = [
         hook
         for group in settings.get("hooks", {}).get("PreToolUse", [])
@@ -442,8 +601,8 @@ def check_settings(env: dict[str, str]) -> list[str]:
         failures.append("the hook must be a shell-form command hook (no args)")
     if not command.startswith("python3 -I ") or "$CLAUDE_PROJECT_DIR" not in command:
         failures.append(f"unexpected hook command: {command}")
-    if hook.get("onFailure") != "block":
-        failures.append('the hook must set "onFailure": "block"')
+    if not isinstance(hook.get("timeout"), (int, float)):
+        failures.append("the hook must set a timeout")
     sh_env = {**env, "CLAUDE_PROJECT_DIR": str(ROOT)}
     for expected, cwd, bash in (
         ("refuse", REPO, f"cd {SDK} && gh pr create --base parametric"),
@@ -513,6 +672,27 @@ def markdown_table(results: list[str]) -> str:
     return "\n".join(rows)
 
 
+def markdown_input_table(results: list[str]) -> str:
+    """Return the cases of ``input_cases`` and their results as a table.
+
+    Parameters
+    ----------
+    results
+        The result of each case, in the order of ``input_cases()``.
+
+    Returns
+    -------
+    str
+        A table with the label, expectation and result of each case.
+    """
+    rows = ["| Hook input | Expected | Result |", "|---|---|---|"]
+    pairs = zip(input_cases(), results, strict=True)
+    for (expected, label, *_), got in pairs:
+        result = f"**{got}**" if got == expected else f"FAIL: {got}"
+        rows.append(f"| {label} | {expected} | {result} |")
+    return "\n".join(rows)
+
+
 def main() -> int:
     """Run all checks and print a report.
 
@@ -537,15 +717,17 @@ def main() -> int:
     lines, failures, results = check_cases(args.python, env)
     elapsed = time.monotonic() - started
     print("\n".join(lines))
-    for problem in check_inputs(args.python, env) + check_settings(env):
-        print(f"FAIL {problem}")
-        failures.append(problem)
-    for problem in check_grammar():
+    input_lines, input_failures, input_results = check_inputs(args.python, env)
+    print("\n".join(input_lines))
+    failures += input_failures
+    for problem in check_settings(env) + check_grammar():
         print(f"FAIL {problem}")
         failures.append(problem)
     if args.markdown:
         print()
         print(markdown_table(results))
+        print()
+        print(markdown_input_table(input_results))
     version = subprocess.run(
         [args.python, "--version"], capture_output=True, text=True, check=False
     ).stdout.strip()
