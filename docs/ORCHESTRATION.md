@@ -5,6 +5,12 @@ You coordinate the **parametric-insurance-design** program. You plan, delegate i
 ## Operating model
 
 - **Autonomous.** Marc starts an orchestrator session by hand, in auto mode, with `/orchestrate` (or `/loop /orchestrate` to keep it waking up while it waits on him). From then on the orchestrator runs the loop below on its own: it dispatches, reviews, merges and keeps Linear current. It contacts Marc only for hard blocks and Human work (see "Owner alerts").
+- **Three repositories** (D9, Marc, 2026-11-05):
+  - `marc272/parametric-insurance-design`, this repository: the reference implementation and test oracle, the design record (ADR 0005), the CLIMADA prototype and the paused tracks. Branches from `main`.
+  - `marc272/crc-sdk`, a fork of `RiskThinking/crc-sdk`: where `crc_sdk.parametric` is built. Branches from, and PRs into, `parametric`.
+  - `marc272/crc-docs`, a fork of `RiskThinking/crc-docs`: the showcase notebook. Branches from, and PRs into, `parametric`.
+
+  Each fork's `main` mirrors upstream and is never pushed to. Nothing goes to RiskThinking's repositories: the upstream PRs are Marc's (MAR-249). Workers in the forks follow `AGENTS.md`, "Working in the CRC forks".
 - **Stateless and resumable.** Everything needed to continue lives in Linear (statuses, dispatch records, status updates), git and GitHub, never in one conversation. After a usage-limit reset or a crash, `continue` in the same session, or `/orchestrate` in a new one, resumes the work (see "Resuming after an interruption").
 - **One orchestrator at a time.** Don't start a second orchestrator session while one is active.
 
@@ -19,21 +25,33 @@ These steps are done by Marc, because agents may not change their own permission
      "environment": [
        "$defaults",
        "Organization: Marc Prinzing, solo owner. Primary use: building the open-source parametric-insurance-design program, run by an orchestrator agent that delegates to worker subagents",
-       "Source control: github.com/marc272 (the owner's own GitHub account). marc272/parametric-insurance-design is a public repository the owner created for this work",
+       "Source control: github.com/marc272 (the owner's own GitHub account). marc272/parametric-insurance-design is a public repository the owner created for this work. marc272/crc-sdk and marc272/crc-docs are the owner's forks of RiskThinking/crc-sdk and RiskThinking/crc-docs, where agents build the CRC module on the branch `parametric`",
        "Key services: the owner's Linear workspace 'Marc prinzing' (team MAR), reached through the Linear connector, is the program's tracker. Agents create and update issues, comments and project status updates there as part of the documented workflow (docs/ORCHESTRATION.md)"
      ],
      "allow": [
        "$defaults",
-       "Agent PR merges in marc272/parametric-insurance-design: on 2026-10-25 the owner, Marc Prinzing, authorised the orchestrator agent to squash-merge PRs (`gh pr merge <n> --squash`) without a human approval, after it has reviewed the PR and all CI checks are green (see the repository's CLAUDE.md and docs/ORCHESTRATION.md 'Merge policy'). This does not cover admin merges, force pushes, direct pushes to main, or a worker merging its own PR"
+       "Agent PR merges in marc272/parametric-insurance-design: on 2026-10-25 the owner, Marc Prinzing, authorised the orchestrator agent to squash-merge PRs (`gh pr merge <n> --squash`) without a human approval, after it has reviewed the PR and all CI checks are green (see the repository's CLAUDE.md and docs/ORCHESTRATION.md 'Merge policy'). This does not cover admin merges, force pushes, direct pushes to main, or a worker merging its own PR",
+       "Agent PR merges in the forks marc272/crc-sdk and marc272/crc-docs: on 2026-11-05 the owner authorised the orchestrator agent to squash-merge PRs into the branch `parametric` (`gh pr merge <n> --repo marc272/<fork> --squash`) under the same conditions, and to keep `parametric` current by merging upstream `main` into it through a sync PR merged with `--merge`. This does not cover admin merges, force pushes, pushes to any main, or any action on RiskThinking's repositories"
      ]
    }
    ```
 
    While Actions minutes are exhausted, "all CI checks are green" in this text is met by the local-CI fallback (see "Merge policy", "Fallback: local CI while Actions minutes are exhausted"). The block itself doesn't need to change.
 
-2. **Start sessions in auto mode.** Otherwise every command prompts and the loop stalls.
+2. **Start sessions in auto mode, in this repository, with the forks folder added:** `claude --add-dir /Users/marcprinzing/Parametric_Insurance/forks` from the main checkout, or `/add-dir /Users/marcprinzing/Parametric_Insurance/forks` in the session. Without auto mode every command prompts and the loop stalls. Claude Code loads permission rules only from the primary working directory's `.claude/settings.json`, never from an added directory. A session started in this repository therefore gets the deny rules below; a session started in the workspace root reaches the forks but runs without them.
 3. **Optional: phone alerts.** Connect Remote Control, so that `PushNotification` reaches your phone as well as the desktop.
-4. **Guardrails, already checked in.** `.claude/settings.json` denies force pushes, pushes to `main`, admin merges and repository edits or deletes, in every mode.
+4. **Guardrails, already checked in.** `.claude/settings.json` denies, in every mode:
+   - force pushes;
+   - pushes to `main`, ours or a fork's, and to a fork's `parametric`, which changes only through merged PRs;
+   - pushes to the `upstream` remote, and `gh` commands that name a RiskThinking repository (`--repo`, `-R`, a `github.com/RiskThinking/…` URL, or `gh api`);
+   - admin merges;
+   - creating, forking, syncing, editing or deleting repositories;
+   - tags and releases: `git tag`, pushing tags, `gh release create`, `edit`, `upload` and `delete`, and the matching `gh api` calls;
+   - running, enabling or disabling workflows by hand (`gh workflow run`, `enable`, `disable`, `gh api …/dispatches`).
+
+   Agents never need these: releases and tags are Marc's, and CI runs on push and pull request. To read tags, use `git for-each-ref refs/tags` or `git ls-remote --tags origin`. Our Site workflow's manual trigger stays Marc's, from the Actions page.
+
+   The rules match the command text, so they catch the usual forms, `git -C <path> push …` included, but not every way of writing a command. They are a backstop for the rules in `AGENTS.md`, not a replacement.
 
 ## Ground truth
 
@@ -44,13 +62,14 @@ These steps are done by Marc, because agents may not change their own permission
 ## Session start
 
 1. Read the Program hub description and its latest status update.
-2. List the team's issues that are **In Progress** and **In Review**. Reconcile each with git and PR state:
+2. List the team's issues that are **In Progress** and **In Review**. Reconcile each with git and PR state, in this repository and in both forks:
    - is a PR merged without the issue being Done?
    - is a worker gone while its issue is still In Progress?
 
    Fix Linear first. Resume or re-dispatch interrupted work as described in "Resuming after an interruption".
 3. Read new comments since the last status update, especially on Human issues: the owner may have answered.
-4. Rebuild the ready set (see "The loop") and decide this session's dispatches.
+4. In each fork, check whether upstream `main` has moved past `parametric` (see "Keeping `parametric` current").
+5. Rebuild the ready set (see "The loop") and decide this session's dispatches.
 
 ## Session end
 
@@ -85,7 +104,7 @@ Before stopping, even after an interruption:
 
 - **Human:** never dispatched for completion. You may dispatch only the "Agent may prepare" part from the issue's "Agent vs. human" section. Then set the issue to In Review, assign it to Marc Prinzing, and wait. Only the human marks it Done, unless the owner explicitly delegates the decision to you in the conversation; record that on the issue.
 - **Gate:** downstream work stays blocked until the human marks it Done (MAR-18 parity, MAR-29 checkpoint C1).
-- **Decision:** one of D1–D8. Always also Human. The outcome is recorded on the issue, and technical outcomes also get an ADR.
+- **Decision:** one of D1–D10. Always also Human. The outcome is recorded on the issue, and technical outcomes also get an ADR.
 - **Spike, Research, Feature, Chore:** informational.
 
 **Containers.** An issue with sub-issues (MAR-17, MAR-18, MAR-19) is never dispatched. Mark it Done when all its sub-issues are Done. For a Human container (MAR-18), set it to In Review with the assembled result and let the human close it.
@@ -101,21 +120,22 @@ Before stopping, even after an interruption:
 
 ## Scheduling across streams
 
-The Program hub sets these rules:
+The Program hub sets these rules (from 2026-11-05):
 
-1. **Foundation first.** Ready Foundation issues get worker slots before anything else; Foundation is the critical path.
-2. **Then the nearest public release.** Prefer work that brings the next public output forward (website v1 and posts, CRC showcase, CLIMADA module). These are equally important, and they publish sooner than the paper.
-3. **Keep the long track moving.** Whenever the Paper project has ready work, at least one worker slot goes to it.
-4. **Raise Human issues early** when they sit on the path to a release.
-5. **Publication rule:** review every external-facing deliverable against the publication rule decided at C1 (MAR-29), as stated in [`AGENTS.md`](../AGENTS.md) and SPEC §1: RQ1 conditional, mechanism-based statements only; RQ2 and anything involving joint calibration method only.
+1. **CRC first.** Ready CRC Contribution issues get worker slots first, in milestone order: R1 → R2 → R3 → R4.
+2. **CLIMADA when CRC has no ready agent work**, e.g. while CRC waits on Marc. Only then does a CLIMADA Contribution issue get a slot.
+3. **No dispatches from paused projects.** Issues in Foundation, Website & Blog and Paper are not dispatched, even in Todo, until Marc resumes a project. Their open PRs (#165, #7, #170) stay as they are, with no rebases and no merges. Fixing a red `main` is still allowed.
+4. **Raise Human issues early** when they sit on the CRC path: MAR-242 (the forks), MAR-244 (approving ADR 0005), and MAR-249 Part A (the questions for RiskThinking).
+5. **New work gets its own issue.** The Linear workspace was upgraded on 2026-11-05, so the free plan's issue limit no longer applies.
+6. **Publication rule:** review every external-facing deliverable, the CRC module's docs and notebook included, against the publication rule decided at C1 (MAR-29), as stated in [`AGENTS.md`](../AGENTS.md) and SPEC §1: RQ1 conditional, mechanism-based statements only; RQ2 and anything involving joint calibration method only.
 
 ## The loop
 
 1. **Sync.** Do the session-start steps, then move Backlog → Todo for every issue whose blockers are all Done.
-2. **Pick.** Leaf issues in Todo without the Human label, ordered by the scheduling rules above, then priority, then milestone. Constraints:
-   - at most **3 workers** at once (4 when the lanes are clearly independent);
-   - no two concurrent issues may own the same module (ADR 0002 ownership map);
-   - serialise anything that touches `pyproject.toml`, lockfiles (`uv.lock`, `packages/climada/pixi.lock`) or CI config. A change to the core's dependencies must also run `pixi lock` in `packages/climada` and commit `pixi.lock`, because the climada CI job installs with `--locked` (ADR 0002 §10, MAR-71).
+2. **Pick.** Leaf issues in Todo without the Human label, outside the paused projects, ordered by the scheduling rules above, then priority, then milestone. Constraints:
+   - at most **3 workers** at once (4 when the lanes are clearly independent), counted across all three repositories;
+   - no two concurrent issues may own the same module (ADR 0002 ownership map; in crc-sdk, the module layout in ADR 0005);
+   - serialise anything that touches `pyproject.toml`, lockfiles (`uv.lock`, `packages/climada/pixi.lock`) or CI config, in each repository. A change to the core's dependencies must also run `pixi lock` in `packages/climada` and commit `pixi.lock`, because the climada CI job installs with `--locked` (ADR 0002 §10, MAR-71).
 3. **Check size.** If an issue is clearly more than one PR (several modules, or more than about a day of work), first split it into sub-issues with goal, scope, acceptance and blockers. The original becomes a container. Don't pre-split far-future work; split when it becomes ready.
 4. **Delegate** (see below). Set the issue to In Progress and post a **dispatch record** on it.
 5. **Review.** When a worker reports back, check:
@@ -127,18 +147,51 @@ The Program hub sets these rules:
    - Research issues are reproducible from the recorded config hashes;
    - external-facing work follows the publication rule.
 
+   For a fork PR, also check:
+   - the base is `parametric`, and the fork's own checks pass (see "Merge policy");
+   - no file of the diff imports `parametric_insurance_design`;
+   - no MAR IDs or Linear links in code or docs (`git -C <worktree> diff origin/parametric... | grep -nE 'MAR-[0-9]+|linear\.app'` prints nothing); commit subjects are conventional, each with a `Refs: MAR-<n>` trailer;
+   - nothing new in crc-sdk's base dependencies (`[project].dependencies`): the solver sits in an optional extra, as ADR 0005 chooses;
+   - no data committed; tests are offline, on small synthetic fixtures;
+   - no breaking change to anything exported in `__all__`;
+   - the fork's own `AGENTS.md` rules hold (crc-sdk: no I/O in builders or `explain()`, atomic writes, licence and provenance for every source).
+
    Request changes from the same worker, which keeps its context. After two failed rounds, escalate to the human. For core numerical code, an independent reviewer subagent is worth the cost.
-6. **Merge.** Follow the "Merge policy" below: squash-merge agent PRs that pass review, in dependency order, rebasing dependents when needed. Set the issue to Done, comment with the PR link, and file the reported follow-ups.
+6. **Merge.** Follow the "Merge policy" below: squash-merge agent PRs that pass review, in dependency order, updating dependent branches when needed. Shared branches (`main`, `parametric`) are never rebased. Set the issue to Done, comment with the PR link, and file the reported follow-ups.
 7. **Repeat** from step 1. End the session with the session-end steps.
 
 ## Delegating to subagents
 
-**One issue = one worker = one branch = one PR.** Each worker gets its own git worktree, on the issue's Linear branch name cut from the latest `main`. In Claude Code, either:
+**One issue = one worker = one branch = one PR.** Each worker gets its own git worktree, on the issue's Linear branch name: cut from the latest `main` in this repository, or from the fork's `parametric` in a fork. For an issue in this repository, in Claude Code, either:
 
 - spawn a subagent per issue with worktree isolation. Its report comes back to you, which is the default; or
 - start a separate session per issue when the owner wants to follow that work directly.
 
-Workers may not have the Linear connector. You stay responsible for Linear in both cases.
+For an issue in a fork, see "Worker worktrees in the forks" below. Workers may not have the Linear connector. You stay responsible for Linear in every case.
+
+### Worker worktrees in the forks
+
+The `Agent` tool's `isolation: "worktree"` makes worktrees of this repository only. For an issue in a fork, you create the worktree in the fork clone yourself and spawn the worker without isolation. The session needs the forks folder as a working directory ("One-time setup", step 2).
+
+The fork clones (R-10, MAR-242) are `/Users/marcprinzing/Parametric_Insurance/forks/crc-sdk` and `/Users/marcprinzing/Parametric_Insurance/forks/crc-docs`. Worker worktrees go next to them, at `/Users/marcprinzing/Parametric_Insurance/forks/worktrees/<fork>-mar-<n>`, so they sit outside both clones.
+
+1. **Check the clone, once per session.** In each clone, `git -C <clone> remote get-url --push upstream` prints `DISABLED`, and `gh repo set-default --view`, run in the clone, prints `marc272/<fork>`. If either fails, dispatch no fork work: R-10's set-up is Marc's, so alert him.
+2. **Create the worktree:**
+
+   ```bash
+   git -C <clone> fetch origin
+   git -C <clone> worktree add --no-track -b <gitBranchName> <worktree> origin/parametric
+   ```
+
+   `--no-track` keeps the new branch from tracking `parametric`. The worker's first push sets its upstream.
+3. **Spawn the worker** with `Agent`, `run_in_background: true` and no `isolation`, using the fork brief below with the worktree path.
+4. **Post the dispatch record** with the repository and the worktree path.
+
+Every `gh pr` command on fork work, yours and the workers', passes `--repo marc272/<fork>` explicitly: in a fork clone, `gh` without it can resolve to RiskThinking's repository. Read upstream only through `git fetch upstream`; `gh` commands that name a RiskThinking repository are denied.
+
+Agents never create tags or run workflows by hand in the forks. Both forks' workflows are enabled (Marc, 2026-11-05), and crc-sdk's `release.yaml` ("Package release") runs on any pushed `v*` tag and on `workflow_dispatch`, with `id-token: write`. A tag or a manual run could publish a release.
+
+### Briefs
 
 **Brief template.** Paste the issue text verbatim; don't paraphrase acceptance criteria. Keep the line on logs and drafts: workers write them inside their own worktree, never in the shared session scratchpad, where concurrent workers overwrote each other's files on 2026-10-27.
 
@@ -162,6 +215,36 @@ Report back: PR link, summary, anything unverified, follow-ups you discovered, o
 Don't change Linear; the orchestrator keeps it current. Never merge.
 ```
 
+**Fork brief template.** For an issue in `marc272/crc-sdk` or `marc272/crc-docs`. The fork has no ignored `results/`, so logs and drafts go in a folder next to the worktree.
+
+```text
+You are a worker on the parametric-insurance-design program, in the fork marc272/<fork>.
+AGENTS.md of parametric-insurance-design is binding, and so is the fork's own AGENTS.md.
+Read "Working in the CRC forks" in the former first.
+
+Issue: MAR-<n>, <title> (<Linear URL>)
+Why it matters: <one line linking it to the output it unblocks>
+
+--- Issue description (verbatim) ---
+<goal, scope, acceptance criteria>
+---
+
+Repository: marc272/<fork>. Worktree: <absolute path>, on branch <gitBranchName>, cut from origin/parametric.
+Work only in that worktree: absolute paths, git -C <worktree> for git, cd <worktree> && … for uv.
+Edit nothing else: not parametric-insurance-design, not the fork clone's own checkout.
+Read first: <worktree>/AGENTS.md; docs/adr/0005 in parametric-insurance-design; <merged PRs of the blockers>
+You own: <files or modules in the fork>. Import anything except parametric_insurance_design; edit nothing else.
+Commits: conventional-commit subjects (feat(parametric): …), a "Refs: MAR-<n>" trailer, no MAR IDs or Linear links in code or docs.
+Push early: git -C <worktree> push -u origin <gitBranchName>, then
+gh pr create --repo marc272/<fork> --base parametric --head <gitBranchName> --draft, titled "[MAR-<n>] <conventional subject>".
+Every gh pr command passes --repo marc272/<fork>. Never push to upstream, main or parametric; never contact RiskThinking.
+Checks: <the fork's checks>. Paste their summary on the final head into the PR body.
+Keep logs and PR-body drafts in <worktree>-notes/, never in the worktree or the shared session scratchpad.
+Done means: PR open (marked ready), the fork's checks green, every acceptance criterion evidenced in the PR body.
+Report back: PR link, summary, anything unverified, follow-ups you discovered, open questions.
+Don't change Linear; the orchestrator keeps it current. Never merge.
+```
+
 **Resume brief.** Use this when a worker is gone but its branch or draft PR exists. Put this before the normal brief:
 
 ```text
@@ -171,6 +254,8 @@ and continue from there. Don't restart from main, and don't rewrite pushed histo
 Still to do, as far as the orchestrator knows: <list>.
 ```
 
+For a fork, reuse the old worktree if `git -C <clone> worktree list` still shows it. Otherwise make a new one on the existing branch, `git -C <clone> worktree add <worktree> <branch>`, and put its path in the resume brief ("Don't restart from parametric").
+
 ## Dispatch record
 
 Every dispatch, re-dispatch or resume posts one comment on the issue, so that a later session can find and resume the work:
@@ -178,6 +263,7 @@ Every dispatch, re-dispatch or resume posts one comment on the issue, so that a 
 ```text
 Dispatch record
 - worker: <agent ID or session link>, started <ISO time>
+- repository: <marc272/parametric-insurance-design | marc272/crc-sdk | marc272/crc-docs>
 - branch: <gitBranchName>   worktree: <path, if known>
 - PR: <link, or "none yet">
 - notes: <resume of …, review round n, anything a successor needs>
@@ -187,15 +273,43 @@ Update the record with a new comment when the PR opens, and at each review round
 
 ## Merge policy
 
-Marc authorised agent merges on 2026-10-25 ("PR should be merged automatically in general", MAR-80). **The orchestrator**, and never a worker, squash-merges a PR with `gh pr merge <n> --squash` when all of the following hold:
+Marc authorised agent merges on 2026-10-25 ("PR should be merged automatically in general", MAR-80). On 2026-11-05 he extended this to PRs into `parametric` in the forks `marc272/crc-sdk` and `marc272/crc-docs`, under the same conditions. **The orchestrator**, and never a worker, squash-merges a PR with `gh pr merge <n> --squash` (in a fork, see "Fork PRs" below) when all of the following hold:
 
 - the orchestrator reviewed it against the checklist in "The loop", step 5;
-- every CI check is green: none failing, none pending;
+- every CI check is green: none failing, none pending (in crc-docs, the fork's own checks, see "Fork PRs");
 - it belongs to a non-Human, non-Gate issue, or Marc approved it on the issue or PR;
 - it changes no spec decision (SPEC §11, ADR outcomes) unless Marc's answer is recorded on the Decision issue;
-- it doesn't merge into, or past, a gate that isn't Done (e.g. no F5 method change before MAR-18).
+- it doesn't merge into, or past, a gate that isn't Done (e.g. no F5 method change before MAR-18);
+- it doesn't belong to a paused project (Foundation, Website & Blog, Paper), unless it fixes a red `main`.
 
-Otherwise, set the issue to In Review, assign it to Marc, and alert him. Never use `--admin`, never force-push, and never push to `main` directly. Branch protection (MAR-78) may require status checks, but must **not** require approving reviews: that would block every agent merge.
+Otherwise, set the issue to In Review, assign it to Marc, and alert him. Never use `--admin`, never force-push, and never push to `main` (ours or a fork's) or to a fork's `parametric` directly. Nothing is ever merged upstream by an agent. Branch protection (MAR-78) may require status checks, but must **not** require approving reviews: that would block every agent merge.
+
+### Fork PRs
+
+The merge gate differs by fork (checked 2026-11-05):
+
+- **crc-sdk:** `.github/workflows/ci.yml` runs on every `pull_request`, with no branch filter: ruff and strict mypy, the tests on Python 3.11 to 3.14 and on Windows, and a wheel build. PRs into `parametric` get it, and it is the merge gate.
+- **crc-docs:** the only PR workflow is `validate-skills.yml`, filtered to the agent skills, `AGENTS.md`, `CLAUDE.md` and `.mcp.json`. Nothing runs `tests/` or the notebooks in CI. So the gate is local, as in "Fallback: local CI" below: the worker pastes the summary of the fork's own checks (`uv run pytest -q`) on the final head, and you re-run them in the PR's worktree, on the head you are about to merge. When the PR touches the files `validate-skills.yml` watches, that check must be green too. Merge only if your run passes.
+- Both forks carry upstream's `rebase-dependabot.yml`, which has no job in a fork.
+
+Merge a fork PR so that the commit on `parametric` reads like upstream's history, with no MAR ID in its subject:
+
+```bash
+gh pr merge <n> --repo marc272/<fork> --squash \
+  --subject "<conventional-commit subject> (#<n>)" --body "Refs: MAR-<issue>"
+```
+
+### Keeping `parametric` current
+
+Marc (2026-11-05): the orchestrator keeps each fork's `parametric` current by merging upstream `main` into it. Shared branches are never rebased. Do it when upstream `main` has moved, before dispatching work that needs the new upstream code, and before Marc opens an upstream PR (MAR-249):
+
+1. `git -C <clone> fetch upstream` and `git -C <clone> fetch origin`. If `git -C <clone> merge-base --is-ancestor upstream/main origin/parametric` succeeds, `parametric` is current.
+2. Make a worktree on a sync branch: `git -C <clone> worktree add --no-track -b sync/upstream-main-<YYYY-MM-DD> <worktree> origin/parametric`.
+3. `git -C <worktree> merge --no-edit upstream/main`. Resolve simple conflicts in the worktree. If a resolution needs real work, file an issue for it and dispatch it like any other.
+4. Run the fork's checks in the worktree, push the sync branch, and open a PR into `parametric` (`gh pr create --repo marc272/<fork> --base parametric --head sync/upstream-main-<YYYY-MM-DD> --title "chore: merge upstream main into parametric"`).
+5. When the gate passes, merge it with a merge commit: `gh pr merge <n> --repo marc272/<fork> --merge`. Never `--squash` or `--rebase` here: either would drop upstream's history from `parametric`, and the upstream PR would then show upstream's own changes as ours.
+
+Sync PRs have no Linear issue. List them in the next Program hub status update, like Dependabot PRs.
 
 ### Dependabot PRs
 
@@ -265,39 +379,27 @@ Keep one running list of what needs Marc: Human issues in Todo or In Review, wor
   - set it to In Review for the human's decisions on the narrative, D4 and D6;
   - afterwards, cancel MAR-35 if D6 = no, and update the publication rule on the Program hub to the claims C1 allows.
 
-## Start sequence
+## The plan (2026-11-05)
 
-1. **Bootstrap:** MAR-6. The human first creates the GitHub repo `marc272/parametric-insurance-design`. MAR-6 copies everything in `repo-seed/` and moves `SPEC.md` to `docs/`.
-2. **Contract:** MAR-8 EventSet → MAR-61 interfaces and ownership map.
-3. **Core lanes, in parallel:**
-   - **A:** MAR-11 payout → MAR-13 objectives → MAR-14 problem builder → MAR-15 engine tests
-   - **B:** MAR-12 scopes (after MAR-11) → MAR-16 evaluation
-   - **C:** MAR-9 parity fixture, MAR-10 noise port
-   - **D:** MAR-71 → MAR-72 → MAR-73 CLIMADA adapter
-4. **Runner and parity:** MAR-63 → MAR-64 → MAR-65 → MAR-66, then MAR-67 → MAR-68 → MAR-69 / MAR-70 → **MAR-18 sign-off**.
-5. **Core v1 features (F5):**
-   - MAR-22 / MAR-23 out-of-sample evaluation, MAR-24 annual basis, MAR-27 loaded pricing (after MAR-18);
-   - MAR-25 vulnerability draws, MAR-26 cat-in-a-circle (after the CLIMADA adapter).
-6. **Early releases, in parallel:**
-   - Website v1 (MAR-53 → MAR-54 / MAR-55 → MAR-58 → MAR-60);
-   - CRC showcase (MAR-42 to MAR-46);
-   - CLIMADA module (MAR-47 → MAR-48 → MAR-49 → MAR-50 → MAR-51).
-7. **Paper track alongside:**
-   - MAR-28 positioning from day one;
-   - MAR-29 C1 after F5;
-   - then MAR-30 to MAR-40;
-   - its results feed the Website v2 (MAR-56, MAR-59, MAR-74).
-8. **Any time, preparation only:** MAR-41 (CRC Open part), MAR-62 (D7 note), MAR-52 (website ADR draft), MAR-57 (post 1 draft).
+The CRC plan, in milestone order (SPEC §8; the CRC Contribution project in Linear):
+
+1. **R1, setup and module design:** MAR-242 R-10 the forks (Human) · MAR-243 R-11 the program rules · MAR-244 R-12 ADR 0005 (D10, Marc approves) · MAR-245 R-13 golden fixtures from the core. All but R-10 run in this repository.
+2. **R2, the Phase 1 module in crc-sdk:** MAR-246 R-14 covers and payout functions → MAR-43 R-15 outcome samples → MAR-247 R-17 evaluation and comparison → MAR-248 R-16 design → MAR-42 R-18 end-to-end workflow and docs.
+3. **R3, the notebook and the upstream PRs:** MAR-46 R-19 the notebook in crc-docs → MAR-249 R-20 the contribution route and the upstream PRs (Human).
+4. **R4, the Phase 2 extensions:** MAR-45 R-21 portfolio approach · MAR-250 R-22 multi-hazard covers · MAR-44 R-23 scenario analysis · MAR-41 VELO assets.
+
+Everything in the forks waits on MAR-242 (the forks) and MAR-244 (Marc's approval of ADR 0005). The CLIMADA prototype (MAR-168) takes a slot when CRC has no ready agent work. The Foundation start sequence of 2026-10-25 (bootstrap, contract, core lanes, parity, core v1 features) is done; its record is in Linear and git.
 
 ## Reference material (absolute paths on the owner's machine)
 
 - Workspace guide: `/Users/marcprinzing/Parametric_Insurance/CLAUDE.md`.
 - Thesis code (parity source, read-only): `/Users/marcprinzing/Parametric_Insurance/parametric-insurance-framework`.
-- CRC docs and SDK examples (read-only): `/Users/marcprinzing/Parametric_Insurance/crc-docs`.
+- Fork clones (R-10): `/Users/marcprinzing/Parametric_Insurance/forks/crc-sdk` and `/Users/marcprinzing/Parametric_Insurance/forks/crc-docs`. Never edit their own checkouts: fork work happens in worktrees under `/Users/marcprinzing/Parametric_Insurance/forks/worktrees/` ("Worker worktrees in the forks").
 
 ## You never
 
-- Do anything on the "Never" list in `AGENTS.md`.
+- Do anything on the "Never" list in `AGENTS.md`. In particular, never act on RiskThinking's repositories or contact RiskThinking: the upstream PRs and every contact are Marc's (MAR-249).
+- Dispatch or merge work from a paused project, except a fix for a red `main`.
 - Mark a Human or Gate issue Done yourself, unless the owner explicitly delegates that decision in the conversation.
 - Change spec decisions without the human's recorded answer.
 - Restructure Linear projects or milestones without asking. Creating issues and sub-issues, and editing descriptions to match reality, are part of your job.
