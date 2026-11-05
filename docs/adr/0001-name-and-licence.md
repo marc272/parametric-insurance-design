@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-10-25
 - Decision issues: MAR-5 (D1 name, D3 licence)
+- Amendments: 1 (2026-10-25, MAR-79) and 2 (2026-11-06, MAR-251), at the end
 
 ## Context
 
@@ -75,3 +76,13 @@ Decided by the owner, Marc Prinzing, on 2026-10-25 (recorded on MAR-79).
 - **CLIMADA's GPL-3.0 and its output.** The fixture's losses were computed with CLIMADA, which is GPL-3.0. CLIMADA's documentation states the GPL for the software and nothing about results; the GNU GPL FAQ says the output of a program is not, in general, covered by the copyright on its code, and that output inherits the copyright status of the input it was generated from (<https://www.gnu.org/licenses/gpl-faq.html#WhatCaseIsOutputGPL>, <https://www.gnu.org/licenses/gpl-faq.html#GPLOutput>, read 2026-10-25). The input here is IRIS (treated as CC BY 4.0, above) plus the owner's own asset portfolio, so the GPL does not attach to the fixture. Code that imports CLIMADA stays GPL (`packages/climada`).
 - **`showcase/crc/` code** (notebook and pipeline) is **BSD-3-Clause**. It runs on the AGPL-3.0-or-later CRC adapter and SDK, so the AGPL applies to the combined work when it is distributed or served over a network; the showcase's own source stays permissive. `showcase/crc/LICENSE` is a copy of the root licence.
 - **Unchanged:** CRC Open data remains CC BY-NC 4.0 unless the owner's agreement says otherwise (MAR-41); data licences are recorded in `docs/data-sources.md`.
+
+## Amendment 2 (2026-11-06, MAR-251): `showcase/crc/` and `packages/crc` after D9
+
+On 2026-11-05 the owner decided D9 (`docs/SPEC.md` §11; MAR-242). The CRC work is now a parametric insurance module in crc-sdk, `crc_sdk.parametric`, with a showcase notebook in crc-docs. Both are built in the forks `marc272/crc-sdk` and `marc272/crc-docs` and contributed upstream. The module plan is in `docs/SPEC.md` §8. This amendment records what D9 means for this ADR. It changes no licence.
+
+- **`showcase/crc/` is no longer a planned output.** No notebook or pipeline was written there, and none is planned. The folder holds the record of the CRC collaboration scan and the meeting brief (`showcase/crc/README.md`), BSD-3-Clause under `showcase/crc/LICENSE`. The table's row "`showcase/crc/` code (notebook, pipeline)" and amendment 1's bullet on it are kept as history.
+- **The CRC module** is part of crc-sdk, outside this repository, so the table above doesn't list it. It takes crc-sdk's licence, AGPL-3.0-or-later (D3). It never imports this repository's core: parity is checked through golden fixtures that the core exports (MAR-245).
+- **The notebook** is built in the crc-docs fork. Its terms are the owner's (2026-11-05), not this ADR's.
+- **`packages/crc` is dormant.** It holds no adapter code, and no work is planned in it (`docs/SPEC.md` §4, `packages/crc/README.md`). It keeps AGPL-3.0-or-later, and the rule above still applies to it. Whether it stays dormant or is removed is open (MAR-252).
+- **Unchanged:** the table's other rows. CRC Open data remains CC BY-NC 4.0 unless the owner's agreement says otherwise, and no CRC data is committed (`docs/data-sources.md`).

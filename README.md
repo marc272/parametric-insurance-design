@@ -153,7 +153,7 @@ The licence boundary is the package boundary ([ADR 0001](docs/adr/0001-name-and-
 | `parity/` code | BSD-3-Clause | [`parity/LICENSE`](parity/LICENSE) |
 | `parity/golden/` (the thesis result tables, computed from IRIS-derived losses) | CC-BY-4.0 | [`parity/golden/LICENSE`](parity/golden/LICENSE) |
 | `parity/tests/data/thesis_eventset/` (derived from IRIS) | CC-BY-4.0: IRIS-derived data is treated as CC BY 4.0, the stricter of its two licence records | recorded in its `metadata.json` |
-| `showcase/crc/` code | BSD-3-Clause; the AGPL applies to the combined work with the CRC adapter | [`showcase/crc/LICENSE`](showcase/crc/LICENSE) |
+| `showcase/crc/` (the CRC collaboration scan and the meeting brief) | BSD-3-Clause | [`showcase/crc/LICENSE`](showcase/crc/LICENSE) |
 | `packages/crc` (dormant) | AGPL-3.0-or-later, because it was set up to import the AGPL-licensed CRC SDK | [`packages/crc/LICENSE`](packages/crc/LICENSE) |
 | `packages/climada` | GPL-3.0-or-later, because it imports GPLv3 CLIMADA | [`packages/climada/LICENSE`](packages/climada/LICENSE) |
 
