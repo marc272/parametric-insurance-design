@@ -4,6 +4,7 @@
 - Date: proposed 2026-10-31, accepted 2026-11-01
 - Decision issue: MAR-162 (D8). It feeds MAR-163 (concept docs), MAR-164 (READMEs), MAR-165 (examples) and MAR-168 (the location of the petals prototype).
 - Prepared by a worker agent from `main` at `f74f123`. **Q2 and Q3 were revised after the design review MAR-161** (PR #99, squash commit `dafa8ec` on `main`, `docs/reviews/core-design-review.md`; findings cited as "review F<n>"). The review settles both, so they are no longer provisional.
+- Amendments: 1 (2026-11-06, MAR-251), at the end
 
 ## Context
 
@@ -324,3 +325,11 @@ The review's other filed follow-ups aren't steps here: F1 = MAR-170, F9 = MAR-17
     - Files: a new `.github/workflows/release.yml` (tag-triggered; TestPyPI, then PyPI; trusted publishing).
     - Acceptance: the dry run on TestPyPI installs and imports.
     - Human: create the projects, register the publishers, push `v0.1.0`, approve the publish.
+
+## Amendment 1 (2026-11-06, MAR-251): `showcase/crc/` after D9
+
+On 2026-11-05 the owner decided D9 (`docs/SPEC.md` §11; MAR-242). The CRC work is now a parametric insurance module in crc-sdk, `crc_sdk.parametric`, with a showcase notebook in crc-docs. Both are built in the forks `marc272/crc-sdk` and `marc272/crc-docs` and contributed upstream. The module plan is in `docs/SPEC.md` §8, and the module's design is ADR 0005 (proposed; D10, MAR-244). The answers to Q1–Q7 stand. This amendment updates what Q1 says about `showcase/crc/`.
+
+- **Q1.** `showcase/crc/` is no longer a planned output, so Q1's bullet "they are planned outputs" no longer applies to it. The folder keeps the record of the CRC collaboration scan and the meeting brief, and its README says so (MAR-243). No notebook goes there: it is built in the crc-docs fork.
+- The other mentions of `showcase/crc/` above (Q5 and migration step 8) are history.
+- **`packages/crc`** is dormant (`docs/SPEC.md` §4, `packages/crc/README.md`), pending MAR-252. The import rules under "Context" still apply to it. ADR 0001 amendment 2 records the licence side.
