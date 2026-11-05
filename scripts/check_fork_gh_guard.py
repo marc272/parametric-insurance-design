@@ -246,6 +246,8 @@ CASES: list[tuple[str, str, str]] = [
     # Refused: a command the hook can't parse, in a fork path.
     ("refuse", SDK, 'gh pr create --title "unterminated'),
     ("refuse", REPO, f"cd {SDK} && gh pr list --body 'unterminated"),
+    # Refused, by design: gh as a plain word in a fork path.
+    ("refuse", SDK, "echo gh pr list"),
 ]
 
 
