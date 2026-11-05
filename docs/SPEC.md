@@ -14,7 +14,7 @@ The master's thesis framework (`parametric-insurance-framework`, tagged `thesis-
 1. **Tail-risk–optimised payout design**: a weighted CVaR/expected-shortfall objective for the uncovered loss, solved as a linear program (LP).
 2. **Portfolio-level calibration**: payout functions calibrated jointly over a portfolio (individual, cluster and integrated scopes), so assets can cover each other.
 
-**Main goal (Marc, 2026-11-05).** After a meeting with the RiskThinking team, the program's main goal is a **generic parametric insurance module in Climate Risk Commons (CRC)**: `crc_sdk.parametric` in `crc-sdk`, with an exemplary notebook in `crc-docs`, contributed by PRs to RiskThinking's repositories. RiskThinking welcomes the module. With it, users:
+**Main goal (Marc, 2026-11-05).** After a meeting with the RiskThinking team, the program's main goal is a **generic parametric insurance module in Climate Risk Commons (CRC)**: `crc_sdk.parametric` in `crc-sdk`, with an exemplary notebook in `crc-docs`, contributed by PRs to RiskThinking's repositories. Its home in crc-sdk is confirmed (Marc, 2026-11-05). With it, users:
 
 - create a parametric cover for a hazard and an asset;
 - analyse its effectiveness on several metrics (overall coverage, tail coverage, basis risk, …) and under different scenarios;

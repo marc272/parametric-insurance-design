@@ -25,7 +25,8 @@ Version `0.1.0.dev0`, in development. There is no release yet and nothing is on 
   - [the annual basis](docs/methodology/annual-basis.md), on which an outcome is a simulated year;
   - [cost-of-capital pricing](docs/methodology/pricing.md), next to the pure premium.
 - **CLIMADA adapter.** [`packages/climada`](packages/climada/README.md) builds EventSets from IRIS hurricane tracks (track, wind field, impact), with a cat-in-a-circle index and [vulnerability draws](docs/methodology/vulnerability.md) as options.
-- **Planned, not built yet:** the website; a showcase with Climate Risk Commons, whose scope isn't decided yet; a parametric insurance module for CLIMADA itself; a paper; and robust design under uncertainty (until then, `parametric_insurance_design.robust` raises `NotImplementedError`).
+- **Where the work goes now (2026-11-05).** The main output is a parametric insurance module for Climate Risk Commons (CRC), `crc_sdk.parametric`, with a showcase notebook in crc-docs. Both are built in forks of the CRC repositories and contributed upstream. The module doesn't import this library: this library is its reference implementation, and the module's tests check against golden fixtures it exports. A parametric insurance module for CLIMADA itself comes second.
+- **Paused:** the website, a paper, and robust design under uncertainty (until then, `parametric_insurance_design.robust` raises `NotImplementedError`).
 
 ## Quickstart
 
@@ -86,14 +87,14 @@ parametric-insurance-design/
 ├── packages/
 │   ├── core/       # parametric-insurance-design: the core library, no hazard-model dependency
 │   ├── viz/        # parametric-insurance-design-viz: figures, read from the result store
-│   ├── crc/        # parametric-insurance-design-crc: placeholder for a Climate Risk Commons adapter
+│   ├── crc/        # parametric-insurance-design-crc: dormant skeleton of a Climate Risk Commons adapter
 │   └── climada/    # parametric-insurance-design-climada: CLIMADA adapter (own pixi env)
 ├── examples/       # runnable scripts on the public API, run in CI
 ├── docs/           # docs index, concepts, methodology, SPEC, ADRs, reviews
 ├── parity/         # thesis golden data, parity tests and the parity report
 ├── research/       # the paper's working area: configs, scripts, notes, checkpoints
-├── showcase/crc/   # the Climate Risk Commons showcase (planned)
-├── site/           # the website (planned)
+├── showcase/crc/   # the record of the Climate Risk Commons collaboration scan
+├── site/           # the website (paused)
 └── scripts/        # repository checks and the local CI script
 ```
 
@@ -107,7 +108,7 @@ parametric-insurance-design/
 ## Environments
 
 - **uv workspace** for `core`, `viz` and `crc`, with one lockfile (`uv.lock`). The core supports Python 3.11 to 3.13 with numpy ≥ 1.26 and pandas ≥ 2.1. The CRC package needs Python ≥ 3.12, so the workspace uses Python 3.12 or later (`.python-version` selects 3.12).
-- **pixi** for `packages/climada`, which is not a uv workspace member: CLIMADA comes from conda-forge, and its pins would clash with the pandas ≥ 3 of the CRC SDK, which the CRC package will import. Its README says how to set it up.
+- **pixi** for `packages/climada`, which is not a uv workspace member: CLIMADA comes from conda-forge, and its pins would clash with the pandas ≥ 3 of the CRC SDK, which the CRC package was set up to import. Its README says how to set it up.
 
 The two environments share data only through EventSet Parquet files ([`docs/SPEC.md`](docs/SPEC.md) §5).
 
@@ -153,7 +154,7 @@ The licence boundary is the package boundary ([ADR 0001](docs/adr/0001-name-and-
 | `parity/golden/` (the thesis result tables, computed from IRIS-derived losses) | CC-BY-4.0 | [`parity/golden/LICENSE`](parity/golden/LICENSE) |
 | `parity/tests/data/thesis_eventset/` (derived from IRIS) | CC-BY-4.0: IRIS-derived data is treated as CC BY 4.0, the stricter of its two licence records | recorded in its `metadata.json` |
 | `showcase/crc/` code | BSD-3-Clause; the AGPL applies to the combined work with the CRC adapter | [`showcase/crc/LICENSE`](showcase/crc/LICENSE) |
-| `packages/crc` | AGPL-3.0-or-later, because it will import the AGPL-licensed CRC SDK | [`packages/crc/LICENSE`](packages/crc/LICENSE) |
+| `packages/crc` (dormant) | AGPL-3.0-or-later, because it was set up to import the AGPL-licensed CRC SDK | [`packages/crc/LICENSE`](packages/crc/LICENSE) |
 | `packages/climada` | GPL-3.0-or-later, because it imports GPLv3 CLIMADA | [`packages/climada/LICENSE`](packages/climada/LICENSE) |
 
 The core and viz packages never import an adapter, so they stay under the permissive licence. Data comes with its own terms, recorded in [`docs/data-sources.md`](docs/data-sources.md). Only small data files are committed: the parity fixture and the thesis result tables (both CC BY 4.0), and small tables derived from research runs under `research/data/`.
