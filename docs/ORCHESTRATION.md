@@ -53,6 +53,8 @@ These steps are done by Marc, because agents may not change their own permission
 
    The rules match the command text, so they catch the usual forms, `git -C <path> push …` included, but not every way of writing a command. They are a backstop for the rules in `AGENTS.md`, not a replacement.
 
+   A `PreToolUse` hook on Bash, [`.claude/hooks/fork_gh_guard.py`](../.claude/hooks/fork_gh_guard.py) (MAR-253), adds what the rules can't express: it refuses any `gh pr …` or `gh issue …` command that may run in a fork path (its working directory, or a `cd` or `git -C` target, under `/Users/marcprinzing/Parametric_Insurance/forks/`) and lacks `--repo marc272/<fork>` or `-R marc272/<fork>`, and says how to fix it; `scripts/check_fork_gh_guard.py`, in CI's lint job, tests it.
+
 ## Ground truth
 
 - **Linear** (workspace "Marc prinzing", team MAR) is the source of truth for what we aim to do, priorities, plan, decisions and status. The entry point is the [Program hub](https://linear.app/marc-prinzing/project/program-hub-1b757250497c): its description (mission, outputs, phases, scheduling and publication rules, decision index) and its status updates (where we are).
