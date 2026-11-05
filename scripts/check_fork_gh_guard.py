@@ -338,8 +338,10 @@ def verdict(proc: subprocess.CompletedProcess[str]) -> str:
     return f"exit {proc.returncode}, stdout {proc.stdout!r}, stderr {proc.stderr!r}"
 
 
-def check_cases(python: str, env: dict[str, str]) -> tuple[list[str], list[str]]:
-    """Run every case in ``CASES``; return the report lines and the failures.
+def check_cases(
+    python: str, env: dict[str, str]
+) -> tuple[list[str], list[str], list[str]]:
+    """Run every case in ``CASES``; return the report, failures and results.
 
     Parameters
     ----------
@@ -351,11 +353,13 @@ def check_cases(python: str, env: dict[str, str]) -> tuple[list[str], list[str]]
     Returns
     -------
     tuple of list of str
-        One report line per case, and the lines of the failed cases.
+        One report line per case, the lines of the failed cases, and the
+        result of each case (see ``verdict``).
     """
-    lines, failures = [], []
+    lines, failures, results = [], [], []
     for n, (expected, cwd, command) in enumerate(CASES, 1):
         got = verdict(run_hook(python, bash_input(cwd, command), env))
+        results.append(got)
         shown = command.replace("\n", "\\n")
         line = f"{n:3d} [{expected}] {CWD_LABELS.get(cwd, cwd)}: {shown}"
         if got == expected:
@@ -363,7 +367,7 @@ def check_cases(python: str, env: dict[str, str]) -> tuple[list[str], list[str]]
         else:
             lines.append(f"FAIL {line}\n     got: {got}")
             failures.append(line)
-    return lines, failures
+    return lines, failures, results
 
 
 def check_inputs(python: str, env: dict[str, str]) -> list[str]:
@@ -474,23 +478,36 @@ def check_grammar() -> list[str]:
     return []
 
 
-def markdown_table() -> str:
-    """Return the cases as a Markdown table, for the PR body.
+def markdown_table(results: list[str]) -> str:
+    """Return the cases and their results as a Markdown table, for the PR body.
+
+    In commands, ``<WS>`` stands for the workspace folder ``WS``.
+
+    Parameters
+    ----------
+    results
+        The result of each case, in the order of ``CASES``.
 
     Returns
     -------
     str
-        A table with the number, starting directory, command and expectation.
+        A table with the number, starting directory, command, expectation and
+        result of each case.
     """
 
     def code(text: str) -> str:
-        text = text.replace("\n", "\\n").replace("|", "\\|")
+        text = text.replace(WS, "<WS>").replace("\n", "\\n").replace("|", "\\|")
         return f"`` {text} ``" if "`" in text else f"`{text}`"
 
-    rows = ["| # | Starts in | Command | Expected |", "|---|---|---|---|"]
-    for n, (expected, cwd, command) in enumerate(CASES, 1):
+    rows = [
+        "| # | Starts in | Command | Expected | Result |",
+        "|---|---|---|---|---|",
+    ]
+    pairs = zip(CASES, results, strict=True)
+    for n, ((expected, cwd, command), got) in enumerate(pairs, 1):
         label = CWD_LABELS.get(cwd, cwd)
-        rows.append(f"| {n} | {label} | {code(command)} | {expected} |")
+        result = f"**{got}**" if got == expected else f"FAIL: {got}"
+        rows.append(f"| {n} | {label} | {code(command)} | {expected} | {result} |")
     return "\n".join(rows)
 
 
@@ -515,7 +532,7 @@ def main() -> int:
     env = {**os.environ, "HOME": HOME}
 
     started = time.monotonic()
-    lines, failures = check_cases(args.python, env)
+    lines, failures, results = check_cases(args.python, env)
     elapsed = time.monotonic() - started
     print("\n".join(lines))
     for problem in check_inputs(args.python, env) + check_settings(env):
@@ -526,7 +543,7 @@ def main() -> int:
         failures.append(problem)
     if args.markdown:
         print()
-        print(markdown_table())
+        print(markdown_table(results))
     version = subprocess.run(
         [args.python, "--version"], capture_output=True, text=True, check=False
     ).stdout.strip()
