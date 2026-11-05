@@ -1,0 +1,28 @@
+# Import isolation of the petals prototype (MAR-168).
+#
+# This folder is moved into climada_petals (as climada_petals/engine/parametric/),
+# which cannot depend on this repository's packages. So nothing here may import
+# them: only the standard library, CLIMADA, numpy, scipy and pandas, plus cvxpy
+# (optional, imported lazily for the mean squared error).
+#
+# ruff uses the closest config file, so this one applies to every file in this
+# folder, the tests included. It extends packages/climada/pyproject.toml (and
+# through it the root config) and replaces its banned-api table, so the CRC ban
+# is repeated here. The CI job "lint" runs ruff from the root. The tests in
+# packages/climada/tests/test_petals_parametric_isolation.py (job "test
+# (climada, pixi)") check this table and the imports themselves.
+extend = "../../pyproject.toml"
+
+[lint]
+extend-select = ["TID251"]
+
+[lint.flake8-tidy-imports.banned-api]
+"parametric_insurance_design".msg = "the petals prototype must not import the core: climada_petals cannot depend on it (MAR-168)"
+"parametric_insurance_design_climada".msg = "the petals prototype must not import the CLIMADA adapter: it moves into climada_petals on its own (MAR-168)"
+"parametric_insurance_design_viz".msg = "the petals prototype must not import viz (MAR-168)"
+"parametric_insurance_design_crc".msg = "the CLIMADA stream is CRC-free: never import the CRC adapter (AGENTS.md \"Hard boundaries\")"
+
+# The tests follow CLIMADA's layout and style: test/ next to the code, with
+# unittest.TestCase classes and their assert methods.
+[lint.per-file-ignores]
+"test/**" = ["D", "PT009", "PT027"]
