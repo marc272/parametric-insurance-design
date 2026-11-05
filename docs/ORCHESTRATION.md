@@ -45,7 +45,11 @@ These steps are done by Marc, because agents may not change their own permission
    - pushes to `main`, ours or a fork's, and to a fork's `parametric`, which changes only through merged PRs;
    - pushes to the `upstream` remote, and `gh` commands that name a RiskThinking repository (`--repo`, `-R`, a `github.com/RiskThinking/…` URL, or `gh api`);
    - admin merges;
-   - creating, forking, syncing, editing or deleting repositories.
+   - creating, forking, syncing, editing or deleting repositories;
+   - tags and releases: `git tag`, pushing tags, `gh release create`, `edit`, `upload` and `delete`, and the matching `gh api` calls;
+   - running, enabling or disabling workflows by hand (`gh workflow run`, `enable`, `disable`, `gh api …/dispatches`).
+
+   Agents never need these: releases and tags are Marc's, and CI runs on push and pull request. To read tags, use `git for-each-ref refs/tags` or `git ls-remote --tags origin`. Our Site workflow's manual trigger stays Marc's, from the Actions page.
 
    The rules match the command text, so they catch the usual forms, `git -C <path> push …` included, but not every way of writing a command. They are a backstop for the rules in `AGENTS.md`, not a replacement.
 
@@ -184,6 +188,8 @@ The fork clones (R-10, MAR-242) are `/Users/marcprinzing/Parametric_Insurance/fo
 4. **Post the dispatch record** with the repository and the worktree path.
 
 Every `gh pr` command on fork work, yours and the workers', passes `--repo marc272/<fork>` explicitly: in a fork clone, `gh` without it can resolve to RiskThinking's repository. Read upstream only through `git fetch upstream`; `gh` commands that name a RiskThinking repository are denied.
+
+Agents never create tags or run workflows by hand in the forks. Both forks' workflows are enabled (Marc, 2026-11-05), and crc-sdk's `release.yaml` ("Package release") runs on any pushed `v*` tag and on `workflow_dispatch`, with `id-token: write`. A tag or a manual run could publish a release.
 
 **Brief template.** Paste the issue text verbatim; don't paraphrase acceptance criteria. Keep the line on logs and drafts: workers write them inside their own worktree, never in the shared session scratchpad, where concurrent workers overwrote each other's files on 2026-10-27.
 

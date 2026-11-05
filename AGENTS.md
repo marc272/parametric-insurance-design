@@ -130,6 +130,7 @@ These rules apply to every issue whose work lands in `marc272/crc-sdk` or `marc2
 
 - Never open issues, PRs or discussions on RiskThinking's repositories, never push to the `upstream` remote, and never contact RiskThinking. Those steps are Marc's (MAR-249), and so are the upstream PRs.
 - Never connect to RiskThinking's services, such as the CDT Express MCP server in crc-docs' `.mcp.json`. Read upstream only through `git fetch upstream`.
+- Never create tags or releases, and never run workflows by hand. crc-sdk's release workflow runs on any pushed `v*` tag.
 - The publication rule applies to the module's docs and to the notebook. The CLIMADA stream stays CRC-free.
 
 ## Engineering standards (SPEC §4.3)
