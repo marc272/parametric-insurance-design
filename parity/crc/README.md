@@ -26,7 +26,7 @@ uv run python parity/scripts/export_crc_fixtures.py --summary  # rewrite, print 
 uv run pytest parity/tests/test_crc_fixtures.py                # what CI runs
 ```
 
-The script takes about 5 seconds. CI runs the test in the parity step (`pytest parity/tests`). It regenerates every case in memory and compares it with the committed file:
+The script takes under 10 seconds. CI runs the test in the parity step (`pytest parity/tests`). It regenerates every case in memory and compares it with the committed file:
 
 - everything but floats must be equal, except `generator.commit`;
 - floats must agree within 1e-6 relative for the values a solve produces (the `expected` block of a design case), and within 1e-12 relative elsewhere. The absolute floor is the same tolerance times the case's scale (below).
