@@ -3,10 +3,15 @@
 Three groups:
 
 - **Regeneration.** ``parity/scripts/export_crc_fixtures.py`` rebuilds every
-  case in memory from the core, and the committed files must match it
-  (``compare_documents``: equal structure and text, floats within the
-  regeneration tolerances). So the fixtures cannot drift silently from the
-  core, the data or the script.
+  case in memory from the core, and the committed files must pass
+  ``compare_case`` against it. Inputs and unique designs are compared with
+  the regeneration tolerances. A non-unique design is judged by what holds
+  for every point of its optimal set: the committed values are the core's at
+  the committed levels, and those levels are feasible, optimal and within the
+  ranges of the regenerated problem. So the fixtures cannot drift silently
+  from the core, the data or the script, and a solver that returns another
+  point of the same optimal set (another platform) does not fail the check.
+  A regeneration with perturbed solvers checks the latter here.
 - **The files.** Canonical text, under 1 MB in total, the case matrix of
   MAR-245, at most one draw per year, and a generator block that names a
   committed core.
@@ -76,8 +81,35 @@ def _committed() -> dict[str, str]:
 
 
 @pytest.fixture(scope="module")
-def regenerated() -> dict[str, dict[str, Any]]:
-    return exporter.build_documents()
+def generated() -> dict[str, Any]:
+    return exporter.build_cases()
+
+
+@pytest.fixture(scope="module")
+def regenerated(generated: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {name: case.document for name, case in generated.items()}
+
+
+# Another platform's solvers can return another point of a set of optimal
+# designs. The local proxy: Clarabel without equilibration (another interior
+# path) and HiGHS's primal simplex (another vertex), both still accurate.
+PERTURBED = exporter.SolverSettings(
+    accurate=exporter.SolverPolicy(
+        lp_solvers=("CLARABEL",),
+        qp_solvers=("CLARABEL",),
+        accept_inaccurate=False,
+        solver_options={
+            "CLARABEL": {**exporter.CLARABEL_TIGHT, "equilibrate_enable": False}
+        },
+    ),
+    vertex=exporter.SolverPolicy(
+        lp_solvers=("HIGHS",),
+        qp_solvers=("CLARABEL",),
+        accept_inaccurate=False,
+        solver_options={"HIGHS": {"simplex_strategy": 4}},
+    ),
+    ranging={**exporter.HIGHS_RANGING_OPTIONS, "simplex_strategy": 4},
+)
 
 
 @pytest.fixture(scope="module")
@@ -91,15 +123,76 @@ def cases() -> dict[str, dict[str, Any]]:
 
 
 def test_regeneration_matches_the_committed_cases(
-    regenerated: dict[str, dict[str, Any]], cases: dict[str, dict[str, Any]]
+    generated: dict[str, Any], cases: dict[str, dict[str, Any]]
 ) -> None:
-    assert sorted(regenerated) == sorted(cases), "regenerate: see parity/crc/README.md"
+    assert sorted(generated) == sorted(cases), "regenerate: see parity/crc/README.md"
     problems: list[str] = []
-    for name, doc in regenerated.items():
-        problems += [
-            f"{name}: {p}" for p in exporter.compare_documents(cases[name], doc)
-        ]
+    for name, case in generated.items():
+        problems += [f"{name}: {p}" for p in exporter.compare_case(cases[name], case)]
     assert not problems, "\n".join(problems[:50])
+
+
+def test_regeneration_check_holds_with_other_solver_points(
+    cases: dict[str, dict[str, Any]],
+) -> None:
+    perturbed = exporter.build_cases(commit="x", settings=PERTURBED)
+    problems: list[str] = []
+    moved = []
+    for name, case in perturbed.items():
+        problems += [f"{name}: {p}" for p in exporter.compare_case(cases[name], case)]
+        if exporter.compare_documents(cases[name], case.document):
+            moved.append(name)
+    assert not problems, "\n".join(problems[:50])
+    # The perturbation is real: the raw solver points moved, in non-unique
+    # designs and in the unidentified levels of unique ones.
+    assert "step-wcvar-b0_9-pure-joint-synthetic.json" in moved
+    assert "step-mse-coc-joint-thesis.json" in moved
+    assert len(moved) >= 6
+
+
+def _design(cases: dict[str, dict[str, Any]], name: str) -> dict[str, Any]:
+    return json.loads(json.dumps(cases[name]))
+
+
+def test_compare_case_rejects_levels_outside_the_optimal_set(
+    generated: dict[str, Any], cases: dict[str, dict[str, Any]]
+) -> None:
+    name = "step-wcvar-b0_9-pure-joint-synthetic.json"
+    assert cases[name]["compare_parameters"] == "within_ranges"
+    assert exporter.compare_case(cases[name], generated[name]) == []
+    doc = _design(cases, name)
+    for asset in doc["expected"]["parameters"].values():
+        for key in asset:
+            asset[key] *= 0.9
+    found = exporter.compare_case(doc, generated[name])
+    assert any("objective" in p for p in found)
+    assert any("outside the range" in p for p in found)
+    assert any(p.startswith("expected/metrics") for p in found)
+
+
+def test_compare_case_rejects_values_that_are_not_the_cores(
+    generated: dict[str, Any], cases: dict[str, dict[str, Any]]
+) -> None:
+    name = "step-mse-coc-joint-thesis.json"
+    assert cases[name]["compare_parameters"] == "none"
+    doc = _design(cases, name)
+    doc["expected"]["metrics"]["rmse"] *= 1 + 1e-9
+    doc["expected"]["premium"] *= 1 + 1e-9
+    found = exporter.compare_case(doc, generated[name])
+    assert any(p.startswith("expected/metrics/rmse") for p in found)
+    assert any(p.startswith("expected/premium") for p in found)
+
+
+def test_compare_case_rejects_a_broken_budget(
+    generated: dict[str, Any], cases: dict[str, dict[str, Any]]
+) -> None:
+    name = "step-eu-coc-joint-thesis.json"
+    doc = _design(cases, name)
+    for asset in doc["expected"]["parameters"].values():
+        for key in asset:
+            asset[key] *= 1.5
+    found = exporter.compare_case(doc, generated[name])
+    assert any("above the budget" in p or "cap" in p for p in found)
 
 
 def test_regeneration_is_byte_stable_on_one_machine(

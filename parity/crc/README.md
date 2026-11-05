@@ -26,12 +26,15 @@ uv run python parity/scripts/export_crc_fixtures.py --summary  # rewrite, print 
 uv run pytest parity/tests/test_crc_fixtures.py                # what CI runs
 ```
 
-The script takes under 10 seconds. CI runs the test in the parity step (`pytest parity/tests`). It regenerates every case in memory and compares it with the committed file:
+The script takes under 10 seconds. CI runs the test in the parity step (`pytest parity/tests`). It regenerates every case in memory and judges the committed file against it:
 
-- everything but floats must be equal, except `generator.commit`;
-- floats must agree within 1e-6 relative for the values a solve produces (the `expected` block of a design case), and within 1e-12 relative elsewhere. The absolute floor is the same tolerance times the case's scale (below).
+- Everything but floats must be equal, except `generator.commit`. That includes `unique`, `unidentified` and `compare_parameters`.
+- Floats must agree within 1e-6 relative for the values a solve produces (the `expected` block of a design case), and within 1e-12 relative elsewhere. The absolute floor is the same tolerance times the case's scale (below).
+- In every design case, the core evaluates `expected.parameters` again. The objective value, the premium and every metric must agree with the committed ones within 1e-12.
+- The committed levels must be an optimal design of the regenerated problem. They meet every constraint (bounds, monotonicity, cap, budget), their objective agrees with the regenerated optimum within 1e-6, and in LP cases they lie within the regenerated ranges, widened by 1e-6 of the scale.
+- Only a unique design (`"exact"`) also has its identified levels, premium and metrics compared with the regenerated ones. A non-unique design's are one solver's point of the optimal set; a solver on another platform can return another point, so they are not compared. Unidentified levels are never compared.
 
-So a change to the core's formulas, the data or the script that moves a value fails CI until the cases are regenerated. On one machine the regeneration is byte-identical. On another platform, a solver's last digits can differ, and the tolerances absorb that.
+So a change to the core's formulas, the data or the script that moves a value fails CI until the cases are regenerated. On one machine the regeneration is byte-identical. On another platform, a solver can return another point of the same optimal set, and the check above still holds. The test checks this with a regeneration under perturbed solvers (Clarabel without equilibration, HiGHS's primal simplex): it moves the solver's point in 13 cases and passes.
 
 The test also reads every case the way the module's tests do, with plain numpy and the rules on this page only. It recomputes the payouts of the written cover, the objective value, the premium, the budget, the constraints and the plain metrics, and compares them with `expected`.
 

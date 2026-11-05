@@ -144,7 +144,7 @@
       "var_net_loss_b0_95": {"either": [4481330.5081, 4614812.365]},
       "var_net_loss_b0_99": 19046868.2876,
       "var_uncovered_b0_9": {"either": [2321065.4742, 2321065.47421]},
-      "var_uncovered_b0_95": {"either": [2997229.19804, 3130711.05494]},
+      "var_uncovered_b0_95": {"either": [2997229.19804, 3130711.05493]},
       "var_uncovered_b0_99": 17562766.9776
     },
     "objective_value": 5191697.78338,

@@ -20,7 +20,7 @@ Run from the repository root::
     uv run python parity/scripts/export_crc_fixtures.py --check    # diff only
 
 ``--check`` regenerates the cases in memory and compares them with the
-committed files (:func:`compare_documents`); it writes nothing and exits with
+committed files (:func:`compare_case`); it writes nothing and exits with
 status 1 on a difference. ``parity/tests/test_crc_fixtures.py`` runs the same
 comparison in CI. ``--summary`` prints the table of cases.
 
@@ -74,11 +74,12 @@ passed explicitly. Documents are written with sorted keys
 (:func:`render`). Input values are written as stored (shortest round-trip
 ``repr``); computed values are rounded to :data:`SIGNIFICANT_DIGITS`
 significant digits first, and amounts within ``1e-9`` of the scale of zero are
-written as 0 (the module's own rule, ADR 0005 §5.3). On one machine the output
-is byte-identical run to run. Solver results can differ in the last digits
-between platforms, so :func:`compare_documents` allows
-:data:`REGEN_RTOL_SOLVED` on solved values and :data:`REGEN_RTOL_EXACT`
-elsewhere.
+written as 0 (the module's own rule, ADR 0005 §5.3). The premium, the
+metrics and the objective value are those of the written (rounded) levels. On
+one machine the output is byte-identical run to run. Between platforms a
+solver can return another point of a set of optimal designs, so
+:func:`compare_case` compares a non-unique design by what holds for every
+point of the set, not by the point itself.
 """
 
 from __future__ import annotations
@@ -88,8 +89,8 @@ import json
 import math
 import subprocess
 import sys
-from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from fractions import Fraction
@@ -452,6 +453,51 @@ QP_CHECK_POLICY: Final[SolverPolicy] = SolverPolicy(
 """OSQP at tight tolerances, to check the accurate policy's QP solutions."""
 
 RUN_ID: Final[str] = "mar-245"
+
+
+@dataclass(frozen=True)
+class SolverSettings:
+    """The solver policies of one generation run.
+
+    The defaults are the ones the cases are written with. A test passes other
+    settings to check that the regeneration check does not depend on which
+    point of a set of optimal designs a solver returns.
+    """
+
+    accurate: SolverPolicy = ACCURATE_POLICY
+    vertex: SolverPolicy = LP_VERTEX_POLICY
+    qp_check: SolverPolicy = QP_CHECK_POLICY
+    ranging: Mapping[str, float | int] = field(
+        default_factory=lambda: dict(HIGHS_RANGING_OPTIONS)
+    )
+
+
+@dataclass(frozen=True)
+class GeneratedCase:
+    """A case document and what the regeneration check needs to judge it.
+
+    Attributes
+    ----------
+    document : dict
+        The case document.
+    evaluate : callable, optional
+        Design cases: the core's objective value, premium and metrics (the
+        ``expected`` fields, written the same way) of the cover at the given
+        levels, shape ``(n_assets, n_levels)``.
+    violations : callable, optional
+        Design cases: the design constraints the given levels break.
+    ranges : tuple of numpy.ndarray, optional
+        LP design cases: the wide near-optimal range of every identified
+        level, ``(low, high)``, loss units; NaN for unidentified levels.
+    identified : numpy.ndarray of bool, optional
+        Design cases: which levels are identified, ``(n_assets, n_levels)``.
+    """
+
+    document: dict[str, Any]
+    evaluate: Callable[[NDArray[np.float64]], dict[str, Any]] | None = None
+    violations: Callable[[NDArray[np.float64]], list[str]] | None = None
+    ranges: tuple[NDArray[np.float64], NDArray[np.float64]] | None = None
+    identified: NDArray[np.bool_] | None = None
 
 
 # --------------------------------------------------------------------------
@@ -1277,14 +1323,18 @@ class _Ranges:
         return bool(np.all(pinned))
 
 
-def _lp_ranges(built: BuiltProblem, identified: NDArray[np.bool_]) -> _Ranges:
+def _lp_ranges(
+    built: BuiltProblem,
+    identified: NDArray[np.bool_],
+    options: Mapping[str, float | int],
+) -> _Ranges:
     """Range every identified amount over two near-optimal sets, scaled units.
 
     Call right after the problem was solved with :data:`LP_VERTEX_POLICY`.
     For each tolerance ``rtol`` of :data:`NEAR_OPTIMAL_RTOLS` and each
     identified amount, the smallest and largest value over ``{feasible theta :
     objective <= optimum + rtol * max(1, |optimum|)}``, solved with HiGHS at
-    :data:`HIGHS_RANGING_OPTIONS`.
+    ``options`` (:data:`HIGHS_RANGING_OPTIONS` by default).
 
     Raises
     ------
@@ -1309,7 +1359,7 @@ def _lp_ranges(built: BuiltProblem, identified: NDArray[np.bool_]) -> _Ranges:
                 w = np.zeros(theta.shape)
                 w[j, k] = sign
                 weights.value = w
-                problem.solve(solver="HIGHS", **HIGHS_RANGING_OPTIONS)
+                problem.solve(solver="HIGHS", **options)
                 if problem.status != cp.OPTIMAL or theta.value is None:
                     raise RuntimeError(f"ranging LP at rtol {rtol}: {problem.status}")
                 target[j, k] = float(np.asarray(theta.value)[j, k])
@@ -1352,7 +1402,8 @@ def design_case(
     objective: ObjectiveSpec,
     pricing: PricingSpec,
     commit: str,
-) -> dict[str, Any]:
+    settings: SolverSettings,
+) -> GeneratedCase:
     """Build one design case: the core designs a step cover on ``data``.
 
     Parameters
@@ -1366,11 +1417,14 @@ def design_case(
         The case's objective and pricing.
     commit : str
         The generator block's commit.
+    settings : SolverSettings
+        The solver policies.
 
     Returns
     -------
-    dict
-        The case document.
+    GeneratedCase
+        The case document, with what the regeneration check needs: the core's
+        evaluation of any levels, the constraints they break, and the ranges.
     """
     joint = scope_name == F.scope_joint
     if joint == (len(data.asset_ids) == 1):
@@ -1400,15 +1454,16 @@ def design_case(
         if not np.array_equal(core_columns, identified[j]):
             raise AssertionError("the core's bins and the module's bin rule differ")
     where = f"{data.name}/{scope_name}/{objective.token}/{pricing.token}"
+    ranges: _Ranges | None = None
     if qp:
-        accurate = solve(first, ACCURATE_POLICY)
-        check = solve(build(), QP_CHECK_POLICY)
+        accurate = solve(first, settings.accurate)
+        check = solve(build(), settings.qp_check)
         unique = _mse_unique(data, identified)
         chosen = accurate
     else:
-        check = solve(first, LP_VERTEX_POLICY)
-        ranges = _lp_ranges(first, identified)
-        accurate = solve(build(), ACCURATE_POLICY)
+        check = solve(first, settings.vertex)
+        ranges = _lp_ranges(first, identified, settings.ranging)
+        accurate = solve(build(), settings.accurate)
         unique = ranges.unique(identified)
         interior = accurate.theta[identified] / accurate.scale
         inside = (interior >= ranges.low[identified] - UNIQUE_WIDTH) & (
@@ -1432,30 +1487,59 @@ def design_case(
         gap = np.abs(accurate.theta - check.theta)[identified]
         if np.any(gap > UNIQUE_WIDTH * scale):
             raise AssertionError(f"{where}: unique, but the solvers' amounts differ")
-    theta = _snap(chosen.theta, scale)
-    result = replace(chosen, theta=theta)
-
+    theta = np.vectorize(out)(_snap(chosen.theta, scale)).astype(np.float64)
     loss_draws = data.loss.sum(axis=1)
-    payout_draws = np.zeros(data.n)
-    for j in range(len(data.asset_ids)):
-        payout_draws = payout_draws + step_values(
-            data.index[:, j], data.edges[:-1], theta[j]
-        )
-    objective_value = _objective_value(objective.core, loss_draws, payout_draws)
-    if not _rel_close(objective_value, chosen.objective_value, WRITTEN_RTOL):
-        raise AssertionError(
-            f"objective at the written amounts {objective_value!r}, solver "
-            f"{chosen.objective_value!r}"
-        )
-    metrics = core_metrics(
-        eventset, scope, (result,), pricing.core, _Draws(loss_draws, payout_draws)
-    )
-    budget = BUDGET_RATIO * float(np.mean(loss_draws))
-    premium = metrics[metric("premium")]
-    if premium > budget * (1.0 + WRITTEN_RTOL):
-        raise AssertionError(f"premium {premium} above the budget {budget}")
-
     caps = data.loss.max(axis=0)
+    budget = BUDGET_RATIO * float(np.mean(loss_draws))
+
+    def evaluate(levels: NDArray[np.float64]) -> dict[str, Any]:
+        """Return the objective, premium and metrics of the cover at ``levels``."""
+        payout_draws = np.zeros(data.n)
+        for j in range(len(data.asset_ids)):
+            payout_draws = payout_draws + step_values(
+                data.index[:, j], data.edges[:-1], levels[j]
+            )
+        metrics = core_metrics(
+            eventset,
+            scope,
+            (replace(chosen, theta=levels),),
+            pricing.core,
+            _Draws(loss_draws, payout_draws),
+        )
+        value = _objective_value(objective.core, loss_draws, payout_draws)
+        return {
+            F.objective_value: out(value),
+            F.premium: metrics[metric("premium")],
+            F.metrics: metrics,
+        }
+
+    def violations(levels: NDArray[np.float64]) -> list[str]:
+        """Return the design constraints that ``levels`` break (ADR 0005 §5.2)."""
+        tol = ZERO_AMOUNT * scale
+        found = []
+        if levels.min() < -tol:
+            found.append(f"a level is negative: {levels.min()!r}")
+        if levels.shape[1] > 1 and np.diff(levels, axis=1).min() < -tol:
+            found.append("the levels are not monotone")
+        if np.any(levels > caps[:, None] + tol):
+            found.append("a level is above its asset's cap")
+        premium = evaluate(levels)[F.premium]
+        if premium > budget * (1.0 + WRITTEN_RTOL):
+            found.append(f"premium {premium!r} above the budget {budget!r}")
+        return found
+
+    evaluation = evaluate(theta)
+    if not _rel_close(
+        evaluation[F.objective_value], chosen.objective_value, WRITTEN_RTOL
+    ):
+        raise AssertionError(
+            f"{where}: objective at the written amounts "
+            f"{evaluation[F.objective_value]!r}, solver {chosen.objective_value!r}"
+        )
+    broken = violations(theta)
+    if broken:
+        raise AssertionError(f"{where}: the written amounts break {broken}")
+
     covers = [
         _step_cover(data, j, [_free(caps[j])] * theta.shape[1])
         for j in range(len(data.asset_ids))
@@ -1484,7 +1568,7 @@ def design_case(
             unidentified[0],
         )
     case_id = f"step-{objective.token}-{pricing.token}-{scope_name}-{data.name}"
-    return {
+    document = {
         F.case_id: case_id,
         F.kind: F.kind_design,
         F.source: F.source_core,
@@ -1496,17 +1580,25 @@ def design_case(
         F.limit: None,
         F.scope: scope_name,
         F.expected: {
-            F.objective_value: out(objective_value),
-            F.premium: premium,
+            F.objective_value: evaluation[F.objective_value],
+            F.premium: evaluation[F.premium],
             F.parameters: parameters_doc,
             F.unidentified: unidentified_doc,
             F.unique: unique,
-            F.metrics: metrics,
+            F.metrics: evaluation[F.metrics],
         },
         F.compare_parameters: compare,
         F.tolerances: _tolerances(),
         F.generator: _generator(commit),
     }
+    wide = None if ranges is None else (ranges.low * scale, ranges.high * scale)
+    return GeneratedCase(
+        document=document,
+        evaluate=evaluate,
+        violations=violations,
+        ranges=wide,
+        identified=identified,
+    )
 
 
 # --------------------------------------------------------------------------
@@ -1964,8 +2056,57 @@ def datasets() -> tuple[Dataset, Dataset]:
     return synthetic, thesis
 
 
+def build_cases(
+    commit: str | None = None, settings: SolverSettings | None = None
+) -> dict[str, GeneratedCase]:
+    """Build every case.
+
+    Parameters
+    ----------
+    commit : str, optional
+        The generator block's commit; default :func:`core_commit`.
+    settings : SolverSettings, optional
+        The solver policies; default ``SolverSettings()``, the ones the cases
+        are written with.
+
+    Returns
+    -------
+    dict
+        File name (``<case_id>.json``) -> case, in case order.
+    """
+    commit = core_commit() if commit is None else commit
+    settings = SolverSettings() if settings is None else settings
+    cases: list[GeneratedCase] = []
+    for data in datasets():
+        individual = data.select(data.asset_ids[:1])
+        for objective in objectives():
+            for pricing in pricings():
+                for scope_name, chosen in (
+                    (F.scope_individual, individual),
+                    (F.scope_joint, data),
+                ):
+                    cases.append(
+                        design_case(
+                            chosen, scope_name, objective, pricing, commit, settings
+                        )
+                    )
+        for pricing in pricings():
+            cases.append(GeneratedCase(fixed_step_case(individual, pricing, commit)))
+    for case in LINEAR_CASES:
+        tokens = ("pure", "coc") if case.tail == "upper" else ("pure",)
+        for token in tokens:
+            cases.append(GeneratedCase(linear_case(case, token, commit)))
+    out_cases: dict[str, GeneratedCase] = {}
+    for case in cases:
+        name = f"{case.document[F.case_id]}.json"
+        if name in out_cases:
+            raise ValueError(f"case ids repeat: {name}")
+        out_cases[name] = case
+    return out_cases
+
+
 def build_documents(commit: str | None = None) -> dict[str, dict[str, Any]]:
-    """Build every case document.
+    """Build every case document (:func:`build_cases`, documents only).
 
     Parameters
     ----------
@@ -1977,33 +2118,7 @@ def build_documents(commit: str | None = None) -> dict[str, dict[str, Any]]:
     dict
         File name (``<case_id>.json``) -> document, in case order.
     """
-    commit = core_commit() if commit is None else commit
-    docs: list[dict[str, Any]] = []
-    for data in datasets():
-        individual = data.select(data.asset_ids[:1])
-        for objective in objectives():
-            for pricing in pricings():
-                docs.append(
-                    design_case(
-                        individual, F.scope_individual, objective, pricing, commit
-                    )
-                )
-                docs.append(
-                    design_case(data, F.scope_joint, objective, pricing, commit)
-                )
-        for pricing in pricings():
-            docs.append(fixed_step_case(individual, pricing, commit))
-    for case in LINEAR_CASES:
-        tokens = ("pure", "coc") if case.tail == "upper" else ("pure",)
-        for token in tokens:
-            docs.append(linear_case(case, token, commit))
-    out_docs: dict[str, dict[str, Any]] = {}
-    for doc in docs:
-        name = f"{doc[F.case_id]}.json"
-        if name in out_docs:
-            raise ValueError(f"case ids repeat: {name}")
-        out_docs[name] = doc
-    return out_docs
+    return {name: case.document for name, case in build_cases(commit).items()}
 
 
 # --------------------------------------------------------------------------
@@ -2141,7 +2256,11 @@ def _floor(path: tuple[str, ...], case: Mapping[str, Any]) -> float:
 
 
 def compare_documents(
-    committed: Mapping[str, Any], regenerated: Mapping[str, Any]
+    committed: Mapping[str, Any],
+    regenerated: Mapping[str, Any],
+    *,
+    skip: Iterable[tuple[str, ...]] = (),
+    rtol: float | None = None,
 ) -> list[str]:
     """Compare a committed case with its regeneration; return the differences.
 
@@ -2159,6 +2278,10 @@ def compare_documents(
     ----------
     committed, regenerated : mapping
         The two documents.
+    skip : iterable of tuple of str, optional
+        Paths not to compare, e.g. ``("expected", "parameters")``.
+    rtol : float, optional
+        One relative tolerance for every float, instead of the two above.
 
     Returns
     -------
@@ -2167,8 +2290,11 @@ def compare_documents(
     """
     problems: list[str] = []
     solved = regenerated.get(F.kind) == F.kind_design
+    skipped = set(skip)
 
     def tol(path: tuple[str, ...]) -> float:
+        if rtol is not None:
+            return rtol
         in_expected = bool(path) and path[0] == F.expected
         return REGEN_RTOL_SOLVED if solved and in_expected else REGEN_RTOL_EXACT
 
@@ -2180,7 +2306,7 @@ def compare_documents(
 
     def walk(a: object, b: object, path: tuple[str, ...]) -> None:
         where = "/".join(path) or "<root>"
-        if path == (F.generator, F.commit):
+        if path == (F.generator, F.commit) or path in skipped:
             return
         if isinstance(a, dict) and isinstance(b, dict):
             if set(a) == {F.either} or set(b) == {F.either}:
@@ -2226,6 +2352,148 @@ def compare_documents(
     return problems
 
 
+SOLVER_POINT_FIELDS: Final[tuple[tuple[str, ...], ...]] = (
+    (F.expected, F.parameters),
+    (F.expected, F.premium),
+    (F.expected, F.metrics),
+)
+"""The fields that are one solver's point of a set of optimal designs when a
+design is not unique: they are judged by :func:`compare_case`, not compared."""
+
+
+def levels_of(
+    document: Mapping[str, Any], shape: tuple[int, int]
+) -> NDArray[np.float64]:
+    """Return a design case's ``expected.parameters`` as an array of levels.
+
+    Parameters
+    ----------
+    document : mapping
+        A design case.
+    shape : tuple of int
+        ``(n_assets, n_levels)``.
+
+    Returns
+    -------
+    numpy.ndarray
+        The levels, one row per asset in ``asset_ids`` order.
+    """
+    parameters = document[F.expected][F.parameters]
+    if document[F.scope] == F.scope_joint:
+        rows = [parameters[a] for a in document[F.sample][F.asset_ids]]
+    else:
+        rows = [parameters]
+    levels = np.array(
+        [[float(row[level_name(k)]) for k in range(shape[1])] for row in rows],
+        dtype=np.float64,
+    )
+    if levels.shape != shape:
+        raise ValueError(f"levels of shape {levels.shape}, expected {shape}")
+    return levels
+
+
+def _unidentified_paths(document: Mapping[str, Any]) -> list[tuple[str, ...]]:
+    """Paths of a design case's unidentified levels in ``expected.parameters``.
+
+    An unidentified level changes nothing on the sample, so any value the
+    constraints allow is optimal, and a solver's choice is not compared.
+    """
+    unidentified = document[F.expected][F.unidentified]
+    base = (F.expected, F.parameters)
+    if document[F.scope] == F.scope_joint:
+        return [(*base, a, name) for a, names in unidentified.items() for name in names]
+    return [(*base, name) for name in unidentified]
+
+
+def compare_case(committed: Mapping[str, Any], generated: GeneratedCase) -> list[str]:
+    """Judge a committed case against its regeneration; return the differences.
+
+    Evaluate cases and the inputs of every case are compared with
+    :func:`compare_documents`. A design case is judged in three more ways,
+    which hold whichever point of a set of optimal designs a solver returns:
+
+    1. **The committed values are the core's at the committed levels.** The
+       core evaluates ``expected.parameters`` again; the objective value, the
+       premium and every metric must agree within :data:`REGEN_RTOL_EXACT`.
+    2. **The committed levels are an optimal design of the regenerated
+       problem.** They meet every constraint (bounds, monotonicity, cap,
+       budget), and their objective value agrees with the regenerated optimum
+       within :data:`REGEN_RTOL_SOLVED`.
+    3. **They lie within the regenerated ranges** (LP cases), widened by
+       :data:`UNIQUE_WIDTH` times the scale.
+
+    Only a unique design (``"exact"`` on both sides) has its identified levels, premium
+    and metrics also compared with the regenerated ones. A non-unique one has
+    no such reference: a solver on another platform can return another point
+    of the same optimal set.
+
+    Parameters
+    ----------
+    committed : mapping
+        The committed document.
+    generated : GeneratedCase
+        Its regeneration.
+
+    Returns
+    -------
+    list of str
+        One line per difference; empty if the case passes.
+    """
+    regenerated = generated.document
+    if generated.evaluate is None or generated.violations is None:
+        return compare_documents(committed, regenerated)
+    if generated.identified is None:
+        raise ValueError("a design case needs its identified levels")
+    unique = (
+        regenerated[F.compare_parameters] == F.compare_exact
+        and committed.get(F.compare_parameters) == F.compare_exact
+    )
+    problems = compare_documents(
+        committed,
+        regenerated,
+        skip=_unidentified_paths(regenerated) if unique else SOLVER_POINT_FIELDS,
+    )
+    try:
+        levels = levels_of(committed, generated.identified.shape)
+    except (KeyError, TypeError, ValueError) as exc:
+        return [*problems, f"{F.expected}/{F.parameters}: unreadable ({exc!r})"]
+    evaluated = generated.evaluate(levels)
+    keys = (F.objective_value, F.premium, F.metrics)
+    problems += compare_documents(
+        {**committed, F.expected: {k: committed[F.expected].get(k) for k in keys}},
+        {**regenerated, F.expected: evaluated},
+        rtol=REGEN_RTOL_EXACT,
+    )
+    problems += [
+        f"{F.expected}/{F.parameters}: {v}" for v in generated.violations(levels)
+    ]
+    objective = regenerated[F.objective] or {}
+    scale = case_scale(regenerated)
+    floor = scale**2 if objective.get(F.kind_key) == F.objective_mse else scale
+    at_levels = float(evaluated[F.objective_value])
+    optimum = float(regenerated[F.expected][F.objective_value])
+    if not math.isclose(
+        at_levels,
+        optimum,
+        rel_tol=REGEN_RTOL_SOLVED,
+        abs_tol=REGEN_RTOL_SOLVED * floor,
+    ):
+        problems.append(
+            f"{F.expected}/{F.parameters}: objective {at_levels!r} at the committed "
+            f"levels, regenerated optimum {optimum!r}"
+        )
+    if generated.ranges is not None:
+        low, high = generated.ranges
+        pad = UNIQUE_WIDTH * scale
+        outside = generated.identified & ((levels < low - pad) | (levels > high + pad))
+        for j, k in zip(*np.nonzero(outside), strict=True):
+            problems.append(
+                f"{F.expected}/{F.parameters}: asset {j} {level_name(int(k))} = "
+                f"{levels[j, k]!r} outside the range [{low[j, k]!r}, {high[j, k]!r}]"
+            )
+    return problems
+
+
 def summary(
     documents: Mapping[str, Mapping[str, Any]], sizes: Mapping[str, int]
 ) -> str:
@@ -2266,7 +2534,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--check", action="store_true", help="compare, write nothing")
     parser.add_argument("--summary", action="store_true", help="print the case table")
     args = parser.parse_args(argv)
-    documents = build_documents()
+    cases = build_cases()
+    documents = {name: case.document for name, case in cases.items()}
     texts = {name: render(doc) for name, doc in documents.items()}
     out_dir: Path = args.out
     if args.check:
@@ -2276,10 +2545,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         identical = 0
         for name in sorted(set(texts) & committed):
             text = (out_dir / name).read_text(encoding="utf-8")
-            if text == texts[name]:
-                identical += 1
-                continue
-            diffs = compare_documents(json.loads(text), documents[name])
+            identical += text == texts[name]
+            diffs = compare_case(json.loads(text), cases[name])
             problems += [f"{name}: {d}" for d in diffs]
         print(f"{identical} of {len(texts)} cases byte-identical")
         for line in problems:
