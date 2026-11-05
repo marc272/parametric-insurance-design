@@ -191,6 +191,8 @@ Every `gh pr` command on fork work, yours and the workers', passes `--repo marc2
 
 Agents never create tags or run workflows by hand in the forks. Both forks' workflows are enabled (Marc, 2026-11-05), and crc-sdk's `release.yaml` ("Package release") runs on any pushed `v*` tag and on `workflow_dispatch`, with `id-token: write`. A tag or a manual run could publish a release.
 
+### Briefs
+
 **Brief template.** Paste the issue text verbatim; don't paraphrase acceptance criteria. Keep the line on logs and drafts: workers write them inside their own worktree, never in the shared session scratchpad, where concurrent workers overwrote each other's files on 2026-10-27.
 
 ```text
@@ -287,7 +289,7 @@ Otherwise, set the issue to In Review, assign it to Marc, and alert him. Never u
 The merge gate differs by fork (checked 2026-11-05):
 
 - **crc-sdk:** `.github/workflows/ci.yml` runs on every `pull_request`, with no branch filter: ruff and strict mypy, the tests on Python 3.11 to 3.14 and on Windows, and a wheel build. PRs into `parametric` get it, and it is the merge gate.
-- **crc-docs:** the only PR workflow is `validate-skills.yml`, filtered to the agent skills, `AGENTS.md`, `CLAUDE.md` and `.mcp.json`. Nothing runs `tests/` or the notebooks in CI. So the gate is local, as in "Fallback: local CI" below: the worker pastes the summary of the fork's own checks (`uv run pytest -q`) on the final head, and you re-run them in the PR's worktree, on the head you are about to merge, plus `validate-skills` when the PR triggers it. Merge only if that run passes.
+- **crc-docs:** the only PR workflow is `validate-skills.yml`, filtered to the agent skills, `AGENTS.md`, `CLAUDE.md` and `.mcp.json`. Nothing runs `tests/` or the notebooks in CI. So the gate is local, as in "Fallback: local CI" below: the worker pastes the summary of the fork's own checks (`uv run pytest -q`) on the final head, and you re-run them in the PR's worktree, on the head you are about to merge. When the PR touches the files `validate-skills.yml` watches, that check must be green too. Merge only if your run passes.
 - Both forks carry upstream's `rebase-dependabot.yml`, which has no job in a fork.
 
 Merge a fork PR so that the commit on `parametric` reads like upstream's history, with no MAR ID in its subject:
@@ -303,7 +305,7 @@ Marc (2026-11-05): the orchestrator keeps each fork's `parametric` current by me
 
 1. `git -C <clone> fetch upstream` and `git -C <clone> fetch origin`. If `git -C <clone> merge-base --is-ancestor upstream/main origin/parametric` succeeds, `parametric` is current.
 2. Make a worktree on a sync branch: `git -C <clone> worktree add --no-track -b sync/upstream-main-<YYYY-MM-DD> <worktree> origin/parametric`.
-3. `git -C <worktree> merge --no-edit upstream/main`. If it conflicts in the module's code, resolve it there; if the resolution needs real work, file an issue for it instead.
+3. `git -C <worktree> merge --no-edit upstream/main`. Resolve simple conflicts in the worktree. If a resolution needs real work, file an issue for it and dispatch it like any other.
 4. Run the fork's checks in the worktree, push the sync branch, and open a PR into `parametric` (`gh pr create --repo marc272/<fork> --base parametric --head sync/upstream-main-<YYYY-MM-DD> --title "chore: merge upstream main into parametric"`).
 5. When the gate passes, merge it with a merge commit: `gh pr merge <n> --repo marc272/<fork> --merge`. Never `--squash` or `--rebase` here: either would drop upstream's history from `parametric`, and the upstream PR would then show upstream's own changes as ours.
 
