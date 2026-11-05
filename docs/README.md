@@ -52,5 +52,6 @@ The plan, the decisions and their status are tracked in Linear. That workspace i
   - [ADR 0002](adr/0002-core-interfaces.md): the core interfaces, the module layout and the map of which issue owns each file.
   - [ADR 0003](adr/0003-website-stack.md): the website stack and hosting.
   - [ADR 0004](adr/0004-repository-structure.md): the repository structure for external presentation, including this index.
+  - [ADR 0005](adr/0005-crc-parametric-module.md) (proposed): the design of the parametric insurance module `crc_sdk.parametric` for the Climate Risk Commons SDK.
 - [Reviews](reviews/):
   - [Core design review](reviews/core-design-review.md): the tail and portfolio formulations, checked against the spec and the thesis, with ranked findings and proposed follow-ups.
