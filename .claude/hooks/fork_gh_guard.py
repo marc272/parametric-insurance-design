@@ -62,6 +62,7 @@ MAX_CWDS = 64
 _KEYWORDS = frozenset(
     {"if", "then", "else", "elif", "do", "while", "until", "!", "{", "time"}
 )
+_PRECOMMANDS = frozenset({"builtin", "command", "nocorrect", "noglob"})
 _SEPARATORS = ("&&", "||", ";;", ";&", "|&", ";", "|", "&")
 _REDIRECTS = ("&>>", "<<<", "<<-", "&>", ">>", ">&", "<&", ">|", "<>", "<<", ">", "<")
 _ANSI_C = {
@@ -168,6 +169,9 @@ class _Lexer:
                 end = self._nested_commands(i + 2)
                 self._add(text[i:end])
                 i = end
+            elif c == "(" and self._arithmetic_end(i) > 0:
+                self._end_command()  # an arithmetic command, ((...))
+                i = self._arithmetic(i)
             elif c == "(":
                 self._end_command()
                 parens += 1
@@ -268,9 +272,42 @@ class _Lexer:
                 i += 1
         raise ParseError("unterminated double quote")
 
+    def _arithmetic_end(self, i: int) -> int:
+        """Return the index after the ``((...))`` at ``i``, or -1 if none.
+
+        Its ``<<`` is a shift, not a here-document. ``((cmd) ...)``, whose
+        last two parentheses aren't adjacent, is a subshell.
+        """
+        text = self.text
+        if not text.startswith("((", i):
+            return -1
+        depth = 0
+        for j in range(i, len(text)):
+            if text[j] == "(":
+                depth += 1
+            elif text[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    return j + 1 if text[j - 1] == ")" else -1
+        return -1
+
+    def _arithmetic(self, i: int) -> int:
+        """Skip the ``((...))`` at ``i``; lex its substitutions as commands."""
+        end = self._arithmetic_end(i)
+        inner = self.text[i + 2 : end - 2]
+        if "$(" in inner or "`" in inner:
+            sub = _Lexer(inner, self.depth + 1)
+            sub.run()
+            self.commands.extend(sub.commands)
+        return end
+
     def _dollar(self, i: int, quoted: bool) -> int:
         text = self.text
         nxt = text[i + 1 : i + 2]
+        if nxt == "(" and self._arithmetic_end(i + 1) > 0:
+            end = self._arithmetic(i + 1)
+            self._add(text[i:end])
+            return end
         if nxt == "(":
             end = self._nested_commands(i + 2)
             self._add(text[i:end])
@@ -393,6 +430,8 @@ def split_commands(text: str, depth: int = 0) -> list[list[str]]:
 
 
 def _basename(word: str) -> str:
+    if word.startswith("="):
+        word = word[1:]  # zsh expands =gh to the path of gh
     return word.rsplit("/", 1)[-1]
 
 
@@ -605,7 +644,7 @@ class _Context:
             words[k] in _KEYWORDS or _ASSIGNMENT.fullmatch(words[k])
         ):
             k += 1
-        if k < len(words) and words[k] in ("builtin", "command"):
+        while k < len(words) and words[k] in _PRECOMMANDS:
             k += 1
         if k >= len(words):
             return

@@ -147,6 +147,7 @@ CASES: list[tuple[str, str, str]] = [
     ("allow", SDK, 'git commit -m "docs: explain gh pr create"'),
     ("allow", SDK, 'grep -rn "gh pr" docs/'),
     ("allow", SDK, 'echo "unterminated'),
+    ("allow", SDK, "echo $(( 1 << 2 )) && gh pr view 3 --repo marc272/crc-sdk"),
     ("allow", REPO, f"git -C {SDK} fetch origin && git -C {SDK} worktree list"),
     # gh pr and gh issue outside the fork paths.
     ("allow", REPO, "gh pr view 181"),
@@ -227,6 +228,12 @@ CASES: list[tuple[str, str, str]] = [
     ("refuse", SDK, "/opt/homebrew/bin/gh pr view 3"),
     ("refuse", SDK, '"gh" pr view 3'),
     ("refuse", SDK, "g\\h pr view 3"),
+    ("refuse", SDK, "=gh pr view 3"),
+    ("refuse", REPO, 'nocorrect cd "$WT" && gh pr list'),
+    # Refused: a here-document or arithmetic doesn't hide the next lines.
+    ("refuse", REPO, f"(( n = 1 << 2 ))\ncd {SDK} && gh pr list"),
+    ("refuse", REPO, f"echo $(( 1 << 2 ))\ncd {SDK} && gh pr list"),
+    ("refuse", REPO, f"cat <<'EOF'\nnotes\nEOF\ncd {SDK} && gh pr list"),
     # Refused: a repo flag that isn't a literal marc272 repository.
     ("refuse", SDK, "gh pr list --repo RiskThinking/crc-sdk"),
     ("refuse", SDK, 'gh pr list --repo "$REPO"'),
