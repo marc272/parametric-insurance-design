@@ -284,8 +284,8 @@ class OutcomeSample:
     index_unit: str
     loss_unit: str
     semantics: Literal["annual"]         # one draw is one year
-    scenario: str = "baseline"
     provenance: SampleProvenance         # §7
+    scenario: str = "baseline"
     def select(self, periods) -> OutcomeSample
     def to_table(self) -> pyarrow.Table  # long: scenario, period, asset_id, probability, index, loss, hazard
     @property
