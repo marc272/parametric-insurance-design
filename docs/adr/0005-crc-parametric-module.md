@@ -7,6 +7,7 @@
   - crc-sdk 0.11.1: [`9c56bb0`][sdk] (tag `v0.11.1`, 2026-11-04);
   - crc-framework 0.6.0: [`838c295`][fw] (tag `v0.6.0`; the later head changes only the release workflow);
   - crc-docs: [`7691f5f`][docs] (2026-11-04).
+- Revised on 2026-11-05, before the owner's decision, to match the golden fixtures of MAR-245 (PR #183). The end of "Decisions for the owner" lists what changed.
 
 The section "Decisions for the owner" lists what Marc decides. Every other choice below is the agent's recommendation, with the alternatives named where a choice is open.
 
@@ -389,7 +390,7 @@ On the design sample, with draw probabilities p_d, loss L_d, payout π_d and unc
 
 - **The grid.** A free shape parameter must have a grid (§3). The candidates are the Cartesian product of the grids, restricted to ordered breakpoints and knots. `DesignOptions(max_grid_points=10_000)` caps the product; above the cap `design` raises. The best candidate wins. Ties within the tolerance go to the first candidate in lexicographic order and are counted (`DesignResult.ties`). The objective at every candidate is kept (`DesignResult.profile`, a `pyarrow.Table`).
 - **Why a grid.** On a finite sample the objective is piecewise constant (step, binary) or piecewise smooth (linear, piecewise linear) in the shape parameters, so gradients mislead. A stated grid is reproducible and shows how flat the optimum is. A local refinement after the grid is a later option (§9).
-- **Scaling.** Losses and payouts are divided by the largest loss before solving (if it is above 1e-6), as the core's `build_context` does. Results are in payout units.
+- **Scaling.** Losses and payouts are divided by the scale before solving: the largest loss of a draw (in a joint design, of the draw's loss summed over the assets), or 1 if that is at most 1e-6, as the core's `build_context` does. Results are in payout units.
 - **No silent failures.** After the solve, numpy recomputes the objective, the premium, the budget and every constraint from the returned parameters, with relative tolerance `DesignOptions.feasibility_tolerance = 1e-7`. A violation, or any solver status other than optimal, raises `DesignError` (or `InfeasibleDesignError`, `UnboundedDesignError`) with the asset id and the solver's message. Amounts below 1e-9 of the scale are set to 0 and counted, so a 1e-12 level doesn't count as a payout in §6's rates.
 
 **`DesignResult`** holds: the resolved `cover`; `template_hash`; `design_id` (§7); the objective's document and `objective_value`; `premium`, `expected_loss` and the budget's use; `route` (`"lp"`, `"qp"` or `"grid"`); the solver's name, version, status, iterations and time; the non-uniqueness report of §5.4; the degenerate-tail flags; and the design sample's `content_hash`.
@@ -399,7 +400,10 @@ On the design sample, with draw probabilities p_d, loss L_d, payout π_d and unc
 The module reports non-uniqueness. It does not hide it behind one solver-dependent answer.
 
 - **Unidentified amounts.** An amount whose basis column is zero in every design year (a step bin or a piecewise segment that no year reaches) changes nothing in the sample: not the objective, the premium or the budget, under every objective and pricing. `DesignResult.unidentified` lists them. A stated rule sets them: `DesignOptions(fill="lowest")`, the default, takes the smallest value the constraints allow (the previous identified level under `monotone`, else 0); `fill="highest"` takes the largest (the next identified level, or the limit or upper bound above the last one; with no bound above, `design` raises). Both keep the design exactly optimal. The rule is recorded.
-- **Ranges over the optimal face** (LP route; `DesignOptions(ranges=True)`). For each amount, the smallest and largest value over the near-optimal set {feasible θ : objective(θ) ≤ optimum + 1e-6 · max(1, |optimum|)}: two LPs per amount. `DesignResult.ranges` maps names to (low, high), and `unique` is true when every range is narrower than 1e-6 of the scale.
+- **Ranges and uniqueness on the LP route** (`DesignOptions(ranges=True)`). Each identified amount is ranged twice: its smallest and largest value over the near-optimal set {feasible θ : objective(θ) ≤ optimum + ε · max(1, |optimum|)}, in scaled units, for a wide ε₁ = 1e-9 and a narrow ε₂ = 1e-11. That is four LPs per amount, solved with HiGHS at primal and dual feasibility tolerances of 1e-10 (its defaults are 1e-7).
+  - An amount is **pinned** when its narrow range is at most half its wide one, or narrower than 1e-7 of the scale. `unique` is true when every identified amount is pinned. `DesignResult.ranges` maps each amount to its wide range (low, high). Without `ranges=True`, `unique` is `None` on the LP route.
+  - Why two tolerances: in an LP the width of a near-optimal range is, for small ε, w(ε) = w₀ + c·ε. Here w₀ is the width of the optimal set along that amount, and c is the inverse of the objective's slope there. At a unique vertex w₀ = 0, so the width falls a hundredfold from ε₁ to ε₂. On a set of optimal designs it keeps w₀. A single tolerance can't tell the two apart: the width at a unique vertex is ε/slope, which can be any size. In the MAR-245 fixtures it was 6e-6 to 5e-3 of the scale at a near-optimal tolerance of 1e-6, so a fixed width threshold would have called all 15 unique LP optima non-unique. With the two tolerances, the pinned ranges shrank to 1 % or less, and the others kept at least 2e-3 of the scale.
+  - The test detects an optimal set only if it is wider than about c·ε₁. A narrower one is reported as unique.
 - **MSE route.** The minimiser over the identified amounts is unique exactly when H restricted to them is positive definite. `unique` comes from its smallest eigenvalue (relative tolerance 1e-10).
 - **Grid route.** `ties` counts the candidates within the tolerance of the best.
 - **Degenerate tails** (weighted CVaR), as the core's runner defines them: `p_zero_loss = P(L = 0)`; `tail_outcomes = (1 − β) / p_min`, with p_min the smallest draw probability; `degenerate_tail = "expected_uncovered"` when β ≤ `p_zero_loss` (the objective is then a multiple of E[U]), `"single_outcome"` when `tail_outcomes ≤ 1`, otherwise `None`. They are recorded, not raised.
@@ -467,7 +471,7 @@ A smoke check by the agent on 2026-11-05 (synthetic step payouts, one machine, m
 | `loss_rp<T>`, `payout_rp<T>`, `uncovered_rp<T>`, `net_loss_rp<T>` | the value exceeded with probability 1/T: the lower (1 − 1/T)-quantile, by the VaR rule above. T is in years, because a draw is a year | — |
 
 - `MetricOptions(betas=(0.9, 0.95, 0.99), return_periods=(2, 5, 10, 25, 50, 100, 250), loss_thresholds=(0.0,), payout_threshold=0.0)` sets β, T, ℓ and ε. The thresholds are always stated: there is no hidden threshold (crc-docs' quality gate). ℓ is in loss units; ε is the payout below which a year counts as "no payout".
-- Labels `<β>`, `<T>`, `<ℓ>` follow crc-sdk's return-period column rule (`value_rp2_5`): the decimal text with the point as an underscore, so β = 0.99 gives `cvar_uncovered_b0_99` and T = 100 gives `loss_rp100`. Colliding names raise. The metadata maps every column to its metric, parameter, unit and definition (§7).
+- Labels `<β>`, `<T>`, `<ℓ>` follow crc-sdk's return-period column rule (`value_rp2_5`): the decimal text with the point as an underscore, so β = 0.99 gives `cvar_uncovered_b0_99` and T = 100 gives `loss_rp100`. The default loss threshold 0.0 gives `l0`, as in `false_negative_rate_l0`. Colliding names raise. The metadata maps every column to its metric, parameter, unit and definition (§7).
 - **crc-framework's CVaR is a different quantity.** Its `compute_risk` gives VaR and CVaR over the 2ⁿ branches of independent binary factor outcomes, each with a downside probability and impact (U10). This module's VaR and CVaR are over the years of an outcome sample, for one continuous quantity of one cover (uncovered loss, net loss or loss). The random variable, the outcomes and the dependence assumptions all differ. The two never share a column and are never compared. Docstrings and `docs/parametric.md` say so in these words.
 
 **In and out of sample.**
@@ -544,35 +548,85 @@ A smoke check by the agent on 2026-11-05 (synthetic step payouts, one machine, m
 
 **Not ported:** cvxpy; the `EventSet`; the experiment runner and store; the event and event-conditional bases; `below_attachment="first_bin"`; the thesis's noise copies (13 copies of each event); clustering and the joint scopes (Phase 2); the bootstrap (a follow-up).
 
-**Parity contract with R-13 (MAR-245).** The module's tests read fixture files and never import the core. One case is one JSON document:
+**Parity contract with R-13 (MAR-245).** The module's tests read fixture files and never import the core. The fixtures live in this repository under `parity/crc/`, and its README describes the format. One case is one JSON document:
 
 ```text
-{"case_id": "step-wcvar-b0_99-pure-synthetic",
- "kind": "design",                          # or "evaluate" for a fixed cover
- "source": "core",                          # or "closed_form"
- "sample": {"asset_ids": ["A1"], "period": [...], "probability": [...],
-            "index": [[...]], "loss": [[...]], "index_unit": "m/s", "loss_unit": "USD"},
- "cover": <the cover document of §3, Free markers for design cases>,
- "objective": {"kind": "weighted_cvar", "alpha": 0.9, "beta": 0.99},   # "mse", "expected_uncovered"
- "pricing": {"kind": "pure"},                # or {"kind": "cost_of_capital", "rate": 0.06, "q": 0.99}
- "budget": {"ratio": 1.0},                   # or {"amount": ...} or null
- "limit": null,
- "scope": "individual",                      # "joint" for Phase 2 cases
- "expected": {"objective_value": ..., "premium": ..., "parameters": {...},
-              "unidentified": [...], "unique": true, "metrics": {"<column>": ...}},
- "compare_parameters": "exact",              # or "within_ranges" or "none"
+{"case_id": "step-wcvar-b0_99-pure-individual-synthetic",
+ "kind": "design",                         # or "evaluate" for a fixed cover
+ "source": "core",                         # or "closed_form"
+ "sample": {"asset_ids": ["A1"], "period": [0, 1, ...], "probability": [...],
+            "index": [[x_0], [x_1], ...],  # n rows (draws), one value per asset: shape (n, n_assets)
+            "loss": [[l_0], [l_1], ...],   # the same shape
+            "index_unit": "m/s", "loss_unit": "USD"},
+ "cover": <the cover document of §3>,      # joint cases: a list, one per asset, in asset_ids order
+ "objective": {"kind": "weighted_cvar", "alpha": 0.9, "beta": 0.99},
+                                           # or {"kind": "mse"}, {"kind": "expected_uncovered"}; null if evaluate
+ "pricing": {"kind": "pure"},              # or {"kind": "cost_of_capital", "rate": 0.06, "q": 0.99}
+ "budget": {"ratio": 0.8},                 # or {"amount": ...}; null if evaluate
+ "limit": null,                            # always null: the cap is the Free upper bound
+ "scope": "individual",                    # or "joint" (Phase 2, R-21)
+ "expected": {"objective_value": ..., "premium": ...,
+              "parameters": {"levels[0]": ..., ...},   # joint: {"A1": {...}, "A2": {...}, ...}
+              "unidentified": ["levels[6]"],           # joint: {"A1": [...], ...}
+              "unique": true,
+              "metrics": {"expected_uncovered": ..., "var_uncovered_b0_9": {"either": [lower, upper]}, ...}},
+ "compare_parameters": "exact",            # or "within_ranges" or "none"
  "tolerances": {"objective_value": 1e-6, "premium": 1e-6, "metrics": 1e-6, "parameters": 1e-6},
- "generator": {"script": "...", "core_version": "...", "commit": "..."}}
+ "generator": {"script": "parity/scripts/export_crc_fixtures.py", "core_version": "...", "commit": "..."}}
 ```
 
-- **Cases:** as R-13 lists them: a step payout × {MSE, E[U], weighted CVaR at β 0.9 and 0.99} × {individual, joint (portfolio scope, for Phase 2's R-21)} × {pure premium, cost-of-capital load}, on a small seeded synthetic set and on a subsample of the committed thesis fixture; plus evaluation cases for fixed covers, including a linear payout whose expected values come from closed forms.
-- **Core settings for the fixtures:** `below_attachment="zero"`, the annual basis, and **at most one event row per year**. The module has one draw per year, while the core's annual basis sums several events of a year, so a fixture year with several events would not match. A year without an event row becomes a draw with loss 0 and an index below the first breakpoint.
-- **Tolerances:**
-  - objective value and premium: 1e-6 relative;
-  - metrics: 1e-6 relative, or 1e-9 absolute near zero;
-  - VaR on a step: either neighbouring atom (the fixture lists both); CVaR as the other metrics;
-  - parameters: compared only when `compare_parameters = "exact"`, at 1e-6 of the scale.
-- **Parameters on non-unique designs.** The core solves LPs with Clarabel first (an interior-point method), and HiGHS returns a vertex, so on a degenerate face the two can legitimately differ. Cases with unidentified amounts or a non-unique optimum (MAR-198, MAR-203) use `"within_ranges"`: the core's parameters must lie within the module's ranges, widened by 1e-6 of the scale, and unidentified amounts are left out. Otherwise they use `"none"`, and only the objective, the premium and the metrics are compared.
+**What a case holds.**
+
+- **Orientation.** `index` and `loss` are (n, n_assets): one row per draw, one value per asset in `asset_ids` order, as in §4.1. `numpy.asarray(sample["index"])` has that shape.
+- **Joint cases** (`scope = "joint"`, for Phase 2's `design_joint`):
+  - `cover` is a list of cover documents, one per asset, in `asset_ids` order;
+  - `expected.parameters` and `expected.unidentified` are keyed by asset id;
+  - the objective, the premium, the budget and the metrics are taken on the sums over the assets of each draw's loss and payout.
+- **The core's cap.** The core caps every level at the asset's largest loss on the sample. A case writes that cap as the bound of each amount, `Free(lower=0, upper=cap)`, and `limit` is always null.
+  - For the built-in families, `Limit(amount=cap)` would give the same problem (§3: every amount ≤ ℓ). The cases use one form only, so each case has one reading.
+  - `Limit` stays the contract's limit, a term the user states.
+- **Cases** (39, as MAR-245 built them):
+  - 32 design cases from the core: a step payout × {MSE, E[U], weighted CVaR at β 0.9 and 0.99} × {pure premium, cost-of-capital load} × {individual, joint} × {a seeded synthetic set, a subsample of the committed thesis fixture};
+  - 4 evaluation cases of fixed step covers, from the core;
+  - 3 evaluation cases of fixed linear covers (upper and lower tail), from closed forms.
+- **Metrics.** All in sample.
+  - Core cases carry only the metrics the core computes: `expected_loss`, `expected_payout`, `expected_uncovered`, `payout_to_loss_ratio`, `correlation`, `rmse`, `premium`, the VaR and CVaR columns, and the return-period columns.
+  - The new metrics of §6 appear only in the closed-form cases, for now: `coverage_ratio`, `tail_coverage_b<β>`, `cvar_uncovered_to_loss_b<β>`, and the false-negative and false-positive rates.
+- **Core settings.** `below_attachment="zero"`, the annual basis, and **at most one event row per year**.
+  - The module has one draw per year, while the core's annual basis sums the events of a year. So a fixture year with several events would not match.
+  - A year without an event row becomes a draw with index 0 and loss 0, below every cover's first threshold.
+- **`generator.commit`** is the last commit on `main` that changed the core's source (`packages/core/src`) when the cases were generated, suffixed `+dirty` if that source had local edits. A case can't name its own commit, and a squash merge drops the branch's commits. Tests ignore the field, and so does the regeneration check.
+
+**The scale** of a case is the largest summed loss of a draw, `max(sum(row) for row in sample["loss"])`. It is the scale of §5.3.
+
+**Tolerances.**
+
+| Value | Passes if |
+|---|---|
+| `objective_value` | within 1e-6 relative, with an absolute floor of 1e-9 × scale (1e-9 × scale² for MSE) |
+| `premium` | within 1e-6 relative, with an absolute floor of 1e-9 × scale |
+| a metric | within 1e-6 relative. The absolute floor is 1e-9 × scale for metrics in loss units, and 1e-9 for the unitless ones (`coverage_ratio`, `payout_to_loss_ratio`, `correlation`, `tail_coverage_*`, `cvar_uncovered_to_loss_*`, `false_negative_rate_*`, `false_positive_rate_*`) |
+| a quantile on a step | written `{"either": [lower, upper]}`; either atom passes. This applies to the VaR and return-period columns; §6's rule gives the lower atom. CVaR is always a single value |
+| a parameter | within 1e-6 × scale, absolute |
+
+**How a design case is compared.**
+
+1. `objective_value`, always.
+2. The parameters, as `compare_parameters` says:
+   - `"exact"`: every identified amount (one not in `unidentified`) agrees within the parameter tolerance. Unidentified amounts are left out, for every objective, MSE included: they change nothing on the sample, so any value the constraints allow is optimal (§5.4).
+   - `"within_ranges"`: every identified amount of `expected.parameters` lies within the module's wide range (§5.4), widened by 1e-6 × scale.
+   - `"none"`: the parameters are not compared.
+3. The premium and the metrics:
+   - when `unique` is true, those of the module's designed cover;
+   - otherwise, those of the template resolved with `expected.parameters` (`Cover.with_values`) and evaluated on the sample. On a non-unique optimum only the objective value is the same for every optimal design. The premium and the metrics depend on which member of the optimal set a solver returns.
+4. The module's `unique` must not be true where the case's is false.
+
+**How the cases set `unique` and `compare_parameters`.**
+
+- **LP cases.** The core solves with HiGHS, a vertex, and applies §5.4's two-tolerance test.
+  - A unique optimum is written as that vertex, checked against Clarabel at tight tolerances (agreement within 1e-6 × scale). It gets `"exact"`.
+  - A non-unique optimum is written as Clarabel's interior point at tight tolerances, one member of the optimal set, checked to lie within the ranges. It gets `"within_ranges"`.
+- **MSE cases.** §5.4's eigenvalue rule decides. Unique on the identified amounts gives `"exact"`. A singular H gives `"none"`, because the MSE route computes no ranges; this happens in joint cases where two assets' bins hold the same draws.
 
 ### 9. Phase 2 extension points
 
@@ -630,6 +684,22 @@ Each with the agent's recommendation first.
 9. **The premium out of sample:** the design premium, the contract price (§6). Alternative: priced again on each evaluation sample, as the core's `kpis` does.
 10. **Entry point:** `ParametricPlan.for_evaluation(request)`, plus asking RiskThinking for `PortfolioEvaluation.asset_curves()` (§2, Q1).
 11. **The issue map** with its four adjustments (§10).
+
+**Revision after the MAR-245 fixtures (2026-11-05, before the decision).** The fixtures (PR #183) found nine points where the first draft was ambiguous or unworkable, and §5.4, §6 and §8 now settle them.
+
+- **Two of the nine change a rule:**
+  - point 4: the premium and the metrics of a non-unique design are compared at `expected.parameters`, not against the module's own design;
+  - point 5: the LP uniqueness test uses two near-optimal tolerances (1e-9 and 1e-11) instead of one range width, which could not detect a unique optimum.
+- **The other seven are clarifications:**
+  - point 1: arrays are (n, n_assets);
+  - point 2: the form of a joint case;
+  - point 3: the core's cap is written as `Free(upper=cap)`, with `limit` null;
+  - point 6: the absolute floors are in units of the scale;
+  - point 7: `"exact"` leaves unidentified amounts out for every objective;
+  - point 8: the `l0` label;
+  - point 9: `generator.commit` is the last core-source commit on `main`, and tests ignore it.
+
+  The note that core cases carry only the core's metrics is a clarification too.
 
 ## Consequences
 
