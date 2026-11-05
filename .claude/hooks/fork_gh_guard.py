@@ -1,0 +1,862 @@
+#!/usr/bin/env python3
+"""Refuse ``gh pr`` and ``gh issue`` in the CRC forks without ``--repo marc272/``.
+
+A Claude Code ``PreToolUse`` hook on the Bash tool (MAR-253), wired in
+``.claude/settings.json``. In a clone of the forks ``marc272/crc-sdk`` and
+``marc272/crc-docs``, ``gh`` without ``--repo`` can resolve to the parent
+repository, RiskThinking's, where agents must never act. The deny rules in
+``.claude/settings.json`` block commands that *name* RiskThinking. This hook
+adds what they can't express: a ``gh pr ...`` or ``gh issue ...`` command that
+may run in a fork path must name a ``marc272/`` repository with ``--repo`` or
+``-R``, written literally, or it is refused.
+
+A command may run in a fork path when any of these holds. Paths are compared
+case-insensitively (macOS), and symlinks are resolved, under ``FORKS_ROOT``:
+
+- the Bash call starts there (the ``cwd`` of the hook input);
+- a ``cd``, ``pushd`` or ``popd`` in the command goes there, or somewhere the
+  hook can't resolve (``cd -``, ``popd``, a variable other than ``$HOME``, a
+  command substitution, a glob);
+- ``git -C``, ``--git-dir``, ``--work-tree``, ``GIT_DIR=`` or
+  ``GIT_WORK_TREE=`` points there, or somewhere the hook can't resolve;
+- ``GH_REPO`` is assigned in the command (only an explicit flag counts);
+- any other word of the command, outside the arguments of ``gh`` itself,
+  names a path there (e.g. ``env -C <fork>``).
+
+The command is split at ``&&``, ``||``, ``;``, ``|``, ``&``, newlines and
+parentheses. A ``cd`` adds a possible working directory and never removes
+one, because it may run in a subshell, a pipeline or a branch that isn't
+taken. Commands inside ``$(...)``, backticks, ``<(...)``, ``sh -c``/``bash -c``
+/``zsh -c`` strings and ``eval`` are checked too; comments and here-document
+bodies are skipped. ``gh`` counts wherever it appears as a word, so
+``xargs gh pr view`` and ``timeout 60 gh pr checks`` are checked. A command
+the hook can't parse (an unterminated quote, for example) is refused when it
+mentions ``gh`` with ``pr`` or ``issue`` and may touch a fork. Everything else
+passes: the hook prints nothing and exits 0.
+
+Contract (Claude Code hooks reference): the hook reads the ``PreToolUse`` JSON
+on stdin (``tool_name``, ``tool_input.command``, ``cwd``) and refuses a call by
+exiting 2 with the reason on stderr, which Claude sees. It never exits with
+another code. It needs only the standard library and runs on Python 3.9 or
+later (macOS's ``/usr/bin/python3``), as ``python3 -I``. Its tests are
+``scripts/check_fork_gh_guard.py``.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+from dataclasses import dataclass, field
+
+FORKS_ROOT = "/Users/marcprinzing/Parametric_Insurance/forks"
+OWNER = "marc272"
+CHECKED_SUBCOMMANDS = frozenset({"pr", "issue"})
+SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh"})
+LOCATION_VARIABLES = frozenset({"GIT_DIR", "GIT_WORK_TREE"})
+MAX_DEPTH = 8
+MAX_CWDS = 64
+
+# Words that may come before a command word without being the command.
+_KEYWORDS = frozenset(
+    {"if", "then", "else", "elif", "do", "while", "until", "!", "{", "time"}
+)
+_SEPARATORS = ("&&", "||", ";;", ";&", "|&", ";", "|", "&")
+_REDIRECTS = ("&>>", "<<<", "<<-", "&>", ">>", ">&", "<&", ">|", "<>", "<<", ">", "<")
+_ANSI_C = {
+    "n": "\n",
+    "t": "\t",
+    "r": "\r",
+    "a": "\a",
+    "b": "\b",
+    "e": "\x1b",
+    "E": "\x1b",
+    "f": "\f",
+    "v": "\v",
+    "\\": "\\",
+    "'": "'",
+    '"': '"',
+    "?": "?",
+}
+_ASSIGNMENT = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", re.DOTALL)
+_HOME_VARIABLE = re.compile(r"\$HOME(?![A-Za-z0-9_])|\$\{HOME\}")
+_UNRESOLVABLE = re.compile(r"[$`*?\[{]")
+_OWNER_REPO = re.compile(
+    r"(?:(?:https?://)?(?:www\.)?github\.com/)?" + OWNER + r"/[A-Za-z0-9._-]+/?",
+    re.IGNORECASE,
+)
+# ``cd -``, ``cd +2``: the directory stack. A bare ``-`` or digit is a cd alias
+# in zsh setups such as oh-my-zsh.
+_DIR_STACK = re.compile(r"-|[+-][0-9]+")
+_BARE_CD = re.compile(r"-|[1-9]")
+# Only for a command the hook can't parse.
+_GH_WORD = re.compile(r"\bgh\b")
+_CHECKED_WORD = re.compile(r"\b(?:pr|issue)\b")
+_FORKISH = re.compile(
+    r"forks|GH_REPO|GIT_DIR|GIT_WORK_TREE|\b(?:cd|pushd|popd|eval)\b|-C\b",
+    re.IGNORECASE,
+)
+
+
+class ParseError(ValueError):
+    """Shell syntax that the hook doesn't model, or an unterminated quote."""
+
+
+class _Lexer:
+    """Split shell text into simple commands, each a list of words.
+
+    Quotes and escapes are removed from words. Commands inside ``$(...)``,
+    backticks and ``<(...)`` are added to ``commands`` as commands of their
+    own; the word that holds them keeps their raw text, so it contains ``$``
+    or a backtick and counts as unresolvable. Redirection targets are dropped.
+    """
+
+    def __init__(self, text: str, depth: int) -> None:
+        if depth > MAX_DEPTH:
+            raise ParseError("commands nested too deeply")
+        self.text = text
+        self.depth = depth
+        self.commands: list[list[str]] = []
+        self.words: list[str] = []
+        self.buf: list[str] = []
+        self.has_word = False
+        self.skip_word = False
+        self.heredoc_strip: bool | None = None
+        self.heredocs: list[tuple[str, bool]] = []
+
+    def run(self, start: int = 0, nested: bool = False) -> int:
+        """Lex from ``start``; return the index after the last character read.
+
+        In nested mode, lexing stops after the ``)`` that closes the
+        ``$(`` or ``<(`` whose content starts at ``start``.
+        """
+        text = self.text
+        n = len(text)
+        i = start
+        parens = 0
+        while i < n:
+            c = text[i]
+            if c == "\\":
+                if text.startswith("\n", i + 1):
+                    i += 2
+                    continue
+                self._add(text[i + 1 : i + 2])
+                i += 2
+            elif c == "'":
+                end = text.find("'", i + 1)
+                if end < 0:
+                    raise ParseError("unterminated single quote")
+                self._add(text[i + 1 : end])
+                i = end + 1
+            elif c == '"':
+                i = self._double_quoted(i + 1)
+            elif c == "$":
+                i = self._dollar(i, quoted=False)
+            elif c == "`":
+                i = self._backticks(i)
+            elif c == "#" and not self.has_word:
+                end = text.find("\n", i)
+                i = n if end < 0 else end
+            elif c in " \t\r":
+                self._end_word()
+                i += 1
+            elif c == "\n":
+                self._end_command()
+                i = self._skip_heredoc_bodies(i + 1)
+            elif c in "<>" and text.startswith("(", i + 1):
+                end = self._nested_commands(i + 2)
+                self._add(text[i:end])
+                i = end
+            elif c == "(":
+                self._end_command()
+                parens += 1
+                i += 1
+            elif c == ")":
+                self._end_command()
+                i += 1
+                if nested and parens == 0:
+                    return i
+                parens -= 1  # may go below 0 on a ``case`` pattern
+            else:
+                i = self._operator_or_char(i)
+        if nested:
+            raise ParseError("unterminated $( or <(")
+        self._end_command()
+        return n
+
+    def _operator_or_char(self, i: int) -> int:
+        text = self.text
+        for op in _REDIRECTS:
+            if text.startswith(op, i):
+                if self.has_word and "".join(self.buf).isdigit():
+                    self.buf = []  # a file descriptor, as in 2>&1
+                    self.has_word = False
+                self._end_word()
+                if op in ("<<", "<<-"):
+                    self.heredoc_strip = op == "<<-"
+                else:
+                    self.skip_word = True
+                return i + len(op)
+        for op in _SEPARATORS:
+            if text.startswith(op, i):
+                self._end_command()
+                return i + len(op)
+        self._add(text[i])
+        return i + 1
+
+    def _add(self, chars: str) -> None:
+        self.buf.append(chars)
+        self.has_word = True
+
+    def _end_word(self) -> None:
+        if not self.has_word:
+            return
+        word = "".join(self.buf)
+        self.buf = []
+        self.has_word = False
+        if self.heredoc_strip is not None:
+            self.heredocs.append((word, self.heredoc_strip))
+            self.heredoc_strip = None
+        elif self.skip_word:
+            self.skip_word = False
+        else:
+            self.words.append(word)
+
+    def _end_command(self) -> None:
+        self._end_word()
+        self.skip_word = False
+        self.heredoc_strip = None
+        if self.words:
+            self.commands.append(self.words)
+            self.words = []
+
+    def _skip_heredoc_bodies(self, i: int) -> int:
+        text = self.text
+        n = len(text)
+        while self.heredocs:
+            delimiter, strip_tabs = self.heredocs.pop(0)
+            while True:
+                if i >= n:
+                    return n  # an unterminated body runs to the end
+                end = text.find("\n", i)
+                end = n if end < 0 else end
+                line = text[i:end]
+                i = end + 1
+                if (line.lstrip("\t") if strip_tabs else line) == delimiter:
+                    break
+        return min(i, n)
+
+    def _double_quoted(self, i: int) -> int:
+        text = self.text
+        n = len(text)
+        self.has_word = True
+        while i < n:
+            c = text[i]
+            if c == '"':
+                return i + 1
+            if c == "\\" and text[i + 1 : i + 2] in ("$", "`", '"', "\\", "\n"):
+                if text[i + 1] != "\n":
+                    self.buf.append(text[i + 1])
+                i += 2
+            elif c == "$":
+                i = self._dollar(i, quoted=True)
+            elif c == "`":
+                i = self._backticks(i)
+            else:
+                self.buf.append(c)
+                i += 1
+        raise ParseError("unterminated double quote")
+
+    def _dollar(self, i: int, quoted: bool) -> int:
+        text = self.text
+        nxt = text[i + 1 : i + 2]
+        if nxt == "(":
+            end = self._nested_commands(i + 2)
+            self._add(text[i:end])
+            return end
+        if nxt == "{":
+            end = self._parameter(i + 2)
+            self._add(text[i:end])
+            return end
+        if nxt == "'" and not quoted:
+            return self._ansi_c(i + 2)
+        if nxt == '"' and not quoted:
+            return i + 1  # $"..." is a translated string: lex the quotes
+        self._add("$")
+        return i + 1
+
+    def _nested_commands(self, start: int) -> int:
+        sub = _Lexer(self.text, self.depth + 1)
+        end = sub.run(start, nested=True)
+        self.commands.extend(sub.commands)
+        return end
+
+    def _parameter(self, i: int) -> int:
+        text = self.text
+        n = len(text)
+        depth = 0
+        while i < n:
+            c = text[i]
+            if c == "\\":
+                i += 2
+            elif c == "'":
+                end = text.find("'", i + 1)
+                if end < 0:
+                    raise ParseError("unterminated single quote in ${...}")
+                i = end + 1
+            elif text.startswith("$(", i):
+                i = self._nested_commands(i + 2)
+            elif c == "{":
+                depth += 1
+                i += 1
+            elif c == "}":
+                if depth == 0:
+                    return i + 1
+                depth -= 1
+                i += 1
+            else:
+                i += 1
+        raise ParseError("unterminated ${")
+
+    def _backticks(self, i: int) -> int:
+        text = self.text
+        n = len(text)
+        j = i + 1
+        while j < n and text[j] != "`":
+            j += 2 if text[j] == "\\" else 1
+        if j >= n:
+            raise ParseError("unterminated backtick")
+        inner = re.sub(r"\\([`$\\])", r"\1", text[i + 1 : j])
+        sub = _Lexer(inner, self.depth + 1)
+        sub.run()
+        self.commands.extend(sub.commands)
+        self._add(text[i : j + 1])
+        return j + 1
+
+    def _ansi_c(self, i: int) -> int:
+        text = self.text
+        n = len(text)
+        self.has_word = True
+        while i < n:
+            c = text[i]
+            if c == "'":
+                return i + 1
+            if c != "\\":
+                self.buf.append(c)
+                i += 1
+                continue
+            esc = text[i + 1 : i + 2]
+            hexa = re.match(r"x([0-9A-Fa-f]{1,2})", text[i + 1 : i + 4])
+            octal = re.match(r"[0-7]{1,3}", text[i + 1 : i + 4])
+            if hexa:
+                self.buf.append(chr(int(hexa.group(1), 16)))
+                i += 1 + len(hexa.group(0))
+            elif octal:
+                self.buf.append(chr(int(octal.group(0), 8)))
+                i += 1 + len(octal.group(0))
+            else:
+                self.buf.append(_ANSI_C.get(esc, "\\" + esc))
+                i += 2
+        raise ParseError("unterminated $'...'")
+
+
+def split_commands(text: str, depth: int = 0) -> list[list[str]]:
+    """Return every simple command in ``text``, nested ones included.
+
+    Parameters
+    ----------
+    text
+        Shell command text, as the Bash tool receives it.
+    depth
+        Nesting depth of ``text`` (for ``sh -c`` strings and ``eval``).
+
+    Returns
+    -------
+    list of list of str
+        The words of each simple command, with quotes and escapes removed.
+
+    Raises
+    ------
+    ParseError
+        On an unterminated quote or substitution, or nesting deeper than
+        ``MAX_DEPTH``.
+    """
+    lexer = _Lexer(text, depth)
+    lexer.run()
+    commands: list[list[str]] = []
+    for words in lexer.commands:
+        commands.append(words)
+        for script in _inner_scripts(words):
+            commands.extend(split_commands(script, depth + 1))
+    return commands
+
+
+def _basename(word: str) -> str:
+    return word.rsplit("/", 1)[-1]
+
+
+def _inner_scripts(words: list[str]) -> list[str]:
+    """Return the strings that ``sh -c``, ``bash -c`` or ``eval`` would run."""
+    scripts = []
+    for k, word in enumerate(words):
+        if word == "eval":
+            scripts.append(" ".join(words[k + 1 :]))
+        elif _basename(word) in SHELLS:
+            script = _shell_script(words[k + 1 :])
+            if script is not None:
+                scripts.append(script)
+    return scripts
+
+
+def _shell_script(args: list[str]) -> str | None:
+    """Return the ``-c`` string of a shell's arguments, if it has one."""
+    saw_c = False
+    k = 0
+    while k < len(args):
+        arg = args[k]
+        if arg in ("-o", "+o", "-O", "+O"):
+            k += 2
+            continue
+        if arg != "--" and arg[:1] in ("-", "+") and len(arg) > 1:
+            saw_c = saw_c or (not arg.startswith("--") and "c" in arg[1:])
+        elif arg != "--":
+            return arg if saw_c else None
+        k += 1
+    return None
+
+
+def _git_locations(args: list[str]) -> list[tuple[str, str]]:
+    """Return the ``-C``, ``--git-dir`` and ``--work-tree`` options of git.
+
+    Each item is ``(option, value)``; only options before the subcommand count.
+    """
+    found = []
+    k = 0
+    while k < len(args):
+        arg = args[k]
+        if arg in ("-C", "--git-dir", "--work-tree"):
+            found.append((arg, args[k + 1] if k + 1 < len(args) else ""))
+            k += 2
+            continue
+        if arg in ("-c", "--namespace", "--config-env"):
+            k += 2
+            continue
+        if arg.startswith(("--git-dir=", "--work-tree=")):
+            option, value = arg.split("=", 1)
+            found.append((option, value))
+        elif arg.startswith("-C"):
+            found.append(("-C", arg[2:]))
+        elif not arg.startswith("-"):
+            break  # the git subcommand
+        k += 1
+    return found
+
+
+@dataclass
+class GhInvocation:
+    """A ``gh pr ...`` or ``gh issue ...`` command found in the Bash command.
+
+    Attributes
+    ----------
+    words
+        ``gh`` and its arguments.
+    repos
+        The values of its ``--repo`` and ``-R`` flags, in order.
+    """
+
+    words: list[str]
+    repos: list[str]
+
+    @property
+    def names_owner_repo(self) -> bool:
+        """Whether it has a repo flag and every one names a marc272 repository."""
+        return bool(self.repos) and all(
+            _OWNER_REPO.fullmatch(repo) for repo in self.repos
+        )
+
+
+def parse_gh(args: list[str]) -> GhInvocation | None:
+    """Return the invocation if ``gh`` with ``args`` is a checked subcommand.
+
+    Parameters
+    ----------
+    args
+        The words after ``gh``.
+
+    Returns
+    -------
+    GhInvocation or None
+        ``None`` unless the subcommand is in ``CHECKED_SUBCOMMANDS``.
+    """
+    subcommand = None
+    repos = []
+    k = 0
+    while k < len(args):
+        arg = args[k]
+        if arg == "--":
+            break  # the rest are positional, not flags
+        if arg in ("-R", "--repo"):
+            repos.append(args[k + 1] if k + 1 < len(args) else "")
+            k += 2
+            continue
+        if arg.startswith("--repo="):
+            repos.append(arg[len("--repo=") :])
+        elif arg.startswith("-R"):
+            value = arg[2:]
+            repos.append(value[1:] if value.startswith("=") else value)
+        elif subcommand is None and not arg.startswith("-"):
+            subcommand = arg
+        k += 1
+    if subcommand not in CHECKED_SUBCOMMANDS:
+        return None
+    return GhInvocation(words=["gh", *args], repos=repos)
+
+
+def _norm_root(path: str) -> str:
+    return os.path.normpath(path).casefold()
+
+
+_ROOTS = tuple(
+    sorted({_norm_root(FORKS_ROOT), _norm_root(os.path.realpath(FORKS_ROOT))})
+)
+
+
+def under_forks(path: str) -> bool:
+    """Whether an absolute ``path`` is ``FORKS_ROOT`` or below it.
+
+    The path is compared as written and with symlinks resolved, ignoring case.
+
+    Parameters
+    ----------
+    path
+        An absolute path.
+
+    Returns
+    -------
+    bool
+        ``True`` if the path is under the forks root.
+    """
+    try:
+        real = os.path.realpath(path)
+    except (OSError, ValueError):
+        real = path  # can't resolve symlinks: check the path as written
+    candidates = {os.path.normpath(path).casefold(), real.casefold()}
+    return any(
+        c == root or c.startswith(root.rstrip("/") + "/")
+        for c in candidates
+        for root in _ROOTS
+    )
+
+
+@dataclass
+class _Context:
+    """What the hook learns about one Bash command."""
+
+    cwd: str
+    home: str
+    cwds: list[str] = field(default_factory=list)
+    unknown_cwd: bool = False
+    reasons: list[str] = field(default_factory=list)
+    fork_paths: list[str] = field(default_factory=list)
+    invocations: list[GhInvocation] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.cwds = [os.path.normpath(self.cwd)]
+        if under_forks(self.cwd):
+            self._fork(f"the command starts in {self.cwd}", self.cwd)
+
+    def _fork(self, reason: str, path: str | None = None) -> None:
+        if path is not None:
+            if path in self.fork_paths:
+                return  # one reason per path is enough
+            self.fork_paths.append(path)
+        if reason not in self.reasons:
+            self.reasons.append(reason)
+
+    def expand(self, word: str) -> str:
+        """Expand ``~``, ``$HOME`` and ``${HOME}`` in ``word``."""
+        if word == "~" or word.startswith("~/"):
+            word = self.home + word[1:]
+        elif word.startswith("~"):
+            word = os.path.expanduser(word)
+        return _HOME_VARIABLE.sub(lambda _: self.home, word)
+
+    def resolve(self, word: str, cwds: list[str] | None = None) -> list[str] | None:
+        """Return the absolute paths ``word`` may name, or ``None`` if unknown.
+
+        A relative path is resolved against every possible working directory,
+        or against ``cwds`` if given.
+        """
+        path = self.expand(word)
+        if not path or _UNRESOLVABLE.search(path):
+            return None
+        if os.path.isabs(path):
+            return [os.path.normpath(path)]
+        if self.unknown_cwd:
+            return None
+        bases = self.cwds if cwds is None else cwds
+        return [os.path.normpath(os.path.join(c, path)) for c in bases]
+
+    def change_directory(self, words: list[str]) -> None:
+        """Follow a ``cd``, ``pushd`` or ``popd`` that ``words`` runs."""
+        k = 0
+        while k < len(words) and (
+            words[k] in _KEYWORDS or _ASSIGNMENT.fullmatch(words[k])
+        ):
+            k += 1
+        if k < len(words) and words[k] in ("builtin", "command"):
+            k += 1
+        if k >= len(words):
+            return
+        name, args = words[k], words[k + 1 :]
+        if name not in ("cd", "pushd", "popd", "chdir"):
+            if not args and _BARE_CD.fullmatch(name):
+                self._unresolved_cd(name)  # zsh: "-" or "2" may be cd aliases
+            return
+        operands = [a for a in args if a == "-" or not a.startswith("-")]
+        operands += [a for a in args if re.fullmatch(r"-[0-9]+", a)]
+        shown = " ".join(words[k:])
+        if name == "popd" or (name == "pushd" and not operands):
+            self._unresolved_cd(shown)
+            return
+        target = operands[0] if operands else self.home
+        if len(operands) > 1 or _DIR_STACK.fullmatch(target):
+            self._unresolved_cd(shown)
+            return
+        paths = self.resolve(target)
+        if paths is None:
+            self._unresolved_cd(shown)
+            return
+        for path in paths:
+            if under_forks(path):
+                self._fork(f"`{shown}` goes to {path}", path)
+            if path not in self.cwds:
+                self.cwds.append(path)
+        if len(self.cwds) > MAX_CWDS:
+            self.unknown_cwd = True
+            self._fork("too many directory changes to follow")
+
+    def _unresolved_cd(self, shown: str) -> None:
+        self.unknown_cwd = True
+        self._fork(f"`{shown}` changes to a directory the hook can't resolve")
+
+    def location(self, shown: str, value: str) -> None:
+        """Check a git location option or variable, shown as ``shown``."""
+        paths = self.resolve(value)
+        if paths is None:
+            self._fork(f"`{shown}` points to a path the hook can't resolve")
+            return
+        for path in paths:
+            if under_forks(path):
+                self._fork(f"`{shown}` points to {path}", path)
+
+    def mention(self, word: str) -> None:
+        """Check whether a word of the command names a path under the forks."""
+        candidates = [word]
+        if "=" in word:
+            candidates.append(word.split("=", 1)[1])
+        # A working directory under the forks has already given its reason.
+        outside = [c for c in self.cwds if not under_forks(c)]
+        for candidate in candidates:
+            expanded = self.expand(candidate)
+            folded = expanded.casefold()
+            if any(root in folded for root in _ROOTS):
+                self._fork(f"the command names {candidate}", expanded)
+                return
+            if _UNRESOLVABLE.search(expanded) or not expanded:
+                continue
+            for path in self.resolve(expanded, outside) or []:
+                if under_forks(path):
+                    self._fork(f"the command names {candidate} ({path})", path)
+                    return
+
+    def inspect(self, words: list[str]) -> None:
+        """Record the fork signals and the gh invocation of one command."""
+        gh_at = next(
+            (k for k, w in enumerate(words) if _basename(w) == "gh"), len(words)
+        )
+        before = words[:gh_at]
+        for k, word in enumerate(before):
+            if _basename(word) == "git":
+                for option, value in _git_locations(before[k + 1 :]):
+                    self.location(f"git {option} {value}", value)
+            assignment = _ASSIGNMENT.fullmatch(word)
+            if assignment and assignment.group(1) in LOCATION_VARIABLES:
+                self.location(word, assignment.group(2))
+            elif assignment and assignment.group(1) == "GH_REPO":
+                self._fork(f"`{word}` sets GH_REPO; only --repo or -R counts")
+            self.mention(word)
+        if gh_at < len(words):
+            invocation = parse_gh(words[gh_at + 1 :])
+            if invocation is not None:
+                self.invocations.append(invocation)
+
+
+def evaluate(command: str, cwd: str, home: str) -> str | None:
+    """Return the refusal message for a Bash command, or ``None`` to allow it.
+
+    Parameters
+    ----------
+    command
+        The Bash tool's ``command``.
+    cwd
+        The directory the command starts in (the hook input's ``cwd``).
+    home
+        The home directory, for ``~`` and ``$HOME``.
+
+    Returns
+    -------
+    str or None
+        Why the command is refused and how to fix it, or ``None``.
+
+    Raises
+    ------
+    ParseError
+        If the command can't be split into simple commands.
+    """
+    commands = split_commands(command)
+    context = _Context(cwd=cwd, home=home)
+    for words in commands:
+        context.change_directory(words)
+    for words in commands:
+        context.inspect(words)
+    unsafe = [i for i in context.invocations if not i.names_owner_repo]
+    if not unsafe or not context.reasons:
+        return None
+    return _refusal(unsafe[0], context)
+
+
+def _guess_fork(paths: list[str]) -> str:
+    """Return the fork a path under the forks root belongs to, if it shows."""
+    for path in paths:
+        folded = path.casefold()
+        for root in _ROOTS:
+            at = folded.find(root)
+            if at < 0:
+                continue
+            rest = folded[at + len(root) :].strip("/").split("/")
+            for part in rest[:2]:  # <fork>/... or worktrees/<fork>-mar-<n>
+                for fork in ("crc-sdk", "crc-docs"):
+                    if part.startswith(fork):
+                        return fork
+    return "<fork>"
+
+
+def _refusal(invocation: GhInvocation, context: _Context) -> str:
+    shown = " ".join(invocation.words)
+    if len(shown) > 160:
+        shown = shown[:157] + "..."
+    fork = _guess_fork(context.fork_paths)
+    lines = [
+        "Refused by the fork gh guard (.claude/hooks/fork_gh_guard.py, MAR-253):",
+        f"  {shown}",
+        f"may run in a CRC fork, and it doesn't pass --repo {OWNER}/<fork>"
+        f" (or -R {OWNER}/<fork>).",
+    ]
+    bad = [repo for repo in invocation.repos if not _OWNER_REPO.fullmatch(repo)]
+    if bad:
+        values = ", ".join(repr(repo) for repo in bad)
+        lines.append(
+            f"Its --repo/-R value {values} is not a literal {OWNER}/<repo>"
+            " (no variables)."
+        )
+    lines.append("Why the hook counts it as a fork path:")
+    lines += [f"  - {reason}" for reason in context.reasons[:3]]
+    lines += [
+        "In a fork clone, gh without --repo can resolve to the parent repository,",
+        "RiskThinking's, where agents must never act.",
+        "Fix: name the fork explicitly, as docs/ORCHESTRATION.md does:",
+        f"  gh pr create --repo {OWNER}/{fork} --base parametric --head <branch> ...",
+        f"  gh pr checks <n> --repo {OWNER}/{fork}",
+        f"  gh pr merge <n> --repo {OWNER}/{fork} --squash ...",
+        f"For this repository's own PRs and issues, pass --repo"
+        f" {OWNER}/parametric-insurance-design.",
+    ]
+    return "\n".join(lines)
+
+
+def _when_in_doubt(command: str, cwd: str, problem: str) -> str | None:
+    """Return a refusal for a command the hook couldn't analyse, or ``None``."""
+    if not (_GH_WORD.search(command) and _CHECKED_WORD.search(command)):
+        return None
+    if not (under_forks(cwd) or _FORKISH.search(command)):
+        return None
+    return "\n".join(
+        [
+            "Refused by the fork gh guard (.claude/hooks/fork_gh_guard.py, MAR-253):",
+            f"the hook couldn't analyse this command ({problem}),",
+            "and it may run `gh pr` or `gh issue` in a CRC fork.",
+            "Fix: split it into simpler commands, and pass"
+            f" --repo {OWNER}/<fork> to every gh pr and gh issue command,",
+            f"e.g. gh pr checks <n> --repo {OWNER}/crc-sdk.",
+        ]
+    )
+
+
+def decide(payload: object, default_cwd: str, home: str) -> str | None:
+    """Return the refusal message for a hook input, or ``None`` to allow.
+
+    Parameters
+    ----------
+    payload
+        The parsed ``PreToolUse`` hook input.
+    default_cwd
+        The directory to assume when the input has no ``cwd``.
+    home
+        The home directory, for ``~`` and ``$HOME``.
+
+    Returns
+    -------
+    str or None
+        Why the call is refused, or ``None``.
+    """
+    if not isinstance(payload, dict):
+        return "Refused by the fork gh guard: the hook input is not a JSON object."
+    if payload.get("tool_name", "Bash") != "Bash":
+        return None
+    tool_input = payload.get("tool_input")
+    command = tool_input.get("command") if isinstance(tool_input, dict) else None
+    if not isinstance(command, str):
+        return "Refused by the fork gh guard: no tool_input.command in the hook input."
+    cwd = payload.get("cwd")
+    if not isinstance(cwd, str) or not cwd:
+        cwd = default_cwd
+    cwd = os.path.join(default_cwd, cwd)
+    try:
+        return evaluate(command, cwd, home)
+    except ParseError as exc:
+        return _when_in_doubt(command, cwd, str(exc))
+    except Exception as exc:  # a bug in the hook: decide as for a parse error
+        problem = f"internal error {type(exc).__name__}: {exc}"
+        message = _when_in_doubt(command, cwd, problem)
+        if message is None:
+            sys.stderr.write(f"fork gh guard: {problem}; command allowed\n")
+        return message
+
+
+def main() -> int:
+    """Run the hook: read the input on stdin, exit 2 to refuse, 0 to allow.
+
+    Returns
+    -------
+    int
+        The exit status: 2 if the call is refused, 0 otherwise.
+    """
+    home = os.environ.get("HOME") or os.path.expanduser("~")
+    try:
+        payload = json.loads(sys.stdin.read())
+    except ValueError as exc:
+        sys.stderr.write(
+            f"Refused by the fork gh guard: the hook input is not JSON ({exc}).\n"
+        )
+        return 2
+    message = decide(payload, os.getcwd(), home)
+    if message is None:
+        return 0
+    sys.stderr.write(message + "\n")
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
