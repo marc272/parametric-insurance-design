@@ -40,9 +40,10 @@ jobs:
       # packages' pyproject.toml, MAR-76); this proves the bans still fire.
       - name: import boundaries (negative test)
         run: uv run --locked scripts/check_import_boundaries.sh
-      # The PreToolUse hook that refuses gh pr/issue in the CRC forks without
-      # --repo marc272/ (.claude/hooks/fork_gh_guard.py, MAR-253): its table
-      # of allowed and refused commands, and its wiring in .claude/settings.json.
+      # The PreToolUse hook that refuses repo-scoped gh commands in the CRC
+      # forks without --repo marc272/, and denied gh writes in every spelling
+      # (.claude/hooks/fork_gh_guard.py, MAR-253, MAR-263): its table of cases,
+      # the deny rules' cases and its wiring in .claude/settings.json.
       - name: fork gh guard hook (allowed and refused commands)
         run: uv run --locked scripts/check_fork_gh_guard.py
       - name: ruff format
