@@ -154,20 +154,26 @@ design(template, sample, objective, *, pricing=PurePremium(), budget=None, limit
 
 ```text
 ParametricPlan.for_evaluation(request, *, value_column=None, value_unit="1")
-ParametricPlan.for_annual_extremes(source_plan, assets, *, impact, value_column=None, value_unit="1", ...)
+ParametricPlan.for_annual_extremes(source, assets, *, impact, unit, provenance,
+                                   value_column=None, value_unit="1", context=None,
+                                   location=NearestCell(), year_column="year",
+                                   hazard_column="value", years=None, missing="raise", seed=None)
+    # source: a plan with an annual_extremes() execution point, an Arrow table or a local Parquet file
     .monte_carlo(n_draws, *, seed, assume_semantics=None, outside_support="raise")   # curve sources only
     .basis_risk(model)
-    .covers(*templates)                  # Cover templates; Free parameters allowed
-    .objective(objective, *, pricing=..., budget=..., limit=..., options=...)   # optional: design the templates
-    .split(Holdout(0.7) | KFold(5) | FreshDraws(n_draws, seed=...))
-    .metrics(MetricOptions(...))
-    .explain(format="text") -> str | dict        # no I/O
+    .covers(*covers)                     # resolved covers and templates; Free parameters allowed
+    .objective(*objectives, pricing=PurePremium(), budget=None, limit=None, options=DesignOptions())   # optional: design the templates
+    .split(rule)                         # Holdout(train_fraction=0.7) | KFold(k) | FreshDraws(n_draws, *, seed)
+    .metrics(options)                    # MetricOptions(...)
+    .explain(*, format="text") -> str | dict     # no I/O
     .samples() -> Mapping[str, OutcomeSample]    # execution, one per asset
     .designs() -> tuple[DesignResult, ...]       # execution
     .write_parquet(path) -> ParametricResult     # execution; atomic
 ```
 
 (Erratum 8, 2026-11-06, MAR-276: the `.monte_carlo` line first read `.monte_carlo(n_draws, *, seed, assume_semantics=None)`. MAR-271 (R-18b) added `outside_support` in marc272/crc-sdk#9, with `sample_curve`'s values and default (§4.2): `"raise"`, `"extrapolate"` or `"clamp"`; `explain()` shows the choice. The `plan.py` row of the module layout below first named only `ParametricPlan` and `ParametricResult`. `plan.py` defines five more public names, and `crc_sdk.parametric` exports them: the split rules `Holdout` and `KFold` and the locators `NearestCell` and `StationColumn`, which MAR-42 (R-18) added in marc272/crc-sdk#8, and the split rule `FreshDraws(n_draws, *, seed)`, which MAR-271 added in marc272/crc-sdk#9. No decision changes.)
+
+(Erratum 9, 2026-11-06, MAR-285: six lines of this outline first differed from the plan that MAR-42 (R-18) merged in marc272/crc-sdk#8, and now read as its code does. The `for_annual_extremes` line first read `ParametricPlan.for_annual_extremes(source_plan, assets, *, impact, value_column=None, value_unit="1", ...)`: the first argument is `source`, which is a plan with an `annual_extremes()` execution point, an Arrow table or a local Parquet file, and the `...` hid the required keywords `unit` and `provenance` as well as the optional ones. The `.covers` line first read `.covers(*templates)`, with the comment "Cover templates; Free parameters allowed": it takes `*covers`, both resolved covers and templates. The `.objective` line first read `.objective(objective, *, pricing=..., budget=..., limit=..., options=...)`: it takes `*objectives` and designs each template under each, and its defaults are those of `design`. The `.split` and `.metrics` lines first read `.split(Holdout(0.7) | KFold(5) | FreshDraws(n_draws, seed=...))` and `.metrics(MetricOptions(...))`, which named no parameter: they take `rule` and `options`, and the comments now give the types. The `.explain` line first read `.explain(format="text") -> str | dict`: `format` is keyword-only, and `format="json"` returns the dict. The other lines already matched. Of the later PRs, only marc272/crc-sdk#9 (MAR-271) changed `plan.py`: it added `for_evaluation`, `.monte_carlo` (erratum 8) and `FreshDraws` as they read here; marc272/crc-sdk#10 to #13 did not touch it. No decision changes.)
 
 The plan holds an integer `seed`, which `explain()` can show. At execution it builds `numpy.random.SeedSequence(seed)` and spawns one child generator per asset, in asset order. Layer 1 takes a `numpy.random.Generator` instead, with no default and no global seed.
 
