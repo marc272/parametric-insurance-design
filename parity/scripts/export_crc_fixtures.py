@@ -1,6 +1,6 @@
 r"""Export golden fixtures from the core for the CRC module's tests.
 
-MAR-245 built the fixtures; MAR-255 and MAR-264 extended them.
+MAR-245 built the fixtures; MAR-255, MAR-264 and MAR-269 extended them.
 
 The parametric insurance module ``crc_sdk.parametric`` is built in a fork of
 crc-sdk. It never imports this repository's core, ``parametric_insurance_design``,
@@ -68,6 +68,19 @@ How the expected values are computed
   wins by a margin (:data:`GRID_MARGIN`).
 * **Lower-tail step designs**: the core has no lower tail, so it designs the
   step on the severity ``s = -x`` (:attr:`Dataset.severity`).
+* **Piecewise-linear designs** (``source = "core"``): the core has no
+  piecewise-linear payout, so the script gives its problem builder, solvers
+  and KPIs a payout structure of its own (:class:`PiecewiseLinearStructure`,
+  the hat functions of the knots), so the core stays read-only. Each design is
+  solved again standalone (:func:`_check_piecewise_linear_standalone`): an
+  LP by scipy's HiGHS on an LP assembled here (:func:`standalone_lp_optimum`),
+  an MSE design by its KKT points in rational arithmetic
+  (:func:`exact_mse_optimum`).
+* **Linear designs on the grid route** (``kind = "design"``, ``source =
+  "closed_form"``, :func:`linear_grid_case`): the limit is the one amount,
+  so at each candidate (attachment, exhaustion) the design has a closed form,
+  computed exactly (:func:`exact_one_amount_optimum`) and written; the core,
+  given :class:`LinearStructure`, designs every candidate too and must agree.
 * **Fixed covers with a step payout** (``kind = "evaluate"``,
   ``source = "core"``): the core's ``StepPayout.evaluate`` and
   ``evaluate.kpis`` on a hand-set cover.
@@ -1424,7 +1437,7 @@ def _severity_array(index: ArrayLike, ndim: int) -> NDArray[np.float64]:
 def _amount_constraints(
     theta: cp.Variable, cap: NDArray[np.float64], n_params: int
 ) -> tuple[cp.Constraint, ...]:
-    """The core step payout's constraints: >= 0, non-decreasing, capped."""
+    """Return the core step payout's constraints: >= 0, non-decreasing, capped."""
     caps = np.asarray(cap, dtype=np.float64)
     found: list[cp.Constraint] = [theta >= 0]
     if n_params > 1:
@@ -1487,14 +1500,14 @@ class PiecewiseLinearStructure(PayoutStructure):
         return len(self.knots)
 
     def parameter_bounds(self) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-        """The severities each level acts on: its hat's support."""
+        """Return the severities each level acts on: its hat's support."""
         c = np.asarray(self.knots, dtype=np.float64)
         lower = np.concatenate([c[:1], c[:-1]])
         upper = np.concatenate([c[1:], [np.inf]])
         return lower, upper
 
     def basis_matrix(self, index: ArrayLike) -> NDArray[np.float64]:
-        """The hat functions of the knots at each severity, ``(n, m)``."""
+        """Return the hat functions of the knots at each severity, ``(n, m)``."""
         s = _severity_array(index, 1)
         c = np.asarray(self.knots, dtype=np.float64)
         m = c.size
@@ -1555,11 +1568,11 @@ class LinearStructure(PayoutStructure):
         return 1
 
     def parameter_bounds(self) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-        """The severities the limit acts on: from the attachment up."""
+        """Return the severities the limit acts on: from the attachment up."""
         return np.array([self.attachment]), np.array([np.inf])
 
     def basis_matrix(self, index: ArrayLike) -> NDArray[np.float64]:
-        """The clipped share ``clip((s - a) / (e - a), 0, 1)``, ``(n, 1)``."""
+        """Return the clipped share ``clip((s - a) / (e - a), 0, 1)``, ``(n, 1)``."""
         s = _severity_array(index, 1)
         share = (s - self.attachment) / (self.exhaustion - self.attachment)
         return np.clip(share, 0.0, 1.0)[:, None] + 0.0
@@ -1567,7 +1580,7 @@ class LinearStructure(PayoutStructure):
     def constraints(
         self, theta: cp.Variable, cap: NDArray[np.float64]
     ) -> tuple[cp.Constraint, ...]:
-        """A non-negative, capped limit."""
+        """Return the constraints: a non-negative, capped limit."""
         return _amount_constraints(theta, cap, self.n_params)
 
     def evaluate(self, index: ArrayLike, theta: ArrayLike) -> NDArray[np.float64]:
@@ -1580,7 +1593,7 @@ def piecewise_linear_values(
     knots: Sequence[float],
     levels: NDArray[np.float64],
 ) -> NDArray[np.float64]:
-    """A piecewise-linear payout by ADR 0005 §3's formula, on the severity.
+    """Return a piecewise-linear payout by ADR 0005 §3's formula, on the severity.
 
     0 below the first knot; the linear interpolation of the points
     ``(c_k, y_k)``; the last level at and beyond the last knot. Computed
@@ -1593,7 +1606,7 @@ def piecewise_linear_values(
 def linear_values(
     severity: NDArray[np.float64], attachment: float, exhaustion: float, limit: float
 ) -> NDArray[np.float64]:
-    """A linear payout by ADR 0005 §3's formula, on the severity."""
+    """Return a linear payout by ADR 0005 §3's formula, on the severity."""
     share = (severity - attachment) / (exhaustion - attachment)
     return limit * np.clip(share, 0.0, 1.0) + 0.0
 
@@ -2200,7 +2213,9 @@ def exact_objective(
     n = len(loss)
     zero = Fraction(0)
     if isinstance(objective, pid.MSE):
-        return sum(((lo - pi) ** 2 for lo, pi in zip(loss, payout, strict=True)), zero) / n
+        return (
+            sum(((lo - pi) ** 2 for lo, pi in zip(loss, payout, strict=True)), zero) / n
+        )
     uncovered = [max(lo - pi, zero) for lo, pi in zip(loss, payout, strict=True)]
     expected = sum(uncovered, zero) / n
     if isinstance(objective, pid.ExpectedUncovered):
@@ -2346,7 +2361,9 @@ def _solve_exact(
         for r in range(n):
             if r != col and rows[r][col] != 0:
                 factor = rows[r][col] / rows[col][col]
-                rows[r] = [a - factor * b for a, b in zip(rows[r], rows[col], strict=True)]
+                rows[r] = [
+                    a - factor * b for a, b in zip(rows[r], rows[col], strict=True)
+                ]
     return [rows[i][n] / rows[i][i] for i in range(n)]
 
 
@@ -2449,7 +2466,9 @@ def exact_mse_optimum(
     for k in range(n_amounts):
         previous = next(it) if k in ids else previous
         full.append(previous)
-    payout = [sum((b * y for b, y in zip(row, full, strict=True)), zero) for row in basis]
+    payout = [
+        sum((b * y for b, y in zip(row, full, strict=True)), zero) for row in basis
+    ]
     value = sum(((lo - pi) ** 2 for lo, pi in zip(loss, payout, strict=True)), zero)
     return full, value / n
 
@@ -2476,7 +2495,7 @@ def standalone_lp_optimum(
     payouts divided by the scale (the largest loss), as the core does.
     Variables: the amounts ``y`` (``0 <= y <= cap``, non-decreasing) and the
     uncovered losses ``u >= L - B y``, ``u >= 0``; for weighted CVaR the
-    Rockafellar–Uryasev auxiliaries ``zeta`` and ``t >= u - zeta``, ``t >=
+    Rockafellar-Uryasev auxiliaries ``zeta`` and ``t >= u - zeta``, ``t >=
     0``; for the cost-of-capital load ``eta`` and ``w >= B y - eta``, ``w >=
     0``. Objective ``E[u]`` or ``alpha (zeta + E[t] / (1 - beta)) + (1 -
     alpha) E[u]``; budget ``(1 - r) E[B y] + r (eta + E[w] / (1 - q)) <= 0.8
@@ -2592,7 +2611,9 @@ def standalone_lp_optimum(
     return float(result.fun) * scale, np.asarray(result.x[at["y"]]) * scale
 
 
-ValuesFunction = Callable[[NDArray[np.float64], NDArray[np.float64]], NDArray[np.float64]]
+ValuesFunction = Callable[
+    [NDArray[np.float64], NDArray[np.float64]], NDArray[np.float64]
+]
 """A payout family's values by ADR 0005 §3's formula: (severities ``(n,)``,
 amounts ``(n_amounts,)``) -> payout per draw ``(n,)``."""
 
@@ -2626,7 +2647,9 @@ def design_family(
             raise ValueError("a step or binary design's thresholds are data.edges")
         breakpoints = data.edges[:-1]
 
-        def steps(s: NDArray[np.float64], y: NDArray[np.float64]) -> NDArray[np.float64]:
+        def steps(
+            s: NDArray[np.float64], y: NDArray[np.float64]
+        ) -> NDArray[np.float64]:
             return step_values(s, breakpoints, y)
 
         return step_payout(data), steps, len(breakpoints)
@@ -2634,14 +2657,18 @@ def design_family(
     if family == F.payout_piecewise_linear:
         knots = severities
 
-        def pieces(s: NDArray[np.float64], y: NDArray[np.float64]) -> NDArray[np.float64]:
+        def pieces(
+            s: NDArray[np.float64], y: NDArray[np.float64]
+        ) -> NDArray[np.float64]:
             return piecewise_linear_values(s, knots, y)
 
         return PiecewiseLinearStructure(knots=knots), pieces, len(knots)
     if family == F.payout_linear and len(severities) == 2:
         a, e = severities
 
-        def share(s: NDArray[np.float64], y: NDArray[np.float64]) -> NDArray[np.float64]:
+        def share(
+            s: NDArray[np.float64], y: NDArray[np.float64]
+        ) -> NDArray[np.float64]:
             return linear_values(s, a, e, float(y[0]))
 
         return LinearStructure(attachment=a, exhaustion=e), share, 1
@@ -3008,9 +3035,7 @@ def design_case(
             (float(evaluation[F.objective_value]), theta[0], unique),
             identified[0],
         )
-        covers = [
-            _piecewise_linear_cover(data, 0, shape, [_free(caps[0])] * n_amounts)
-        ]
+        covers = [_piecewise_linear_cover(data, 0, shape, [_free(caps[0])] * n_amounts)]
     elif family == F.payout_linear:
         covers = [_linear_cover(data, 0, shape[0], shape[1], _free(caps[0]))]
     else:
@@ -4030,7 +4055,9 @@ def linear_grid_case(
         lo, hi = sign * _fraction(a), sign * _fraction(e)
         if not lo < hi:
             raise ValueError(f"{where}: the candidate ({a}, {e}) is not ordered")
-        basis = [min(max((s - lo) / (hi - lo), Fraction(0)), Fraction(1)) for s in severity]
+        basis = [
+            min(max((s - lo) / (hi - lo), Fraction(0)), Fraction(1)) for s in severity
+        ]
         closed = exact_one_amount_optimum(objective.core, coc, loss, basis, cap)
         limit = _fraction(out(float(closed.amount)))
         limit = Fraction(0) if limit <= _fraction(ZERO_AMOUNT) * cap else limit
@@ -4042,7 +4069,9 @@ def linear_grid_case(
             rel_tol=WRITTEN_RTOL,
             abs_tol=ZERO_AMOUNT * floor,
         ):
-            raise AssertionError(f"{where}: ({a}, {e}) the written limit is not optimal")
+            raise AssertionError(
+                f"{where}: ({a}, {e}) the written limit is not optimal"
+            )
         core = design_case(
             handmade_dataset(sample, (a, e)),
             F.scope_individual,
@@ -4054,12 +4083,15 @@ def linear_grid_case(
             shape=(a, e),
         )
         found = core.document[F.expected]
-        if not math.isclose(
-            float(found[F.objective_value]),
-            float(closed.objective_value),
-            rel_tol=WRITTEN_RTOL,
-            abs_tol=ZERO_AMOUNT * floor,
-        ) or found[F.unique] != closed.unique:
+        if (
+            not math.isclose(
+                float(found[F.objective_value]),
+                float(closed.objective_value),
+                rel_tol=WRITTEN_RTOL,
+                abs_tol=ZERO_AMOUNT * floor,
+            )
+            or found[F.unique] != closed.unique
+        ):
             raise AssertionError(
                 f"{where}: ({a}, {e}) the core finds {found[F.objective_value]!r} "
                 f"(unique {found[F.unique]}), the closed form "
@@ -4068,7 +4100,9 @@ def linear_grid_case(
         rows.append((float(a), float(e), limit, value, closed))
     values = [row[3] for row in rows]
     best = min(range(len(rows)), key=values.__getitem__)
-    margin = _fraction(GRID_MARGIN) * max(abs(values[best]), _fraction(ZERO_AMOUNT) * _fraction(floor))
+    margin = _fraction(GRID_MARGIN) * max(
+        abs(values[best]), _fraction(ZERO_AMOUNT) * _fraction(floor)
+    )
     if any(v - values[best] <= margin for i, v in enumerate(values) if i != best):
         raise AssertionError(f"{where}: no candidate is best by a margin")
     attachment, exhaustion, limit, value, closed = rows[best]

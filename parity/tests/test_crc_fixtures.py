@@ -1,6 +1,7 @@
 """Tests for the CRC module's golden fixtures, ``parity/crc/cases/``.
 
-The fixtures are MAR-245's, extended by MAR-255 and MAR-264. Three groups:
+The fixtures are MAR-245's, extended by MAR-255, MAR-264 and MAR-269. Three
+groups:
 
 - **Regeneration.** ``parity/scripts/export_crc_fixtures.py`` rebuilds every
   case in memory from the core, and the committed files must pass
@@ -20,14 +21,16 @@ The fixtures are MAR-245's, extended by MAR-255 and MAR-264. Three groups:
   rules of ``parity/crc/README.md`` only (no core, no script): the payouts of
   the written cover, the objective value, the premium, the budget and the
   plain metrics are recomputed, in sample and out of sample, and must match
-  the expected values within the case's tolerances. Binary designs, the grid
-  route's profile included, are also solved in closed form. This is what the
-  module's tests in the fork do.
+  the expected values within the case's tolerances. Binary and linear
+  designs, the grid route's profile included, are also solved in closed
+  form. This is what the module's tests in the fork do. The piecewise-linear
+  designs are checked against two standalone computations as well.
 """
 
 from __future__ import annotations
 
 import importlib.util
+import itertools
 import json
 import math
 import re
@@ -45,8 +48,8 @@ SCRIPT = PARITY_DIR / "scripts" / "export_crc_fixtures.py"
 CASES_DIR = PARITY_DIR / "crc" / "cases"
 MAX_TOTAL_BYTES = 1_000_000
 
-# The case matrix of MAR-245, MAR-255 and MAR-264, stated here independently
-# of the script.
+# The case matrix of MAR-245, MAR-255, MAR-264 and MAR-269, stated here
+# independently of the script.
 OBJECTIVES = ("mse", "eu", "wcvar-b0_9", "wcvar-b0_99")
 HOLDOUT_OBJECTIVES = ("mse", "wcvar-b0_9")
 PRICINGS = ("pure", "coc")
@@ -90,7 +93,14 @@ EXPECTED_CASES = {
     "step-lower-wcvar-b0_9-pure-individual-handmade",
     "piecewise-linear-upper-fixed-pure-individual-handmade-options",
     f"piecewise-linear-upper-fixed-pure-individual-{SHORT}-options",
+    # MAR-269
+    f"step-wcvar-b0_9-coc-individual-{SHORT}-kfold5-fold0",
+    "linear-upper-grid-wcvar-b0_9-pure-individual-handmade",
+    "piecewise-linear-upper-mse-pure-individual-handmade",
+    "piecewise-linear-upper-wcvar-b0_9-coc-individual-handmade",
 }
+SHAPE_PARAMETERS = {"trigger", "attachment", "exhaustion"}
+"""The shape parameters a grid-route case frees (ADR 0005 §3's flat names)."""
 TRAIN_FRACTION = 0.7
 DEFAULT_OPTIONS = {
     "betas": [0.9, 0.95, 0.99],
@@ -273,6 +283,21 @@ def test_compare_case_rejects_a_wrong_grid_choice(
     assert any(p.startswith("expected/profile/0/objective_value") for p in found)
 
 
+def test_compare_case_rejects_a_wrong_linear_grid_choice(
+    generated: dict[str, Any], cases: dict[str, dict[str, Any]]
+) -> None:
+    """The closed-form linear design is compared as written, its grid choice too."""
+    name = "linear-upper-grid-wcvar-b0_9-pure-individual-handmade.json"
+    assert cases[name]["source"] == "closed_form"
+    assert exporter.compare_case(cases[name], generated[name]) == []
+    doc = _design(cases, name)
+    doc["expected"]["parameters"]["attachment"] = 64.0
+    doc["expected"]["profile"][4]["objective_value"] *= 1 + 1e-4
+    found = exporter.compare_case(doc, generated[name])
+    assert any(p.startswith("expected/parameters/attachment") for p in found)
+    assert any(p.startswith("expected/profile/4/objective_value") for p in found)
+
+
 def test_compare_case_rejects_a_wrong_fold(
     generated: dict[str, Any], cases: dict[str, dict[str, Any]]
 ) -> None:
@@ -304,7 +329,7 @@ def test_out_of_sample_cases_use_the_design_premium(
         want = e["out_of_sample"]["metrics"]["cvar_net_loss_b0_9"]
         assert net is not None, name
         assert not math.isclose(net, want, rel_tol=1e-3), name
-    assert found == 15
+    assert found == 16
 
 
 def test_regeneration_is_byte_stable_on_one_machine(
@@ -495,36 +520,49 @@ def test_split_blocks_are_the_cores(cases: dict[str, dict[str, Any]]) -> None:
             held_out = [full[i] for i in blocks[split["fold"]]]
         assert test["period"] == held_out, name
         assert train["period"] == [t for t in full if t not in set(held_out)], name
-    assert found == {"holdout": 8, "kfold": KFOLD_K, "fresh_draws": 2}
+    assert found == {"holdout": 8, "kfold": KFOLD_K + 1, "fresh_draws": 2}
 
 
 def test_kfold_cases_split_one_sample(cases: dict[str, dict[str, Any]]) -> None:
-    """The k folds of a design hold out the blocks of one full sample, uneven.
+    """The k-fold cases of a data set hold out the blocks of one sample, uneven.
 
-    Every fold's design and held-out blocks hold the same draws (period,
-    index, loss); the held-out blocks partition them; with ``n % k != 0``
-    the first blocks are one draw longer, as ``numpy.array_split`` makes
-    them.
+    Every k-fold case of a data set holds the same draws (period, index,
+    loss) in its design and held-out blocks, and fold ``i`` holds out the
+    same block in every design. One design (MSE) has every fold, so its
+    held-out blocks partition the draws; with ``n % k != 0`` the first
+    blocks are one draw longer, as ``numpy.array_split`` makes them. Another
+    design (weighted CVaR, an LP) has fold 0 only.
     """
-    groups: dict[str, list[dict[str, Any]]] = {}
+    by_data: dict[str, list[dict[str, Any]]] = {}
     for name, doc in cases.items():
         if doc["split"] is not None and doc["split"]["kind"] == "kfold":
-            groups.setdefault(name.split("-kfold")[0], []).append(doc)
-    assert groups
-    for prefix, docs in groups.items():
+            data = name.split("-individual-")[1].split("-kfold")[0]
+            by_data.setdefault(data, []).append(doc)
+    assert by_data
+    for data, docs in by_data.items():
         k = docs[0]["split"]["k"]
-        assert sorted(d["split"]["fold"] for d in docs) == list(range(k)), prefix
+        assert all(d["split"]["k"] == k for d in docs), data
         full: dict[int, tuple[Any, Any]] = {}
+        held_out: dict[int, list[int]] = {}
+        folds_of: dict[str, set[int]] = {}
         for d in docs:
             for block in (d["sample"], d["evaluation_sample"]):
                 for t, row in _rows(block).items():
-                    assert full.setdefault(t, row) == row, (prefix, t)
-        held_out = sorted(t for d in docs for t in d["evaluation_sample"]["period"])
-        assert held_out == sorted(full), prefix
-        sizes = [len(d["evaluation_sample"]["period"]) for d in docs]
-        assert len(full) % k != 0, prefix
+                    assert full.setdefault(t, row) == row, (data, t)
+            fold, periods = d["split"]["fold"], d["evaluation_sample"]["period"]
+            assert held_out.setdefault(fold, periods) == periods, (data, fold)
+            folds_of.setdefault(d["case_id"].split("-kfold")[0], set()).add(fold)
+        assert set(range(k)) in folds_of.values(), data
+        assert sorted(held_out) == list(range(k)), data
+        assert sorted(t for f in held_out for t in held_out[f]) == sorted(full), data
+        sizes = [len(held_out[f]) for f in range(k)]
+        assert len(full) % k != 0, data
         assert sizes == [len(b) for b in np.array_split(np.arange(len(full)), k)]
-        assert len(set(sizes)) == 2, prefix
+        assert len(set(sizes)) == 2, data
+    designs = {
+        d["case_id"].split("-kfold")[0] for docs in by_data.values() for d in docs
+    }
+    assert {d.split("-")[1] for d in designs} == {"mse", "wcvar"}
 
 
 def _expected_columns(doc: dict[str, Any]) -> set[str]:
@@ -596,12 +634,14 @@ def test_unidentified_levels_follow_the_fill_rule(
         else:
             rows = [(e["parameters"], e["unidentified"])]
         for params, unidentified in rows:
-            # The amounts in order: a step's levels, or a binary's amount (a
-            # grid case's trigger is a shape parameter, always set).
+            # The amounts in order: a step's or piecewise-linear cover's
+            # levels, a binary's amount or a linear cover's limit (a grid
+            # case's thresholds are shape parameters, always set).
             keys = [
                 f"levels[{k}]" for k in range(len(params)) if f"levels[{k}]" in params
             ]
-            keys = keys or ["amount"]
+            keys = keys or [k for k in ("amount", "limit") if k in params]
+            assert len(keys) == len(set(params) - SHAPE_PARAMETERS), name
             assert set(unidentified) <= set(keys), name
             previous = 0.0
             for key in keys:
@@ -661,8 +701,10 @@ def _resolve(
 def _amounts(cover: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     """The free amounts of a template, in order: (name, ``Free`` marker)."""
     pay = cover["payout"]
-    if pay["kind"] == "step":
+    if pay["kind"] in ("step", "piecewise_linear"):
         return [(f"levels[{k}]", v["free"]) for k, v in enumerate(pay["levels"])]
+    if pay["kind"] == "linear":
+        return [("limit", pay["limit"]["free"])]
     assert pay["kind"] == "binary", pay["kind"]
     return [("amount", pay["amount"]["free"])]
 
@@ -685,18 +727,32 @@ def _payout(
         k = np.searchsorted(b, s, side="right") - 1
         return np.where(k < 0, 0.0, levels[np.maximum(k, 0)])
     if pay["kind"] == "linear":
-        a = _severity(np.asarray(pay["attachment"]), tail)
-        e = _severity(np.asarray(pay["exhaustion"]), tail)
-        return pay["limit"] * np.clip((s - a) / (e - a), 0.0, 1.0)
+        limit = _resolve(pay["limit"], "limit", params)
+        a = _resolve(pay["attachment"], "attachment", params)
+        e = _resolve(pay["exhaustion"], "exhaustion", params)
+        return limit * _linear_share(x, a, e, tail)
     if pay["kind"] == "binary":
         t = _severity(np.asarray(_resolve(pay["trigger"], "trigger", params)), tail)
         return np.where(s >= t, _resolve(pay["amount"], "amount", params), 0.0)
     if pay["kind"] == "piecewise_linear":
         c = _severity(np.asarray(pay["knots"], dtype=float), tail)
-        y = np.asarray(pay["levels"], dtype=float)
+        y = np.asarray(
+            [
+                _resolve(value, f"levels[{k}]", params)
+                for k, value in enumerate(pay["levels"])
+            ],
+            dtype=float,
+        )
         assert np.all(np.diff(c) > 0)
         return np.where(s < c[0], 0.0, np.interp(s, c, y))
     raise AssertionError(f"unknown payout kind {pay['kind']}")
+
+
+def _linear_share(x: np.ndarray, a: float, e: float, tail: str) -> np.ndarray:
+    """A linear cover's basis: ``clip((s - a) / (e - a), 0, 1)`` on the severity."""
+    s = _severity(x, tail)
+    lo, hi = _severity(np.asarray(a), tail), _severity(np.asarray(e), tail)
+    return np.clip((s - lo) / (hi - lo), 0.0, 1.0)
 
 
 def _var(x: np.ndarray, p: np.ndarray, beta: float) -> float:
@@ -937,12 +993,14 @@ def test_a_reader_without_our_code_reproduces_the_case(
             free = _amounts(c)
             levels = np.asarray([theta[name] for name, _ in free])
             uppers = np.asarray([marker["upper"] for _, marker in free])
-            assert set(theta) - {name for name, _ in free} <= {"trigger"}
+            assert set(theta) - {name for name, _ in free} <= SHAPE_PARAMETERS
             assert np.all(levels >= 0.0)
             assert np.all(levels <= uppers * (1 + 1e-9))
             assert np.all(np.diff(levels) >= -1e-9 * scale)
         if covers[0]["payout"]["kind"] == "binary":
             _check_binary_design(doc, p, L, floor)
+        if covers[0]["payout"]["kind"] == "linear":
+            _check_linear_design(doc, p, L, floor)
     checked = _check_metrics(
         e["metrics"], L, pi, p, premium, tol["metrics"], scale, options
     )
@@ -1007,3 +1065,183 @@ def _check_binary_design(
     assert _close(values[best], e["objective_value"], rtol, floor)
     others = [v for i, v in enumerate(values) if i != best]
     assert min(others) > values[best] * (1 + 1e-4)
+
+
+def _one_amount_optimum(
+    doc: dict[str, Any], b: np.ndarray, p: np.ndarray, L: np.ndarray, cap: float
+) -> tuple[float, float]:
+    """Solve a design with one amount A and basis values b in [0, 1], plain numpy.
+
+    The payout is A b. The premium is c A, with c = E[b] (pure) or (1 - r)
+    E[b] + r CVaR_q(b) (cost of capital). So A lies in [0, A_max], A_max =
+    min(cap, budget / c). E[U] and weighted CVaR don't increase in A: A_max
+    is optimal. MSE is smallest at E[bL] / E[b^2], clipped to [0, A_max].
+    Returns (A, objective value).
+    """
+    pricing = doc["pricing"]
+    if pricing["kind"] == "pure":
+        c = float(p @ b)
+    else:
+        r, q = pricing["rate"], pricing["q"]
+        c = (1 - r) * float(p @ b) + r * _cvar(b, p, q)
+    budget = doc["budget"]["ratio"] * float(p @ L)
+    bound = cap if c == 0.0 else min(cap, budget / c)
+    objective = doc["objective"]
+    if not np.any(b > 0):
+        amount = 0.0
+    elif objective["kind"] == "mse":
+        amount = min(max(float(p @ (b * L)) / float(p @ (b * b)), 0.0), bound)
+    else:
+        amount = bound
+    return amount, _objective(objective, L, amount * b, p)
+
+
+def _check_linear_design(
+    doc: dict[str, Any], p: np.ndarray, L: np.ndarray, floor: float
+) -> None:
+    """A linear design is the closed-form optimum of its limit; on a grid, the best.
+
+    The grid route (ADR 0005 §5.3) with the attachment and the exhaustion
+    free: the candidates are the Cartesian product of their grids, in
+    lexicographic order (attachment, then exhaustion), every one in
+    ``profile`` with its closed-form optimum. The chosen thresholds are the
+    best candidate's, strictly better than every other, and the limit is its
+    closed-form optimum.
+    """
+    cover, e, tol = doc["cover"], doc["expected"], doc["tolerances"]
+    pay = cover["payout"]
+    x = np.asarray(doc["sample"]["index"], dtype=float)[:, 0]
+    rtol = tol["objective_value"]
+    cap = pay["limit"]["free"]["upper"]
+    names = ("attachment", "exhaustion")
+    grids = [pay[n]["free"]["grid"] if _is_free(pay[n]) else [pay[n]] for n in names]
+    free = [n for n in names if _is_free(pay[n])]
+    candidates = list(itertools.product(*grids))
+    profile = e["profile"]
+    if not free:
+        assert profile is None
+    else:
+        want = [{n: c[i] for i, n in enumerate(names) if n in free} for c in candidates]
+        assert [row["parameters"] for row in profile] == want
+    values = []
+    for i, (a, exhaustion) in enumerate(candidates):
+        amount, value = _one_amount_optimum(
+            doc, _linear_share(x, a, exhaustion, pay["tail"]), p, L, cap
+        )
+        if profile is not None:
+            row = profile[i]["objective_value"]
+            assert _close(value, row, rtol, floor), (a, exhaustion, value, row)
+        values.append((value, amount))
+    best = int(np.argmin([v for v, _ in values]))
+    for i, n in enumerate(names):
+        assert e["parameters"][n] == candidates[best][i], n
+    value, amount = values[best]
+    assert _close(value, e["objective_value"], rtol, floor)
+    others = [v for i, (v, _) in enumerate(values) if i != best]
+    assert not others or min(others) > value * (1 + 1e-4)
+    if e["unique"]:
+        # README: a parameter within tolerances.parameters times the scale.
+        gap = abs(amount - e["parameters"]["limit"])
+        assert gap <= tol["parameters"] * max(1.0, float(L.max())), amount
+
+
+def test_script_side_payout_structures_follow_the_readme() -> None:
+    """The structures the core designs with are ADR 0005 §3's payouts.
+
+    The piecewise-linear one: 0 below the first knot, the first level at it,
+    the linear interpolation of the points (c_k, y_k), the last level at and
+    beyond the last knot; its basis rows sum to 1 from the first knot on.
+    The linear one: the limit times the clipped share.
+    """
+    knots = (50.0, 80.0, 120.0, 175.0)
+    s = np.array([0.0, 49.99, 50.0, 64.0, 80.0, 99.5, 120.0, 174.9, 175.0, 210.0])
+    structure = exporter.PiecewiseLinearStructure(knots=knots)
+    y = np.array([50.0, 250.0, 700.0, 1200.0])
+    basis = structure.basis_matrix(s)
+    want = np.where(s < knots[0], 0.0, np.interp(s, knots, y))
+    assert np.allclose(basis @ y, want, rtol=1e-14, atol=0.0)
+    assert (basis @ y)[2] == 50.0
+    assert np.array_equal(basis.sum(axis=1) > 0, s >= knots[0])
+    assert np.allclose(basis.sum(axis=1)[s >= knots[0]], 1.0, rtol=1e-15)
+    assert np.all(basis >= 0.0)
+    linear = exporter.LinearStructure(attachment=36.0, exhaustion=60.0)
+    x = np.array([0.0, 36.0, 48.0, 60.0, 75.0])
+    got = linear.evaluate(x[:, None], np.array([[2.5e6]]))[:, 0]
+    assert np.array_equal(got, [0.0, 0.0, 1.25e6, 2.5e6, 2.5e6])
+    with pytest.raises(ValueError, match="invalid knots"):
+        exporter.PiecewiseLinearStructure(knots=(80.0, 50.0))
+    with pytest.raises(ValueError, match="invalid thresholds"):
+        exporter.LinearStructure(attachment=60.0, exhaustion=36.0)
+
+
+def test_piecewise_linear_designs_agree_with_standalone_computations(
+    cases: dict[str, dict[str, Any]],
+) -> None:
+    """The committed piecewise-linear designs are optimal by a second computation.
+
+    The core designs them with the script-side ``PiecewiseLinearStructure``.
+    Here, from the committed files: an LP objective is solved again by the
+    script's standalone LP (assembled in numpy, solved by scipy's HiGHS; no
+    cvxpy, no core), on the basis of the README's formula; an MSE objective
+    under the pure premium by its KKT points in rational arithmetic (no
+    solver). The optimum must agree within 1e-7 relative (the standalone
+    HiGHS) or 1e-9 (exact), and at a unique optimum every identified level
+    within 1e-6 of the scale.
+    """
+    found = 0
+    for name, doc in cases.items():
+        pay = doc["cover"]["payout"] if doc["scope"] == "individual" else {}
+        if doc["kind"] != "design" or pay.get("kind") != "piecewise_linear":
+            continue
+        found += 1
+        e = doc["expected"]
+        knots = _severity(np.asarray(pay["knots"], dtype=float), pay["tail"])
+        x = _severity(
+            np.asarray(doc["sample"]["index"], dtype=float)[:, 0], pay["tail"]
+        )
+        loss = np.asarray(doc["sample"]["loss"], dtype=float)[:, 0]
+        n_levels = len(pay["levels"])
+        names = [f"levels[{k}]" for k in range(n_levels)]
+        levels = np.asarray([e["parameters"][k] for k in names], dtype=float)
+        identified = np.asarray([k not in e["unidentified"] for k in names], dtype=bool)
+        scale = max(1.0, float(loss.max()))
+        objective = next(
+            o.core
+            for o in exporter.objectives()
+            if dict(o.document) == doc["objective"]
+        )
+        if doc["objective"]["kind"] == "mse":
+            assert doc["pricing"]["kind"] == "pure", name
+            frac = exporter._fraction
+            exact_knots = [frac(float(c)) for c in knots]
+            rows = [
+                exporter.exact_piecewise_linear_basis(frac(float(v)), exact_knots)
+                for v in x
+            ]
+            exact_loss = [frac(float(v)) for v in loss]
+            budget = frac(doc["budget"]["ratio"]) * sum(exact_loss) / len(exact_loss)
+            point, value = exporter.exact_mse_optimum(
+                exact_loss, rows, frac(_amounts(doc["cover"])[0][1]["upper"]), budget
+            )
+            other, other_levels = float(value), np.asarray([float(v) for v in point])
+            rtol = 1e-9
+        else:
+            pricing = next(
+                p.core
+                for p in exporter.pricings()
+                if dict(p.document) == doc["pricing"]
+            )
+            unit = np.eye(n_levels)
+            basis = np.column_stack(
+                [np.where(x < knots[0], 0.0, np.interp(x, knots, u)) for u in unit]
+            )
+            cap = _amounts(doc["cover"])[0][1]["upper"]
+            other, other_levels = exporter.standalone_lp_optimum(
+                objective, pricing, loss, basis, cap
+            )
+            rtol = 1e-7
+        assert math.isclose(other, e["objective_value"], rel_tol=rtol), name
+        if e["unique"]:
+            gap = np.abs(np.asarray(other_levels, dtype=float) - levels)[identified]
+            assert np.all(gap <= 1e-6 * scale), (name, gap)
+    assert found == 2
