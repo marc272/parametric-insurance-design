@@ -11,15 +11,41 @@ This is the track half of the thesis ``src/CLIMADA/engine.py``:
 3. :func:`storm_to_track` turns one storm's rows into the
    :class:`xarray.Dataset` that :class:`climada.hazard.TCTracks` holds, with
    the thesis unit conversions (m/s to knots, km to nautical miles).
+4. :func:`simulation_year_dates` dates each event of a CLIMADA hazard by its
+   simulation year, and :func:`simulation_years_of_dates` reads the years
+   back (see "Simulation years in a CLIMADA hazard" below).
 
 The thesis checked nothing about the catalogue. This module raises
 :class:`CatalogueFormatError` where the thesis code would have produced wrong
 tracks silently: missing values, an event ID shared by two IRIS storms, a
 storm spanning two years, duplicate or non-consecutive time steps.
+
+Simulation years in a CLIMADA hazard
+------------------------------------
+IRIS numbers its simulation years 0 to 9,999, 1,000 per file (IRIS README;
+:func:`.iris.merge_track_files` keeps the year column as it is), and the
+year is part of the event ID, ``<basin>_<year>_<tc>``. Every track starts
+at :data:`TRACK_REF_TIME`, so a hazard from ``TropCyclone.from_tracks``
+dates every event on that day and gives every event frequency 1. The
+pipeline therefore sets the frequency to ``1 / n_years`` and replaces the
+dates with :func:`simulation_year_dates`, which carries simulation year
+``y`` as the ordinal of 1 January of calendar year ``y + 1``
+(:data:`DATE_YEAR_OFFSET`). The offset exists because a CLIMADA date is a
+proleptic Gregorian ordinal, read back with
+:meth:`datetime.date.fromordinal`, which has no year 0. Readers of
+calendar years, such as ``Hazard.calc_year_set``, then see one year per
+simulation year, in order and without gaps.
+
+A date ends in year 9999 (:data:`datetime.MAXYEAR`), so a date can carry
+simulation years 0 to :data:`LAST_DATED_YEAR` (9,998). The last year of a
+10,000-year catalogue (IRIS year 9,999) has no date: its events get
+:data:`UNDATED`, which is not an ordinal, so a reader of the date raises
+rather than returns a wrong year. Their year is still in the event name.
 """
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Final
@@ -27,19 +53,24 @@ from typing import Final
 import numpy as np
 import pandas as pd
 import xarray as xr
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 
 __all__ = [
+    "DATE_YEAR_OFFSET",
     "EARTH_RADIUS_KM",
     "ENV_PRESSURE_HPA",
     "IRIS_COLUMNS",
     "KM_TO_NM",
+    "LAST_DATED_YEAR",
     "MS_TO_KT",
     "TIMESTEP_HOURS",
     "TRACK_REF_TIME",
+    "UNDATED",
     "CatalogueFormatError",
     "haversine_km",
     "read_iris_catalogue",
+    "simulation_year_dates",
+    "simulation_years_of_dates",
     "storm_to_track",
     "storms_near_locations",
 ]
@@ -55,8 +86,16 @@ EARTH_RADIUS_KM: Final[float] = 6371.0
 #: Background environmental pressure given to every track point (thesis).
 ENV_PRESSURE_HPA: Final[float] = 1013.0
 #: Arbitrary anchor time of every track. The absolute date does not affect
-#: CLIMADA's wind field, so all storms start at the same time (thesis).
+#: CLIMADA's wind field, so all storms start at the same time (thesis). The
+#: hazard's dates carry the simulation year instead (module docstring).
 TRACK_REF_TIME: Final[np.datetime64] = np.datetime64("2000-01-01T00:00")
+#: Calendar year minus simulation year in a hazard date: a date has no year 0.
+DATE_YEAR_OFFSET: Final[int] = 1
+#: Largest simulation year that a hazard date can carry (9,998).
+LAST_DATED_YEAR: Final[int] = dt.MAXYEAR - DATE_YEAR_OFFSET
+#: Hazard date of an event whose simulation year no date can carry. Not an
+#: ordinal (they start at 1), so readers of the date raise.
+UNDATED: Final[int] = 0
 
 #: Columns of an IRIS catalogue file, in file order (IRIS README).
 IRIS_COLUMNS: Final[tuple[str, ...]] = (
@@ -309,3 +348,96 @@ def storm_to_track(storm: pd.DataFrame) -> xr.Dataset:
             "category": 0,
         },
     )
+
+
+def _year_array(values: ArrayLike, name: str) -> NDArray[np.int64]:
+    """Return ``values`` as a 1-d ``int64`` array; raise if they are not ints."""
+    array = np.asarray(values)
+    if array.ndim != 1:
+        raise ValueError(f"{name} must be one-dimensional, got shape {array.shape}")
+    if array.size and not np.issubdtype(array.dtype, np.integer):
+        raise ValueError(f"{name} must be integers, got dtype {array.dtype}")
+    return array.astype(np.int64)
+
+
+def simulation_year_dates(years: ArrayLike) -> NDArray[np.int64]:
+    """Return the CLIMADA hazard date that carries each simulation year.
+
+    Simulation year ``y`` is dated 1 January of calendar year
+    ``y + DATE_YEAR_OFFSET``, as a proleptic Gregorian ordinal (the
+    ``Hazard.date`` convention). Years above :data:`LAST_DATED_YEAR`, which
+    no date can carry, get :data:`UNDATED` (module docstring).
+
+    Parameters
+    ----------
+    years : array_like of int
+        Simulation years, one per event, ``>= 0``.
+
+    Returns
+    -------
+    numpy.ndarray of int64
+        One date per event.
+
+    Raises
+    ------
+    ValueError
+        If ``years`` is not a one-dimensional array of integers, or a year is
+        negative.
+    """
+    values = _year_array(years, "years")
+    if (values < 0).any():
+        raise ValueError(f"simulation years must be >= 0, got {int(values.min())}")
+    unique, position = np.unique(values, return_inverse=True)
+    ordinals = np.array(
+        [
+            dt.date(int(y) + DATE_YEAR_OFFSET, 1, 1).toordinal()
+            if y <= LAST_DATED_YEAR
+            else UNDATED
+            for y in unique
+        ],
+        dtype=np.int64,
+    )
+    return ordinals[np.asarray(position).reshape(-1)]
+
+
+def simulation_years_of_dates(dates: ArrayLike) -> NDArray[np.int64]:
+    """Return the simulation year that each hazard date carries.
+
+    The inverse of :func:`simulation_year_dates`.
+
+    Parameters
+    ----------
+    dates : array_like of int
+        Hazard dates (proleptic Gregorian ordinals), e.g. ``hazard.date``.
+
+    Returns
+    -------
+    numpy.ndarray of int64
+        One simulation year per date.
+
+    Raises
+    ------
+    ValueError
+        If a date is :data:`UNDATED` or otherwise not an ordinal (its year is
+        only in the event name), or is not 1 January, so that it was not
+        written by :func:`simulation_year_dates`.
+    """
+    values = _year_array(dates, "dates")
+    undated = np.flatnonzero(values < 1)
+    if undated.size:
+        raise ValueError(
+            f"{undated.size} date(s) carry no simulation year (e.g. position "
+            f"{int(undated[0])}): no date holds a year above {LAST_DATED_YEAR}, "
+            "so read the year from the event name"
+        )
+    unique, position = np.unique(values, return_inverse=True)
+    years: list[int] = []
+    for ordinal in unique:
+        day = dt.date.fromordinal(int(ordinal))
+        if (day.month, day.day) != (1, 1):
+            raise ValueError(
+                f"date {day.isoformat()} is not 1 January, so it does not carry "
+                "a simulation year"
+            )
+        years.append(day.year - DATE_YEAR_OFFSET)
+    return np.array(years, dtype=np.int64)[np.asarray(position).reshape(-1)]
