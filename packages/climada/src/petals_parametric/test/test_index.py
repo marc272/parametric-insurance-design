@@ -266,8 +266,37 @@ class TestSimulationYears(unittest.TestCase):
         train, _ = split_years(index, train_fraction=0.7)
         np.testing.assert_array_equal(train, np.arange(7000))
         # Every track starts on one date: the dates give one year, not 10,000.
-        with self.assertRaisesRegex(ParametricInputError, "run from 2000 to 2000"):
-            ParametricIndex.from_hazard(hazard, self.exposures)
+        # The date route keeps its earlier result, but no longer silently.
+        with self.assertLogs("petals_parametric.index", "WARNING") as logs:
+            dated = ParametricIndex.from_hazard(hazard, self.exposures)
+        self.assertIn("run from 2000 to 2000", logs.output[0])
+        self.assertIn("pass first_year", logs.output[0])
+        np.testing.assert_array_equal(dated.years, np.arange(2000, 12_000))
+
+    def test_valid_dates_with_years_missing_keep_the_earlier_result(self) -> None:
+        # As the thesis portfolio's hazard: storms in years 0 to 9,997, all
+        # dated (year y on 1 January of y + 1), 9,998 of 10,000 years.
+        storms = [s for s in STORMS if s[0] != 9999]
+        years = [year for year, *_ in storms]
+        hazard, _ = hazard_and_impact(
+            catalogue_tracks(storms),
+            self.exposures,
+            frequency=1 / N_CATALOGUE,
+            date=_year_dates(years),
+        )
+        with self.assertLogs("petals_parametric.index", "WARNING") as logs:
+            dated = ParametricIndex.from_hazard(hazard, self.exposures)
+        self.assertIn("could lie before 1 or after 7001", logs.output[0])
+        np.testing.assert_array_equal(dated.event_year, np.add(years, 1))
+        np.testing.assert_array_equal(dated.years, np.arange(1, N_CATALOGUE + 1))
+        stated = ParametricIndex.from_hazard(hazard, self.exposures, first_year=1)
+        np.testing.assert_array_equal(stated.years, dated.years)
+        with self.assertRaisesRegex(ParametricInputError, "Pass first_year"):
+            ParametricIndex.from_hazard(hazard, self.exposures, event_year="event_name")
+        named = ParametricIndex.from_hazard(
+            hazard, self.exposures, event_year="event_name", first_year=0
+        )
+        np.testing.assert_array_equal(named.years, np.arange(N_CATALOGUE))
 
     def test_the_date_route_is_the_default(self) -> None:
         tracks = _tracks()

@@ -116,7 +116,7 @@ Every number such a run prints depends on its setup: the sites and their values,
 - **Simulation years.** The annual basis needs each event's simulation year, and every year of the hazard set, including the years without events. The index builders take them in three parts:
   - **each event's year**, `event_year`: by default the calendar year of `hazard.date` (`"date"`), as `TropCyclone.from_tracks` sets it for historical tracks. `"event_name"` (opt-in) reads it from event names of the form `<prefix>_<year>_<number>`, such as `NA_9999_0`, and raises on a name of any other form. Or pass one year per event;
   - **the number of years** `N`, `n_years`: by default `1 / frequency`, which must then be the same for every event;
-  - **the first year**, `first_year`: by default the first event's year, but only if the events' years run over exactly `N` years. Otherwise the years without events could lie before the first event or after the last one, so the builders raise rather than guess.
+  - **the first year**, `first_year`: the years are `first_year` to `first_year + N - 1`. By default they start at the first event's year, which is certain only if the events' years run over exactly `N` years. If they run over fewer, the years without events could lie before the first event or after the last one: the `"event_name"` route then raises, and the date and array routes keep their earlier behaviour (the first event's year) and log a warning. State `first_year` to avoid both.
 
   `years`, the list of all the years, can replace `n_years` and `first_year`. On the annual basis every event's frequency must be one over the number of years; otherwise calibration raises.
 

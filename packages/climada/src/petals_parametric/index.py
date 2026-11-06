@@ -55,9 +55,11 @@ parts:
   which must then be the same for every event.
 * **The first year**, ``first_year``: the years are ``first_year`` to
   ``first_year + N - 1``. Without it, the years start at the first event's
-  year, but only if the events' years run over exactly ``N`` years. If they
-  run over fewer, the years without events could lie before the first event
-  or after the last one, so the builders raise rather than guess.
+  year, which is certain only if the events' years run over exactly ``N``
+  years. If they run over fewer, the years without events could lie before
+  the first event or after the last one: then the ``"event_name"`` route
+  raises, and the date and array routes keep their earlier behaviour,
+  starting at the first event's year, and log a warning.
 
 ``years``, every simulation year, can replace ``n_years`` and
 ``first_year``; giving it with either of them raises.
@@ -330,9 +332,11 @@ class ParametricIndex:
         n_years : int, optional
             Number of simulation years, >= 1. Default: ``1 / frequency``.
         first_year : int, optional
-            The first simulation year, in the numbering of the event years.
-            Default: the first event's year, if the events' years run over
-            exactly ``n_years`` years.
+            The first simulation year, in the numbering of the event years
+            (calendar years on the date route). Default: the first event's
+            year; if the events' years run over fewer than ``n_years``
+            years, the ``"event_name"`` route raises and the other routes
+            log a warning.
 
         Returns
         -------
@@ -622,7 +626,10 @@ def _simulation_years(  # pylint: disable=too-many-arguments
     if rows.size == 0:
         raise ParametricInputError("the hazard has no events")
     count, count_source = _year_count(frequency, n_years)
-    first = _first_year(rows, count, first_year, source, count_source)
+    # The event-name route is new and never guesses; the date and array
+    # routes keep their earlier result, with a warning (module docstring).
+    strict = isinstance(event_year, str) and event_year == "event_name"
+    first = _first_year(rows, count, first_year, source, count_source, strict=strict)
     LOGGER.info(
         "simulation years: %d years (%s) from %d, event years from %s",
         count,
@@ -732,21 +739,28 @@ def _year_count(frequency: NDArray[np.float64], n_years: int | None) -> tuple[in
     return count, "1 / frequency"
 
 
-def _first_year(
+def _first_year(  # pylint: disable=too-many-arguments
     rows: NDArray[np.int64],
     count: int,
     first_year: int | None,
     source: str,
     count_source: str,
+    *,
+    strict: bool,
 ) -> int:
-    """Return the first simulation year; refuse to guess it (module docstring).
+    """Return the first simulation year (module docstring).
+
+    Without ``first_year``, the first event's year if the event years run
+    over exactly ``count`` years. If they run over fewer, the first event's
+    year is a guess: with ``strict`` it raises, otherwise it logs a warning
+    and returns the first event's year.
 
     Raises
     ------
     ParametricInputError
-        If an event year lies outside the stated span, or ``first_year`` is
-        not given and the event years do not run over exactly ``count``
-        years.
+        If an event year lies outside the stated span, the event years run
+        over more than ``count`` years, or ``strict`` and they run over
+        fewer without ``first_year``.
     """
     if first_year is not None:
         first = check_int("first_year", first_year)
@@ -763,13 +777,23 @@ def _first_year(
     if span == count:
         return low
     if span < count:
-        raise ParametricInputError(
+        gap = (
             f"the event years ({source}) run from {low} to {high}, {span} "
             f"years, but there are {count} simulation years ({count_source}): "
             f"the {count - span} years without events could lie before {low} "
-            f"or after {high}. Pass first_year, the first simulation year, or "
-            "years"
+            f"or after {high}"
         )
+        if strict:
+            raise ParametricInputError(
+                f"{gap}. Pass first_year, the first simulation year, or years"
+            )
+        LOGGER.warning(
+            "%s. Taking the first event's year, %d, as the first simulation "
+            "year; pass first_year to state it",
+            gap,
+            low,
+        )
+        return low
     raise ParametricInputError(
         f"the event years ({source}) run from {low} to {high}, {span} years, "
         f"more than the {count} simulation years ({count_source}); pass "
