@@ -8,6 +8,7 @@
   - crc-framework 0.6.0: [`838c295`][fw] (tag `v0.6.0`; the later head changes only the release workflow);
   - crc-docs: [`7691f5f`][docs] (2026-11-04).
 - Revised on 2026-11-05, before the owner's decision, to match the golden fixtures of MAR-245 (PR #183). The end of "Decisions for the owner" lists what changed.
+- Amendments: 1 (2026-11-06, MAR-275), at the end. It records the owner's decision D11: curves first.
 
 The section "Decisions for the owner" lists what Marc decides. Every other choice below is the agent's recommendation, with the alternatives named where a choice is open.
 
@@ -106,9 +107,9 @@ Naming rules:
 - **Layer 1: functions and frozen value objects over numpy and Arrow.** They do no I/O. All numerical work is here, so tests and the notebook can use it without a plan, and a user can bring their own table.
 - **Layer 2: a plan, `ParametricPlan` (R-18).** Immutable builders, `explain()` without I/O, and execution points that read through crc-sdk's existing plans and write Parquet atomically (temporary file, then `os.replace`) under the metadata key `crc.parametric.evaluation`.
 
-**Entry point.** `ParametricPlan.for_evaluation(request)` takes the `PortfolioEvaluation` the user already built with `HazardDataset.<source>(...).for_assets(assets).select(...).impact(...)`, and reuses its dataset, assets, selection and impact function. It changes nothing in `PortfolioEvaluation`. `ParametricPlan.for_annual_extremes(...)` is the second entry, for per-year sources (U5).
+**Entry point.** `ParametricPlan.for_evaluation(request)` takes the `PortfolioEvaluation` the user already built with `HazardDataset.<source>(...).for_assets(assets).select(...).impact(...)`, and reuses its dataset, assets, selection and impact function. It changes nothing in `PortfolioEvaluation`. `ParametricPlan.for_annual_extremes(...)` is the second entry, for per-year sources (U5). (Amendment 1, D11: the first release leads with `for_evaluation` and the curves; the per-year entry is the second step.)
 
-To sample from curves the plan needs each asset's curve, and the join that finds it is private (U3). **Recommendation:** R-18 adds one public execution point to crc-sdk, `PortfolioEvaluation.asset_curves() -> pyarrow.Table`, with one row per asset, hazard, horizon and pathway, the curve columns and `spatial_match`, built on the existing join. It is additive. RiskThinking confirms the name and the place (Q1). A chaining method on `PortfolioEvaluation` (for example `.parametric(...)`) is the alternative; it edits their class, so it is their choice (Q2).
+To sample from curves the plan needs each asset's curve, and the join that finds it is private (U3). **Recommendation:** R-18 adds one public execution point to crc-sdk, `PortfolioEvaluation.asset_curves() -> pyarrow.Table`, with one row per asset, hazard, horizon and pathway, the curve columns and `spatial_match`, built on the existing join. It is additive. RiskThinking confirms the name and the place (Q1). A chaining method on `PortfolioEvaluation` (for example `.parametric(...)`) is the alternative; it edits their class, so it is their choice (Q2). (Amendment 1, D11: `asset_curves()` is built in the fork now, by MAR-271, and proposed to RiskThinking in the upstream PR. Q2 stays open.)
 
 **Layer 1 in outline** (names and signatures for R-14 to R-17; types abbreviated):
 
@@ -187,7 +188,7 @@ The plan holds an integer `seed`, which `explain()` can show. At execution it bu
 | `pricing.py` | `PurePremium`, `CostOfCapitalLoad` (premium values in numpy) | R-17 |
 | `metrics.py` | `MetricOptions`, the metric kernels and column names | R-17 |
 | `evaluate.py` | `evaluate`, `compare`, `write_comparison`, `to_long` | R-17 |
-| `metadata.py` | `EvaluationMetadata` (§7) | R-17 |
+| `metadata.py` | `EvaluationMetadata` and `setup_text` (§7; erratum 7, 2026-11-06, MAR-272: this row first named only `EvaluationMetadata`) | R-17 |
 | `objectives.py` | `MSE`, `ExpectedUncovered`, `WeightedCVaR`, `UserObjective` | R-16 |
 | `constraints.py` | `Budget`, `Limit` | R-16 |
 | `design.py` | `design`, `DesignOptions`, `DesignResult`; the LP and QP assembly | R-16 |
@@ -196,7 +197,7 @@ The plan holds an integer `seed`, which `explain()` can show. At execution it bu
 
 Outside the package: `docs/parametric.md` with its line in `docs/README.md` (stub R-14, finished R-18); tests `tests/test_parametric_<module>.py`, mirroring the modules as crc-sdk does; the extra in `pyproject.toml` (R-16); `PortfolioEvaluation.asset_curves()` in `workflows/portfolio.py` and `workflows/_portfolio.py` (R-18, if RiskThinking agrees, Q1).
 
-**Errors** (`errors.py`): `ParametricError` is the base. `CoverDefinitionError` and `UnknownPayoutKindError` (also `ValueError`) cover invalid covers, payouts and parameters. `UnresolvedParameterError` is raised when a template is evaluated. `SampleError`, with `ProbabilitySemanticsError` and `LeakageError`, covers samples and splits (also `ValueError`). `DesignError`, with `InfeasibleDesignError` and `UnboundedDesignError` (also `RuntimeError`), carries the asset id, the solver status and its message. `SolverUnavailableError` (also `ImportError`) names the extra. Warnings: `ComonotoneIndexWarning`, and crc-sdk's own `ReturnPeriodExtrapolationWarning` for draws outside a curve's fitted support.
+**Errors** (`errors.py`): `ParametricError` is the base. `CoverDefinitionError` and `UnknownPayoutKindError` (also `ValueError`) cover invalid covers, payouts and parameters. `UnresolvedParameterError` is raised when a template is evaluated. `SampleError`, with `ProbabilitySemanticsError` and `LeakageError`, covers samples and splits (also `ValueError`). `DesignError`, with `InfeasibleDesignError` and `UnboundedDesignError` (also `RuntimeError`), carries the asset id, the solver status and its message. `SolverUnavailableError` (also `ImportError`) names the extra. `EvaluationError` (also `ValueError`) covers invalid evaluation arguments, metric options and comparison metadata, in `evaluate`, `compare`, `write_comparison`, `to_long`, `MetricOptions`, `EvaluationMetadata` and `setup_text`. Warnings: `ComonotoneIndexWarning`, and crc-sdk's own `ReturnPeriodExtrapolationWarning` for draws outside a curve's fitted support. (Erratum 7, 2026-11-06, MAR-272: this list first left out `EvaluationError`. MAR-266 (R-17b) added it in marc272/crc-sdk#7, together with `setup_text`, and `crc_sdk.parametric` exports both. No decision changes.)
 
 ### 3. Payout families and the extension protocol
 
