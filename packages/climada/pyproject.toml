@@ -26,10 +26,12 @@ classifiers = [
 Repository = "https://github.com/marc272/parametric-insurance-design"
 
 # Run with `pixi run test` from this folder. This table makes the package's
-# test config independent of the uv workspace's root config.
+# test config independent of the uv workspace's root config. The petals
+# prototype keeps its tests next to its code, as climada_petals does
+# (src/petals_parametric/test/), so they are a second test path.
 [tool.pytest]
 minversion = "9.0"
-testpaths = ["tests"]
+testpaths = ["tests", "src/petals_parametric/test"]
 addopts = ["-ra", "--import-mode=importlib"]
 strict = true
 
@@ -48,6 +50,13 @@ extend-select = ["TID251"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "parametric_insurance_design_crc".msg = "the CLIMADA stream is CRC-free: never import the CRC adapter (AGENTS.md \"Hard boundaries\")"
+
+# Two import packages: the adapter, and the prototype of a climada_petals
+# parametric module (src/petals_parametric, MAR-168), which imports neither
+# the adapter nor the core (its ruff.toml and
+# tests/test_petals_parametric_isolation.py).
+[tool.uv.build-backend]
+module-name = ["parametric_insurance_design_climada", "petals_parametric"]
 
 [build-system]
 requires = ["uv_build>=0.13.5,<0.14"]
