@@ -31,6 +31,7 @@
     "schema_version": "1.0",
     "semantics_version": "crc-parametric-cover/1"
   },
+  "evaluation_sample": null,
   "expected": {
     "metrics": {
       "correlation": 0.981225254122,
@@ -88,6 +89,7 @@
       "var_uncovered_b0_99": 1120044.1394
     },
     "objective_value": 848943.002286,
+    "out_of_sample": null,
     "parameters": {
       "levels[0]": 0.0,
       "levels[1]": 50840.6650233,
@@ -95,7 +97,7 @@
       "levels[3]": 3776299.99226,
       "levels[4]": 8000638.5661,
       "levels[5]": 11000610.8627,
-      "levels[6]": 12391422.5105
+      "levels[6]": 11000610.8627
     },
     "premium": 618553.268638,
     "unidentified": ["levels[6]"],
@@ -443,6 +445,7 @@
   },
   "scope": "individual",
   "source": "core",
+  "split": null,
   "tolerances": {
     "metrics": 1e-06,
     "objective_value": 1e-06,
