@@ -150,7 +150,7 @@ The Program hub sets these rules (from 2026-11-05):
    - external-facing work follows the publication rule.
 
    For a fork PR, also check:
-   - the base is `parametric`, and the fork's own checks pass (see "Merge policy");
+   - the base is `parametric`, and the fork's own checks pass (see "Merge policy"; in crc-docs, no new failures against the base while the known upstream failure stands, see "Fork PRs");
    - no file of the diff imports `parametric_insurance_design`;
    - no MAR IDs or Linear links in code or docs (`git -C <worktree> diff origin/parametric... | grep -nE 'MAR-[0-9]+|linear\.app'` prints nothing); commit subjects are conventional, each with a `Refs: MAR-<n>` trailer;
    - nothing new in crc-sdk's base dependencies (`[project].dependencies`): the solver sits in an optional extra, as ADR 0005 chooses;
@@ -291,7 +291,8 @@ Otherwise, set the issue to In Review, assign it to Marc, and alert him. Never u
 The merge gate differs by fork (checked 2026-11-05):
 
 - **crc-sdk:** `.github/workflows/ci.yml` runs on every `pull_request`, with no branch filter: ruff and strict mypy, the tests on Python 3.11 to 3.14 and on Windows, and a wheel build. PRs into `parametric` get it, and it is the merge gate.
-- **crc-docs:** the only PR workflow is `validate-skills.yml`, filtered to the agent skills, `AGENTS.md`, `CLAUDE.md` and `.mcp.json`. Nothing runs `tests/` or the notebooks in CI. So the gate is local, as in "Fallback: local CI" below: the worker pastes the summary of the fork's own checks (`uv run pytest -q`) on the final head, and you re-run them in the PR's worktree, on the head you are about to merge. When the PR touches the files `validate-skills.yml` watches, that check must be green too. Merge only if your run passes.
+- **crc-docs:** the only PR workflow is `validate-skills.yml`, filtered to the agent skills, `AGENTS.md`, `CLAUDE.md` and `.mcp.json`. Nothing runs `tests/` or the notebooks in CI. So the gate is local, as in "Fallback: local CI" below: the worker pastes the summary of the fork's own checks (`uv run --with pytest python -m pytest -q`) on the final head, and you re-run them in the PR's worktree, on the head you are about to merge. `uv run pytest -q` can't start, because pytest isn't a crc-docs dependency, and `uv run --with pytest pytest -q` can't import the repository's `pipelines`. When the PR touches the files `validate-skills.yml` watches, that check must be green too. Merge only if your run passes.
+  - **Known upstream failure (2026-11-06).** `tests/test_notebooks.py::test_flood_demo_reuses_cache_and_explores_canonical_curve` fails on crc-docs' `main`, and so on `parametric` (reported to RiskThinking through MAR-249). Until upstream fixes it, the gate for every crc-docs PR, sync PRs included, is no new failures against the base: run the tests on the base and on the head, and merge only if every test that fails on the head also fails on the base. Run the base in a throwaway worktree (`git -C <clone> worktree add --detach <path> origin/parametric`, then `git -C <clone> worktree remove --force <path>`). The worker pastes both summaries. Drop this note when a sync PR brings upstream's fix.
 - Both forks carry upstream's `rebase-dependabot.yml`, which has no job in a fork.
 
 Merge a fork PR so that the commit on `parametric` reads like upstream's history, with no MAR ID in its subject:
