@@ -14,10 +14,15 @@ checks that:
 
 - the Bash deny rules of ``.claude/settings.json`` deny the ``gh -R <repo>
   <group>`` forms and other spellings of the denied gh writes, and don't deny
-  the runbook's prescribed commands (``RULE_CASES``, MAR-263). Rules load at
-  session start, so they are matched here the way the permissions page says
-  Claude Code matches them (``rule_matches``, ``denied_by``), a model checked
-  against the page's own examples (``DOC_RULE_EXAMPLES``);
+  the runbook's prescribed commands (``RULE_CASES``, MAR-263, MAR-282). Rules
+  load at session start, so they are matched here the way the permissions
+  page says Claude Code matches them (``rule_matches``, ``denied_by``), a
+  model checked against the page's own examples (``DOC_RULE_EXAMPLES``);
+- its other deny rules remove the app tools that Marc decided to deny and
+  keep the rest (``TOOL_RULE_CASES``, MAR-282), by a model of tool-name
+  matching checked against the page (``tool_rule_matches``,
+  ``TOOL_RULE_DOC_EXAMPLES``), and every one is a bare ``mcp__`` name, the
+  only form settings accept for MCP tools (``tool_rule_problems``);
 - ``.claude/settings.json`` wires the hook as one ``PreToolUse`` hook whose
   matcher names Bash, Monitor and the terminal tool, by running its command
   string through ``sh -c`` with ``CLAUDE_PROJECT_DIR`` set, as Claude Code
@@ -89,6 +94,15 @@ GH_REPO_DENY_RULES = (
 # tool runs in the user's login shell, outside them, so it is also denied.
 TERMINAL_TOOL = "mcp__terminal__run_in_terminal"
 GUARDED_TOOLS = ("Bash", "Monitor", TERMINAL_TOOL)
+# The app tools that start processes or move the session, denied by Marc's
+# decision on MAR-263's survey (MAR-282). The preview_start rule is lifted
+# when the website work resumes (docs/ORCHESTRATION.md, "One-time setup").
+APP_TOOL_DENY_RULES = (
+    "mcp__Claude_Browser__preview_start",
+    "mcp__Claude_Code_iOS_Simulator__*",
+    "mcp__ccd_directory__change_directory",
+    "mcp__computer-use__*",
+)
 # The hook says this of a denied gh command (MAR-263), and only of one.
 DENIED_MARK = "is denied in every spelling"
 # The hooks reference, "Matcher patterns": a matcher of only these characters
@@ -334,7 +348,8 @@ CASES: list[tuple[str, str, str]] = [
         "gh label create needs-review --repo marc272/crc-sdk --color ededed",
     ),
     ("allow", DOCS, "gh label clone marc272/crc-sdk -R marc272/crc-docs"),
-    ("allow", WT, "gh run rerun 123 --failed --repo marc272/crc-sdk"),
+    # MAR-282: a rerun of a fork's run is denied (allowed until then).
+    ("deny", WT, "gh run rerun 123 --failed --repo marc272/crc-sdk"),
     ("allow", DOCS, "gh run cancel 456 -R marc272/crc-docs"),
     ("allow", SDK, "gh run list --repo marc272/crc-sdk --branch parametric -L 5"),
     ("allow", SDK, "gh secret list --repo marc272/crc-sdk"),
@@ -367,7 +382,7 @@ CASES: list[tuple[str, str, str]] = [
     ("refuse", SDK, "gh label create needs-review --color ededed"),
     ("refuse", DOCS, "gh label list"),
     ("refuse", SDK, "gh label clone marc272/crc-docs"),
-    ("refuse", WT, "gh run rerun 123 --failed"),
+    ("deny", WT, "gh run rerun 123 --failed"),  # MAR-282: refused until then
     ("refuse", SDK, "gh run cancel 456"),
     ("refuse", SDK, "gh run delete 456"),
     ("refuse", SDK, "gh run watch 456"),
@@ -379,14 +394,15 @@ CASES: list[tuple[str, str, str]] = [
     ("refuse", SDK, "gh cache list"),
     ("refuse", SDK, 'gh secret list --repo "$FORK"'),
     ("deny", SDK, "gh run rerun 123 --repo RiskThinking/crc-sdk"),
-    ("refuse", REPO, f"cd {WT} && gh run rerun 123 --failed"),
+    ("deny", REPO, f"cd {WT} && gh run rerun 123 --failed"),  # MAR-282
     ("refuse", REPO, f"git -C {SDK} fetch origin && gh label list"),
     ("refuse", REPO, f"bash -c 'cd {DOCS} && gh variable list'"),
     ("refuse", SDK, "gh run rerun 3 --failed 'unterminated"),
     # Refused: gh api with {owner}/{repo} placeholders in a fork path.
     ("refuse", SDK, "gh api repos/{owner}/{repo}/pulls"),
     ("refuse", SDK, "gh api 'repos/{owner}/{repo}/issues/3/comments' -f body=hi"),
-    ("refuse", WT, "gh api -X POST repos/{owner}/{repo}/actions/runs/123/rerun"),
+    # MAR-282: a rerun endpoint in a fork path is denied (refused until then).
+    ("deny", WT, "gh api -X POST repos/{owner}/{repo}/actions/runs/123/rerun"),
     ("refuse", SDK, "gh api --method DELETE 'repos/{owner}/{repo}/actions/caches/1'"),
     ("refuse", SDK, "gh api repos/:owner/:repo/labels -f name=bug"),
     (
@@ -491,6 +507,126 @@ CASES: list[tuple[str, str, str]] = [
         'gh pr create --draft --title "[MAR-263] x" --body-file results/pr-body.md',
     ),
     ("allow", REPO, "gh --version && gh workflow list 'unterminated"),
+    # MAR-282 item 2: gh repo archive, unarchive and rename, denied everywhere.
+    ("deny", SDK, "gh repo archive"),
+    ("deny", REPO, "gh repo archive marc272/crc-docs --yes"),
+    ("deny", REPO, "gh repo unarchive marc272/crc-sdk -y"),
+    ("deny", REPO, "gh repo rename crc-sdk-old -R marc272/crc-sdk --yes"),
+    ("deny", DOCS, "gh repo rename crc-docs-old --yes"),
+    ("deny", REPO, "bash -c 'gh repo archive marc272/crc-sdk -y'"),
+    # MAR-282 item 3: commands with their own -R that take the clone's
+    # repository without it, and gh repo view without a repository argument.
+    ("refuse", SDK, 'gh agent-task create "make the tests pass"'),
+    ("refuse", WT, "gh agent-task create -F task.md --base parametric"),
+    ("refuse", SDK, "gh agents create x"),
+    ("refuse", DOCS, "gh agent-task view 3"),
+    ("refuse", SDK, "gh repo autolink list"),
+    ("refuse", SDK, "gh repo autolink create JIRA- https://example.com/<num>"),
+    ("refuse", DOCS, "gh repo deploy-key add key.pub --allow-write"),
+    ("refuse", SDK, "gh repo deploy-key list"),
+    ("refuse", SDK, "gh repo read-file README.md"),
+    ("refuse", SDK, "gh repo read-dir src --ref parametric"),
+    ("refuse", SDK, "gh project link 3 --owner marc272"),
+    ("refuse", SDK, "gh project unlink 3 --owner marc272"),
+    ("refuse", SDK, "gh repo view"),
+    ("refuse", DOCS, "gh repo view --web"),
+    ("refuse", SDK, "gh repo view --json name -q .name"),
+    ("refuse", SDK, "gh repo view --branch parametric"),
+    ("refuse", SDK, "gh repo view crc-sdk"),
+    ("refuse", REPO, f"cd {SDK} && gh repo view"),
+    ("refuse", SDK, "gh rs list"),
+    ("refuse", SDK, "gh repo autolink list 'unterminated"),
+    ("allow", SDK, 'gh agent-task create "x" -R marc272/crc-sdk'),
+    ("allow", SDK, "gh agent-task list"),
+    ("allow", SDK, "gh repo autolink list -R marc272/crc-sdk"),
+    ("allow", SDK, "gh repo autolink -R marc272/crc-sdk list"),
+    ("allow", DOCS, "gh repo deploy-key list --repo marc272/crc-docs"),
+    ("allow", SDK, "gh repo read-file README.md -R marc272/crc-sdk --ref parametric"),
+    ("allow", SDK, "gh project link 3 --owner marc272 -R marc272/crc-sdk"),
+    ("allow", SDK, "gh repo view marc272/crc-sdk --json name"),
+    ("allow", DOCS, "gh repo view https://github.com/marc272/crc-docs"),
+    ("allow", SDK, "gh repo view -b parametric marc272/crc-sdk"),
+    ("allow", SDK, "gh rs list -R marc272/crc-sdk"),
+    ("allow", REPO, "gh repo view && gh repo autolink list && gh project link 3"),
+    # MAR-282 item 4: a rerun of a fork's run, denied wherever it runs.
+    ("deny", REPO, "gh run rerun 123 --repo marc272/crc-sdk"),
+    ("deny", REPO, "gh run rerun 123 -R marc272/crc-docs --failed"),
+    ("deny", REPO, "gh -R marc272/crc-sdk run rerun 123"),
+    ("deny", REPO, "gh run -R marc272/crc-sdk rerun 123 --job 456"),
+    ("deny", REPO, 'gh run rerun 123 --repo "$FORK"'),
+    ("deny", SDK, "gh run rerun 123"),
+    ("deny", DOCS, "gh run rerun 123 --failed"),
+    ("deny", REPO, "gh api -X POST repos/marc272/crc-sdk/actions/runs/123/rerun"),
+    (
+        "deny",
+        REPO,
+        "gh api --method POST repos/marc272/crc-docs/actions/runs/1/rerun-failed-jobs",
+    ),
+    ("deny", REPO, "gh api -X POST repos/marc272/crc-sdk/actions/jobs/9/rerun"),
+    ("deny", SDK, "gh api -X POST repos/:owner/:repo/actions/jobs/9/rerun"),
+    ("deny", REPO, 'gh api -X POST "repos/marc272/$R/actions/runs/1/rerun"'),
+    ("deny", REPO, "gh run rerun 3 -R marc272/crc-sdk 'unterminated"),
+    ("allow", REPO, "gh run rerun 42122091157 --failed"),
+    ("allow", SDK, "gh run rerun 1 --repo marc272/parametric-insurance-design"),
+    ("allow", REPO, "gh run view 123 --repo marc272/crc-sdk --log-failed"),
+    ("allow", REPO, "gh run cancel 123 --repo marc272/crc-sdk"),
+    ("allow", REPO, "gh api repos/marc272/crc-sdk/actions/runs/123 --jq .rerun_url"),
+    (
+        "allow",
+        REPO,
+        'gh api -X POST "repos/marc272/parametric-insurance-design/actions/runs/$ID'
+        '/rerun"',
+    ),
+    ("allow", REPO, "gh api -X POST repos/{owner}/{repo}/actions/runs/1/rerun"),
+    # MAR-282 item 7: new gh commands, third-party code and other agents.
+    ("deny", REPO, "gh alias set rc 'release create'"),
+    ("deny", REPO, "gh alias set --shell x 'echo hi'"),
+    ("deny", REPO, "gh alias import aliases.yml --clobber"),
+    ("deny", REPO, "gh extension install someone/gh-thing"),
+    ("deny", REPO, "gh ext install someone/gh-thing"),
+    ("deny", REPO, "gh extensions install ."),
+    ("deny", REPO, "gh skill install someone/skills pdf"),
+    ("deny", REPO, "gh skills add someone/skills"),
+    ("deny", REPO, "gh skill update --all"),
+    ("deny", DOCS, "gh skill publish --tag v1.0.0"),
+    ("deny", REPO, "gh skill publish --dry-run"),
+    ("deny", REPO, 'gh copilot -p "fix the tests"'),
+    ("deny", REPO, "gh copilot --remove"),
+    ("allow", REPO, "gh alias list"),
+    ("allow", REPO, "gh extension list && gh ext list"),
+    ("allow", REPO, "gh skill list && gh skill search pdf"),
+    ("allow", REPO, "gh skill preview someone/skills pdf"),
+    # MAR-282 item 8: a subcommand, or a denied group's command, from an
+    # expansion; a PR number, run ID or tag from one still passes.
+    ("deny", REPO, "gh $c create v1"),
+    ("deny", REPO, 'gh "$sub" create v1'),
+    ("deny", REPO, "gh ${GH_GROUP} create v1"),
+    ("deny", REPO, "gh $(echo release) create v1"),
+    ("deny", REPO, "gh `echo release` create v1"),
+    ("deny", REPO, "gh release $c v1"),
+    ("deny", REPO, 'gh release "$(echo create)" v1'),
+    ("deny", REPO, "gh release cre{ate,} v1"),
+    ("deny", REPO, "gh workflow r?n release.yaml"),
+    ("deny", REPO, "gh pr $m 3 --admin"),
+    ("deny", REPO, "gh repo $c marc272/crc-docs --yes"),
+    ("deny", REPO, "gh run $r 1 --repo marc272/crc-sdk"),
+    ("deny", REPO, "gh -R marc272/crc-sdk $c create v1"),
+    ("deny", REPO, 'for c in "release create"; do gh $c --help; done'),
+    ("deny", REPO, "sh -c 'gh $0 create v1' release"),
+    ("deny", REPO, "gh $c 'unterminated"),
+    ("deny", REPO, 'grep -c gh "$f"'),
+    ("allow", REPO, 'gh pr checks "$PR" --watch'),
+    ("allow", SDK, 'gh pr view "$N" --repo marc272/crc-sdk --json title'),
+    ("allow", REPO, 'gh run view "$RUN" --log-failed'),
+    ("allow", REPO, 'gh release view "$TAG" --repo marc272/crc-sdk'),
+    ("allow", REPO, "gh pr merge $N --squash"),
+    (
+        "allow",
+        REPO,
+        'gh api "repos/marc272/parametric-insurance-design/check-runs/$ID/annotations"',
+    ),
+    ("allow", REPO, "gh browse $N -n"),
+    ("allow", REPO, "gh api graphql -f query='{viewer{login}}'"),
 ]
 
 # --- The deny rules (MAR-263) ----------------------------------------------
@@ -943,6 +1079,176 @@ RULE_CASES: list[tuple[str, str, str]] = [
         "allow",
         'gh pr create --draft --title "[MAR-263] x" --body-file results/pr-body.md',
     ),
+    # MAR-282: gh repo archive, unarchive and rename (item 2).
+    ("deny", "deny", "gh repo archive marc272/crc-docs --yes"),
+    ("deny", "deny", "gh repo unarchive marc272/crc-sdk -y"),
+    ("deny", "deny", "gh repo rename crc-sdk-old -R marc272/crc-sdk --yes"),
+    # MAR-282: a rerun of a fork's run, every position of the repo flag, and
+    # the REST endpoints (item 4).
+    ("deny", "deny", "gh run rerun 123 --repo marc272/crc-sdk"),
+    ("deny", "deny", "gh run rerun 123 -R marc272/crc-docs --failed"),
+    ("deny", "deny", "gh -R marc272/crc-sdk run rerun 123"),
+    ("deny", "deny", "gh --repo=marc272/crc-docs run rerun 123"),
+    ("deny", "deny", "gh run -R marc272/crc-sdk rerun 123"),
+    ("deny", "deny", "gh run --repo marc272/crc-docs rerun 123"),
+    ("deny", "deny", "gh api -X POST repos/marc272/crc-sdk/actions/runs/123/rerun"),
+    (
+        "deny",
+        "deny",
+        "gh api --method POST repos/marc272/crc-docs/actions/runs/1/rerun-failed-jobs",
+    ),
+    ("deny", "deny", "gh api -X POST repos/marc272/crc-sdk/actions/jobs/9/rerun"),
+    # MAR-282: new gh commands, third-party code and other agents (item 7).
+    ("deny", "deny", "gh alias set rc 'release create'"),
+    ("deny", "deny", "gh alias import aliases.yml"),
+    ("deny", "deny", "gh extension install someone/gh-thing"),
+    ("deny", "deny", "gh extensions install ."),
+    ("deny", "deny", "gh ext install someone/gh-thing"),
+    ("deny", "deny", "gh skill install someone/skills pdf"),
+    ("deny", "deny", "gh skill add someone/skills"),
+    ("deny", "deny", "gh skill update --all"),
+    ("deny", "deny", "gh skill publish --tag v1.0.0"),
+    ("deny", "deny", "gh skills install someone/skills"),
+    ("deny", "deny", "gh skills add someone/skills"),
+    ("deny", "deny", "gh skills update --all"),
+    ("deny", "deny", "gh skills publish --dry-run"),
+    ("deny", "deny", 'gh copilot -p "fix the tests"'),
+    ("deny", "deny", "gh copilot"),
+    # MAR-282: what only the hook catches (item 8, and quoting), and the new
+    # rules' known false positive.
+    ("pass", "deny", "gh $c create v1"),
+    ("pass", "deny", "gh release cre{ate,} v1"),
+    ("pass", "deny", 'gh run rerun 123 --repo "$FORK"'),
+    ("pass", "deny", 'gh "repo" archive marc272/crc-docs --yes'),
+    (
+        "deny",
+        "allow",
+        'gh -R marc272/crc-sdk pr comment 3 --body "the run rerun failed"',
+    ),
+    # MAR-282: the reads and this repository's reruns still pass.
+    ("pass", "allow", "gh run rerun 1 --repo marc272/parametric-insurance-design"),
+    ("pass", "allow", "gh run view 123 --repo marc272/crc-sdk --log-failed"),
+    ("pass", "allow", "gh api repos/marc272/crc-sdk/actions/runs/123 --jq .rerun_url"),
+    ("pass", "allow", "gh repo view marc272/crc-sdk --json name"),
+    ("pass", "allow", "gh repo list marc272"),
+    ("pass", "allow", "gh alias list && gh extension list && gh skill list"),
+]
+
+# --- The deny rules on other tools (MAR-282) ----------------------------------
+#
+# A deny rule without parentheses names a tool and removes it from Claude's
+# context (permissions page, "Tool name wildcards" and "MCP", read
+# 2026-11-06). ``tool_rule_matches`` models how such a rule matches a tool
+# name, and ``TOOL_RULE_DOC_EXAMPLES`` checks the model against the page:
+#
+# - the rule is a glob that must match the whole tool name; ``*`` stands for
+#   any text (``mcp__*`` is every MCP tool, ``mcp__github__get_*`` its get_
+#   tools);
+# - a bare ``mcp__<server>`` also matches every tool of that server, and as a
+#   deny rule also of a server whose name starts with ``<server>__``;
+# - an ``mcp__`` rule with parentheses is skipped when settings load, and a
+#   rule matches the canonical tool name, never its label.
+
+
+def tool_rule_matches(rule: str, tool: str) -> bool:
+    """Whether a deny rule without a ``Bash(...)`` pattern matches a tool.
+
+    Parameters
+    ----------
+    rule
+        The rule, as written in ``permissions.deny``.
+    tool
+        A canonical tool name, e.g. ``mcp__Claude_Browser__preview_start``.
+
+    Returns
+    -------
+    bool
+        Whether the rule denies the whole tool.
+    """
+    if "(" in rule:
+        return False  # a specifier rule, or an mcp__ rule that is skipped
+    regex = ".*".join(re.escape(part) for part in rule.split("*"))
+    if re.fullmatch(regex, tool, re.DOTALL):
+        return True
+    return "*" not in rule and rule.startswith("mcp__") and tool.startswith(rule + "__")
+
+
+def tool_denied_by(tool: str, rules: list[str]) -> str | None:
+    """Return the first deny rule that removes ``tool``, or ``None``.
+
+    Parameters
+    ----------
+    tool
+        A canonical tool name.
+    rules
+        The deny rules of a settings file.
+
+    Returns
+    -------
+    str or None
+        The rule, or ``None`` if none matches.
+    """
+    return next((rule for rule in rules if tool_rule_matches(rule, tool)), None)
+
+
+# (rule, tool, matches) from the permissions page: "Tool name wildcards",
+# "MCP", and the canonical-name note under "Permission rule syntax".
+TOOL_RULE_DOC_EXAMPLES: list[tuple[str, str, bool]] = [
+    ("*", "Bash", True),
+    ("mcp__*", "mcp__puppeteer__puppeteer_navigate", True),
+    ("mcp__*", "Bash", False),
+    ("mcp__puppeteer", "mcp__puppeteer__puppeteer_navigate", True),
+    ("mcp__puppeteer", "mcp__puppeteer_v2__puppeteer_navigate", False),
+    ("mcp__puppeteer__*", "mcp__puppeteer__puppeteer_navigate", True),
+    (
+        "mcp__puppeteer__puppeteer_navigate",
+        "mcp__puppeteer__puppeteer_navigate",
+        True,
+    ),
+    ("mcp__puppeteer__puppeteer_navigate", "mcp__puppeteer__puppeteer_click", False),
+    ("mcp__github__get_*", "mcp__github__get_issue", True),
+    ("mcp__github__get_*", "mcp__github__create_issue", False),
+    ("mcp__my_server__*", "mcp__my_server__query", True),
+    ("mcp__reports__v2__*", "mcp__reports__v2__export", True),
+    ("mcp__reports", "mcp__reports__v2__export", True),
+    ("mcp__reports__v2", "mcp__reports__v2__export", True),
+    ("mcp__puppeteer__puppeteer_navigate(url:*)", "mcp__puppeteer__x", False),
+    ("Stop Task", "TaskStop", False),
+]
+
+# (deny rules, tool): what the deny rules of .claude/settings.json do with a
+# tool ("deny" removes it, "pass" keeps it). The names are those of this
+# session's tool list, except the computer-use tools (not enabled here; their
+# server is mcp__computer-use) and the remote-devices tools, which a cloud
+# session linked to the owner's computer has (both named as the app's skill
+# descriptions give them).
+TOOL_RULE_CASES: list[tuple[str, str]] = [
+    # Marc's gap-3 decision on MAR-263 (MAR-282 item 1).
+    ("deny", "mcp__Claude_Browser__preview_start"),
+    ("deny", "mcp__Claude_Code_iOS_Simulator__build"),
+    ("deny", "mcp__Claude_Code_iOS_Simulator__control"),
+    ("deny", "mcp__ccd_directory__change_directory"),
+    ("deny", "mcp__computer-use__screenshot"),
+    ("deny", "mcp__computer-use__left_click"),
+    ("deny", "mcp__remote-devices__Claude_Browser__preview_start"),
+    ("deny", "mcp__remote-devices__computer_screenshot"),
+    ("deny", "mcp__terminal__run_in_terminal"),
+    # Kept: the rest of the Browser pane, the review-rule tools, and the
+    # tools that items 5 and 6 leave to Marc.
+    ("pass", "mcp__Claude_Browser__navigate"),
+    ("pass", "mcp__Claude_Browser__get_page_text"),
+    ("pass", "mcp__Claude_Browser__browser_batch"),
+    ("pass", "mcp__Claude_Browser__preview_list"),
+    ("pass", "mcp__Claude_Browser__preview_stop"),
+    ("pass", "mcp__remote-devices__Claude_Browser__navigate"),
+    ("pass", "mcp__ccd_directory__request_directory"),
+    ("pass", "mcp__ccd_session__start_session"),
+    ("pass", "mcp__scheduled-tasks__create_scheduled_task"),
+    ("pass", "mcp__ccd_pr__set_auto_merge"),
+    ("pass", "mcp__claude-in-chrome__navigate"),
+    ("pass", "mcp__terminal__open_terminal_tab"),
+    ("pass", "Bash"),
+    ("pass", "Agent"),
 ]
 
 
@@ -1166,7 +1472,38 @@ def check_doc_examples() -> list[str]:
                 f"deny-rule model: Bash({pattern}) on {command!r}:"
                 f" want {'match' if expected else 'no match'}"
             )
+    for rule, tool, expected in TOOL_RULE_DOC_EXAMPLES:
+        if tool_rule_matches(rule, tool) != expected:
+            failures.append(
+                f"tool-rule model: {rule} on {tool}:"
+                f" want {'match' if expected else 'no match'}"
+            )
     return failures
+
+
+def check_tool_rule_cases() -> tuple[list[str], list[str], list[str]]:
+    """Run every case of ``TOOL_RULE_CASES``; return the report, failures, rules.
+
+    Returns
+    -------
+    tuple of list of str
+        One report line per case, the lines of the failed cases, and per case
+        the deny rule that matched (or ``""``).
+    """
+    settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+    deny = settings.get("permissions", {}).get("deny") or []
+    rules = [r for r in deny if isinstance(r, str) and not r.startswith("Bash(")]
+    lines, failures, results = [], [], []
+    for n, (want, tool) in enumerate(TOOL_RULE_CASES, 1):
+        rule = tool_denied_by(tool, rules) or ""
+        results.append(rule)
+        line = f"T{n:<3d}[{want}] {tool}"
+        if ("deny" if rule else "pass") == want:
+            lines.append(f"ok   {line}" + (f"  ({rule})" if rule else ""))
+        else:
+            lines.append(f"FAIL {line}\n     got: {rule or 'pass'}")
+            failures.append(line)
+    return lines, failures, results
 
 
 def check_rule_cases(
@@ -1316,7 +1653,7 @@ def input_cases() -> list[tuple[str, str, object, str | None, bool]]:
             False,
         ),
         (
-            "refuse",
+            "deny",  # MAR-282: a rerun in a fork path (refused until then)
             "terminal tool, cwd ../forks/crc-sdk (project dir): gh run rerun 3",
             terminal_input(AGENT_WT, "gh run rerun 3", "../forks/crc-sdk"),
             None,
@@ -1484,11 +1821,61 @@ def input_cases() -> list[tuple[str, str, object, str | None, bool]]:
             True,
         ),
         (
-            "allow",
+            "allow",  # MAR-282: was gh repo view, which is a checked command now
+            "internal error: gh repo list marc272, this repo",
+            bash_input(REPO, "gh repo list marc272"),
+            None,
+            True,
+        ),
+        # MAR-282: and the new checked and denied commands.
+        (
+            "refuse",
             "internal error: gh repo view marc272/crc-sdk, this repo",
             bash_input(REPO, "gh repo view marc272/crc-sdk"),
             None,
             True,
+        ),
+        (
+            "refuse",
+            "internal error: gh alias set rc 'release create', this repo",
+            bash_input(REPO, "gh alias set rc 'release create'"),
+            None,
+            True,
+        ),
+        (
+            "refuse",
+            "internal error: gh $c create v1, this repo",
+            bash_input(REPO, "gh $c create v1"),
+            None,
+            True,
+        ),
+        (
+            "refuse",
+            "internal error: gh run rerun 3 --repo marc272/crc-sdk, this repo",
+            bash_input(REPO, "gh run rerun 3 --repo marc272/crc-sdk"),
+            None,
+            True,
+        ),
+        (
+            "allow",
+            "internal error: gh alias list && gh skill list, this repo",
+            bash_input(REPO, "gh alias list && gh skill list"),
+            None,
+            True,
+        ),
+        (
+            "deny",
+            "Monitor, this repo: gh run watch 9 && gh run rerun 9 -R marc272/crc-sdk",
+            monitor_input(REPO, "gh run watch 9 && gh run rerun 9 -R marc272/crc-sdk"),
+            None,
+            False,
+        ),
+        (
+            "refuse",
+            "terminal tool, cwd forks/crc-sdk: gh repo view",
+            terminal_input(REPO, "gh repo view", SDK),
+            None,
+            False,
         ),
         (
             "deny",
@@ -1575,6 +1962,37 @@ def hook_key_problems(settings: dict[str, object]) -> list[str]:
     return problems
 
 
+def tool_rule_problems(deny: list[object]) -> list[str]:
+    """Return the deny rules that aren't Bash rules or bare ``mcp__`` names.
+
+    Settings skip an ``mcp__`` rule with parentheses, and a tool name without
+    ``_`` or ``*`` that matches no tool draws a startup warning (permissions
+    page). Every deny rule here is a ``Bash(...)`` rule or a bare ``mcp__``
+    name or glob, which has a ``_`` and so draws none, even while its server
+    is off.
+
+    Parameters
+    ----------
+    deny
+        The ``permissions.deny`` list of a settings file.
+
+    Returns
+    -------
+    list of str
+        One line per rule of another form.
+    """
+    problems = []
+    for rule in deny:
+        if isinstance(rule, str) and rule.startswith("Bash("):
+            continue
+        if not isinstance(rule, str) or not rule.startswith("mcp__") or "(" in rule:
+            problems.append(
+                f"deny rule {rule!r}: want Bash(...) or a bare mcp__ tool name"
+                " (settings skip mcp__ rules with parentheses)"
+            )
+    return problems
+
+
 def matcher_names(matcher: str) -> set[str] | None:
     """Return the tool names an exact-match hook matcher lists.
 
@@ -1625,9 +2043,13 @@ def check_settings(env: dict[str, str]) -> list[str]:
     deny = settings.get("permissions", {}).get("deny") or []
     if not deny:
         failures.append("settings.json lost its permissions.deny rules")
-    for rule in (*GH_REPO_DENY_RULES, TERMINAL_TOOL):
+    for rule in (*GH_REPO_DENY_RULES, TERMINAL_TOOL, *APP_TOOL_DENY_RULES):
         if rule not in deny:
             failures.append(f"settings.json lacks the deny rule {rule}")
+    failures += tool_rule_problems(deny)
+    probes: list[object] = ["mcp__ccd_session__start_session(cwd:*)", "Fetch"]
+    if len(tool_rule_problems(probes)) != len(probes):
+        failures.append("the tool-rule check doesn't fire on its probes")
     found = [
         (str(group.get("matcher", "")), hook)
         for group in settings.get("hooks", {}).get("PreToolUse", [])
@@ -1755,6 +2177,30 @@ def markdown_rule_table(results: list[tuple[str, str]]) -> str:
     return "\n".join(rows)
 
 
+def markdown_tool_rule_table(results: list[str]) -> str:
+    """Return the cases of ``TOOL_RULE_CASES`` and their results as a table.
+
+    Parameters
+    ----------
+    results
+        Per case, the deny rule that matched (or ``""``), in the order of
+        ``TOOL_RULE_CASES``.
+
+    Returns
+    -------
+    str
+        A table with the number, tool, what the deny rules were expected to
+        do and did, and the rule that matched.
+    """
+    rows = ["| # | Tool | Deny rules | Matching rule |", "|---|---|---|---|"]
+    pairs = zip(TOOL_RULE_CASES, results, strict=True)
+    for n, ((want, tool), rule) in enumerate(pairs, 1):
+        got = "deny" if rule else "pass"
+        shown = f"**{got}**" if got == want else f"FAIL: {got}"
+        rows.append(f"| T{n} | `{tool}` | {shown} | {_code(rule) if rule else ''} |")
+    return "\n".join(rows)
+
+
 def markdown_input_table(results: list[str]) -> str:
     """Return the cases of ``input_cases`` and their results as a table.
 
@@ -1808,6 +2254,9 @@ def main() -> int:
     rule_lines, rule_failures, rule_results = check_rule_cases(args.python, env)
     print("\n".join(rule_lines))
     failures += rule_failures
+    tool_lines, tool_failures, tool_results = check_tool_rule_cases()
+    print("\n".join(tool_lines))
+    failures += tool_failures
     for problem in check_settings(env) + check_grammar() + check_doc_examples():
         print(f"FAIL {problem}")
         failures.append(problem)
@@ -1818,6 +2267,8 @@ def main() -> int:
         print(markdown_input_table(input_results))
         print()
         print(markdown_rule_table(rule_results))
+        print()
+        print(markdown_tool_rule_table(tool_results))
     version = subprocess.run(
         [args.python, "--version"], capture_output=True, text=True, check=False
     ).stdout.strip()
@@ -1825,7 +2276,8 @@ def main() -> int:
     print(
         f"check_fork_gh_guard: {len(CASES)} cases on {version},"
         f" {per_case:.0f} ms per hook call; {len(RULE_CASES)} deny-rule cases"
-        f" and {len(DOC_RULE_EXAMPLES)} docs examples"
+        f" and {len(DOC_RULE_EXAMPLES)} docs examples; {len(TOOL_RULE_CASES)}"
+        f" tool-rule cases and {len(TOOL_RULE_DOC_EXAMPLES)} docs examples"
     )
     if failures:
         print(f"check_fork_gh_guard: FAILED, {len(failures)} problem(s) (see above)")
