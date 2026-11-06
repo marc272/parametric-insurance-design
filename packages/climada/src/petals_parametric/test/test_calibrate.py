@@ -10,6 +10,7 @@ from unittest import mock
 
 import numpy as np
 from climada.engine import Impact
+from numpy.typing import ArrayLike, NDArray
 
 from petals_parametric import (
     CalibrationError,
@@ -17,6 +18,8 @@ from petals_parametric import (
     ExpectedUncovered,
     MeanSquaredError,
     MissingDependencyError,
+    ParametricCover,
+    ParametricIndex,
     ParametricInputError,
     PurePremium,
     StepPayout,
@@ -24,6 +27,8 @@ from petals_parametric import (
     calibrate,
     outcome_measure,
 )
+from petals_parametric.measure import OutcomeMeasure
+from petals_parametric.payout import BelowAttachment
 from petals_parametric.test._synthetic import array_index, random_portfolio
 
 HAS_CVXPY = importlib.util.find_spec("cvxpy") is not None
@@ -31,7 +36,7 @@ PAYOUT = StepPayout(attachment=20.0, limit=70.0, n_steps=4)
 RTOL = 1e-7
 
 
-def _hand_example(drop_quiet_event: bool = False) -> tuple:
+def _hand_example(drop_quiet_event: bool = False) -> tuple[ParametricIndex, Impact]:
     """One unit, 10 years: (index 30, loss 4), (60, 10) and (5, 0) in years 0-2."""
     values = [[30.0], [60.0], [5.0]]
     loss = [[4.0], [10.0], [0.0]]
@@ -41,7 +46,9 @@ def _hand_example(drop_quiet_event: bool = False) -> tuple:
     return array_index(values, loss, years, 10)
 
 
-def _measure(index, cover, years=None):  # noqa: ANN001, ANN202
+def _measure(
+    index: ParametricIndex, cover: ParametricCover, years: ArrayLike | None = None
+) -> tuple[NDArray[np.bool_], OutcomeMeasure]:
     mask = index.event_mask(years)
     return mask, outcome_measure(
         index.event_year[mask],
@@ -69,7 +76,8 @@ class TestHandWorkedDesigns(unittest.TestCase):
         # E[L] = 1.4, so the premium is at most 0.7 and E[U] at least 1.4 - 0.7.
         self.assertAlmostEqual(problem.objective_value, 0.7, places=9)
         self.assertAlmostEqual(problem.premium, 0.7, places=9)
-        self.assertAlmostEqual(problem.budget_bound, 0.7, places=12)
+        self.assertIsNotNone(problem.budget_bound)
+        self.assertAlmostEqual(float(problem.budget_bound or 0.0), 0.7, places=12)
 
     def test_zero_mode_ignores_a_quiet_event_below_the_attachment(self) -> None:
         values = []
@@ -89,7 +97,10 @@ class TestHandWorkedDesigns(unittest.TestCase):
     @unittest.skipUnless(HAS_CVXPY, "the mean squared error needs cvxpy")
     def test_mean_squared_error_in_both_attachment_modes(self) -> None:
         index, impact = _hand_example()
-        expected = {"zero": ([4.0, 10.0], 0.0), "first_bin": ([2.0, 10.0], 0.8)}
+        expected: dict[BelowAttachment, tuple[list[float], float]] = {
+            "zero": ([4.0, 10.0], 0.0),
+            "first_bin": ([2.0, 10.0], 0.8),
+        }
         for mode, (levels, value) in expected.items():
             cover = calibrate(
                 index,
@@ -154,7 +165,8 @@ class TestLinearProgram(unittest.TestCase):
                         problem.premium, pricing.premium(total_paid, measure), 9
                     )
                     self.assertLessEqual(
-                        problem.premium, problem.budget_bound * (1 + RTOL) + 1e-9
+                        problem.premium,
+                        float(problem.budget_bound or 0.0) * (1 + RTOL) + 1e-9,
                     )
 
     def test_alpha_zero_is_expected_uncovered(self) -> None:
@@ -251,7 +263,7 @@ class TestScopes(unittest.TestCase):
                 # The individual designs fit the joint problem's constraints.
                 self.assertLessEqual(
                     pricing.premium(total_paid, measure),
-                    joint.problems[0].budget_bound * (1 + RTOL) + 1e-9,
+                    float(joint.problems[0].budget_bound or 0.0) * (1 + RTOL) + 1e-9,
                 )
                 self.assertLessEqual(optimum, on_total + 1e-6 * scale)
                 if not isinstance(objective, MeanSquaredError):

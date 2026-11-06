@@ -67,6 +67,7 @@ from parametric_insurance_design.solve import DEFAULT_POLICY, SolverPolicy
 from parametric_insurance_design_climada.cat_in_circle import CatInCircleIndex
 from parametric_insurance_design_climada.hooks import CentroidWindIndex, HazardBatch
 from parametric_insurance_design_climada.pipeline import build_eventset
+from petals_parametric.payout import BelowAttachment
 
 from .conftest import N_YEARS
 
@@ -178,7 +179,7 @@ class Setup:
     objective: str
     pricing: str
     basis: str
-    mode: str
+    mode: BelowAttachment
     budget: float = 0.6
     n_steps: int = 4
     alpha: float = 0.9

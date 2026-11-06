@@ -192,7 +192,7 @@ class _LinearProgram:
     lower: list[NDArray[np.float64]] = field(default_factory=list)
     upper: list[NDArray[np.float64]] = field(default_factory=list)
     cost: list[NDArray[np.float64]] = field(default_factory=list)
-    rows: list[dict[int, sp.spmatrix]] = field(default_factory=list)
+    rows: list[dict[int, Any]] = field(default_factory=list)
     rhs: list[NDArray[np.float64]] = field(default_factory=list)
 
     def add(
@@ -209,10 +209,8 @@ class _LinearProgram:
         self.cost.append(np.zeros(size))
         return len(self.sizes) - 1
 
-    def constrain(
-        self, blocks: dict[int, sp.spmatrix], bound: NDArray[np.float64]
-    ) -> None:
-        """Add the rows ``sum_b blocks[b] @ x_b <= bound``."""
+    def constrain(self, blocks: dict[int, Any], bound: NDArray[np.float64]) -> None:
+        """Add the rows ``sum_b blocks[b] @ x_b <= bound`` (sparse blocks)."""
         self.rows.append(blocks)
         self.rhs.append(np.asarray(bound, dtype=np.float64))
 
@@ -272,7 +270,7 @@ class _LinearProgram:
 
     def tail(
         self,
-        blocks: dict[int, sp.csr_matrix],
+        blocks: dict[int, Any],
         active: NDArray[np.bool_],
         prob: NDArray[np.float64],
     ) -> tuple[int, int, NDArray[np.float64]]:
@@ -297,9 +295,9 @@ class _LinearProgram:
         n_vars = weights.size
         level = self.add(1, lower=-np.inf)
         excess = self.add(n_vars)
-        rows: dict[int, sp.spmatrix] = {
+        rows: dict[int, Any] = {
             var: sp.vstack(
-                [block[active], sp.csr_matrix((int(pooled), block.shape[1]))]
+                [block[active], sp.csr_matrix((int(pooled), _n_cols(block)))]
             )
             for var, block in blocks.items()
         }
@@ -307,6 +305,16 @@ class _LinearProgram:
         rows[excess] = -sp.identity(n_vars, format="csr")
         self.constrain(rows, np.zeros(n_vars))
         return level, excess, weights
+
+
+def _n_rows(matrix: Any) -> int:  # noqa: ANN401 (any scipy sparse matrix)
+    """Return the number of rows of a sparse matrix."""
+    return int(matrix.shape[0])
+
+
+def _n_cols(matrix: Any) -> int:  # noqa: ANN401 (any scipy sparse matrix)
+    """Return the number of columns of a sparse matrix."""
+    return int(matrix.shape[1])
 
 
 def _monotone_matrix(n_units: int, n_steps: int) -> sp.csr_matrix:
@@ -361,8 +369,8 @@ def _scaled(data: DesignData, payout: StepPayout) -> _Scaled:
     """Scale the problem data and build the payout's basis matrix."""
     scale = data.scale
     n_units = data.loss.shape[1]
-    basis = sp.hstack(
-        [payout.basis_matrix(data.index[:, j]) for j in range(n_units)], format="csr"
+    basis = sp.csr_matrix(
+        sp.hstack([payout.basis_matrix(data.index[:, j]) for j in range(n_units)])
     )
     return _Scaled(
         loss=data.total_loss / scale,
@@ -439,7 +447,7 @@ def _solve_lp(
             -arr.loss[lossy],
         )
     if arr.monotone is not None:
-        lp.constrain({theta: arr.monotone}, np.zeros(arr.monotone.shape[0]))
+        lp.constrain({theta: arr.monotone}, np.zeros(_n_rows(arr.monotone)))
     if isinstance(objective, WeightedCVaR) and objective.alpha > 0.0:
         alpha, beta = objective.alpha, objective.beta
         group = sp.csr_matrix(arr.group[:, lossy])

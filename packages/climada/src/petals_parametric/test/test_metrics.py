@@ -10,6 +10,7 @@ import numpy as np
 from petals_parametric import (
     CostOfCapitalLoad,
     ExpectedUncovered,
+    ParametricCover,
     StepPayout,
     WeightedCVaR,
     basis_risk,
@@ -18,6 +19,7 @@ from petals_parametric import (
     split_years,
 )
 from petals_parametric.metrics import METRICS, subject_metrics
+from petals_parametric.pricing import Pricing
 from petals_parametric.test._synthetic import array_index, random_portfolio
 
 
@@ -57,8 +59,8 @@ class TestBasisRisk(unittest.TestCase):
         self.index, self.impact = random_portfolio(5, n_events=60, n_years=90)
         self.train, self.test = split_years(self.index, train_fraction=0.7)
 
-    def _cover(self, scope: str, pricing: object = None) -> object:
-        kwargs = {} if pricing is None else {"pricing": pricing}
+    def _cover(self, scope: str, pricing: Pricing | None = None) -> ParametricCover:
+        kwargs: dict[str, Pricing] = {} if pricing is None else {"pricing": pricing}
         return calibrate(
             self.index,
             self.impact,
@@ -92,7 +94,7 @@ class TestBasisRisk(unittest.TestCase):
         frame = basis_risk(self.index, self.impact, cover, beta=0.9, years=self.test)
         units = frame[frame["level"] == "unit"]
         self.assertFalse(units["split_identified"].any())
-        self.assertTrue(units["premium"].isna().all())
+        self.assertTrue(np.isnan(np.asarray(units["premium"], dtype=float)).all())
         self.assertTrue(np.isfinite(frame["premium"].iloc[-1]))
 
     def test_in_sample_metric_is_the_objective(self) -> None:

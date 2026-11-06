@@ -136,11 +136,11 @@ class ParametricIndex:
 
     values: NDArray[np.float64]
     event_id: NDArray[np.int64]
-    event_name: tuple[str, ...]
+    event_name: Sequence[str]
     frequency: NDArray[np.float64]
     event_year: NDArray[np.int64]
     years: NDArray[np.int64]
-    unit_id: tuple[Hashable, ...]
+    unit_id: Sequence[Hashable]
     coords: NDArray[np.float64]
     unit: str = ""
     definition: str = ""

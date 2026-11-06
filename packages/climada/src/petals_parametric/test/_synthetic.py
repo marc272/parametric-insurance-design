@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 import scipy.sparse as sp
@@ -66,21 +67,23 @@ def straight_track(  # pylint: disable=too-many-arguments
 
 def exposures(points: Sequence[tuple[float, float, float]] = POINTS) -> Exposures:
     """Return one exposure point per insured unit, with impact function 1."""
-    lat, lon, value = (
-        np.array(column, dtype=float) for column in zip(*points, strict=True)
-    )
+    table = np.array(points, dtype=float)
+    lat, lon, value = table[:, 0], table[:, 1], table[:, 2]
     exp = Exposures(lat=lat, lon=lon, value=value)
     exp.gdf["impf_TC"] = 1
     return exp
 
 
-def hazard_and_impact(tracks: TCTracks, exp: Exposures) -> tuple[TropCyclone, Impact]:
+def hazard_and_impact(tracks: TCTracks, exp: Exposures) -> tuple[Any, Impact]:
     """Return the wind hazard at the exposure points and the impact on them.
 
     The impact is computed on a copy of ``exp``, so ``exp`` gets no centroid
     column.
     """
-    centroids = Centroids(lat=exp.latitude.copy(), lon=exp.longitude.copy())
+    centroids = Centroids(
+        lat=np.array(exp.latitude, dtype=float),
+        lon=np.array(exp.longitude, dtype=float),
+    )
     hazard = TropCyclone.from_tracks(
         tracks, centroids=centroids, ignore_distance_to_coast=True
     )

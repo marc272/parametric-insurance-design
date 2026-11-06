@@ -216,7 +216,7 @@ class ParametricCover:  # pylint: disable=too-many-instance-attributes
         ParametricInputError
             If the index's units are not the cover's.
         """
-        if index.unit_id != self.unit_id:
+        if tuple(index.unit_id) != self.unit_id:
             raise ParametricInputError(
                 "the index's units are not the cover's: "
                 f"{list(index.unit_id)[:5]} vs {list(self.unit_id)[:5]}"
@@ -548,7 +548,7 @@ def calibrate(  # pylint: disable=too-many-arguments,too-many-locals
         scope=scope,
         basis=basis,
         budget=kappa,
-        unit_id=index.unit_id,
+        unit_id=tuple(index.unit_id),
         levels=levels,
         problems=tuple(problems),
         calibration_years=chosen,
