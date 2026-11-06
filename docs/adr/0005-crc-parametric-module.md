@@ -155,7 +155,7 @@ design(template, sample, objective, *, pricing=PurePremium(), budget=None, limit
 ```text
 ParametricPlan.for_evaluation(request, *, value_column=None, value_unit="1")
 ParametricPlan.for_annual_extremes(source_plan, assets, *, impact, value_column=None, value_unit="1", ...)
-    .monte_carlo(n_draws, *, seed, assume_semantics=None)       # curve sources only
+    .monte_carlo(n_draws, *, seed, assume_semantics=None, outside_support="raise")   # curve sources only
     .basis_risk(model)
     .covers(*templates)                  # Cover templates; Free parameters allowed
     .objective(objective, *, pricing=..., budget=..., limit=..., options=...)   # optional: design the templates
@@ -166,6 +166,8 @@ ParametricPlan.for_annual_extremes(source_plan, assets, *, impact, value_column=
     .designs() -> tuple[DesignResult, ...]       # execution
     .write_parquet(path) -> ParametricResult     # execution; atomic
 ```
+
+(Erratum 8, 2026-11-06, MAR-276: the `.monte_carlo` line first read `.monte_carlo(n_draws, *, seed, assume_semantics=None)`. MAR-271 (R-18b) added `outside_support` in marc272/crc-sdk#9, with `sample_curve`'s values and default (§4.2): `"raise"`, `"extrapolate"` or `"clamp"`; `explain()` shows the choice. The `plan.py` row of the module layout below first named only `ParametricPlan` and `ParametricResult`. `plan.py` defines five more public names, and `crc_sdk.parametric` exports them: the split rules `Holdout` and `KFold` and the locators `NearestCell` and `StationColumn`, which MAR-42 (R-18) added in marc272/crc-sdk#8, and the split rule `FreshDraws(n_draws, *, seed)`, which MAR-271 added in marc272/crc-sdk#9. No decision changes.)
 
 The plan holds an integer `seed`, which `explain()` can show. At execution it builds `numpy.random.SeedSequence(seed)` and spawns one child generator per asset, in asset order. Layer 1 takes a `numpy.random.Generator` instead, with no default and no global seed.
 
@@ -193,7 +195,7 @@ The plan holds an integer `seed`, which `explain()` can show. At execution it bu
 | `constraints.py` | `Budget`, `Limit` | R-16 |
 | `design.py` | `design`, `DesignOptions`, `DesignResult`; the LP and QP assembly | R-16 |
 | `_solver.py` | The private solver interface and the HiGHS backend (§5.5) | R-16 |
-| `plan.py` | `ParametricPlan`, `ParametricResult` | R-18 |
+| `plan.py` | `ParametricPlan`, `ParametricResult`; the split rules `Holdout`, `KFold` and `FreshDraws`; the locators `NearestCell` and `StationColumn` (erratum 8, 2026-11-06, MAR-276: this row first named only `ParametricPlan` and `ParametricResult`) | R-18 |
 
 Outside the package: `docs/parametric.md` with its line in `docs/README.md` (stub R-14, finished R-18); tests `tests/test_parametric_<module>.py`, mirroring the modules as crc-sdk does; the extra in `pyproject.toml` (R-16); `PortfolioEvaluation.asset_curves()` in `workflows/portfolio.py` and `workflows/_portfolio.py` (R-18, if RiskThinking agrees, Q1).
 
