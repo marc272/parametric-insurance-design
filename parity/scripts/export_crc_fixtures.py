@@ -517,9 +517,10 @@ class GeneratedCase:
     document : dict
         The case document.
     evaluate : callable, optional
-        Design cases: the core's objective value, premium and metrics (the
-        ``expected`` fields, written the same way) of the cover at the given
-        levels, shape ``(n_assets, n_levels)``.
+        Design cases: the core's objective value, premium and metrics, in
+        sample and out of sample (the ``expected`` fields, written the same
+        way), of the cover at the given levels, shape ``(n_assets,
+        n_levels)``.
     violations : callable, optional
         Design cases: the design constraints the given levels break.
     ranges : tuple of numpy.ndarray, optional
@@ -1772,7 +1773,7 @@ def design_case(
 
 
 # --------------------------------------------------------------------------
-# Fixed covers: step (core) and linear (closed form)
+# Fixed covers: step (core); linear, binary, piecewise linear (closed form)
 # --------------------------------------------------------------------------
 
 FIXED_LEVELS: Final[Mapping[str, tuple[float, ...]]] = {
