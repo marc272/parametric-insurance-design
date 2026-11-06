@@ -1,6 +1,6 @@
 # ADR 0005: Design of the `crc_sdk.parametric` module
 
-- Status: **Proposed**. The owner, Marc Prinzing, decides (D10). His decision is recorded on MAR-244; the orchestrator then sets the status to Accepted.
+- Status: **Accepted** (2026-11-06). The owner, Marc Prinzing, accepted all eleven recommendations of "Decisions for the owner" as written (D10, recorded on MAR-244).
 - Date: 2026-11-05
 - Decision issue: MAR-244 (R-12). It feeds MAR-245 (R-13, golden fixtures, which take their field names from §8), MAR-246 (R-14), MAR-43 (R-15), MAR-247 (R-17), MAR-248 (R-16), MAR-42 (R-18) and MAR-46 (R-19). Phase 2: MAR-45 (R-21), MAR-250 (R-22), MAR-44 (R-23). Questions for RiskThinking go to MAR-249 (R-20).
 - Prepared by a worker agent from `main` at `56755a5`. The upstream repositories were cloned read-only and read at these commits. No upstream code was run against CRC data, and no CRC data was downloaded.
@@ -626,7 +626,7 @@ A smoke check by the agent on 2026-11-05 (synthetic step payouts, one machine, m
 - **LP cases.** The core solves with HiGHS, a vertex, and applies §5.4's two-tolerance test.
   - A unique optimum is written as that vertex, checked against Clarabel at tight tolerances (agreement within 1e-6 × scale). It gets `"exact"`.
   - A non-unique optimum is written as Clarabel's interior point at tight tolerances, one member of the optimal set, checked to lie within the ranges. It gets `"within_ranges"`.
-- **MSE cases.** §5.4's eigenvalue rule decides. Unique on the identified amounts gives `"exact"`. A singular H gives `"none"`, because the MSE route computes no ranges; this happens in joint cases where two assets' bins hold the same draws.
+- **MSE cases.** §5.4's eigenvalue rule decides. Unique on the identified amounts gives `"exact"`. A singular H gives `"none"`, because the MSE route computes no ranges; this happens in joint cases where the assets' bin-indicator columns are linearly dependent (for example, when two assets' bins hold the same draws).
 
 ### 9. Phase 2 extension points
 
