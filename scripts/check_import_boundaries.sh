@@ -7,11 +7,18 @@
 # those extends the root config, so the CI `ruff check` (job lint) applies the
 # bans to every file under the package, src, tests and scripts alike.
 #
+# The petals prototype, packages/climada/src/petals_parametric (MAR-168), has
+# its own ruff.toml there, which extends packages/climada/pyproject.toml and
+# replaces its banned-api table: it bans the core, the CLIMADA adapter, viz
+# and the CRC adapter in every file of that folder, its test/ included. ruff
+# uses the closest config, so the same root `ruff check` applies it (MAR-257).
+#
 # This script proves the bans fire, so that a config change that silently
 # drops one fails CI: it pipes a probe module through `ruff check` as if it
 # were a file at the given path (--stdin-filename; nothing is written) and
 # expects TID251 for every forbidden import and no TID251 for the allowed
-# ones, including the core's one sanctioned dynamic route to viz.
+# ones, including the core's one sanctioned dynamic route to viz and the
+# prototype's lazy import of cvxpy.
 #
 # Usage: scripts/check_import_boundaries.sh   (from anywhere in the checkout;
 #        CI runs it as `uv run --locked scripts/check_import_boundaries.sh`)
@@ -31,6 +38,8 @@ climada=packages/climada/src/parametric_insurance_design_climada/_probe.py
 climada_test=packages/climada/tests/test_probe.py
 climada_script=packages/climada/scripts/probe.py
 crc=packages/crc/src/parametric_insurance_design_crc/_probe.py
+petals=packages/climada/src/petals_parametric/_probe.py
+petals_test=packages/climada/src/petals_parametric/test/test_probe.py
 
 # expect|path|probe source (\n separates lines)
 cases="ban|$core|import parametric_insurance_design_viz
@@ -49,12 +58,32 @@ ban|$climada|import parametric_insurance_design_crc
 ban|$climada|from parametric_insurance_design_crc.sub import x
 ban|$climada_test|import parametric_insurance_design_crc
 ban|$climada_script|from parametric_insurance_design_crc import x
+ban|$petals|import parametric_insurance_design
+ban|$petals|from parametric_insurance_design.payout import StepPayout
+ban|$petals|import parametric_insurance_design_climada
+ban|$petals|from parametric_insurance_design_climada.pipeline import build_eventset
+ban|$petals|import parametric_insurance_design_viz
+ban|$petals|from parametric_insurance_design_viz.command import write_figures
+ban|$petals|import parametric_insurance_design_crc
+ban|$petals|from parametric_insurance_design_crc.sub import x
+ban|$petals|def f() -> None:\n    import parametric_insurance_design.solve as solve\n    del solve
+ban|$petals|from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import parametric_insurance_design_climada
+ban|$petals_test|import parametric_insurance_design
+ban|$petals_test|from parametric_insurance_design_climada import tracks
+ban|$petals_test|import parametric_insurance_design_viz
+ban|$petals_test|from parametric_insurance_design_crc import x
 ok|$core|import importlib\nviz = importlib.import_module(\"parametric_insurance_design_viz.command\")
 ok|$core|import parametric_insurance_design.solve
 ok|$viz|import parametric_insurance_design
 ok|$climada|import parametric_insurance_design
 ok|$climada|from parametric_insurance_design_climada import tracks
-ok|$crc|import parametric_insurance_design"
+ok|$crc|import parametric_insurance_design
+ok|$petals|import numpy as np\nimport scipy.sparse as sp\nfrom climada.engine import Impact
+ok|$petals|from petals_parametric.payout import StepPayout
+ok|$petals|from .errors import ParametricInputError
+ok|$petals|import importlib\ncvxpy = importlib.import_module(\"cvxpy\")
+ok|$petals_test|from petals_parametric import calibrate
+ok|$climada_test|import parametric_insurance_design\nimport petals_parametric\nfrom parametric_insurance_design_climada import pipeline"
 
 fail=0
 n=0
