@@ -5,6 +5,11 @@ Track ``A`` runs along latitude 25.75 from 77 to 83 W, 0.5 degrees (about
 73.9 kn (category 1), 105.6 km from the third point and about 125 km from
 the others; ``C`` along 29.5 N at 37 kn (category 0). The first point lies
 1.3 km, the second 4.5 km and the third 22.2 km from A's path.
+
+The simulation-year tests use a 10,000-year catalogue in the IRIS layout
+(:data:`STORMS`): storms named ``NA_<year>_<number>`` in years 0 to 9,999,
+frequency 1 / 10,000, and dates that carry year ``y`` as 1 January of
+``y + 1``, so that no date holds year 9,999.
 """
 
 from __future__ import annotations
