@@ -126,29 +126,38 @@ Cover(index, payout, *, payout_unit, asset_id=None, label=None)
 Cover.payout_values(index_values) -> NDArray          # resolved covers only
 Cover.with_values(values: Mapping[str, float]) -> Cover
 Cover.free_parameters() -> tuple[str, ...]
-Cover.to_json() -> str; Cover.from_json(text) -> Cover; Cover.definition_hash -> str
+Cover.to_json() -> str; Cover.from_json(text, *, label=None) -> Cover; Cover.definition_hash -> str
 register_payout(cls) -> cls
 
 # outcome samples (R-15)
 OutcomeSample(...)                                     # §4.1
-sample_curve(distribution, *, metadata, n_draws, rng, loss_model, basis_risk, asset_id,
-             assume_semantics=None, outside_support="raise") -> OutcomeSample
+sample_curve(curve, *, metadata, n_draws, rng, loss_model, basis_risk, asset_id,
+             assume_semantics=None, outside_support="raise", details=None) -> OutcomeSample
+    # curve: a crc-framework distribution, CurveParameters or a canonical row mapping
     # metadata: the curve's HazardDatasetMetadata (semantics, tail, support, units, source)
-AnnualSeries.from_table(table, *, year="year", value="value", where=None, unit) -> AnnualSeries
+    # details: caller information for the provenance, for example the file's SHA-256
+AnnualSeries.from_table(table, *, year="year", value="value", where=None, unit,
+                        years=None, source=None) -> AnnualSeries
 AnnualSeries.nearest_cell(table, *, longitude, latitude, unit, ...) -> AnnualSeries
 sample_annual(hazard, *, loss_model, basis_risk, asset_id, index=None, rng=None, missing="raise") -> OutcomeSample
-OutcomeSample.from_table(table, *, period, asset_id, index, loss, probability=None, semantics, index_unit, loss_unit) -> OutcomeSample
+OutcomeSample.from_table(table, *, period, asset_id, index, loss, probability=None, hazard=None,
+                         semantics, index_unit, loss_unit, source=None) -> OutcomeSample
 holdout(sample, train_fraction=0.7) -> tuple[OutcomeSample, OutcomeSample]
 year_block_kfold(sample, k) -> tuple[tuple[OutcomeSample, OutcomeSample], ...]
 
 # evaluation and comparison (R-17)
-evaluate(cover, sample, *, split, fold=0, pricing=PurePremium(), premium=None, options=MetricOptions()) -> pyarrow.Table   # one row
-compare(covers, sample, *, split, fold=0, pricing=PurePremium(), options=MetricOptions()) -> pyarrow.Table
-write_comparison(table, path, *, metadata) -> None    # atomic
+evaluate(cover, sample, *, split, fold=0, pricing=PurePremium(), premium=None, options=MetricOptions(),
+         design_sample=None) -> pyarrow.Table   # one row
+compare(covers, sample, *, split, fold=0, pricing=PurePremium(), options=MetricOptions(),
+        design_sample=None) -> pyarrow.Table
+    # design_sample: the sample a cover given as is was chosen on; a design brings its own
+write_comparison(table, path, *, metadata=None) -> None    # atomic; metadata defaults to the table's own
 
 # design (R-16)
 design(template, sample, objective, *, pricing=PurePremium(), budget=None, limit=None, options=DesignOptions()) -> DesignResult
 ```
+
+(Erratum 10, 2026-11-06, MAR-286: seven entries of this outline first differed from the code that MAR-246 (R-14), MAR-43 (R-15) and MAR-247 (R-17) merged in marc272/crc-sdk#1, #2 and #3, and now read as it does. The `Cover.from_json` entry first read `Cover.from_json(text) -> Cover`: it takes the optional keyword `label=None`, the display name, which the JSON does not hold. The `sample_curve` entry first read `sample_curve(distribution, *, metadata, n_draws, rng, loss_model, basis_risk, asset_id, assume_semantics=None, outside_support="raise") -> OutcomeSample`: the first argument is `curve`, which is a crc-framework distribution, `CurveParameters` or a canonical row mapping, and the optional keyword `details=None` adds caller information to the provenance. The `AnnualSeries.from_table` entry first read `AnnualSeries.from_table(table, *, year="year", value="value", where=None, unit) -> AnnualSeries`, with no `...`: it also takes `years=None` and `source=None`. The `OutcomeSample.from_table` entry first read `OutcomeSample.from_table(table, *, period, asset_id, index, loss, probability=None, semantics, index_unit, loss_unit) -> OutcomeSample`: it also takes `hazard=None`, after `probability`, and `source=None`. The `evaluate` and `compare` entries first ended in `options=MetricOptions()) -> pyarrow.Table`: both also take `design_sample=None`. The `write_comparison` entry first read `write_comparison(table, path, *, metadata) -> None`: `metadata` is optional, `None` by default, and then the table's own metadata is written. The other entries already matched. Each signature is as the PR that added its module merged it: marc272/crc-sdk#4 to #14 changed none of them, by a comparison of the signatures, read with Python's `ast`, at every merge into `parametric` up to d54ec9b. The paragraph on seeding below the Layer 2 outline first read: "The plan holds an integer `seed`, which `explain()` can show. At execution it builds `numpy.random.SeedSequence(seed)` and spawns one child generator per asset, in asset order. Layer 1 takes a `numpy.random.Generator` instead, with no default and no global seed." It fitted the curve route only: on the per-year route `for_annual_extremes(..., seed=None)` allows no seed, as MAR-42 (R-18) merged it in marc272/crc-sdk#8, and only a basis-risk model that draws needs one; and `sample_annual` takes `rng=None`, as MAR-43 merged it in marc272/crc-sdk#2. No decision changes.)
 
 **Layer 2 in outline (R-18):**
 
@@ -175,7 +184,7 @@ ParametricPlan.for_annual_extremes(source, assets, *, impact, unit, provenance,
 
 (Erratum 9, 2026-11-06, MAR-285: six lines of this outline first differed from the plan that MAR-42 (R-18) merged in marc272/crc-sdk#8, and now read as its code does. The `for_annual_extremes` line first read `ParametricPlan.for_annual_extremes(source_plan, assets, *, impact, value_column=None, value_unit="1", ...)`: the first argument is `source`, which is a plan with an `annual_extremes()` execution point, an Arrow table or a local Parquet file, and the `...` hid the required keywords `unit` and `provenance` as well as the optional ones. The `.covers` line first read `.covers(*templates)`, with the comment "Cover templates; Free parameters allowed": it takes `*covers`, both resolved covers and templates. The `.objective` line first read `.objective(objective, *, pricing=..., budget=..., limit=..., options=...)`: it takes `*objectives` and designs each template under each, and its defaults are those of `design`. The `.split` and `.metrics` lines first read `.split(Holdout(0.7) | KFold(5) | FreshDraws(n_draws, seed=...))` and `.metrics(MetricOptions(...))`, which named no parameter: they take `rule` and `options`, and the comments now give the types. The `.explain` line first read `.explain(format="text") -> str | dict`: `format` is keyword-only, and `format="json"` returns the dict. The other lines already matched. Of the later PRs, only marc272/crc-sdk#9 (MAR-271) changed `plan.py`: it added `for_evaluation`, `.monte_carlo` (erratum 8) and `FreshDraws` as they read here; marc272/crc-sdk#10 to #13 did not touch it. No decision changes.)
 
-The plan holds an integer `seed`, which `explain()` can show. At execution it builds `numpy.random.SeedSequence(seed)` and spawns one child generator per asset, in asset order. Layer 1 takes a `numpy.random.Generator` instead, with no default and no global seed.
+The plan holds a `seed`, which `explain()` shows (erratum 10 gives this paragraph's first text). On the curve route it is an integer, which `.monte_carlo(n_draws, *, seed, ...)` requires. On the per-year route `for_annual_extremes(..., seed=None)` allows none: only the basis-risk model draws there, so only a model that draws needs a seed, and `.basis_risk(ImpactNoise(...))` raises `ValueError` on a per-year plan without one. A plan with a seed builds `numpy.random.SeedSequence(seed)` at execution and spawns one child generator per asset, in asset order; `FreshDraws` seeds its draws from its own seed in the same way. Layer 1 takes a `numpy.random.Generator` instead, and never a global seed: `sample_curve` requires `rng`, and `sample_annual` takes `rng=None`, which only a basis-risk model that draws needs (§4.4).
 
 **Module layout** under `crc_sdk/parametric/`. One owner issue per file; `__init__.py` is extended by each issue in sequence.
 
