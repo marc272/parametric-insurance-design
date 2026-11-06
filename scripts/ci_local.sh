@@ -13,8 +13,8 @@
 #
 # Jobs (default: all, in this order):
 #   lint                     ruff check, import-boundary negative test,
-#                            ruff format --check, pyright, ruff single
-#                            source check, pre-commit
+#                            fork gh guard hook test, ruff format --check,
+#                            pyright, ruff single source check, pre-commit
 #   workspace-3.12           core (coverage >= 85 %), viz + crc, parity tests,
 #                            examples
 #   workspace-3.13           the same on Python 3.13
@@ -193,6 +193,7 @@ job_lint() {
   uv sync --locked
   uv run --locked ruff check
   uv run --locked scripts/check_import_boundaries.sh
+  uv run --locked scripts/check_fork_gh_guard.py
   uv run --locked ruff format --check
   uv run --locked pyright
   uv run --locked scripts/check_ruff_single_source.py --self-test
