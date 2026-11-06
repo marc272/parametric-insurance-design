@@ -1245,3 +1245,28 @@ def test_piecewise_linear_designs_agree_with_standalone_computations(
             gap = np.abs(np.asarray(other_levels, dtype=float) - levels)[identified]
             assert np.all(gap <= 1e-6 * scale), (name, gap)
     assert found == 2
+
+
+def test_grid_route_cases_have_no_ties(cases: dict[str, dict[str, Any]]) -> None:
+    """ADR 0005's ``ties`` (§5.3 and §5.4, erratum 6) is 0 in every grid case.
+
+    ``ties`` counts the other candidates whose objective lies within
+    ``feasibility_tolerance`` (1e-7) times ``max(1, |best|)`` of the best, in
+    scaled units (the objective over the scale, or the scale squared for
+    MSE). The cases don't write it; a reader derives it from ``profile``.
+    """
+    found = 0
+    for name, doc in cases.items():
+        profile = doc["expected"]["profile"]
+        if profile is None:
+            continue
+        found += 1
+        scale = max(1.0, max(math.fsum(row) for row in doc["sample"]["loss"]))
+        unit = scale**2 if doc["objective"]["kind"] == "mse" else scale
+        values = [row["objective_value"] / unit for row in profile]
+        best = int(np.argmin(values))
+        tolerance = 1e-7 * max(1.0, abs(values[best]))
+        others = [v for i, v in enumerate(values) if i != best]
+        ties = sum(1 for v in others if v - values[best] <= tolerance)
+        assert ties == 0, name
+    assert found == 3
