@@ -12,7 +12,7 @@ RiskThinking. This hook adds what they can't express. A command that may run
 in a fork path is refused if it runs:
 
 - ``gh pr``, ``gh issue``, ``gh label``, ``gh run``, ``gh secret``,
-  ``gh variable`` or ``gh cache`` (``CHECKED_SUBCOMMANDS``) without naming a
+  ``gh variable`` or ``gh cache`` (``REPO_FLAG_SUBCOMMANDS``) without naming a
   ``marc272/`` repository with ``--repo`` or ``-R``, written literally;
 - ``gh api`` with ``{owner}``, ``{repo}``, ``:owner`` or ``:repo`` in its
   endpoint or a ``-F`` field, which gh fills in from the clone's repository.
