@@ -13,10 +13,11 @@ groups:
   from the core, the data or the script, and a solver that returns another
   point of the same optimal set (another platform) does not fail the check.
   A regeneration with perturbed solvers checks the latter here.
-- **The files.** Canonical text, under 1 MB in total, the case matrix, at
-  most one draw per year, the split blocks (holdout, k-fold, fresh draws),
-  the metric columns of each case's options, the fill rule of unidentified
-  levels, and a generator block that names a committed core.
+- **The files.** Canonical text, under 1 MB in total, the case matrix, the
+  README's licence table, at most one draw per year, the split blocks
+  (holdout, k-fold, fresh draws), the metric columns of each case's options,
+  the fill rule of unidentified levels, and a generator block that names a
+  committed core.
 - **A reader without our code.** Each case is read with plain numpy and the
   rules of ``parity/crc/README.md`` only (no core, no script): the payouts of
   the written cover, the objective value, the premium, the budget and the
@@ -38,7 +39,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 import pytest
@@ -46,6 +47,7 @@ import pytest
 PARITY_DIR = Path(__file__).resolve().parents[1]
 SCRIPT = PARITY_DIR / "scripts" / "export_crc_fixtures.py"
 CASES_DIR = PARITY_DIR / "crc" / "cases"
+README = PARITY_DIR / "crc" / "README.md"
 MAX_TOTAL_BYTES = 1_000_000
 
 # The case matrix of MAR-245, MAR-255, MAR-264 and MAR-269, stated here
@@ -389,6 +391,108 @@ def test_case_matrix(cases: dict[str, dict[str, Any]]) -> None:
     assert ids == EXPECTED_CASES
     for name, doc in cases.items():
         assert name == f"{doc['case_id']}.json"
+
+
+class _LicenceRow(NamedTuple):
+    data_set: str
+    suffixes: list[str]
+    count: int
+    spdx: str
+
+
+def _licence_section() -> str:
+    text = README.read_text(encoding="utf-8")
+    match = re.search(r"^## Licence\n(.*?)^## ", text, re.MULTILINE | re.DOTALL)
+    assert match is not None, "parity/crc/README.md has no Licence section"
+    return match.group(1)
+
+
+def _licence_rows(section: str) -> list[_LicenceRow]:
+    """The rows of the Licence table: data set, id suffixes, count, SPDX id.
+
+    The suffixes are the code spans of the "Case ids" cell's first sentence,
+    "ending in `-a`, `-b` or `-c`"; ``<i>`` stands for a fold number.
+    """
+    rows = []
+    for line in section.splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) != 4 or not cells[0].startswith("`"):
+            continue  # not a table row, or the header or separator row
+        clause = cells[1].split(". ", 1)[0]
+        assert clause.startswith("ending in "), line
+        rows.append(
+            _LicenceRow(
+                data_set=cells[0].strip("`"),
+                suffixes=re.findall(r"`([^`]+)`", clause),
+                count=int(cells[2]),
+                spdx=cells[3].strip("`"),
+            )
+        )
+    return rows
+
+
+def _suffix_pattern(suffix: str) -> re.Pattern[str]:
+    return re.compile("[0-9]+".join(map(re.escape, suffix.split("<i>"))) + r"\Z")
+
+
+def test_licence_table_counts_every_case(cases: dict[str, dict[str, Any]]) -> None:
+    """The Licence table of ``parity/crc/README.md`` is true of ``cases/``.
+
+    The table is the cases' licence marker (ADR 0001, amendment 3): a case's
+    licence is that of its data set, the part of its id after the scope.
+    Every case id must end in a suffix of exactly one row, its data set's
+    row, and each row's count must be its number of cases. The counts by
+    licence in the bullets under the table, and the README's total, must
+    agree with the table. A change that adds cases updates the counts and
+    the total; one that adds a data set gives it a row first.
+    """
+    hint = "update the Licence table of parity/crc/README.md"
+    section = _licence_section()
+    rows = _licence_rows(section)
+    assert rows, "the Licence table has no rows"
+    data_sets = [row.data_set for row in rows]
+    assert len(set(data_sets)) == len(data_sets), data_sets
+    patterns: dict[str, list[tuple[str, re.Pattern[str]]]] = {}
+    for row in rows:
+        assert row.suffixes, row
+        for suffix in row.suffixes:
+            own = f"-{row.data_set}"
+            assert suffix == own or suffix.startswith(f"{own}-"), (row, suffix)
+        patterns[row.data_set] = [(s, _suffix_pattern(s)) for s in row.suffixes]
+
+    found: dict[str, list[str]] = {d: [] for d in data_sets}
+    used: set[str] = set()
+    for doc in cases.values():
+        case_id = doc["case_id"]
+        hits = [
+            (data_set, suffix)
+            for data_set, row_patterns in patterns.items()
+            for suffix, pattern in row_patterns
+            if pattern.search(case_id)
+        ]
+        assert len({d for d, _ in hits}) == 1, (case_id, hits, hint)
+        data_set = hits[0][0]
+        scope = re.search(r"-(?:individual|joint)-([^-]+)", case_id)
+        assert scope is not None, case_id
+        assert data_set == scope.group(1), (case_id, data_set, hint)
+        found[data_set].append(case_id)
+        used.update(s for _, s in hits)
+
+    for row in rows:
+        assert row.count == len(found[row.data_set]), (row.data_set, hint)
+    unused = {s for row in rows for s in row.suffixes} - used
+    assert not unused, (unused, hint)
+    for spdx in {row.spdx for row in rows}:
+        bullet = re.search(rf"\*\*{re.escape(spdx)}: the (\d+) cases", section)
+        assert bullet is not None, (spdx, hint)
+        total = sum(row.count for row in rows if row.spdx == spdx)
+        assert int(bullet.group(1)) == total, (spdx, hint)
+    readme_total = re.search(
+        r"`cases/<case_id>\.json`\. (\d+) cases", README.read_text(encoding="utf-8")
+    )
+    assert readme_total is not None, hint
+    assert int(readme_total.group(1)) == len(cases), hint
+    assert sum(row.count for row in rows) == len(cases), hint
 
 
 def test_every_document_has_the_contract_fields(

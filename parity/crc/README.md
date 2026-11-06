@@ -49,6 +49,8 @@ So a change to the core's formulas, the data or the script that moves a value fa
 
 The test also reads every case the way the module's tests do, with plain numpy and the rules on this page only. It recomputes the payouts of the written cover, the objective value, the premium, the budget, the constraints and the plain metrics (with the case's `metric_options`), in sample and out of sample, and compares them with `expected`. It solves every binary and linear design in closed form too, each grid candidate of `profile` included ([Binary and linear designs](#binary-and-linear-designs-and-the-grid-route)). It also solves the piecewise-linear designs again with the script's standalone computations ([Piecewise-linear designs](#piecewise-linear-designs)).
 
+The test also checks the [Licence](#licence) table against `cases/`: every case id ends in a suffix of exactly one row, its data set's, and each row's count is its number of cases; the counts by licence in the bullets and the total at the top of this page agree with the table. So a change that adds cases updates the counts and the total, and one that adds a data set gives it a row in the table, with its licence, before its cases are committed.
+
 ## The document
 
 | Field | Value | Meaning |
