@@ -4,7 +4,7 @@
 - Date: proposed 2026-10-31, accepted 2026-11-01
 - Decision issue: MAR-162 (D8). It feeds MAR-163 (concept docs), MAR-164 (READMEs), MAR-165 (examples) and MAR-168 (the location of the petals prototype).
 - Prepared by a worker agent from `main` at `f74f123`. **Q2 and Q3 were revised after the design review MAR-161** (PR #99, squash commit `dafa8ec` on `main`, `docs/reviews/core-design-review.md`; findings cited as "review F<n>"). The review settles both, so they are no longer provisional.
-- Amendments: 1 (2026-11-06, MAR-251), at the end
+- Amendments: 1 (2026-11-06, MAR-251) and 2 (2026-11-06, MAR-259), at the end
 
 ## Context
 
@@ -333,3 +333,9 @@ On 2026-11-05 the owner decided D9 (`docs/SPEC.md` §11; MAR-242). The CRC work 
 - **Q1.** `showcase/crc/` is no longer a planned output, so Q1's bullet "they are planned outputs" no longer applies to it. The folder keeps the record of the CRC collaboration scan and the meeting brief, and its README says so (MAR-243). No notebook goes there: it is built in the crc-docs fork.
 - The other mentions of `showcase/crc/` above (Q5 and migration step 8) are history.
 - **`packages/crc`** is dormant (`docs/SPEC.md` §4, `packages/crc/README.md`), pending MAR-252. The import rules under "Context" still apply to it. ADR 0001 amendment 2 records the licence side.
+
+## Amendment 2 (2026-11-06, MAR-259): the petals prototype's checks
+
+The answers to Q1–Q7 stand. This amendment adds a clause to the list of checks under "Context" ("Hard boundaries"):
+
+- **The petals prototype** `petals_parametric` (`packages/climada/src/`, MAR-168; Q1 places it in `packages/climada`) never imports the core, the CLIMADA adapter, viz or CRC, because it moves into `climada_petals`. Two checks enforce this: its own `ruff.toml`, whose `TID251` bans the four packages in every file of the folder, `test/` included (`scripts/check_import_boundaries.sh` proves they fire, MAR-257), and `packages/climada/tests/test_petals_parametric_isolation.py` (job `test (climada, pixi)`), which checks its static imports, its dynamic imports (MAR-259) and what it loads at run time. The adapter may import the prototype: that direction is no boundary.
