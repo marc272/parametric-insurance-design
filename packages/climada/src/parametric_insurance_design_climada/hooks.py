@@ -67,7 +67,9 @@ class HazardBatch:
         The tracks, one per event, in row order.
     hazard : climada.hazard.TropCyclone
         The wind hazard at the location centroids: centroid ``j`` is
-        location ``j``.
+        location ``j``. Each event has frequency ``1 / n_years`` and is dated
+        by its simulation year ("The CLIMADA hazard" in
+        :mod:`parametric_insurance_design_climada.pipeline`).
     locations : pandas.DataFrame
         The EventSet ``locations`` table (``location_id``, ``lat``, ``lon``,
         ``value``, ``name`` and free columns).

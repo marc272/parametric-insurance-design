@@ -8,8 +8,9 @@ Port of the thesis ``src/CLIMADA/engine.py``. :func:`build_eventset` runs:
    location, sorted by event ID as in the thesis;
 3. in batches of ``batch_size`` storms: convert each storm to a CLIMADA track
    (thesis unit conversions), compute ``TropCyclone.from_tracks`` at one
-   centroid per location, and ``ImpactCalc`` with the configured impact
-   function;
+   centroid per location, set each event's frequency and date from the
+   catalogue (see "The CLIMADA hazard" below), and run ``ImpactCalc`` with
+   the configured impact function;
 4. build the index with an
    :class:`~parametric_insurance_design_climada.hooks.IndexBuilder`
    (default: wind at the centroid; the config's ``index`` section selects
@@ -57,6 +58,34 @@ shared by every cell of every location. The proximity filter still
 tests the locations; :func:`build_eventset` checks that no storm it removes
 can reach a cell (``max_dist_eye_km`` plus the farthest cell from its
 location must not exceed ``proximity_km``).
+
+**The CLIMADA hazard.** Each batch's
+:class:`~climada.hazard.TropCyclone` (the ``hazard`` of the
+:class:`~parametric_insurance_design_climada.hooks.HazardBatch` that the
+hooks get, and the hazard of ``ImpactCalc``) carries the catalogue's rate and
+years, so that it can be used as a CLIMADA hazard on its own, for example on
+an annual basis:
+
+* ``frequency`` is ``1 / n_years`` for every event: the EventSet's ``rate``
+  before draws. The frequencies of all batches sum to the annual rate of the
+  modelled storms. ``TropCyclone.from_tracks`` would give every event
+  frequency 1, because every track starts at
+  :data:`~parametric_insurance_design_climada.tracks.TRACK_REF_TIME`.
+* ``event_name`` is the event ID, which holds the simulation year:
+  ``<basin>_<year>_<tc>`` (IRIS) or ``STORM_<basin>_<year>_<tc>``.
+* ``date`` carries the simulation year too:
+  :func:`~parametric_insurance_design_climada.tracks.simulation_year_dates`
+  dates year ``y`` on 1 January of calendar year ``y + 1``, and
+  :func:`~parametric_insurance_design_climada.tracks.simulation_years_of_dates`
+  reads it back. No date holds a calendar year after 9999, so the storms of
+  the last year of a 10,000-year catalogue (IRIS year 9,999) get
+  :data:`~parametric_insurance_design_climada.tracks.UNDATED`, which readers
+  of the date reject, and the build logs a warning naming them. Their year
+  is then only in ``event_name``.
+
+Neither changes the EventSet: the impact of an event does not depend on its
+frequency or date, and the built-in hooks read the wind and the tracks, not
+the hazard's frequency or date.
 
 Differences from the thesis, all deliberate:
 
@@ -732,10 +761,29 @@ class _CellLoss:
         )
 
 
+def _set_simulation_years(
+    hazard: TropCyclone, years: NDArray[np.int64], n_years: int
+) -> None:
+    """Give each event frequency ``1 / n_years`` and date it by its year.
+
+    Replaces what ``TropCyclone.from_tracks`` sets from the tracks' calendar
+    dates (frequency 1 and one date for every event, since every track starts
+    at :data:`~parametric_insurance_design_climada.tracks.TRACK_REF_TIME`);
+    see "The CLIMADA hazard" in the module docstring.
+    """
+    if years.shape != (hazard.size,):
+        raise PipelineError(
+            f"{years.shape} simulation years for a hazard of {hazard.size} events"
+        )
+    hazard.frequency = np.full(hazard.size, 1.0 / n_years, dtype=np.float64)
+    hazard.date = tracks.simulation_year_dates(years)
+
+
 def _hazard_and_impact(
     event_ids: list[str],
     track_data: TCTracks,
     *,
+    years: NDArray[np.int64],
     config: PipelineConfig,
     centroids: Centroids,
     exposures: Exposures,
@@ -747,7 +795,9 @@ def _hazard_and_impact(
     """Return ``(hazard, dense wind, dense base loss or None)``.
 
     Wind and loss columns follow the exposures; exposure ``j`` is at centroid
-    ``centroid_of[j]`` (default ``j``).
+    ``centroid_of[j]`` (default ``j``). ``years`` holds each event's
+    simulation year; the hazard gets frequency ``1 / n_years`` and its events
+    are dated by those years (:func:`_set_simulation_years`).
     """
     hazard = cast(
         TropCyclone,
@@ -757,6 +807,7 @@ def _hazard_and_impact(
     )
     if [str(name) for name in hazard.event_name] != event_ids:
         raise PipelineError("CLIMADA returned the events in another order")
+    _set_simulation_years(hazard, years, config.n_years)
     wind = _check_matrix(
         f"wind{where}",
         hazard.intensity.toarray(),
@@ -783,6 +834,7 @@ def _run_batch(
     event_ids: list[str],
     storms: dict[str, pd.DataFrame],
     *,
+    years: NDArray[np.int64],
     config: PipelineConfig,
     locations: pd.DataFrame,
     centroids: Centroids,
@@ -799,11 +851,14 @@ def _run_batch(
     With ``cells``, the loss draws are computed on the cells and summed per
     location; the location-level impact is then not computed. ``to_track``
     converts one storm's rows to a CLIMADA track (IRIS by default).
+    ``years`` holds each storm's simulation year, which dates its hazard
+    event.
     """
     track_data = TCTracks([to_track(storms[e]) for e in event_ids])
     hazard, wind, base_loss = _hazard_and_impact(
         event_ids,
         track_data,
+        years=years,
         config=config,
         centroids=centroids,
         exposures=exposures,
@@ -836,6 +891,7 @@ def _run_batch(
     cell_hazard, cell_wind, cell_loss = _hazard_and_impact(
         event_ids,
         track_data,
+        years=years,
         config=config,
         centroids=cells.centroids,
         exposures=cells.exposures,
@@ -1086,6 +1142,17 @@ def build_eventset(
             f"no storm with at least two track points passes within "
             f"{config.proximity_km:g} km of a location"
         )
+    undated = [e for e in modelled if year_of[e] > tracks.LAST_DATED_YEAR]
+    if undated:
+        logger.warning(
+            "%d storm(s) in simulation years above %d get the hazard date %d "
+            "(no date holds a later year); their year is only in the event "
+            "name, e.g. %s",
+            len(undated),
+            tracks.LAST_DATED_YEAR,
+            tracks.UNDATED,
+            undated[:5],
+        )
 
     impf = make_impact_function(config)
     impact_functions = ImpactFuncSet([impf])
@@ -1106,6 +1173,7 @@ def build_eventset(
         index, draws = _run_batch(
             batch_ids,
             storms,
+            years=np.array([year_of[e] for e in batch_ids], dtype=np.int64),
             config=config,
             locations=locations,
             centroids=centroids,
