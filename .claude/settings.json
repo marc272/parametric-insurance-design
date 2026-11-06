@@ -91,13 +91,14 @@
       "Bash(gh repo create*)",
       "Bash(gh repo fork*)",
       "Bash(gh repo sync*)",
-      "Bash(gh api -X DELETE *)"
+      "Bash(gh api -X DELETE *)",
+      "mcp__terminal__run_in_terminal"
     ]
   },
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|Monitor|mcp__terminal__run_in_terminal",
         "hooks": [
           {
             "type": "command",
