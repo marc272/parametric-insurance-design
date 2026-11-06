@@ -12,7 +12,7 @@ spellings.
 hook parses each ``gh`` command, so ``-R``/``--repo`` before or after the
 group (``gh -R <repo> release create``, ``gh release -R <repo> create``),
 ``gh`` by path or in quotes, and ``gh`` inside ``sh -c`` don't hide it. It
-refuses (``denied``):
+refuses these, with a message that says no ``--repo`` makes them allowed:
 
 - ``gh release create`` (alias ``new``), ``edit``, ``upload``, ``delete`` and
   ``delete-asset``; ``gh workflow run``, ``enable`` and ``disable``; ``gh repo
@@ -30,8 +30,8 @@ are left to the text rules: ``gh api`` takes no ``-R``.
 **Repo-scoped gh commands in a fork path.** In a clone of the forks
 ``marc272/crc-sdk`` and ``marc272/crc-docs``, ``gh`` without ``--repo`` can
 resolve to the parent repository, RiskThinking's, where agents must never
-act. A command that may run in a fork path is refused (``refused``) if it
-runs:
+act. A command that may run in a fork path is refused, with a message that
+says how to fix it, if it runs:
 
 - a command of a ``gh`` group that takes the repository from the clone
   unless ``--repo`` or ``-R`` names one (``REPO_FLAG_SUBCOMMANDS``: the groups
