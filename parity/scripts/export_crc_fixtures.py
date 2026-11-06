@@ -1,6 +1,6 @@
 r"""Export golden fixtures from the core for the CRC module's tests.
 
-MAR-245 built the fixtures; MAR-255 and MAR-264 extended them.
+MAR-245 built the fixtures; MAR-255, MAR-264 and MAR-269 extended them.
 
 The parametric insurance module ``crc_sdk.parametric`` is built in a fork of
 crc-sdk. It never imports this repository's core, ``parametric_insurance_design``,
@@ -68,6 +68,19 @@ How the expected values are computed
   wins by a margin (:data:`GRID_MARGIN`).
 * **Lower-tail step designs**: the core has no lower tail, so it designs the
   step on the severity ``s = -x`` (:attr:`Dataset.severity`).
+* **Piecewise-linear designs** (``source = "core"``): the core has no
+  piecewise-linear payout, so the script gives its problem builder, solvers
+  and KPIs a payout structure of its own (:class:`PiecewiseLinearStructure`,
+  the hat functions of the knots), so the core stays read-only. Each design is
+  solved again standalone (:func:`_check_piecewise_linear_standalone`): an
+  LP by scipy's HiGHS on an LP assembled here (:func:`standalone_lp_optimum`),
+  an MSE design by its KKT points in rational arithmetic
+  (:func:`exact_mse_optimum`).
+* **Linear designs on the grid route** (``kind = "design"``, ``source =
+  "closed_form"``, :func:`linear_grid_case`): the limit is the one amount,
+  so at each candidate (attachment, exhaustion) the design has a closed form,
+  computed exactly (:func:`exact_one_amount_optimum`) and written; the core,
+  given :class:`LinearStructure`, designs every candidate too and must agree.
 * **Fixed covers with a step payout** (``kind = "evaluate"``,
   ``source = "core"``): the core's ``StepPayout.evaluate`` and
   ``evaluate.kpis`` on a hand-set cover.
@@ -124,12 +137,13 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
-from typing import Any, Final, Literal
+from typing import Any, ClassVar, Final, Literal
 
 import cvxpy as cp
 import numpy as np
 import pandas as pd
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
+from scipy.optimize import linprog
 
 import parametric_insurance_design as pid
 from parametric_insurance_design.basis import Basis
@@ -148,6 +162,7 @@ from parametric_insurance_design.eventset import (
 )
 from parametric_insurance_design.interfaces import (
     Objective,
+    PayoutStructure,
     Pricing,
     Sample,
     Scope,
@@ -433,8 +448,14 @@ one. 52 is not a multiple of :data:`KFOLD_K`, so the k-fold blocks are uneven
 (11, 11, 10, 10, 10), as ``numpy.array_split`` makes them."""
 KFOLD_K: Final[int] = 5
 """Folds of the k-fold cases (the core's ``splits.year_block_kfold``)."""
-KFOLD_CASES: Final[tuple[tuple[str, str], ...]] = (("mse", "pure"),)
-"""(objective, pricing) id tokens of the k-fold cases: one design per fold."""
+KFOLD_CASES: Final[tuple[tuple[str, str, tuple[int, ...]], ...]] = (
+    ("mse", "pure", tuple(range(KFOLD_K))),
+    ("wcvar-b0_9", "coc", (0,)),
+)
+"""(objective, pricing, folds) of the k-fold cases: one design per fold. The
+MSE design (a QP) has every fold; the weighted-CVaR design (an LP) has fold
+0 only, to keep the cases small: its held-out block holds the only draw in
+the last bin, so the fill rule decides that draw's payout."""
 FRESH_SEED: Final[int] = 20261106
 """Seed of the fresh draws (``numpy.random.default_rng``): the synthetic
 process again, from another generator."""
@@ -469,6 +490,26 @@ LOWER_STEP_LEVELS: Final[tuple[float, ...]] = (100.0, 250.0, 500.0, 900.0)
 """Levels (EUR) of the fixed lower-tail step cover."""
 LOWER_STEP_CASES: Final[tuple[tuple[str, str], ...]] = (("wcvar-b0_9", "pure"),)
 """(objective, pricing) id tokens of the lower-tail step designs."""
+LINEAR_GRID_ATTACHMENTS: Final[tuple[float, ...]] = (64.0, 80.0, 100.0)
+"""Grid (mm/day) of the free attachment of the linear grid-route case, on the
+hand-made rainfall sample: index values of the sample."""
+LINEAR_GRID_EXHAUSTIONS: Final[tuple[float, ...]] = (175.0, 210.0, 260.0)
+"""Grid (mm/day) of the free exhaustion of the linear grid-route case. Every
+attachment is below every exhaustion, so each pair of the Cartesian product
+is a valid cover (ADR 0005 §5.3)."""
+LINEAR_GRID_CASES: Final[tuple[tuple[str, str], ...]] = (("wcvar-b0_9", "pure"),)
+"""(objective, pricing) id tokens of the linear grid-route cases (closed form;
+the pricing tokens are :data:`CLOSED_FORM_PRICINGS`')."""
+PIECEWISE_LINEAR_KNOTS: Final[tuple[float, ...]] = (50.0, 80.0, 120.0, 175.0)
+"""Knots (mm/day) of the piecewise-linear designs on the hand-made rainfall
+sample: those of its fixed piecewise-linear cover, index values of the
+sample."""
+PIECEWISE_LINEAR_CASES: Final[tuple[tuple[str, str], ...]] = (
+    ("mse", "pure"),
+    ("wcvar-b0_9", "coc"),
+)
+"""(objective, pricing) id tokens of the piecewise-linear designs: a QP and an
+LP."""
 
 BETAS: Final[tuple[float, ...]] = (0.9, 0.95, 0.99)
 """Metric levels: ADR 0005 §6, ``MetricOptions`` defaults."""
@@ -1312,6 +1353,63 @@ def _binary_cover(
     return _cover_document(data.asset_ids[j], index, payout, data.loss_unit)
 
 
+def _piecewise_linear_cover(
+    data: Dataset, j: int, knots: Sequence[float], levels: Sequence[Any]
+) -> dict[str, Any]:
+    """Return the piecewise-linear cover of asset ``j`` (ADR 0005 §3).
+
+    ``knots`` are in index units, in order of increasing severity; ``levels``
+    numbers or ``Free`` markers.
+    """
+    payout = {
+        F.kind_key: F.payout_piecewise_linear,
+        F.knots: [float(c) + 0.0 for c in knots],
+        F.levels: list(levels),
+        F.monotone: True,
+        F.tail: data.tail,
+    }
+    index = _index_document(
+        data.hazard_name, data.aggregation, data.index_unit, data.tail
+    )
+    return _cover_document(data.asset_ids[j], index, payout, data.loss_unit)
+
+
+def _linear_cover(
+    data: Dataset,
+    j: int,
+    attachment: float | dict[str, Any],
+    exhaustion: float | dict[str, Any],
+    limit: float | dict[str, Any],
+) -> dict[str, Any]:
+    """Return the linear cover of asset ``j`` (ADR 0005 §3).
+
+    Each parameter is a number (thresholds in index units) or a ``Free``
+    marker.
+    """
+    payout = {
+        F.attachment: attachment,
+        F.exhaustion: exhaustion,
+        F.kind_key: F.payout_linear,
+        F.limit_param: limit,
+        F.tail: data.tail,
+    }
+    index = _index_document(
+        data.hazard_name, data.aggregation, data.index_unit, data.tail
+    )
+    return _cover_document(data.asset_ids[j], index, payout, data.loss_unit)
+
+
+def _free_grid(grid: Sequence[float]) -> dict[str, Any]:
+    """Return a ``Free`` shape-parameter marker with an explicit grid (§3)."""
+    return {
+        F.free: {
+            F.grid: [float(t) for t in grid],
+            F.lower: float(min(grid)),
+            F.upper: float(max(grid)),
+        }
+    }
+
+
 def binary_edges(severity: float) -> tuple[float, float]:
     """Return the core's one-bin step edges of a binary trigger, on the severity.
 
@@ -1320,6 +1418,197 @@ def binary_edges(severity: float) -> tuple[float, float]:
     too, so any edge above the trigger gives the same payout.
     """
     return (float(severity), float(severity) + 1.0)
+
+
+# --------------------------------------------------------------------------
+# Script-side payout structures: the module's linear and piecewise-linear
+# families, which the core lacks, as core ``PayoutStructure`` objects
+# --------------------------------------------------------------------------
+
+
+def _severity_array(index: ArrayLike, ndim: int) -> NDArray[np.float64]:
+    """Return finite index values of the given dimension as a float array."""
+    values = np.asarray(index, dtype=np.float64)
+    if values.ndim != ndim or not np.all(np.isfinite(values)):
+        raise ValueError(f"index must be finite and {ndim}-D, got {values.shape}")
+    return values
+
+
+def _amount_constraints(
+    theta: cp.Variable, cap: NDArray[np.float64], n_params: int
+) -> tuple[cp.Constraint, ...]:
+    """Return the core step payout's constraints: >= 0, non-decreasing, capped."""
+    caps = np.asarray(cap, dtype=np.float64)
+    found: list[cp.Constraint] = [theta >= 0]
+    if n_params > 1:
+        found.append(theta[:, 1:] >= theta[:, :-1])
+    found.append(theta <= np.repeat(caps[:, None], n_params, axis=1))
+    return tuple(found)
+
+
+def _evaluate_columns(
+    structure: PayoutStructure, index: ArrayLike, theta: ArrayLike
+) -> NDArray[np.float64]:
+    """``basis_matrix(index[:, j]) @ theta[j]`` for each entity ``j``."""
+    xi = _severity_array(index, 2)
+    th = np.asarray(theta, dtype=np.float64)
+    if th.shape != (xi.shape[1], structure.n_params):
+        raise ValueError(f"theta of shape {th.shape} does not fit")
+    return np.column_stack(
+        [structure.basis_matrix(xi[:, j]) @ th[j] for j in range(xi.shape[1])]
+    )
+
+
+@dataclass(frozen=True)
+class PiecewiseLinearStructure(PayoutStructure):
+    """ADR 0005 §3's ``PiecewiseLinearPayout`` with fixed knots, for the core.
+
+    The core has no piecewise-linear payout, but its ``PayoutStructure``
+    interface fits one ("their basis matrix holds hat functions"). This one
+    lives in the script, so the core stays read-only, and the core's problem
+    builder, solvers and KPIs take it like any payout structure.
+
+    On the severity ``s``, with knots ``c_0 < ... < c_{m-1}``, the basis
+    column of level ``k`` is the hat function of knot ``k``: 1 at ``c_k``,
+    linear down to 0 at the neighbouring knots and 0 beyond them; the last
+    column is 1 at and beyond ``c_{m-1}``, and every column is 0 below
+    ``c_0``. So ``basis @ y`` is 0 below ``c_0``, ``y_0`` at ``c_0``, the
+    linear interpolation of the points ``(c_k, y_k)`` on ``[c_0, c_{m-1}]``
+    and ``y_{m-1}`` beyond: ADR 0005 §3's payout, linear in the levels. The
+    constraints are the core step payout's: the levels are non-negative,
+    non-decreasing (``monotone=True``) and capped at the asset's largest loss.
+
+    Attributes
+    ----------
+    knots : tuple of float
+        ``c_0 < ... < c_{m-1}`` on the severity, ``m >= 2``.
+    """
+
+    name: ClassVar[str] = "piecewise_linear"
+
+    knots: tuple[float, ...]
+
+    def __post_init__(self) -> None:
+        """Check that there are two knots at least, strictly increasing."""
+        c = np.asarray(self.knots, dtype=np.float64)
+        if c.size < 2 or not np.all(np.isfinite(c)) or np.any(np.diff(c) <= 0):
+            raise ValueError(f"invalid knots {self.knots!r}")
+
+    @property
+    def n_params(self) -> int:
+        """Number of levels: one per knot."""
+        return len(self.knots)
+
+    def parameter_bounds(self) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        """Return the severities each level acts on: its hat's support."""
+        c = np.asarray(self.knots, dtype=np.float64)
+        lower = np.concatenate([c[:1], c[:-1]])
+        upper = np.concatenate([c[1:], [np.inf]])
+        return lower, upper
+
+    def basis_matrix(self, index: ArrayLike) -> NDArray[np.float64]:
+        """Return the hat functions of the knots at each severity, ``(n, m)``."""
+        s = _severity_array(index, 1)
+        c = np.asarray(self.knots, dtype=np.float64)
+        m = c.size
+        basis = np.zeros((s.size, m), dtype=np.float64)
+        k = np.searchsorted(c, s, side="right") - 1
+        rows = np.flatnonzero((k >= 0) & (k < m - 1))
+        segment = k[rows]
+        weight = (s[rows] - c[segment]) / (c[segment + 1] - c[segment])
+        basis[rows, segment] = 1.0 - weight
+        basis[rows, segment + 1] = weight
+        basis[k == m - 1, m - 1] = 1.0
+        return basis
+
+    def constraints(
+        self, theta: cp.Variable, cap: NDArray[np.float64]
+    ) -> tuple[cp.Constraint, ...]:
+        """Non-negative, non-decreasing and capped levels."""
+        return _amount_constraints(theta, cap, self.n_params)
+
+    def evaluate(self, index: ArrayLike, theta: ArrayLike) -> NDArray[np.float64]:
+        """Payout per row and entity, ``(n_rows, n_entities)``."""
+        return _evaluate_columns(self, index, theta)
+
+
+@dataclass(frozen=True)
+class LinearStructure(PayoutStructure):
+    """ADR 0005 §3's ``LinearPayout`` with fixed thresholds, for the core.
+
+    One amount, the limit ``l``: on the severity ``s`` the payout is ``l *
+    clip((s - a) / (e - a), 0, 1)``, so the one basis column is the clipped
+    share. The core has no linear payout; the script designs a linear cover
+    in closed form (:func:`exact_one_amount_optimum`), and the core, given
+    this structure, must agree.
+
+    Attributes
+    ----------
+    attachment, exhaustion : float
+        ``a < e`` on the severity.
+    """
+
+    name: ClassVar[str] = "linear"
+
+    attachment: float
+    exhaustion: float
+
+    def __post_init__(self) -> None:
+        """Check ``attachment < exhaustion``, both finite."""
+        if not (
+            math.isfinite(self.attachment)
+            and math.isfinite(self.exhaustion)
+            and self.attachment < self.exhaustion
+        ):
+            raise ValueError(f"invalid thresholds {self.attachment}, {self.exhaustion}")
+
+    @property
+    def n_params(self) -> int:
+        """One amount, the limit."""
+        return 1
+
+    def parameter_bounds(self) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        """Return the severities the limit acts on: from the attachment up."""
+        return np.array([self.attachment]), np.array([np.inf])
+
+    def basis_matrix(self, index: ArrayLike) -> NDArray[np.float64]:
+        """Return the clipped share ``clip((s - a) / (e - a), 0, 1)``, ``(n, 1)``."""
+        s = _severity_array(index, 1)
+        share = (s - self.attachment) / (self.exhaustion - self.attachment)
+        return np.clip(share, 0.0, 1.0)[:, None] + 0.0
+
+    def constraints(
+        self, theta: cp.Variable, cap: NDArray[np.float64]
+    ) -> tuple[cp.Constraint, ...]:
+        """Return the constraints: a non-negative, capped limit."""
+        return _amount_constraints(theta, cap, self.n_params)
+
+    def evaluate(self, index: ArrayLike, theta: ArrayLike) -> NDArray[np.float64]:
+        """Payout per row and entity, ``(n_rows, n_entities)``."""
+        return _evaluate_columns(self, index, theta)
+
+
+def piecewise_linear_values(
+    severity: NDArray[np.float64],
+    knots: Sequence[float],
+    levels: NDArray[np.float64],
+) -> NDArray[np.float64]:
+    """Return a piecewise-linear payout by ADR 0005 §3's formula, on the severity.
+
+    0 below the first knot; the linear interpolation of the points
+    ``(c_k, y_k)``; the last level at and beyond the last knot. Computed
+    with ``numpy.interp``, independently of :class:`PiecewiseLinearStructure`.
+    """
+    c = np.asarray(knots, dtype=np.float64)
+    return np.where(severity < c[0], 0.0, np.interp(severity, c, levels)) + 0.0
+
+
+def linear_values(
+    severity: NDArray[np.float64], attachment: float, exhaustion: float, limit: float
+) -> NDArray[np.float64]:
+    """Return a linear payout by ADR 0005 §3's formula, on the severity."""
+    share = (severity - attachment) / (exhaustion - attachment)
+    return limit * np.clip(share, 0.0, 1.0) + 0.0
 
 
 def _tolerances() -> dict[str, float]:
@@ -1658,15 +1947,25 @@ def _objective_value(
     raise TypeError(f"no objective formula for {objective!r}")
 
 
-def _identified(data: Dataset) -> NDArray[np.bool_]:
-    """Whether each (asset, level) has a design draw in its bin, ``(m, n_bins)``."""
-    breakpoints = data.edges[:-1]
-    n_bins = len(breakpoints)
-    out_mask = np.zeros((len(data.asset_ids), n_bins), dtype=np.bool_)
-    for j in range(len(data.asset_ids)):
-        k = step_bins(data.severity[:, j], breakpoints)
-        out_mask[j, np.unique(k[k >= 0])] = True
-    return out_mask
+BasisFunction = Callable[[NDArray[np.float64]], NDArray[np.float64]]
+"""The module's basis of a payout family (ADR 0005 §3, ``LinearInAmounts``):
+severities ``(n,)`` -> ``(n, n_amounts)``, the payout being ``basis @ amounts``
+(:func:`module_basis`)."""
+
+
+def _identified(data: Dataset, basis: BasisFunction) -> NDArray[np.bool_]:
+    """Whether each (asset, amount) has a non-zero basis value at a design draw.
+
+    ADR 0005 §5.4: an amount whose basis column is zero in every design year
+    (a step bin or a piecewise-linear segment that no year reaches) is
+    unidentified. Shape ``(n_assets, n_amounts)``.
+    """
+    return np.vstack(
+        [
+            np.any(basis(data.severity[:, j]) != 0.0, axis=0)
+            for j in range(len(data.asset_ids))
+        ]
+    )
 
 
 @dataclass(frozen=True)
@@ -1742,21 +2041,21 @@ def _lp_ranges(
     return _Ranges(low=low, high=high, narrow=narrow_high - narrow_low)
 
 
-def _mse_unique(data: Dataset, identified: NDArray[np.bool_]) -> bool:
+def _mse_unique(
+    data: Dataset, identified: NDArray[np.bool_], basis: BasisFunction
+) -> bool:
     """Apply ADR 0005 §5.4's MSE rule: H = B' diag(p) B positive definite.
 
-    H is taken over the identified amounts only.
+    H is taken over the identified amounts only, the columns of every asset
+    side by side (a joint design's payout is the sum over the assets).
     """
-    breakpoints = data.edges[:-1]
-    n_bins = len(breakpoints)
-    columns = []
-    for j in range(len(data.asset_ids)):
-        k = step_bins(data.severity[:, j], breakpoints)
-        for b in range(n_bins):
-            if identified[j, b]:
-                columns.append((k == b).astype(np.float64))
-    basis = np.column_stack(columns)
-    hessian = basis.T @ basis / data.n
+    columns = np.column_stack(
+        [
+            basis(data.severity[:, j])[:, identified[j]]
+            for j in range(len(data.asset_ids))
+        ]
+    )
+    hessian = columns.T @ columns / data.n
     eigen = np.linalg.eigvalsh(hessian)
     return bool(eigen.min() > MSE_EIGEN_RTOL * eigen.max())
 
@@ -1807,12 +2106,15 @@ def _rel_close(a: float, b: float, rtol: float) -> bool:
 def amount_names(family: str, n_levels: int) -> tuple[str, ...]:
     """Return the flat names of a design template's amounts (ADR 0005 §3).
 
-    ``levels[0]`` ... for a step payout, ``amount`` for a binary one.
+    ``levels[0]`` ... for a step or piecewise-linear payout, ``amount`` for
+    a binary one, ``limit`` for a linear one.
     """
-    if family == F.payout_step:
+    if family in (F.payout_step, F.payout_piecewise_linear):
         return tuple(level_name(k) for k in range(n_levels))
     if family == F.payout_binary and n_levels == 1:
         return (F.amount_param,)
+    if family == F.payout_linear and n_levels == 1:
+        return (F.limit_param,)
     raise ValueError(f"no amounts for {family!r} with {n_levels} levels")
 
 
@@ -1904,6 +2206,571 @@ def binary_optimum(
     return BinaryOptimum(amount=amount, objective_value=value, amount_bound=bound)
 
 
+def exact_objective(
+    objective: Objective, loss: Sequence[Fraction], payout: Sequence[Fraction]
+) -> Fraction:
+    """Return ADR 0005 §5.1's objective over equally likely draws, exact."""
+    n = len(loss)
+    zero = Fraction(0)
+    if isinstance(objective, pid.MSE):
+        return (
+            sum(((lo - pi) ** 2 for lo, pi in zip(loss, payout, strict=True)), zero) / n
+        )
+    uncovered = [max(lo - pi, zero) for lo, pi in zip(loss, payout, strict=True)]
+    expected = sum(uncovered, zero) / n
+    if isinstance(objective, pid.ExpectedUncovered):
+        return expected
+    if isinstance(objective, pid.WeightedCVaR):
+        alpha, beta = _fraction(objective.alpha), _fraction(objective.beta)
+        return alpha * _exact_cvar(uncovered, beta) + (1 - alpha) * expected
+    raise TypeError(f"no objective formula for {objective!r}")
+
+
+@dataclass(frozen=True)
+class ExactOneAmountOptimum:
+    """The exact optimum of a design with one amount (a linear cover's limit).
+
+    Attributes
+    ----------
+    amount : fractions.Fraction
+        An optimal amount; 0 if it is unidentified.
+    objective_value : fractions.Fraction
+        The objective there.
+    amount_bound : fractions.Fraction
+        ``A_max``, the largest feasible amount.
+    identified : bool
+        Whether a draw has a non-zero basis value.
+    unique : bool
+        Whether the optimal amount is unique (vacuously, if unidentified).
+    """
+
+    amount: Fraction
+    objective_value: Fraction
+    amount_bound: Fraction
+    identified: bool
+    unique: bool
+
+
+def exact_one_amount_optimum(
+    objective: Objective,
+    coc: tuple[Fraction, Fraction] | None,
+    loss: Sequence[Fraction],
+    basis: Sequence[Fraction],
+    cap: Fraction,
+) -> ExactOneAmountOptimum:
+    """Solve a design with one amount ``A`` in closed form, exactly.
+
+    The payout of draw ``d`` is ``A b_d``, with a basis value ``b_d`` in
+    ``[0, 1]`` (a linear cover: the clipped share of the severity between
+    attachment and exhaustion; a binary cover: 0 or 1), over equally likely
+    draws, with ``0 <= A <= cap`` and the budget ``P <= 0.8 E[L]``. The
+    premium is ``P = c A``, with ``c = E[b]`` (pure) or ``c = (1 - r) E[b] +
+    r CVaR_q(b)`` (cost of capital ``coc = (r, q)``; CVaR is positively
+    homogeneous). So ``A`` ranges over ``[0, A_max]``, ``A_max = min(cap,
+    budget / c)``.
+
+    * E[U] and weighted CVaR do not increase in ``A`` (no draw's uncovered
+      loss does), so ``A_max`` is optimal. It is the only optimum when E[U]
+      strictly falls just below ``A_max``: when a draw with ``b_d > 0`` has
+      ``L_d >= A_max b_d``. Otherwise no uncovered loss changes near
+      ``A_max`` and the optimum is not unique.
+    * MSE is the quadratic ``E[(L - A b)^2]``, smallest at ``E[bL] /
+      E[b^2]``; clipped to ``[0, A_max]``, and unique.
+
+    The binary designs of :func:`binary_optimum` are the case ``b_d`` in
+    ``{0, 1}``, in floating point.
+
+    Parameters
+    ----------
+    objective : Objective
+        The core's ``MSE``, ``ExpectedUncovered`` or ``WeightedCVaR``.
+    coc : tuple of Fraction, optional
+        ``(rate, q)`` of the cost-of-capital load; None for the pure premium.
+    loss, basis : sequence of Fraction
+        Loss and basis value per draw.
+    cap : Fraction
+        The amount's upper bound.
+
+    Returns
+    -------
+    ExactOneAmountOptimum
+    """
+    n = len(loss)
+    zero = Fraction(0)
+    mean_basis = sum(basis, zero) / n
+    if coc is None:
+        unit_premium = mean_basis
+    else:
+        rate, q = coc
+        unit_premium = (1 - rate) * mean_basis + rate * _exact_cvar(basis, q)
+    budget = _fraction(BUDGET_RATIO) * sum(loss, zero) / n
+    bound = cap if unit_premium == 0 else min(cap, budget / unit_premium)
+    identified = any(b != 0 for b in basis)
+    if not identified:
+        amount, unique = zero, True
+    elif isinstance(objective, pid.MSE):
+        squares = sum((b * b for b in basis), zero)
+        fit = sum((b * lo for b, lo in zip(basis, loss, strict=True)), zero) / squares
+        amount, unique = min(max(fit, zero), bound), True
+    elif isinstance(objective, pid.ExpectedUncovered | pid.WeightedCVaR):
+        amount = bound
+        unique = any(
+            b > 0 and lo >= bound * b for b, lo in zip(basis, loss, strict=True)
+        )
+    else:
+        raise TypeError(f"no closed form for the objective {objective!r}")
+    value = exact_objective(objective, loss, [amount * b for b in basis])
+    return ExactOneAmountOptimum(
+        amount=amount,
+        objective_value=value,
+        amount_bound=bound,
+        identified=identified,
+        unique=unique,
+    )
+
+
+def exact_piecewise_linear_basis(
+    severity: Fraction, knots: Sequence[Fraction]
+) -> list[Fraction]:
+    """Return the hat functions of the knots at one severity, exact (§3)."""
+    m = len(knots)
+    basis = [Fraction(0)] * m
+    if severity < knots[0]:
+        return basis
+    if severity >= knots[-1]:
+        basis[-1] = Fraction(1)
+        return basis
+    k = max(i for i in range(m - 1) if knots[i] <= severity)
+    weight = (severity - knots[k]) / (knots[k + 1] - knots[k])
+    basis[k] = 1 - weight
+    basis[k + 1] = weight
+    return basis
+
+
+def _solve_exact(
+    matrix: Sequence[Sequence[Fraction]], rhs: Sequence[Fraction]
+) -> list[Fraction] | None:
+    """Solve a square linear system in rationals; None if it is singular."""
+    n = len(rhs)
+    rows = [[*row, value] for row, value in zip(matrix, rhs, strict=True)]
+    for col in range(n):
+        pivot = next((r for r in range(col, n) if rows[r][col] != 0), None)
+        if pivot is None:
+            return None
+        rows[col], rows[pivot] = rows[pivot], rows[col]
+        for r in range(n):
+            if r != col and rows[r][col] != 0:
+                factor = rows[r][col] / rows[col][col]
+                rows[r] = [
+                    a - factor * b for a, b in zip(rows[r], rows[col], strict=True)
+                ]
+    return [rows[i][n] / rows[i][i] for i in range(n)]
+
+
+def exact_mse_optimum(
+    loss: Sequence[Fraction],
+    basis: Sequence[Sequence[Fraction]],
+    cap: Fraction,
+    budget: Fraction,
+) -> tuple[list[Fraction], Fraction]:
+    """Minimise ``E[(L - B y)^2]`` under the pure premium, exactly, by its KKT points.
+
+    A standalone check of the core's MSE route for an individual design:
+    rational arithmetic, no solver. The amounts ``y`` are those of the
+    identified columns of ``B``, in order, with ``y_first >= 0``, ``y_k <=
+    y_{k+1}``, ``y_last <= cap`` and the pure premium ``E[B y] <= budget``
+    (an unidentified amount fits between its neighbours and changes
+    nothing). The problem is convex, so a point that meets every constraint
+    and the KKT conditions with non-negative multipliers for some set of
+    active constraints is a minimum. Every set of at most ``len(y)``
+    constraints is tried as the active set. With ``E[B'B]`` positive
+    definite on the identified amounts, the minimum is one point.
+
+    Parameters
+    ----------
+    loss : sequence of Fraction
+        Loss per draw (equally likely draws).
+    basis : sequence of sequence of Fraction
+        Basis row per draw, ``(n, n_amounts)``.
+    cap : Fraction
+        The amounts' upper bound.
+    budget : Fraction
+        The premium's bound, ``0.8 E[L]``.
+
+    Returns
+    -------
+    list of Fraction, Fraction
+        The minimiser, with the unidentified amounts by the fill rule
+        ``"lowest"`` (:func:`_fill_lowest`), and the minimum.
+
+    Raises
+    ------
+    ArithmeticError
+        If no KKT point, or more than one, is found.
+    """
+    n = len(loss)
+    zero = Fraction(0)
+    n_amounts = len(basis[0])
+    ids = [k for k in range(n_amounts) if any(row[k] != 0 for row in basis)]
+    m = len(ids)
+    cols = [[row[k] for k in ids] for row in basis]
+    hessian = [
+        [sum((r[i] * r[j] for r in cols), zero) / n for j in range(m)] for i in range(m)
+    ]
+    linear = [
+        sum((r[i] * lo for r, lo in zip(cols, loss, strict=True)), zero) / n
+        for i in range(m)
+    ]
+    unit = [[Fraction(int(i == j)) for j in range(m)] for i in range(m)]
+    g_rows = [[-x for x in unit[0]]]
+    h_rows = [zero]
+    for i in range(m - 1):
+        g_rows.append([a - b for a, b in zip(unit[i], unit[i + 1], strict=True)])
+        h_rows.append(zero)
+    g_rows.append(unit[m - 1])
+    h_rows.append(cap)
+    g_rows.append([sum((r[i] for r in cols), zero) / n for i in range(m)])
+    h_rows.append(budget)
+    points: set[tuple[Fraction, ...]] = set()
+    for size in range(m + 1):
+        for active in itertools.combinations(range(len(g_rows)), size):
+            dim = m + size
+            matrix = [[zero] * dim for _ in range(dim)]
+            rhs = [zero] * dim
+            for i in range(m):
+                for j in range(m):
+                    matrix[i][j] = 2 * hessian[i][j]
+                for s, row in enumerate(active):
+                    matrix[i][m + s] = g_rows[row][i]
+                rhs[i] = 2 * linear[i]
+            for s, row in enumerate(active):
+                matrix[m + s][:m] = g_rows[row]
+                rhs[m + s] = h_rows[row]
+            solution = _solve_exact(matrix, rhs)
+            if solution is None:
+                continue
+            y, multipliers = solution[:m], solution[m:]
+            if any(mu < 0 for mu in multipliers):
+                continue
+            if any(
+                sum((g * v for g, v in zip(row, y, strict=True)), zero) > bound
+                for row, bound in zip(g_rows, h_rows, strict=True)
+            ):
+                continue
+            points.add(tuple(y))
+    if len(points) != 1:
+        raise ArithmeticError(f"{len(points)} KKT points; expected one")
+    (point,) = points
+    full: list[Fraction] = []
+    previous, it = zero, iter(point)
+    for k in range(n_amounts):
+        previous = next(it) if k in ids else previous
+        full.append(previous)
+    payout = [
+        sum((b * y for b, y in zip(row, full, strict=True)), zero) for row in basis
+    ]
+    value = sum(((lo - pi) ** 2 for lo, pi in zip(loss, payout, strict=True)), zero)
+    return full, value / n
+
+
+STANDALONE_LP_OPTIONS: Final[Mapping[str, float]] = {
+    "primal_feasibility_tolerance": 1e-10,
+    "dual_feasibility_tolerance": 1e-10,
+}
+"""Options of scipy's HiGHS in :func:`standalone_lp_optimum` (defaults 1e-7)."""
+
+
+def standalone_lp_optimum(
+    objective: Objective,
+    pricing: Pricing,
+    loss: NDArray[np.float64],
+    basis: NDArray[np.float64],
+    cap: float,
+) -> tuple[float, NDArray[np.float64]]:
+    """Solve an individual design LP from ADR 0005 §5.1 and §5.2 directly.
+
+    A standalone check of the core's LP route: the LP is assembled here in
+    plain numpy and solved with scipy's HiGHS (``scipy.optimize.linprog``),
+    with neither cvxpy nor any core code. Equally likely draws; losses and
+    payouts divided by the scale (the largest loss), as the core does.
+    Variables: the amounts ``y`` (``0 <= y <= cap``, non-decreasing) and the
+    uncovered losses ``u >= L - B y``, ``u >= 0``; for weighted CVaR the
+    Rockafellar-Uryasev auxiliaries ``zeta`` and ``t >= u - zeta``, ``t >=
+    0``; for the cost-of-capital load ``eta`` and ``w >= B y - eta``, ``w >=
+    0``. Objective ``E[u]`` or ``alpha (zeta + E[t] / (1 - beta)) + (1 -
+    alpha) E[u]``; budget ``(1 - r) E[B y] + r (eta + E[w] / (1 - q)) <= 0.8
+    E[L]`` (``r = 0`` for the pure premium).
+
+    Parameters
+    ----------
+    objective : Objective
+        The core's ``ExpectedUncovered`` or ``WeightedCVaR``.
+    pricing : Pricing
+        The core's ``PurePremium`` or ``CostOfCapitalLoad``.
+    loss : numpy.ndarray
+        Loss per draw, ``(n,)``.
+    basis : numpy.ndarray
+        Basis row per draw, ``(n, n_amounts)``.
+    cap : float
+        The amounts' upper bound, loss units.
+
+    Returns
+    -------
+    float, numpy.ndarray
+        The optimum and HiGHS's amounts (a vertex), loss units.
+
+    Raises
+    ------
+    RuntimeError
+        If HiGHS does not solve the LP to optimality.
+    """
+    n, m = basis.shape
+    largest = float(loss.max(initial=0.0))
+    scale = largest if largest > 1e-6 else 1.0
+    lo = loss / scale
+    p = np.full(n, 1.0 / n)
+    wcvar = isinstance(objective, pid.WeightedCVaR)
+    coc = isinstance(pricing, pid.CostOfCapitalLoad)
+    if not isinstance(objective, pid.ExpectedUncovered | pid.WeightedCVaR):
+        raise TypeError(f"no standalone LP for the objective {objective!r}")
+    if not (coc or isinstance(pricing, pid.PurePremium)):
+        raise TypeError(f"no standalone LP for the pricing {pricing!r}")
+    sizes = [("y", m), ("u", n)]
+    sizes += [("zeta", 1), ("t", n)] if wcvar else []
+    sizes += [("eta", 1), ("w", n)] if coc else []
+    at: dict[str, slice] = {}
+    total = 0
+    for name, size in sizes:
+        at[name] = slice(total, total + size)
+        total += size
+    bounds: list[tuple[float | None, float | None]] = []
+    for name, size in sizes:
+        bound = {
+            "y": (0.0, cap / scale),
+            "u": (0.0, None),
+            "t": (0.0, None),
+            "w": (0.0, None),
+        }.get(name, (None, None))
+        bounds += [bound] * size
+    cost = np.zeros(total)
+    if wcvar:
+        alpha, beta = objective.alpha, objective.beta
+        cost[at["u"]] = (1.0 - alpha) * p
+        cost[at["zeta"]] = alpha
+        cost[at["t"]] = alpha * p / (1.0 - beta)
+    else:
+        cost[at["u"]] = p
+    blocks: list[NDArray[np.float64]] = []
+    rhs: list[NDArray[np.float64]] = []
+    block = np.zeros((n, total))
+    block[:, at["y"]] = -basis
+    block[:, at["u"]] = -np.eye(n)
+    blocks.append(block)
+    rhs.append(-lo)
+    if wcvar:
+        block = np.zeros((n, total))
+        block[:, at["u"]] = np.eye(n)
+        block[:, at["zeta"]] = -1.0
+        block[:, at["t"]] = -np.eye(n)
+        blocks.append(block)
+        rhs.append(np.zeros(n))
+    if coc:
+        block = np.zeros((n, total))
+        block[:, at["y"]] = basis
+        block[:, at["eta"]] = -1.0
+        block[:, at["w"]] = -np.eye(n)
+        blocks.append(block)
+        rhs.append(np.zeros(n))
+    if m > 1:
+        block = np.zeros((m - 1, total))
+        rows = np.arange(m - 1)
+        block[rows, at["y"].start + rows] = 1.0
+        block[rows, at["y"].start + rows + 1] = -1.0
+        blocks.append(block)
+        rhs.append(np.zeros(m - 1))
+    budget = np.zeros((1, total))
+    if coc:
+        rate, q = pricing.rate, pricing.q
+        budget[0, at["y"]] = (1.0 - rate) * (p @ basis)
+        budget[0, at["eta"]] = rate
+        budget[0, at["w"]] = rate * p / (1.0 - q)
+    else:
+        budget[0, at["y"]] = p @ basis
+    blocks.append(budget)
+    rhs.append(np.array([BUDGET_RATIO * float(p @ lo)]))
+    result = linprog(
+        cost,
+        A_ub=np.vstack(blocks),
+        b_ub=np.concatenate(rhs),
+        bounds=bounds,
+        method="highs",
+        options=dict(STANDALONE_LP_OPTIONS),
+    )
+    if result.status != 0:
+        raise RuntimeError(f"standalone LP: {result.message}")
+    return float(result.fun) * scale, np.asarray(result.x[at["y"]]) * scale
+
+
+ValuesFunction = Callable[
+    [NDArray[np.float64], NDArray[np.float64]], NDArray[np.float64]
+]
+"""A payout family's values by ADR 0005 §3's formula: (severities ``(n,)``,
+amounts ``(n_amounts,)``) -> payout per draw ``(n,)``."""
+
+
+def design_family(
+    data: Dataset, family: str, shape: Sequence[float]
+) -> tuple[PayoutStructure, ValuesFunction, int]:
+    """Return the core's payout structure of a design family, its values, its size.
+
+    * Step and binary payouts: the core's ``StepPayout`` on ``data.edges``
+      (a binary cover is the one-bin step from its trigger,
+      :func:`binary_edges`); ``shape`` must be empty.
+    * Piecewise-linear payouts: :class:`PiecewiseLinearStructure` on the
+      knots ``shape``.
+    * Linear payouts: :class:`LinearStructure` on ``shape = (attachment,
+      exhaustion)``.
+
+    ``shape`` is in index units, in order of increasing severity; the core
+    works on the severities. The values are ADR 0005 §3's formulas, computed
+    independently of the structure (:func:`step_values`,
+    :func:`piecewise_linear_values`, :func:`linear_values`).
+
+    Returns
+    -------
+    PayoutStructure, callable, int
+        The structure, the values ``(severity, amounts) -> payout``, and the
+        number of amounts.
+    """
+    if family in (F.payout_step, F.payout_binary):
+        if shape:
+            raise ValueError("a step or binary design's thresholds are data.edges")
+        breakpoints = data.edges[:-1]
+
+        def steps(
+            s: NDArray[np.float64], y: NDArray[np.float64]
+        ) -> NDArray[np.float64]:
+            return step_values(s, breakpoints, y)
+
+        return step_payout(data), steps, len(breakpoints)
+    severities = tuple(data.sign * float(t) + 0.0 for t in shape)
+    if family == F.payout_piecewise_linear:
+        knots = severities
+
+        def pieces(
+            s: NDArray[np.float64], y: NDArray[np.float64]
+        ) -> NDArray[np.float64]:
+            return piecewise_linear_values(s, knots, y)
+
+        return PiecewiseLinearStructure(knots=knots), pieces, len(knots)
+    if family == F.payout_linear and len(severities) == 2:
+        a, e = severities
+
+        def share(
+            s: NDArray[np.float64], y: NDArray[np.float64]
+        ) -> NDArray[np.float64]:
+            return linear_values(s, a, e, float(y[0]))
+
+        return LinearStructure(attachment=a, exhaustion=e), share, 1
+    raise ValueError(f"the core designs no {family!r} payout with shape {shape!r}")
+
+
+def module_basis(values: ValuesFunction, n_amounts: int) -> BasisFunction:
+    """Return a family's basis from its values: the payout of each unit amount.
+
+    The payout is linear in the amounts (ADR 0005 §3, ``LinearInAmounts``),
+    so column ``k`` of the basis is the payout with amount ``k`` at 1 and the
+    others at 0. For a step payout it is the one-hot bin membership.
+    """
+
+    def basis(severity: NDArray[np.float64]) -> NDArray[np.float64]:
+        unit = np.eye(n_amounts)
+        return np.column_stack([values(severity, unit[k]) for k in range(n_amounts)])
+
+    return basis
+
+
+def _check_piecewise_linear_standalone(
+    where: str,
+    objective: Objective,
+    pricing: Pricing,
+    data: Dataset,
+    knots: Sequence[float],
+    found: tuple[float, NDArray[np.float64], bool],
+    identified: NDArray[np.bool_],
+) -> None:
+    """Check a piecewise-linear design of the core route standalone.
+
+    LPs (E[U], weighted CVaR): :func:`standalone_lp_optimum`, scipy's HiGHS
+    on an LP assembled here. MSE under the pure premium:
+    :func:`exact_mse_optimum`, rational arithmetic. The optimum must agree
+    with the core's within :data:`WRITTEN_RTOL`; at a unique optimum, every
+    identified level within :data:`UNIQUE_WIDTH` of the scale.
+
+    Parameters
+    ----------
+    where : str
+        The case, for messages.
+    objective, pricing : Objective, Pricing
+        The core's components.
+    data : Dataset
+        The design sample, one asset.
+    knots : sequence of float
+        The knots on the severity.
+    found : tuple
+        The core's objective value, levels ``(n_levels,)`` and ``unique``.
+    identified : numpy.ndarray of bool
+        Which levels are identified, ``(n_levels,)``.
+
+    Raises
+    ------
+    AssertionError
+        If the standalone optimum differs from the core's.
+    TypeError
+        If there is no standalone check for the objective and pricing (MSE
+        with the cost-of-capital load).
+    """
+    value, levels, unique = found
+    loss = data.loss[:, 0]
+    scale = max(1.0, float(loss.max()))
+    cap = float(loss.max())
+    if isinstance(objective, pid.MSE):
+        if not isinstance(pricing, pid.PurePremium):
+            raise TypeError("the standalone MSE check needs the pure premium")
+        exact_loss = [_fraction(float(v)) for v in loss]
+        exact_knots = [_fraction(c) for c in knots]
+        basis_rows = [
+            exact_piecewise_linear_basis(_fraction(float(s)), exact_knots)
+            for s in data.severity[:, 0]
+        ]
+        budget = _fraction(BUDGET_RATIO) * sum(exact_loss, Fraction(0)) / len(loss)
+        exact_levels, exact_value = exact_mse_optimum(
+            exact_loss, basis_rows, max(exact_loss), budget
+        )
+        other_value = float(exact_value)
+        other_levels = np.asarray([float(v) for v in exact_levels])
+        floor = scale**2
+    else:
+        # The basis of ADR 0005 §3's formula (numpy.interp of unit levels),
+        # not the core route's PiecewiseLinearStructure.
+        basis = module_basis(
+            lambda s, y: piecewise_linear_values(s, knots, y), len(knots)
+        )
+        other_value, other_levels = standalone_lp_optimum(
+            objective, pricing, loss, basis(data.severity[:, 0]), cap
+        )
+        floor = scale
+    if not math.isclose(
+        value, other_value, rel_tol=WRITTEN_RTOL, abs_tol=ZERO_AMOUNT * floor
+    ):
+        raise AssertionError(
+            f"{where}: the core route's optimum {value!r}, standalone {other_value!r}"
+        )
+    gap = np.abs(levels - other_levels)[identified]
+    if unique and np.any(gap > UNIQUE_WIDTH * scale):
+        raise AssertionError(f"{where}: unique, but the standalone levels differ")
+
+
 def design_case(
     data: Dataset,
     scope_name: str,
@@ -1914,8 +2781,9 @@ def design_case(
     *,
     split: SplitSpec | None = None,
     family: str = F.payout_step,
+    shape: Sequence[float] = (),
 ) -> GeneratedCase:
-    """Build one design case: the core designs a step or binary cover on ``data``.
+    """Build one design case: the core designs a cover on ``data``.
 
     Parameters
     ----------
@@ -1942,9 +2810,20 @@ def design_case(
         the same asset. Either way with the design premium. Default: design
         and evaluate on every draw.
     family : str, default "step"
-        The template's payout family: :attr:`_Fields.payout_step`, or
-        :attr:`_Fields.payout_binary`, a fixed trigger and a free amount,
-        which the core designs as its one-bin step from the trigger.
+        The template's payout family (:func:`design_family`):
+        :attr:`_Fields.payout_step`; :attr:`_Fields.payout_binary`, a fixed
+        trigger and a free amount, which the core designs as its one-bin
+        step from the trigger; :attr:`_Fields.payout_piecewise_linear`, fixed
+        knots and free levels, which the core designs with the script-side
+        :class:`PiecewiseLinearStructure`, checked standalone
+        (:func:`_check_piecewise_linear_standalone`); or
+        :attr:`_Fields.payout_linear`, fixed thresholds and a free limit
+        (:class:`LinearStructure`; the check of the closed form of
+        :func:`linear_grid_case`, whose document is not written).
+    shape : sequence of float, optional
+        The fixed thresholds of a piecewise-linear payout (its knots) or a
+        linear one (attachment, exhaustion), in index units, in order of
+        increasing severity. Empty for step and binary payouts.
 
     Returns
     -------
@@ -1958,10 +2837,11 @@ def design_case(
     binary = family == F.payout_binary
     if binary and (joint or len(data.edges) != 2):
         raise ValueError("a binary design is individual, with one trigger")
-    if family not in (F.payout_step, F.payout_binary):
-        raise ValueError(f"the core designs no {family!r} payout")
+    if joint and family != F.payout_step:
+        raise ValueError(f"a {family!r} design is individual")
+    payout, values, n_amounts = design_family(data, family, shape)
+    basis = module_basis(values, n_amounts)
     eventset = core_eventset(data)
-    payout = step_payout(data)
     scope: Scope = pid.Portfolio() if joint else pid.Individual()
     constraints = (pid.Budget(BUDGET_RATIO),)
     train: Sample | None = None
@@ -2004,12 +2884,12 @@ def design_case(
 
     first = build()
     qp = is_qp(first.problem)
-    identified = _identified(design_data)
+    identified = _identified(design_data, basis)
     rows = (Sample.full(eventset) if train is None else train).select(eventset)
     for j in range(len(data.asset_ids)):
         core_columns = payout.basis_matrix(rows.index[:, j]).sum(axis=0) > 0
         if not np.array_equal(core_columns, identified[j]):
-            raise AssertionError("the core's bins and the module's bin rule differ")
+            raise AssertionError("the core's basis and the module's formula differ")
     split_token = "" if split is None else f"/{split.token[1:]}"
     where = (
         f"{data.name}/{family}/{scope_name}/{objective.token}/{pricing.token}"
@@ -2019,7 +2899,7 @@ def design_case(
     if qp:
         accurate = solve(first, settings.accurate)
         check = solve(build(), settings.qp_check)
-        unique = _mse_unique(design_data, identified)
+        unique = _mse_unique(design_data, identified, basis)
         chosen = accurate
     else:
         check = solve(first, settings.vertex)
@@ -2057,9 +2937,7 @@ def design_case(
     def payout_of(on: Dataset, levels: NDArray[np.float64]) -> NDArray[np.float64]:
         payout_draws = np.zeros(on.n)
         for j in range(len(on.asset_ids)):
-            payout_draws = payout_draws + step_values(
-                on.severity[:, j], on.edges[:-1], levels[j]
-            )
+            payout_draws = payout_draws + values(on.severity[:, j], levels[j])
         return payout_draws
 
     def in_sample(levels: NDArray[np.float64]) -> dict[str, Any]:
@@ -2147,6 +3025,19 @@ def design_case(
                 f"the closed form's {closed.objective_value!r}"
             )
         covers = [_binary_cover(data, 0, _free(caps[0]), data.sign * data.edges[0])]
+    elif family == F.payout_piecewise_linear:
+        _check_piecewise_linear_standalone(
+            where,
+            objective.core,
+            pricing.core,
+            design_data,
+            [data.sign * float(c) for c in shape],
+            (float(evaluation[F.objective_value]), theta[0], unique),
+            identified[0],
+        )
+        covers = [_piecewise_linear_cover(data, 0, shape, [_free(caps[0])] * n_amounts)]
+    elif family == F.payout_linear:
+        covers = [_linear_cover(data, 0, shape[0], shape[1], _free(caps[0]))]
     else:
         covers = [
             _step_cover(data, j, [_free(caps[j])] * theta.shape[1])
@@ -2286,14 +3177,7 @@ def grid_design_case(
     chosen = candidates[best]
     document = json.loads(json.dumps(chosen.document))
     trigger = float(grid[best])
-    payout = document[F.cover][F.payout]
-    payout[F.trigger] = {
-        F.free: {
-            F.grid: [float(t) for t in grid],
-            F.lower: float(min(grid)),
-            F.upper: float(max(grid)),
-        }
-    }
+    document[F.cover][F.payout][F.trigger] = _free_grid(grid)
     expected = document[F.expected]
     expected[F.parameters] = {**expected[F.parameters], F.trigger: trigger}
     expected[F.profile] = [
@@ -3095,6 +3979,199 @@ def closed_form_case(
     }
 
 
+def closed_form_pricing(token: str) -> PricingSpec:
+    """Return a closed-form case's pricing (:data:`CLOSED_FORM_PRICINGS`) as a spec."""
+    coc = CLOSED_FORM_PRICINGS[token]
+    if coc is None:
+        return PricingSpec(token, pid.PurePremium(), {F.kind_key: F.pricing_pure})
+    rate, q = float(coc[0]), float(coc[1])
+    return PricingSpec(
+        token,
+        pid.CostOfCapitalLoad(rate=rate, q=q),
+        {F.kind_key: F.pricing_cost_of_capital, F.rate: rate, F.q: q},
+    )
+
+
+def linear_grid_case(
+    sample: ClosedFormSample,
+    objective: ObjectiveSpec,
+    pricing_token: str,
+    commit: str,
+    settings: SolverSettings,
+    *,
+    attachments: Sequence[float],
+    exhaustions: Sequence[float],
+) -> GeneratedCase:
+    """Build a closed-form design case: a linear cover on the grid route.
+
+    ADR 0005 §5.3's grid route for a ``LinearPayout`` whose attachment and
+    exhaustion are ``Free`` on grids and whose limit, its one amount, is
+    ``Free(0, cap)``. The candidates are the Cartesian product of the two
+    grids, in lexicographic order (attachment, then exhaustion); every pair
+    must be ordered (``a < e`` on the severity). At each candidate the limit
+    is solved in closed form, in exact rational arithmetic
+    (:func:`exact_one_amount_optimum`), and the core, given the script-side
+    :class:`LinearStructure`, designs the same problem
+    (:func:`design_case`): its optimum must agree within :data:`WRITTEN_RTOL`
+    and its ``unique`` (ADR 0005 §5.4's tests) with the closed form's. The
+    best candidate wins; it must beat every other by :data:`GRID_MARGIN`,
+    relative, and its limit must be unique. The written values are exact:
+    the objective, premium and every metric of ADR 0005 §6 at the written
+    (rounded) limit, as in the closed-form evaluation cases.
+
+    Parameters
+    ----------
+    sample : ClosedFormSample
+        The draws of one asset.
+    objective : ObjectiveSpec
+        The objective.
+    pricing_token : {"pure", "coc"}
+        The pricing (:data:`CLOSED_FORM_PRICINGS`).
+    commit : str
+        The generator block's commit.
+    settings : SolverSettings
+        The solver policies of the core's check.
+    attachments, exhaustions : sequence of float
+        The grids, in index units, in order of increasing severity.
+
+    Returns
+    -------
+    GeneratedCase
+        The case document only: it is compared as written
+        (:func:`compare_documents`), being exact.
+    """
+    sign = 1 if sample.tail == "upper" else -1
+    coc = CLOSED_FORM_PRICINGS[pricing_token]
+    pricing = closed_form_pricing(pricing_token)
+    loss = [_fraction(v) for v in sample.loss]
+    severity = [sign * _fraction(v) for v in sample.index]
+    cap = max(loss)
+    scale = max(1.0, float(cap))
+    mse = isinstance(objective.core, pid.MSE)
+    floor = scale**2 if mse else scale
+    where = f"{sample.name}/linear-grid/{objective.token}/{pricing_token}"
+    rows: list[tuple[float, float, Fraction, Fraction, ExactOneAmountOptimum]] = []
+    for a, e in itertools.product(attachments, exhaustions):
+        lo, hi = sign * _fraction(a), sign * _fraction(e)
+        if not lo < hi:
+            raise ValueError(f"{where}: the candidate ({a}, {e}) is not ordered")
+        basis = [
+            min(max((s - lo) / (hi - lo), Fraction(0)), Fraction(1)) for s in severity
+        ]
+        closed = exact_one_amount_optimum(objective.core, coc, loss, basis, cap)
+        limit = _fraction(out(float(closed.amount)))
+        limit = Fraction(0) if limit <= _fraction(ZERO_AMOUNT) * cap else limit
+        payout = [limit * b for b in basis]
+        value = exact_objective(objective.core, loss, payout)
+        if not math.isclose(
+            float(value),
+            float(closed.objective_value),
+            rel_tol=WRITTEN_RTOL,
+            abs_tol=ZERO_AMOUNT * floor,
+        ):
+            raise AssertionError(
+                f"{where}: ({a}, {e}) the written limit is not optimal"
+            )
+        core = design_case(
+            handmade_dataset(sample, (a, e)),
+            F.scope_individual,
+            objective,
+            pricing,
+            commit,
+            settings,
+            family=F.payout_linear,
+            shape=(a, e),
+        )
+        found = core.document[F.expected]
+        if (
+            not math.isclose(
+                float(found[F.objective_value]),
+                float(closed.objective_value),
+                rel_tol=WRITTEN_RTOL,
+                abs_tol=ZERO_AMOUNT * floor,
+            )
+            or found[F.unique] != closed.unique
+        ):
+            raise AssertionError(
+                f"{where}: ({a}, {e}) the core finds {found[F.objective_value]!r} "
+                f"(unique {found[F.unique]}), the closed form "
+                f"{float(closed.objective_value)!r} (unique {closed.unique})"
+            )
+        rows.append((float(a), float(e), limit, value, closed))
+    values = [row[3] for row in rows]
+    best = min(range(len(rows)), key=values.__getitem__)
+    margin = _fraction(GRID_MARGIN) * max(
+        abs(values[best]), _fraction(ZERO_AMOUNT) * _fraction(floor)
+    )
+    if any(v - values[best] <= margin for i, v in enumerate(values) if i != best):
+        raise AssertionError(f"{where}: no candidate is best by a margin")
+    attachment, exhaustion, limit, value, closed = rows[best]
+    if not (closed.identified and closed.unique):
+        raise AssertionError(f"{where}: the best candidate's limit is not unique")
+    lo, hi = sign * _fraction(attachment), sign * _fraction(exhaustion)
+    basis = [min(max((s - lo) / (hi - lo), Fraction(0)), Fraction(1)) for s in severity]
+    payout = [limit * b for b in basis]
+    options = MetricOptions()
+    exact = _exact_metrics(loss, payout, coc, options)
+    premium = exact[metric("premium")]
+    budget = _fraction(BUDGET_RATIO) * sum(loss, Fraction(0)) / len(loss)
+    if premium > budget * (1 + _fraction(WRITTEN_RTOL)):
+        raise AssertionError(f"{where}: premium {float(premium)!r} above the budget")
+    payout_floats = np.asarray([float(v) for v in payout], dtype=np.float64)
+    _check_closed_form_with_core(
+        exact,
+        np.asarray(sample.loss, dtype=np.float64),
+        payout_floats,
+        float(premium),
+        options,
+    )
+    data = handmade_dataset(sample, (attachment, exhaustion))
+    document = {
+        F.case_id: (
+            f"{payout_token(F.payout_linear, sample.tail, grid=True)}-"
+            f"{objective.token}-{pricing_token}-{F.scope_individual}-{sample.name}"
+        ),
+        F.kind: F.kind_design,
+        F.source: F.source_closed_form,
+        F.sample: _sample_document(data),
+        F.split: None,
+        F.evaluation_sample: None,
+        F.cover: _linear_cover(
+            data, 0, _free_grid(attachments), _free_grid(exhaustions), _free(float(cap))
+        ),
+        F.objective: dict(objective.document),
+        F.pricing: dict(pricing.document),
+        F.budget: {F.ratio: BUDGET_RATIO},
+        F.limit: None,
+        F.scope: F.scope_individual,
+        F.expected: {
+            F.objective_value: out(float(value)),
+            F.premium: out(float(premium)),
+            F.parameters: {
+                F.attachment: attachment,
+                F.exhaustion: exhaustion,
+                F.limit_param: out(float(limit)),
+            },
+            F.unidentified: [],
+            F.unique: True,
+            F.metrics: {name: _write_exact(v) for name, v in exact.items()},
+            F.out_of_sample: None,
+            F.profile: [
+                {
+                    F.objective_value: out(float(v)),
+                    F.parameters: {F.attachment: a, F.exhaustion: e},
+                }
+                for a, e, _, v, _ in rows
+            ],
+        },
+        F.metric_options: options.document(),
+        F.compare_parameters: F.compare_exact,
+        F.tolerances: _tolerances(),
+        F.generator: _generator(commit),
+    }
+    return GeneratedCase(document)
+
+
 def closed_form_matrix(
     synthetic: Dataset, short: Dataset
 ) -> tuple[tuple[ClosedFormSample, ClosedFormCover], ...]:
@@ -3256,8 +4333,10 @@ def build_cases(
     ):
         for token in cover.pricings:
             cases.append(GeneratedCase(closed_form_case(sample, cover, token, commit)))
-    for objective, pricing in _specs_by_token(KFOLD_CASES):
-        for fold in range(KFOLD_K):
+    for (objective, pricing), (_, _, folds) in zip(
+        _specs_by_token((o, p) for o, p, _ in KFOLD_CASES), KFOLD_CASES, strict=True
+    ):
+        for fold in folds:
             split = SplitSpec(F.split_kfold, k=KFOLD_K, fold=fold)
             cases.append(
                 design_case(
@@ -3307,6 +4386,33 @@ def build_cases(
     for objective, pricing in _specs_by_token(LOWER_STEP_CASES):
         cases.append(
             design_case(lower, F.scope_individual, objective, pricing, commit, settings)
+        )
+    by_objective = {o.token: o for o in objectives()}
+    for objective_token, pricing_token in LINEAR_GRID_CASES:
+        cases.append(
+            linear_grid_case(
+                HANDMADE_SAMPLES["upper"],
+                by_objective[objective_token],
+                pricing_token,
+                commit,
+                settings,
+                attachments=LINEAR_GRID_ATTACHMENTS,
+                exhaustions=LINEAR_GRID_EXHAUSTIONS,
+            )
+        )
+    upper = handmade_dataset(HANDMADE_SAMPLES["upper"], PIECEWISE_LINEAR_KNOTS)
+    for objective, pricing in _specs_by_token(PIECEWISE_LINEAR_CASES):
+        cases.append(
+            design_case(
+                upper,
+                F.scope_individual,
+                objective,
+                pricing,
+                commit,
+                settings,
+                family=F.payout_piecewise_linear,
+                shape=PIECEWISE_LINEAR_KNOTS,
+            )
         )
     out_cases: dict[str, GeneratedCase] = {}
     for case in cases:
