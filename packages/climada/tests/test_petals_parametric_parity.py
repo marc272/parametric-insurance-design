@@ -16,7 +16,10 @@ problem must match the core's within :data:`RTOL` (relative):
 * on CLIMADA objects from the adapter's pipeline: the prototype's two index
   builders reproduce the adapter's ``CentroidWindIndex`` and
   ``CatInCircleIndex``, and a design from the hazard, exposures and impact
-  matches the core's design on the EventSet the pipeline wrote.
+  matches the core's design on the EventSet the pipeline wrote, with the
+  years given as arrays or read from the event names
+  (``event_year="event_name"``, MAR-260), also on a 10,000-year catalogue
+  whose last year no hazard date holds.
 
 Objective values are compared, not levels: individual designs with empty
 steps, and the per-unit split of joint designs, are not unique (an optimal
@@ -27,7 +30,9 @@ Core solver policies:
 * linear objectives: the core's default policy (Clarabel first), and on the
   thesis fixture also HiGHS (:data:`HIGHS_POLICY`), the prototype's solver,
   which must give the same optimum within :data:`RTOL_SAME_LP`: the two
-  build the same LP;
+  build the same LP. On the 10,000-year catalogue with seven storms, HiGHS
+  only: there the default policy stops up to ``2.5e-6`` (relative) above
+  the optimum that both reach with HiGHS;
 * mean squared error: the core's default policy with OSQP at ``1e-10``
   instead of ``1e-8`` (:data:`QP_POLICY`). At ``1e-8`` OSQP's solution of
   the thesis fixture's first-bin problem A3 violates the budget by about
@@ -70,6 +75,7 @@ from parametric_insurance_design_climada.pipeline import build_eventset
 from petals_parametric.payout import BelowAttachment
 
 from .conftest import N_YEARS
+from .test_hazard_years import _write_catalogue
 
 RTOL = 1e-6
 """Largest relative difference of an optimal objective value."""
@@ -420,9 +426,6 @@ def test_a_design_on_climada_objects_matches_the_core_on_the_eventset(
 ) -> None:
     es, batch = pipeline
     hazard = batch.hazard
-    # IRIS tracks all start on one date, so the simulation years and the
-    # frequency 1 / N come from the catalogue, not from the dates.
-    hazard.frequency = np.full(hazard.size, 1.0 / N_YEARS)
     impact = ImpactCalc(batch.exposures, batch.impact_functions, hazard).impact(
         save_mat=True
     )
@@ -442,3 +445,119 @@ def test_a_design_on_climada_objects_matches_the_core_on_the_eventset(
             assert problem.objective_value == pytest.approx(
                 result.objective_value, rel=RTOL, abs=1e-9
             )
+
+
+# --- simulation years from the event names (MAR-260) ----------------------------
+
+#: Storms ``(year, tc, latitude)`` of a 10,000-year catalogue, as Florida's:
+#: years 0 and 9,999 both hold storms, and no date holds year 9,999.
+STORMS_10000 = [
+    (0, 0, 25.75),
+    (1200, 0, 25.8),
+    (5000, 0, 25.85),
+    (6999, 0, 25.78),
+    (7000, 0, 25.76),
+    (9999, 0, 25.85),
+    (9999, 1, 26.0),
+]
+
+
+def _assert_designs_match(
+    es: EventSet,
+    index: pm.ParametricIndex,
+    impact: Impact,
+    setups: list[Setup],
+    years: NDArray[np.int64] | None = None,
+    policy: SolverPolicy | None = None,
+    rtol: float = RTOL,
+) -> None:
+    """The prototype's optimal values on ``index`` equal the core's on ``es``."""
+    sample = None
+    if years is not None:
+        rows = np.isin(es.events["year"].to_numpy(), years)
+        sample = Sample(name="train", rows=rows, years=years)
+    for setup in setups:
+        core = pid.design(
+            es,
+            **setup.core_args(),
+            sample=sample,
+            policy=setup.policy() if policy is None else policy,
+        )
+        cover = pm.calibrate(index, impact, **setup.prototype_args(), years=years)
+        # The problems are in location order; the exposures' labels are not
+        # the EventSet's location ids, so the ids differ.
+        for result, problem in zip(core, cover.problems, strict=True):
+            assert problem.objective_value == pytest.approx(
+                result.objective_value, rel=rtol, abs=1e-9
+            ), (setup, result.problem_id)
+
+
+def test_the_event_name_route_matches_the_core_on_the_eventset(
+    pipeline: tuple[EventSet, HazardBatch],
+) -> None:
+    es, batch = pipeline
+    hazard, exposures = batch.hazard, batch.exposures
+    impact = ImpactCalc(exposures, batch.impact_functions, hazard).impact(save_mat=True)
+    # The storms fall in years 3, 8 and 10 of 12: the first year is not
+    # known from them, so it must be stated.
+    with pytest.raises(pm.ParametricInputError, match="Pass first_year"):
+        pm.ParametricIndex.from_hazard(hazard, exposures, event_year="event_name")
+    index = pm.ParametricIndex.from_hazard(
+        hazard, exposures, event_year="event_name", first_year=0
+    )
+    np.testing.assert_array_equal(index.event_year, es.events["year"])
+    np.testing.assert_array_equal(index.years, np.arange(N_YEARS))
+    setups = [
+        Setup(scope, objective, "pure", "annual", "zero", budget=0.8, beta=0.8)
+        for scope, objective in (
+            ("individual", "expected_uncovered"),
+            ("portfolio", "weighted_cvar"),
+        )
+    ]
+    _assert_designs_match(es, index, impact, setups)
+
+
+def test_a_10000_year_hazard_matches_the_core_from_its_event_names(
+    make_config: Callable[..., Any], tmp_path: Path
+) -> None:
+    catalogue = _write_catalogue(tmp_path / "iris_10000.txt", STORMS_10000)
+    capture = _Capture([])
+    config = make_config(catalogue=str(catalogue), n_years=10_000, batch_size=10)
+    es = build_eventset(config, index_builder=capture).eventset
+    (batch,) = capture.batches
+    hazard, exposures = batch.hazard, batch.exposures
+    year_in_name = [int(str(name).split("_")[1]) for name in hazard.event_name]
+    np.testing.assert_array_equal(year_in_name, es.events["year"])
+    assert int((np.asarray(hazard.date) < 1).sum()) == 2  # year 9,999: no date
+    impact = ImpactCalc(exposures, batch.impact_functions, hazard).impact(save_mat=True)
+    np.testing.assert_allclose(impact.imp_mat.toarray(), es.loss, rtol=1e-12, atol=0)
+    assert es.loss[es.events["year"].to_numpy() == 9999].sum() > 0
+    # The hazard as the adapter writes it, years from the names: no array by hand.
+    index = pm.ParametricIndex.from_hazard(hazard, exposures, event_year="event_name")
+    stated = pm.ParametricIndex.from_hazard(
+        hazard, exposures, event_year="event_name", n_years=10_000, first_year=0
+    )
+    for built in (index, stated):
+        np.testing.assert_array_equal(built.event_year, es.events["year"])
+        np.testing.assert_array_equal(built.years, np.arange(10_000))
+    train, test = pm.split_years(index, train_fraction=0.7)
+    np.testing.assert_array_equal(train, np.arange(7000))
+    assert set(es.events["year"][index.event_mask(test)]) == {7000, 9999}
+    # Seven storms in 10,000 years: the core's default policy (Clarabel)
+    # stops up to 2.5e-6 (relative) above the optimum of this sparse LP, so
+    # the core solves it with HiGHS, as the prototype does: the same LP.
+    setups = [
+        Setup(scope, objective, "pure", "annual", "zero", budget=0.8, beta=0.9997)
+        for scope in ("individual", "portfolio")
+        for objective in ("expected_uncovered", "weighted_cvar")
+    ]
+    for years in (train, None):
+        _assert_designs_match(
+            es,
+            index,
+            impact,
+            setups,
+            years=years,
+            policy=HIGHS_POLICY,
+            rtol=RTOL_SAME_LP,
+        )

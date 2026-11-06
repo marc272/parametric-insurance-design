@@ -74,11 +74,18 @@ def exposures(points: Sequence[tuple[float, float, float]] = POINTS) -> Exposure
     return exp
 
 
-def hazard_and_impact(tracks: TCTracks, exp: Exposures) -> tuple[Any, Impact]:
+def hazard_and_impact(
+    tracks: TCTracks,
+    exp: Exposures,
+    *,
+    frequency: float | None = None,
+    date: ArrayLike | None = None,
+) -> tuple[Any, Impact]:
     """Return the wind hazard at the exposure points and the impact on them.
 
     The impact is computed on a copy of ``exp``, so ``exp`` gets no centroid
-    column.
+    column. ``frequency`` (one value for every event) and ``date`` replace
+    what ``TropCyclone.from_tracks`` sets, before the impact is computed.
     """
     centroids = Centroids(
         lat=np.array(exp.latitude, dtype=float),
@@ -87,9 +94,28 @@ def hazard_and_impact(tracks: TCTracks, exp: Exposures) -> tuple[Any, Impact]:
     hazard = TropCyclone.from_tracks(
         tracks, centroids=centroids, ignore_distance_to_coast=True
     )
+    if frequency is not None:
+        hazard.frequency = np.full(hazard.size, float(frequency))
+    if date is not None:
+        hazard.date = np.asarray(date, dtype=np.int64)
     impfset = ImpactFuncSet([ImpfTropCyclone.from_emanuel_usa()])
     impact = ImpactCalc(exp.copy(), impfset, hazard).impact(save_mat=True)
     return hazard, impact
+
+
+def catalogue_tracks(storms: Sequence[tuple[int, int, float, float]]) -> TCTracks:
+    """Return tracks of a synthetic catalogue in the IRIS layout.
+
+    Each storm ``(year, number, latitude, wind_kn)`` moves west along its
+    latitude and is named ``NA_<year>_<number>``. As in IRIS, every track
+    starts on one date (1 September 2000), so the dates carry no year.
+    """
+    return TCTracks(
+        [
+            straight_track(f"NA_{year}_{number}", lat, -77.0, -83.0, wind, year=2000)
+            for year, number, lat, wind in storms
+        ]
+    )
 
 
 def array_index(  # pylint: disable=too-many-arguments

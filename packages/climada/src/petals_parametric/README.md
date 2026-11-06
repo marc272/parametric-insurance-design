@@ -113,7 +113,22 @@ Every number such a run prints depends on its setup: the sites and their values,
 
 ## Things to know
 
-- **Simulation years.** The annual basis needs each event's simulation year. By default it is the calendar year of `hazard.date`, and the hazard set covers `N = 1 / frequency` consecutive years, as `TropCyclone.from_tracks` sets them for historical tracks. Pass `event_year` and `years` to the index builders when the dates do not carry the year: a synthetic catalogue whose tracks all start on one date, or an ensemble of perturbed tracks (`calc_perturbed_trajectories`), whose members share their parent's date and have frequency `1 / (N * ensemble size)`. Give member `m` of year `y` the year `y + m * N`, and pass all `N * ensemble size` years as `years`. Every event's frequency must then be one over the number of years; otherwise calibration raises.
+- **Simulation years.** The annual basis needs each event's simulation year, and every year of the hazard set, including the years without events. The index builders take them in three parts:
+  - **each event's year**, `event_year`: by default the calendar year of `hazard.date` (`"date"`), as `TropCyclone.from_tracks` sets it for historical tracks. `"event_name"` (opt-in) reads it from event names of the form `<prefix>_<year>_<number>`, such as `NA_9999_0`, and raises on a name of any other form. Or pass one year per event;
+  - **the number of years** `N`, `n_years`: by default `1 / frequency`, which must then be the same for every event;
+  - **the first year**, `first_year`: the years are `first_year` to `first_year + N - 1`. By default they start at the first event's year, which is certain only if the events' years run over exactly `N` years. If they run over fewer, the years without events could lie before the first event or after the last one: the `"event_name"` route then raises, and the date and array routes keep their earlier behaviour (the first event's year) and log a warning. State `first_year` to avoid both.
+
+  `years`, the list of all the years, can replace `n_years` and `first_year`. On the annual basis every event's frequency must be one over the number of years; otherwise calibration raises.
+
+  A CLIMADA date holds the calendar years 1 to 9999 only, and the tracks of a synthetic catalogue often all start on one date, so the dates may not carry the years. For IRIS, which numbers its 10,000 years from 0, read the years from the event names and state the first year:
+
+  ```python
+  index = pm.ParametricIndex.from_hazard(
+      hazard, exposures, event_year="event_name", first_year=0
+  )
+  ```
+
+  An ensemble of perturbed tracks (`calc_perturbed_trajectories`) has frequency `1 / (N * ensemble size)`; its members share their parent's date, and their names (`<parent>_gen<m>`) give no year. Pass `event_year` as an array, giving member `m` of year `y` the year `y + m * N`, and `first_year`.
 - **Per-site levels of a portfolio cover are not unique.** The joint objective sees only each event's total payout, so other splits across the sites are optimal too. A portfolio cover holds the one split the solver returned; `basis_risk` marks its per-site rows `split_identified = False`.
 - **Budgets per scope.** In the individual scope every site has its own budget, `premium_j <= budget * E[L_j]`; in the portfolio scope the total premium is bounded by `budget * E[sum_j L_j]`. Under the pure premium both scopes spend the same total budget.
 - **Degenerate tails.** When `beta` is at most the probability of the outcomes without loss, the weighted-CVaR objective has the same minimisers as `E[U]`. `calibrate` records this as `degenerate_tail` in each problem's diagnostics and logs a warning; it also flags a `1 - beta` smaller than one outcome's probability (`tail_within_one_outcome`).

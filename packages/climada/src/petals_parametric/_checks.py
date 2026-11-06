@@ -64,6 +64,36 @@ def check_real(
     return number
 
 
+def check_int(name: str, value: object, *, low: int | None = None) -> int:
+    """Return ``value`` as an int if it is an integer, at least ``low``.
+
+    Parameters
+    ----------
+    name : str
+        Argument name, for the message.
+    value : object
+        The value to check: a Python or numpy integer. ``bool`` is refused.
+    low : int, optional
+        Smallest allowed value. Default: no bound.
+
+    Returns
+    -------
+    int
+        ``value``.
+
+    Raises
+    ------
+    ParametricInputError
+        If ``value`` is not an integer, or is below ``low``.
+    """
+    if isinstance(value, bool) or not isinstance(value, int | np.integer):
+        raise ParametricInputError(f"{name} must be an int, got {value!r}")
+    number = int(value)
+    if low is not None and number < low:
+        raise ParametricInputError(f"{name} must be >= {low}, got {number}")
+    return number
+
+
 def check_level(name: str, value: object) -> float:
     """Return a probability level in the open interval ``(0, 1)``.
 

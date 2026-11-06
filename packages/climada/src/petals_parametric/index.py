@@ -36,14 +36,44 @@ storms, depressions and storms that never enter the circle.
 
 Simulation years
 ----------------
-The annual basis groups events into simulation years. By default an event's
-year is the calendar year of ``hazard.date``, and the years of the hazard
-set are ``N = 1 / frequency`` consecutive years from the first event's year
-(the convention of ``TropCyclone.from_tracks`` for historical tracks).
-Pass ``event_year`` and ``years`` when the dates do not carry the
-simulation year: for example a synthetic catalogue whose tracks all start
-on one date, or an ensemble of perturbed tracks, whose members share their
-parent's date (give member ``m`` of year ``y`` the year ``y + m N``).
+The annual basis groups events into simulation years, and the years of the
+hazard set include those without events. Both builders take them in three
+parts:
+
+* **Each event's year**, ``event_year``:
+
+  - ``None`` or ``"date"`` (the default): the calendar year of
+    ``hazard.date``, as ``TropCyclone.from_tracks`` sets it for historical
+    tracks;
+  - ``"event_name"`` (opt-in): the year in the event names, which must
+    have the form ``<prefix>_<year>_<number>``: the year is the
+    second-to-last field between underscores, e.g. ``NA_9999_0`` (basin,
+    year, storm) for an IRIS storm. A name of any other form raises;
+  - an array of int, one year per event.
+
+* **The number of years** ``N``, ``n_years``: by default ``1 / frequency``,
+  which must then be the same for every event.
+* **The first year**, ``first_year``: the years are ``first_year`` to
+  ``first_year + N - 1``. Without it, the years start at the first event's
+  year, which is certain only if the events' years run over exactly ``N``
+  years. If they run over fewer, the years without events could lie before
+  the first event or after the last one: then the ``"event_name"`` route
+  raises, and the date and array routes keep their earlier behaviour,
+  starting at the first event's year, and log a warning.
+
+``years``, every simulation year, can replace ``n_years`` and
+``first_year``; giving it with either of them raises.
+
+The dates cannot carry the years of every hazard. A CLIMADA date holds the
+calendar years 1 to 9999 (:data:`datetime.MAXYEAR`), so not every year of a
+10,000-year synthetic catalogue, and the tracks of a synthetic catalogue
+often all start on one date. For such a hazard, read the years from the
+event names and state the first year: ``event_year="event_name",
+first_year=0`` for IRIS, which numbers its years 0 to 9,999. The members of
+an ensemble of perturbed tracks (``calc_perturbed_trajectories``) share
+their parent's date, and their names (``<parent>_gen<m>``) give no year:
+pass ``event_year`` as an array, giving member ``m`` of year ``y`` the year
+``y + m N``, where ``N`` is the number of years of the parent catalogue.
 """
 
 from __future__ import annotations
@@ -52,6 +82,7 @@ import datetime as dt
 import itertools
 import logging
 import math
+import re
 from collections.abc import Hashable, Sequence
 from dataclasses import dataclass
 from typing import Any, Final, Literal
@@ -59,7 +90,7 @@ from typing import Any, Final, Literal
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
-from ._checks import check_real, finite_array, integer_array, read_only
+from ._checks import check_int, check_real, finite_array, integer_array, read_only
 from .errors import ParametricInputError
 
 __all__ = [
@@ -69,6 +100,7 @@ __all__ = [
     "SAFFIR_SIMPSON_KN",
     "Metric",
     "ParametricIndex",
+    "YearSource",
     "category_of",
     "densify_track",
     "haversine_km",
@@ -93,7 +125,18 @@ DEFAULT_TRACK_STEP_HOURS: Final[float] = 0.5
 Metric = Literal["category", "max_wind"]
 """What the cat-in-a-circle index reports: the category or the wind."""
 
+YearSource = Literal["date", "event_name"]
+"""Where the builders read each event's simulation year (module docstring)."""
+
 _FREQUENCY_RTOL: Final[float] = 1e-6
+
+_EVENT_NAME_YEAR: Final[re.Pattern[str]] = re.compile(
+    r"(?P<prefix>.+)_(?P<year>[0-9]+)_(?P<number>[0-9]+)"
+)
+"""``<prefix>_<year>_<number>``, matched against the whole event name."""
+
+_LAST_ORDINAL: Final[int] = dt.date.max.toordinal()
+"""Ordinal of 31 December 9999, the last date that ``datetime`` holds."""
 
 
 @dataclass(frozen=True, eq=False)
@@ -261,8 +304,10 @@ class ParametricIndex:
         hazard: Any,  # noqa: ANN401 (climada.hazard.Hazard)
         exposures: Any,  # noqa: ANN401 (climada.entity.Exposures)
         *,
-        event_year: ArrayLike | None = None,
+        event_year: ArrayLike | YearSource | None = None,
         years: ArrayLike | None = None,
+        n_years: int | None = None,
+        first_year: int | None = None,
     ) -> ParametricIndex:
         """Index = hazard intensity at each exposure point's assigned centroid.
 
@@ -276,8 +321,22 @@ class ParametricIndex:
             for the hazard type (``centr_<haz_type>``) if it is set, and
             otherwise assigns centroids on a copy (``assign_centroids``),
             leaving ``exposures`` unchanged.
-        event_year, years : array_like of int, optional
-            Simulation years (module docstring, "Simulation years").
+        event_year : {"date", "event_name"} or array_like of int, optional
+            Each event's simulation year: from ``hazard.date`` (``None``,
+            the default, or ``"date"``), from ``hazard.event_name``
+            (``"event_name"``, names ``<prefix>_<year>_<number>``), or one
+            year per event.
+        years : array_like of int, optional
+            Every simulation year, including years without events. Not
+            together with ``n_years`` or ``first_year``.
+        n_years : int, optional
+            Number of simulation years, >= 1. Default: ``1 / frequency``.
+        first_year : int, optional
+            The first simulation year, in the numbering of the event years
+            (calendar years on the date route). Default: the first event's
+            year; if the events' years run over fewer than ``n_years``
+            years, the ``"event_name"`` route raises and the other routes
+            log a warning.
 
         Returns
         -------
@@ -288,7 +347,7 @@ class ParametricIndex:
         ------
         ParametricInputError
             If an exposure point has no centroid, or the years cannot be
-            derived.
+            derived or are ambiguous (module docstring, "Simulation years").
         """
         centroids = _assigned_centroids(hazard, exposures)
         values = np.asarray(hazard.intensity[:, centroids].toarray(), dtype=float)
@@ -299,6 +358,8 @@ class ParametricIndex:
             exposures,
             event_year=event_year,
             years=years,
+            n_years=n_years,
+            first_year=first_year,
             unit=str(hazard.units),
             definition=(
                 f"intensity of the {hazard.haz_type} hazard at each exposure "
@@ -317,8 +378,10 @@ class ParametricIndex:
         metric: Metric = "category",
         breakpoints_kn: Sequence[float] = SAFFIR_SIMPSON_KN,
         track_step_hours: float | None = DEFAULT_TRACK_STEP_HOURS,
-        event_year: ArrayLike | None = None,
+        event_year: ArrayLike | YearSource | None = None,
         years: ArrayLike | None = None,
+        n_years: int | None = None,
+        first_year: int | None = None,
     ) -> ParametricIndex:
         """Cat-in-a-circle index from tracks (module docstring).
 
@@ -344,8 +407,9 @@ class ParametricIndex:
         track_step_hours : float or None, default 0.5
             Interpolate the tracks to this time step before testing the
             distance; None uses the track points as they are.
-        event_year, years : array_like of int, optional
-            Simulation years (module docstring, "Simulation years").
+        event_year, years, n_years, first_year : optional
+            Simulation years, as in :meth:`from_hazard` (module docstring,
+            "Simulation years").
 
         Returns
         -------
@@ -357,7 +421,7 @@ class ParametricIndex:
         ParametricInputError
             If a parameter is out of range, a hazard event has no track or
             two, a track's wind is not in knots, or the years cannot be
-            derived.
+            derived or are ambiguous.
         """
         radius = check_real("radius_km", radius_km, low=0.0, include_low=False)
         if metric not in ("category", "max_wind"):
@@ -416,6 +480,8 @@ class ParametricIndex:
             exposures,
             event_year=event_year,
             years=years,
+            n_years=n_years,
+            first_year=first_year,
             unit=unit,
             definition=definition,
         )
@@ -427,14 +493,23 @@ class ParametricIndex:
         hazard: Any,  # noqa: ANN401
         exposures: Any,  # noqa: ANN401
         *,
-        event_year: ArrayLike | None,
+        event_year: ArrayLike | YearSource | None,
         years: ArrayLike | None,
+        n_years: int | None,
+        first_year: int | None,
         unit: str,
         definition: str,
     ) -> ParametricIndex:
         """Attach the hazard's events, the years and the exposure points."""
         frequency = np.asarray(hazard.frequency, dtype=float)
-        rows, all_years = _simulation_years(hazard, frequency, event_year, years)
+        rows, all_years = _simulation_years(
+            hazard,
+            frequency,
+            event_year=event_year,
+            years=years,
+            n_years=n_years,
+            first_year=first_year,
+        )
         return cls(
             values=values,
             event_id=np.asarray(hazard.event_id),
@@ -457,6 +532,9 @@ def split_years(
     The blocks are contiguous: training is the first
     ``floor(train_fraction * N)`` years of :attr:`ParametricIndex.years`,
     testing the rest. All the events of a year stay in the same block.
+    The split reads only :attr:`ParametricIndex.years`, the simulation span
+    the index was built with (module docstring, "Simulation years"),
+    including the years without events; it never reads dates.
 
     Parameters
     ----------
@@ -519,51 +597,209 @@ def _assigned_centroids(hazard: Any, exposures: Any) -> NDArray[np.intp]:  # noq
     return centroids
 
 
-def _simulation_years(
+def _simulation_years(  # pylint: disable=too-many-arguments
     hazard: Any,  # noqa: ANN401
     frequency: NDArray[np.float64],
-    event_year: ArrayLike | None,
+    *,
+    event_year: ArrayLike | YearSource | None,
     years: ArrayLike | None,
+    n_years: int | None,
+    first_year: int | None,
 ) -> tuple[NDArray[np.int64], NDArray[np.int64]]:
     """Return each event's year and all years (module docstring).
 
     Raises
     ------
     ParametricInputError
-        If a date is not a valid ordinal, or ``years`` is not given and the
-        frequencies differ, so that ``N`` is not defined.
+        If the event years cannot be read, ``years`` is given with
+        ``n_years`` or ``first_year``, the number of years is not given and
+        the frequencies differ, the event years do not fit the span, or, on
+        the ``"event_name"`` route, the first year is not given and the
+        event years do not determine it.
     """
-    if event_year is None:
-        dates = np.asarray(hazard.date)
-        if dates.size != frequency.size or np.any(dates < 1):
-            raise ParametricInputError(
-                "hazard.date must hold one ordinal date >= 1 per event to derive "
-                "the event years; pass event_year instead"
-            )
-        rows = np.array(
-            [dt.date.fromordinal(int(day)).year for day in dates], dtype=np.int64
+    if years is not None and (n_years is not None or first_year is not None):
+        raise ParametricInputError(
+            "pass either years or n_years and first_year, not both"
         )
-    else:
-        rows = integer_array(event_year, "event_year")
+    rows, source = _event_years(hazard, event_year, frequency.size)
     if years is not None:
         return rows, integer_array(years, "years")
     if rows.size == 0:
         raise ParametricInputError("the hazard has no events")
+    count, count_source = _year_count(frequency, n_years)
+    # The event-name route is new and never guesses; the date and array
+    # routes keep their earlier result, with a warning (module docstring).
+    strict = isinstance(event_year, str) and event_year == "event_name"
+    first = _first_year(rows, count, first_year, source, count_source, strict=strict)
+    LOGGER.info(
+        "simulation years: %d years (%s) from %d, event years from %s",
+        count,
+        count_source,
+        first,
+        source,
+    )
+    return rows, np.arange(first, first + count, dtype=np.int64)
+
+
+def _event_years(
+    hazard: Any,  # noqa: ANN401
+    event_year: ArrayLike | YearSource | None,
+    n_events: int,
+) -> tuple[NDArray[np.int64], str]:
+    """Return each event's year and where it was read (module docstring).
+
+    Raises
+    ------
+    ParametricInputError
+        If ``event_year`` is an unknown source, or the dates or the event
+        names do not give one year per event.
+    """
+    if event_year is None or (isinstance(event_year, str) and event_year == "date"):
+        return _years_of_dates(hazard.date, n_events), "the dates"
+    if isinstance(event_year, str):
+        if event_year == "event_name":
+            return _years_of_names(hazard.event_name), "the event names"
+        raise ParametricInputError(
+            "event_year must be 'date', 'event_name' or one year per event, "
+            f"got {event_year!r}"
+        )
+    return integer_array(event_year, "event_year"), "event_year"
+
+
+def _years_of_dates(dates: ArrayLike, n_events: int) -> NDArray[np.int64]:
+    """Return the calendar year of each event's date (proleptic ordinals).
+
+    Raises
+    ------
+    ParametricInputError
+        If there is not one valid ordinal per event: a date holds the
+        calendar years 1 to 9999 only.
+    """
+    days = np.asarray(dates, dtype=np.float64)
+    if (
+        days.shape != (n_events,)
+        or not np.all(np.isfinite(days))
+        or np.any(days < 1)
+        or np.any(days > _LAST_ORDINAL)
+    ):
+        raise ParametricInputError(
+            "hazard.date must hold one ordinal date (1 to "
+            f"{_LAST_ORDINAL}) per event to give the event years, and a date "
+            f"holds the calendar years 1 to {dt.MAXYEAR} only; pass event_year: "
+            "'event_name' to read the years from the event names, or one year "
+            "per event"
+        )
+    unique, position = np.unique(days.astype(np.int64), return_inverse=True)
+    calendar = np.array(
+        [dt.date.fromordinal(int(day)).year for day in unique], dtype=np.int64
+    )
+    return calendar[np.asarray(position).reshape(-1)]
+
+
+def _years_of_names(names: Sequence[object]) -> NDArray[np.int64]:
+    """Return the year in each event name ``<prefix>_<year>_<number>``.
+
+    Raises
+    ------
+    ParametricInputError
+        If a name has another form.
+    """
+    texts = [str(name) for name in names]
+    found = [_EVENT_NAME_YEAR.fullmatch(text) for text in texts]
+    bad = [text for text, match in zip(texts, found, strict=True) if match is None]
+    if bad:
+        raise ParametricInputError(
+            f"{len(bad)} event names do not have the form "
+            "<prefix>_<year>_<number> (e.g. NA_9999_0), so they give no year, "
+            f"e.g. {bad[:5]}; pass event_year as one year per event"
+        )
+    return np.array(
+        [int(match["year"]) for match in found if match is not None], dtype=np.int64
+    )
+
+
+def _year_count(frequency: NDArray[np.float64], n_years: int | None) -> tuple[int, str]:
+    """Return the number of simulation years and where it comes from.
+
+    Raises
+    ------
+    ParametricInputError
+        If ``n_years`` is not an int >= 1, or it is not given and the
+        frequencies are not all ``1 / N`` for one ``N``.
+    """
+    if n_years is not None:
+        return check_int("n_years", n_years, low=1), "n_years"
     implied = 1.0 / frequency
-    n_years = round(float(np.median(implied)))
-    if n_years < 1 or not np.allclose(implied, n_years, rtol=_FREQUENCY_RTOL, atol=0):
+    count = round(float(np.median(implied)))
+    if count < 1 or not np.allclose(implied, count, rtol=_FREQUENCY_RTOL, atol=0):
         raise ParametricInputError(
             "cannot derive the number of simulation years from frequencies "
-            f"between {frequency.min():.6g} and {frequency.max():.6g}; pass years"
+            f"between {frequency.min():.6g} and {frequency.max():.6g}; pass "
+            "n_years or years"
         )
-    first = int(rows.min())
-    all_years = np.arange(first, first + n_years, dtype=np.int64)
-    LOGGER.info(
-        "simulation years: %d years from %d (1 / frequency), from the event dates",
-        n_years,
-        first,
+    return count, "1 / frequency"
+
+
+def _first_year(  # pylint: disable=too-many-arguments
+    rows: NDArray[np.int64],
+    count: int,
+    first_year: int | None,
+    source: str,
+    count_source: str,
+    *,
+    strict: bool,
+) -> int:
+    """Return the first simulation year (module docstring).
+
+    Without ``first_year``, the first event's year if the event years run
+    over exactly ``count`` years. If they run over fewer, the first event's
+    year is a guess: with ``strict`` it raises, otherwise it logs a warning
+    and returns the first event's year.
+
+    Raises
+    ------
+    ParametricInputError
+        If an event year lies outside the stated span, the event years run
+        over more than ``count`` years, or ``strict`` and they run over
+        fewer without ``first_year``.
+    """
+    if first_year is not None:
+        first = check_int("first_year", first_year)
+        outside = np.unique(rows[(rows < first) | (rows >= first + count)])
+        if outside.size:
+            raise ParametricInputError(
+                f"event years ({source}) outside the {count} simulation years "
+                f"{first} to {first + count - 1} (first_year, {count_source}), "
+                f"e.g. {outside[:5].tolist()}"
+            )
+        return first
+    low, high = int(rows.min()), int(rows.max())
+    span = high - low + 1
+    if span == count:
+        return low
+    if span < count:
+        gap = (
+            f"the event years ({source}) run from {low} to {high}, {span} "
+            f"years, but there are {count} simulation years ({count_source}): "
+            f"the {count - span} years without events could lie before {low} "
+            f"or after {high}"
+        )
+        if strict:
+            raise ParametricInputError(
+                f"{gap}. Pass first_year, the first simulation year, or years"
+            )
+        LOGGER.warning(
+            "%s. Taking the first event's year, %d, as the first simulation "
+            "year; pass first_year to state it",
+            gap,
+            low,
+        )
+        return low
+    raise ParametricInputError(
+        f"the event years ({source}) run from {low} to {high}, {span} years, "
+        f"more than the {count} simulation years ({count_source}); pass "
+        "n_years and first_year, or years"
     )
-    return rows, all_years
 
 
 def _tracks_by_sid(tracks: Any) -> dict[str, Any]:  # noqa: ANN401

@@ -9,8 +9,8 @@ risk owner from CLIMADA's ``Hazard``, ``TCTracks``, ``Exposures`` and
 * **Index:** :class:`ParametricIndex`, the hazard intensity at each exposure
   point (:meth:`~ParametricIndex.from_hazard`) or the cat-in-a-circle
   category from tracks (:meth:`~ParametricIndex.from_cat_in_circle`), with
-  each event's simulation year; :func:`split_years` for training and test
-  years.
+  each event's simulation year, read from the hazard's dates or event names
+  or given; :func:`split_years` for training and test years.
 * **Payout:** :class:`StepPayout`, a monotone, capped step function of the
   index that pays nothing below the attachment.
 * **Objectives:** :class:`WeightedCVaR`, the tail objective
