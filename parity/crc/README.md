@@ -2,9 +2,9 @@
 
 The parametric insurance module `crc_sdk.parametric` is built in the fork `marc272/crc-sdk`. It never imports this repository's core, `parametric_insurance_design`. Where the two overlap, its results must match the core's, and the cases in `cases/` say what the core computes. The module's tests read them: the payout families (R-14, MAR-246), the splits (R-15, MAR-43), the metrics (R-17, MAR-247), the design (R-16, MAR-248) and, later, the joint designs (R-21, MAR-45). This page describes the format, so that those tests can read the cases without our code.
 
-- One case is one JSON document, `cases/<case_id>.json`. 57 cases, about 850 kB in total.
+- One case is one JSON document, `cases/<case_id>.json`. 72 cases, about 972 kB in total.
 - The format is the parity contract of ADR 0005 §8, accepted on 2026-11-06 (MAR-244). Its field names are defined in one place, the `_Fields` class of the script; a rename is made there and the cases are regenerated. Where the cases go beyond §8, the section [Beyond ADR 0005 §8](#beyond-adr-0005-8) says how.
-- The script is `parity/scripts/export_crc_fixtures.py` (MAR-245, MAR-255). The test is `parity/tests/test_crc_fixtures.py`.
+- The script is `parity/scripts/export_crc_fixtures.py` (MAR-245, MAR-255, MAR-264). The test is `parity/tests/test_crc_fixtures.py`.
 
 ## Licence
 
@@ -13,7 +13,7 @@ The parametric insurance module `crc_sdk.parametric` is built in the fork `marc2
 - The cases of the `thesis` data set (ids ending in `-thesis` or `-thesis-holdout`) hold draws taken from the parity fixture `parity/tests/data/thesis_eventset/`. It is derived from the IRIS event set and licensed CC-BY-4.0 (its `metadata.json`; `docs/data-sources.md`). A copy of these cases keeps the attribution:
   - the draws: Marc Prinzing, parametric-insurance-design, `parity/tests/data/thesis_eventset/`, <https://github.com/marc272/parametric-insurance-design>, CC BY 4.0. Changes: a subsample of 160 years and 3 assets, described below;
   - the hazard data: Sparks, N. and Toumi, R. (2024). The Imperial College Storm Model (IRIS) Dataset. Scientific Data 11, 424, <https://doi.org/10.1038/s41597-024-03250-y>; dataset <https://doi.org/10.6084/m9.figshare.c.6724251.v1> (CC BY 4.0).
-- The cases of the `synthetic` and `handmade` data sets hold no third-party data.
+- The cases of the `synthetic`, `synthetic52` and `handmade` data sets hold no third-party data; neither do the fresh draws of the `-fresh` cases.
 
 ## Regenerate and check
 
@@ -28,26 +28,27 @@ uv run pytest parity/tests/test_crc_fixtures.py                # what CI runs
 
 The script takes about 10 seconds. CI runs the test in the parity step (`pytest parity/tests`). It regenerates every case in memory and judges the committed file against it:
 
-- Everything but floats must be equal, except `generator.commit`. That includes `unique`, `unidentified`, `compare_parameters`, `split` and the samples.
-- Floats must agree within 1e-6 relative for the values a solve produces (the `expected` block of a design case), and within 1e-12 relative elsewhere. The absolute floor is the same tolerance times the case's scale (below).
+- Everything but floats must be equal, except `generator.commit`. That includes `unique`, `unidentified`, `compare_parameters`, `split`, `metric_options` and the samples.
+- Floats must agree within 1e-6 relative for the values a solve produces (the `expected` block of a design case, `profile` included), and within 1e-12 relative elsewhere. The absolute floor is the same tolerance times the case's scale (below).
 - In every design case, the core evaluates `expected.parameters` again. The objective value, the premium and every metric, in sample and out of sample, must agree with the committed ones within 1e-12.
 - The committed levels must be an optimal design of the regenerated problem. They meet every constraint (bounds, monotonicity, cap, budget), their objective agrees with the regenerated optimum within 1e-6, and in LP cases they lie within the regenerated ranges, widened by 1e-6 of the scale.
 - Only a unique design (`"exact"`) also has its identified levels, premium and metrics (out of sample too) compared with the regenerated ones. A non-unique design's are one solver's point of the optimal set; a solver on another platform can return another point, so they are not compared. Unidentified levels are never compared directly: they follow the fill rule from the identified ones (below).
+- In a grid-route case, the chosen trigger must equal the regenerated one, whether or not the design is unique: it is a grid value, and the best candidate is strictly best (below).
 
 So a change to the core's formulas, the data or the script that moves a value fails CI until the cases are regenerated. On one machine the regeneration is byte-identical. On another platform, a solver can return another point of the same optimal set, and the check above still holds. The test checks this with a regeneration under perturbed solvers (Clarabel without equilibration, HiGHS's primal simplex): it moves the solver's point in 9 cases, all non-unique joint designs, and passes.
 
-The test also reads every case the way the module's tests do, with plain numpy and the rules on this page only. It recomputes the payouts of the written cover, the objective value, the premium, the budget, the constraints and the plain metrics, in sample and out of sample, and compares them with `expected`.
+The test also reads every case the way the module's tests do, with plain numpy and the rules on this page only. It recomputes the payouts of the written cover, the objective value, the premium, the budget, the constraints and the plain metrics (with the case's `metric_options`), in sample and out of sample, and compares them with `expected`. It solves every binary design in closed form too, each grid candidate of `profile` included ([Binary designs](#binary-designs-and-the-grid-route)).
 
 ## The document
 
 | Field | Value | Meaning |
 |---|---|---|
-| `case_id` | string | `<payout>-<objective or "fixed">-<pricing>-<scope>-<data>`, with `-holdout` at the end for an out-of-sample case; the file name without `.json`. The payout is `step`, or the family and the tail: `linear-upper`, `binary-lower`, `piecewise-linear-upper`, … |
+| `case_id` | string | `<payout>-<objective or "fixed">-<pricing>-<scope>-<data>`, then a suffix: `-holdout`, `-kfold5-fold<i>` or `-fresh` for an out-of-sample case, `-options` for non-default metric options; the file name without `.json`. The payout is `step`, or the family and the tail: `step-lower`, `linear-upper`, `binary-lower`, `piecewise-linear-upper`, …; `binary-upper-grid` for a binary cover whose trigger is free on a grid |
 | `kind` | `"design"` or `"evaluate"` | Design the cover from the template, or evaluate a fixed cover |
 | `source` | `"core"` or `"closed_form"` | Who computed `expected`: the core, or this script from the closed forms of ADR 0005 §3 and §6 |
-| `sample` | object | The outcome sample (ADR 0005 §4.1). In an out-of-sample case, the design block |
-| `split` | null or object | null: everything is in sample. `{"kind": "holdout", "train_fraction": 0.7}`: an out-of-sample case (below) |
-| `evaluation_sample` | null or object | Out-of-sample cases: the held-out block, in the form of `sample` |
+| `sample` | object | The outcome sample (ADR 0005 §4.1). In an out-of-sample case, the design sample |
+| `split` | null or object | null: everything is in sample. Otherwise an out-of-sample case, in one of three kinds (below): `{"kind": "holdout", "train_fraction": 0.7}`, `{"kind": "kfold", "k": 5, "fold": i}` or `{"kind": "fresh_draws", "n_draws": 50, "seed": 20261106}` |
+| `evaluation_sample` | null or object | Out-of-sample cases: the held-out block or the fresh draws, in the form of `sample` |
 | `cover` | object; a list of objects in joint cases | The cover document (ADR 0005 §3) |
 | `objective` | object or null | null in evaluate cases |
 | `pricing` | object | The pricing of the premium |
@@ -55,6 +56,7 @@ The test also reads every case the way the module's tests do, with plain numpy a
 | `limit` | null | Always null here: the core's cap is the `Free` upper bound (below) |
 | `scope` | `"individual"` or `"joint"` | One asset; or several assets and an objective on their sum (Phase 2, R-21) |
 | `expected` | object | The values the module must reproduce |
+| `metric_options` | null or object | The metric columns' parameters, ADR 0005 §6's `MetricOptions`. null: its defaults. Otherwise `{"betas": […], "return_periods": […], "loss_thresholds": […], "payout_threshold": ε}` ([Metric options](#metric-options)) |
 | `compare_parameters` | `"exact"`, `"within_ranges"` or `"none"` | How a design's parameters are compared |
 | `tolerances` | object | `objective_value`, `premium`, `metrics`, `parameters`: 1e-6 each |
 | `generator` | object | `script`, `core_version` (the core's version) and `commit` |
@@ -62,7 +64,7 @@ The test also reads every case the way the module's tests do, with plain numpy a
 ### `sample` and `evaluation_sample`
 
 - `asset_ids`: one asset in individual cases, three in joint cases.
-- `period`: integer year labels, strictly increasing. One draw is one year.
+- `period`: integer year labels, strictly increasing. One draw is one year. The fresh draws are numbered `0 .. n_draws − 1`, as a Monte Carlo sample's draws are (ADR 0005 §4.1).
 - `probability`: `1 / n` for each of the `n` draws of the block.
 - `index`, `loss`: `n` rows with one value per asset, in `asset_ids` order. `numpy.asarray(sample["index"])` has the shape `(n, n_assets)` of ADR 0005 §4.1.
 - `index_unit`, `loss_unit`. The loss unit is the cover's `payout_unit`.
@@ -72,12 +74,13 @@ The test also reads every case the way the module's tests do, with plain numpy a
 
 The cover document of ADR 0005 §3: `asset_id`, `index` (the index definition), `payout`, `payout_unit`, `schema_version` `"1.0"` and `semantics_version` `"crc-parametric-cover/1"`. Every family works on the severity s = x (`tail` `"upper"`) or s = −x (`"lower"`), with its thresholds mapped the same way and given in order of increasing severity (decreasing index values for the lower tail). A severity equal to a threshold belongs to the more severe side, and nothing is paid below the first threshold.
 
-- Step payouts (`"kind": "step"`): `breakpoints` b_0 < … < b_{n−1} in index units, `levels`, `monotone` true, `tail` `"upper"`. A draw gets level k for b_k ≤ s < b_{k+1}, the last level for s ≥ b_{n−1}, and nothing below b_0. The core's step payout has one more edge, b_n; values at or above it fall into the last bin too, so it changes no payout and is left out.
+- Step payouts (`"kind": "step"`): `breakpoints` b_0 < … < b_{n−1} (in severity), `levels`, `monotone` true, `tail`. A draw gets level k for b_k ≤ s < b_{k+1}, the last level for s ≥ b_{n−1}, and nothing below b_0. The core's step payout has one more edge, b_n; values at or above it fall into the last bin too, so it changes no payout and is left out. In the lower-tail cases the breakpoints decrease in index units: −1, −1.5, −2, −3.
 - Linear payouts (`"kind": "linear"`): `attachment` a, `exhaustion` e, `limit` ℓ, `tail`. The payout is `ℓ · clip((s − a) / (e − a), 0, 1)`. In the lower-tail case the thresholds decrease in index units: attachment −1, exhaustion −3.
 - Binary payouts (`"kind": "binary"`): `trigger` t, `amount` A, `tail`. The payout is A for s ≥ t, else 0.
 - Piecewise-linear payouts (`"kind": "piecewise_linear"`): `knots` c_0 < … < c_{m−1} (in severity), `levels` y_0 … y_{m−1}, `monotone` true, `tail`. The payout is 0 for s < c_0, the linear interpolation of the points (c_k, y_k) on [c_0, c_{m−1}], and y_{m−1} for s ≥ c_{m−1}. So a draw exactly at c_0 gets y_0, which may be above 0.
-- In design cases every level is a template marker, `{"free": {"grid": null, "lower": 0.0, "upper": <cap>}}`. The cap is the asset's largest loss on the (design) sample. The core caps every level at it, so the module solves the same problem with `Free(lower=0, upper=cap)` and no `Limit`.
-- In evaluate cases the levels and thresholds are numbers.
+- In design cases every amount (a step's levels, a binary's `amount`) is a template marker, `{"free": {"grid": null, "lower": 0.0, "upper": <cap>}}`. The cap is the asset's largest loss on the (design) sample. The core caps every amount at it, so the module solves the same problem with `Free(lower=0, upper=cap)` and no `Limit`.
+- In a grid-route case the trigger is free on a grid too: `{"free": {"grid": [30.0, 33.0, …], "lower": 30.0, "upper": 51.0}}`, in index units, the grid's explicit values in increasing order and its bounds (ADR 0005 §3, shape parameters).
+- Every other threshold is a number. In evaluate cases the amounts are numbers too.
 - Joint cases have one cover per asset, as a list in `asset_ids` order.
 
 ### `objective`, `pricing`, `budget`
@@ -94,25 +97,60 @@ In a joint case the objective, the premium and the budget are on the sums over t
 |---|---|---|
 | `objective_value` | The objective at `parameters`, on the sample | null |
 | `premium` | The premium of the cover at `parameters`, on the sample, with `pricing` (the design premium) | The premium of the fixed cover, on the sample, with `pricing` |
-| `parameters` | The core's solution: `{"levels[0]": …, …}`; in joint cases `{<asset id>: {…}, …}` | null |
-| `unidentified` | The levels whose bin holds no draw of the sample: `["levels[6]"]`; in joint cases `{<asset id>: […], …}` | null |
-| `unique` | Whether the identified levels of the optimum are unique (below) | null |
+| `parameters` | The core's solution, by the flat names of ADR 0005 §3: `{"levels[0]": …, …}` (step), `{"amount": …}` (binary), `{"amount": …, "trigger": …}` (grid route); in joint cases `{<asset id>: {…}, …}` | null |
+| `unidentified` | The amounts whose bin holds no draw of the sample: `["levels[6]"]`, or `["amount"]` if no draw reaches a binary's trigger; in joint cases `{<asset id>: […], …}` | null |
+| `unique` | Whether the identified amounts of the optimum are unique (below) | null |
 | `metrics` | Column → value, in sample (below) | Column → value |
-| `out_of_sample` | null, or in an out-of-sample case `{"fold": 0, "premium_basis": "design", "metrics": {…}}` (below) | null |
+| `out_of_sample` | null, or in an out-of-sample case `{"fold": i, "premium_basis": "design", "metrics": {…}}` (below) | null |
+| `profile` | null, or in a grid-route case the objective at every grid candidate: `[{"objective_value": …, "parameters": {"trigger": 30.0}}, …]`, in grid order (below) | null |
 
-`metrics` are in sample. They are the metrics of the cover at `parameters` (design) or of the fixed cover (evaluate), on the case's sample, for the quantity the objective sees: the asset's loss and payout, or in joint cases the sums over the assets. A value is null where ADR 0005 §6 says the metric is undefined.
+`metrics` are in sample. They are the metrics of the cover at `parameters` (design) or of the fixed cover (evaluate), on the case's sample, for the quantity the objective sees: the asset's loss and payout, or in joint cases the sums over the assets. A value is null where ADR 0005 §6 says the metric is undefined. The columns are those of the case's `metric_options`.
 
-**Unidentified levels** follow ADR 0005 §5.4's default fill rule, `fill="lowest"`: the previous identified level (the levels are monotone), or 0 if no level before it is identified. They change nothing on the sample, so the design stays exactly optimal; a module design with the default fill gives the same values. Out of sample a draw can fall into such a bin, and then the fill rule decides its payout.
+**Unidentified levels** follow ADR 0005 §5.4's default fill rule, `fill="lowest"`: the previous identified level (the levels are monotone), or 0 if no level before it is identified (a binary's unidentified amount is 0). They change nothing on the sample, so the design stays exactly optimal; a module design with the default fill gives the same values. Out of sample a draw can fall into such a bin, and then the fill rule decides its payout.
 
 **Quantiles on a step.** With equally likely draws, a level such as β = 0.9 often falls exactly on a step of the distribution (0.9 · 160 = 144 draws). A floating-point sum of the probabilities can then land on either side of it, so the quantile is either of the two neighbouring atoms. Such a metric is written `{"either": [lower, upper]}`, and either value passes. ADR 0005 §6's rule (a tolerance of 1e-10 on the cumulative probability) gives the lower one. This applies to the VaR columns `var_*_b<β>` and to the return-period columns `*_rp<T>`. CVaR does not depend on the atom and is always a single value.
 
 ### Out-of-sample cases
 
-A case with `split` `{"kind": "holdout", "train_fraction": 0.7}` is a design case whose cover is also evaluated out of sample (ADR 0005 §6, "In and out of sample"):
+A case whose `split` is not null is a design case whose cover is also evaluated out of sample (ADR 0005 §6, "In and out of sample"). There are three kinds of split (ADR 0005 §4.4):
 
-- **The split.** `sample` and `evaluation_sample` together are the full sample of n draws. `sample` is the first ⌊0.7 · n + 1e-9⌋ draws in period order and `evaluation_sample` the rest: the core's `splits.holdout`, contiguous year blocks with the latest years held out (ADR 0005 §4.4). So `holdout(full, train_fraction=0.7)` must return the two blocks. Within each block the draws are equally likely.
-- **The design** is made on `sample` only: the cap, the scale, the objective, the premium, the budget, `unidentified`, `unique` and `metrics` are all of the design block, as in any design case.
-- **`expected.out_of_sample`** holds the comparison row of the design on `evaluation_sample` (ADR 0005 §6, "The comparison table"): `fold` 0 (holdout), `premium_basis` `"design"`, and `metrics`, the same columns as `metrics`, of the cover at `parameters` on `evaluation_sample`. The premium used is the design premium, `expected.premium`, priced on the design block (ADR 0005 §6 and decision 9), not one priced on the held-out block. So `metrics.premium` equals `expected.premium`, and the net-loss columns use it.
+- **Holdout**, `{"kind": "holdout", "train_fraction": 0.7}`. `sample` and `evaluation_sample` together are the full sample of n draws. `sample` is the first ⌊0.7 · n + 1e-9⌋ draws in period order and `evaluation_sample` the rest: the core's `splits.holdout`, contiguous year blocks with the latest years held out. So `holdout(full, train_fraction=0.7)` must return the two blocks.
+- **k-fold**, `{"kind": "kfold", "k": 5, "fold": i}`: one case per fold, so one design per case (ADR 0005 §6: "k-fold gives one design per fold and rows per fold"). `sample` and `evaluation_sample` together are the full sample of n draws, in period order. It is cut into k contiguous blocks by `numpy.array_split` of the n positions, so the first n mod k blocks are one draw longer: the core's `splits.year_block_kfold`. `evaluation_sample` is block i, and `sample` the other blocks, which is not contiguous for 0 < i < k − 1. So `year_block_kfold(full, k=5)[i]` must return the two. The k cases of one design share the full sample: their held-out blocks partition it.
+- **Fresh draws**, `{"kind": "fresh_draws", "n_draws": 50, "seed": 20261106}` (after the plan's `FreshDraws(n_draws, seed=...)`). `sample` is the whole design sample. `evaluation_sample` is another sample of `n_draws` draws of the same process, drawn by this script's synthetic generator with `numpy.random.default_rng(seed)`; the module cannot draw them again, so they are given. Its periods are draw numbers, `0 .. n_draws − 1`, and overlap the design sample's periods: they are other draws, from another source, so a module test must give the two samples different lineages (two tables, for example) and expect no `LeakageError` (ADR 0005 §4.4: only a sample "from the same source" that shares a period leaks).
+
+In each kind the draws of a block are equally likely, and:
+
+- **The design** is made on `sample` only: the cap, the scale, the objective, the premium, the budget, `unidentified`, `unique` and `metrics` are all of the design sample, as in any design case.
+- **`expected.out_of_sample`** holds the comparison row of the design on `evaluation_sample` (ADR 0005 §6, "The comparison table"): `fold` (the split's fold for k-fold, 0 for holdout and fresh draws), `premium_basis` `"design"`, and `metrics`, the same columns as `metrics`, of the cover at `parameters` on `evaluation_sample`. The premium used is the design premium, `expected.premium`, priced on the design sample (ADR 0005 §6 and decision 9), not one priced on the evaluation sample. So `metrics.premium` equals `expected.premium`, and the net-loss columns use it.
+
+### Metric options
+
+`metric_options` states the parameters of the metric columns, ADR 0005 §6's `MetricOptions(betas, return_periods, loss_thresholds, payout_threshold)`. null means its defaults: β ∈ {0.9, 0.95, 0.99}, T ∈ {2, 5, 10, 25, 50, 100, 250} years, loss threshold ℓ ∈ {0} and payout threshold ε = 0. Otherwise the four are written out, under `MetricOptions`'s argument names, and a module test builds its `MetricOptions` from them:
+
+- `betas`: the levels β of the `_b<β>` columns (VaR, CVaR, `tail_coverage`, `cvar_uncovered_to_loss`);
+- `return_periods`: the T of the `_rp<T>` columns, in years;
+- `loss_thresholds`: the ℓ (loss units) of `false_negative_rate_l<ℓ>` and `false_positive_rate_l<ℓ>`;
+- `payout_threshold`: ε (payout units). A year with π ≤ ε counts as "no payout" in both rates; ε changes no other column.
+
+A case has exactly the columns of its options, labelled by crc-sdk's rule: 2.5 gives `rp2_5`, 262.5 gives `l262_5`, 0.975 gives `b0_975`. Two closed-form cases (`-options`) have non-default options; every other case has null.
+
+### Binary designs and the grid route
+
+A binary payout with a fixed trigger t and a free amount A is a step payout with one breakpoint, t, so the core designs it (its one-bin step from t on the severity). It is an LP or QP in one amount, and it also has a closed form, which the script checks against the core and the test's reader recomputes:
+
+- Let p be the share of draws with s ≥ t. The premium is c · A, with c = p (pure premium) or c = (1 − r) · p + r · min(1, p / (1 − q)) (cost of capital: CVaR_q of a payout that is A with probability p is A · min(1, p / (1 − q))). With the cap and the budget, A ∈ [0, A_max], A_max = min(cap, budget / c).
+- E[U] and weighted CVaR do not increase in A, since no draw's uncovered loss does: A_max is optimal.
+- MSE is a quadratic in A, smallest at the mean loss of the draws with s ≥ t, clipped to [0, A_max].
+
+A **grid-route case** (`binary-upper-grid-…`) is ADR 0005 §5.3's grid route: the template's trigger is `Free` on a grid and its amount `Free`. At each candidate trigger the core designs the amount as above; the best candidate wins.
+
+- `expected.profile` lists every candidate in grid order with its optimal objective value: the oracle of `DesignResult.profile`, whatever its table layout.
+- The best candidate beats every other by more than 1e-4 relative, so no tie rule decides it and every reasonable tie tolerance gives no tie at the optimum. The cases encode no tie count.
+- `expected.parameters` holds the chosen trigger and the amount; the rest of `expected` is the design at the chosen trigger.
+
+### Lower-tail steps
+
+The core's step payout has no lower tail. The module's lower-tail step on the index x, with breakpoints b_k in index units, is the upper-tail step on the severity s = −x with breakpoints −b_k (ADR 0005 §3). So the core designs the lower-tail step on −x (`step-lower-wcvar-…`), and the closed-form case `step-lower-fixed-…` checks its payouts against the core's step on −x. A draw at x = b_k has s = −b_k and gets level k: the more severe side.
 
 ## How to compare
 
@@ -124,15 +162,18 @@ The scale of a case is the largest summed loss of a draw of `sample`: `max(sum(r
 
 1. Compare `objective_value`.
 2. Compare the parameters as `compare_parameters` says:
-   - `"exact"`: every level not in `unidentified` agrees within `tolerances.parameters` times the scale. The unidentified levels are left out: they change nothing on the sample, so any value the constraints allow is optimal.
-   - `"within_ranges"`: the module ranges the optimal set (ADR 0005 §5.4, `DesignOptions(ranges=True)`), and every level of `expected.parameters` not in `unidentified` lies within the module's range, widened by `tolerances.parameters` times the scale.
+   - `"exact"`: every amount not in `unidentified` agrees within `tolerances.parameters` times the scale. The unidentified amounts are left out: they change nothing on the sample, so any value the constraints allow is optimal.
+   - `"within_ranges"`: the module ranges the optimal set (ADR 0005 §5.4, `DesignOptions(ranges=True)`), and every amount of `expected.parameters` not in `unidentified` lies within the module's range, widened by `tolerances.parameters` times the scale.
    - `"none"`: the parameters are not compared.
+   - A grid-route case's `trigger` must equal the module's chosen trigger exactly, whatever `compare_parameters` says, and every entry of `profile` agrees with the module's objective at that candidate within `tolerances.objective_value`.
 3. Compare `premium` and `metrics`:
    - if `unique` is true, those of the module's designed cover;
    - otherwise, those of the template resolved with `expected.parameters` (`Cover.with_values`), evaluated on the sample. On a non-unique optimum only the objective value is the same for every optimal design. The premium and the metrics depend on which member of the optimal set a solver returns.
 4. The module's `unique` must not be true where the case's is false.
 
-**Out-of-sample cases**, in addition: evaluate on `evaluation_sample`, with the design premium, the cover of step 3 (the module's designed cover if `unique` is true, otherwise the template resolved with `expected.parameters`; with the default fill rule for the unidentified levels in both), and compare every column of `expected.out_of_sample.metrics`; the row's `premium_basis` must be `"design"`. A test of the metrics alone (R-17) can evaluate the template resolved with `expected.parameters` on `evaluation_sample` with `premium=expected.premium`: it gives the same values, with `premium_basis` `"stated"`.
+**Out-of-sample cases**, in addition: evaluate on `evaluation_sample`, with the design premium, the cover of step 3 (the module's designed cover if `unique` is true, otherwise the template resolved with `expected.parameters`; with the default fill rule for the unidentified amounts in both), and compare every column of `expected.out_of_sample.metrics`; the row's `fold` must be the case's and its `premium_basis` `"design"`. A test of the metrics alone (R-17) can evaluate the template resolved with `expected.parameters` on `evaluation_sample` with `premium=expected.premium`: it gives the same values, with `premium_basis` `"stated"`.
+
+**Metric options.** Evaluate with `MetricOptions(**metric_options)`, or `MetricOptions()` where it is null.
 
 **Tolerances.**
 
@@ -154,6 +195,8 @@ The floors matter near zero. A solver's levels are exact only to rounding: a lev
   - Otherwise the solution written is Clarabel's at tight tolerances, an interior point of the optimal set. It is checked to lie within the ranges, and `compare_parameters` is `"within_ranges"`.
 - **QPs** (MSE). The core solves the problem with Clarabel at tight tolerances. `unique` follows ADR 0005 §5.4's rule for the MSE route: H = Bᵀ diag(p) B, over the identified levels, is positive definite (smallest eigenvalue above 1e-10 times the largest). In individual cases H is diagonal, so the identified levels are always unique and `compare_parameters` is `"exact"`. In joint cases H can be singular, when two assets' bins hold the same draws; then `compare_parameters` is `"none"`, because the MSE route computes no ranges.
 - In both, the unidentified levels are then set by the fill rule (above).
+- **The grid route.** The amount at the chosen trigger is decided as above (LP or QP), and the chosen trigger is the strictly best candidate (by more than 1e-4 relative), so the optimal design is unique when that amount is. `unique` and `compare_parameters` are those of the amount at the chosen trigger.
+- The binary and lower-tail step designs are decided as above: the core's one-bin step from the trigger, and the core's step on the severity.
 
 ## The cases
 
@@ -164,17 +207,30 @@ The floors matter near zero. A solver's levels are exact only to rounding: a lev
 | Fixed step covers | {pure, cost of capital} × {synthetic, thesis}, asset A1: 4 | evaluate, core |
 | Fixed linear, binary and piecewise-linear covers, hand-made | each family: upper tail {pure, cost of capital}, lower tail {pure}: 9 | evaluate, closed_form |
 | Fixed linear, binary and piecewise-linear covers, synthetic | each family: upper tail {pure}; piecewise linear also {cost of capital}: 4 | evaluate, closed_form |
+| Step designs, k-fold | MSE, pure, `synthetic52`, k = 5, one case per fold: 5 | design, core |
+| Step designs on fresh draws | {MSE pure, weighted CVaR at β 0.9 with cost of capital}, `synthetic52`, 50 fresh draws: 2 | design, core |
+| Binary designs, fixed trigger | trigger 36 m/s, {MSE pure, weighted CVaR at β 0.9 with cost of capital}, `synthetic52`: 2 | design, core |
+| Binary designs, the grid route | trigger on the grid 30, 33, 36, 40, 45, 51 m/s, {MSE with cost of capital, expected uncovered pure}, `synthetic52`: 2 | design, core |
+| Lower-tail step | a fixed cover (pure, closed form) and a design (weighted CVaR at β 0.9, pure, core), `handmade` SPEI: 2 | evaluate, closed_form; design, core |
+| Non-default metric options | the piecewise-linear cover, pure, on `handmade` (rainfall) and on `synthetic52`: 2 | evaluate, closed_form |
 
 Every design case has `budget` 0.8 and weighted-CVaR weight α 0.9. The core cases' cost-of-capital pricing is rate 0.06 at q 0.99; the closed-form one is rate 0.1 at q 0.9. Individual cases use the data set's first asset.
+
+Out of sample, the first k-fold case (fold 0) holds out the years 0–10. They hold the draw of A1 at 60 m/s, the only one in the last bin, so its design block leaves `levels[5]` unidentified and the fill rule decides that held-out draw's payout. The fresh draws hold larger losses than the design sample (up to 4.1 million USD; the cap is 2.0 million). All 15 new designs are unique (`exact`).
 
 ### Data sets
 
 - **`synthetic`**: 150 years, assets A1, A2, A3 (values 10, 6 and 3 million USD), from `numpy.random.default_rng(20261105)`. Each year has a storm with probability 0.7. A storm has an intensity 22 + Gamma(2, 7) m/s, and the hazard at each asset adds N(0, 3). The loss is the asset's value times the damage ratio v³ / (1 + v³), v = max(h − 25.7, 0) / 49, of the hazard h. The index is the hazard plus another N(0, 3), floored at 0, so index and loss differ (basis risk). Indices are rounded to 0.01 m/s and losses to whole USD. Three indices of A1 sit exactly on breakpoints (25, 36 and 60), to test the bin rule. Step breakpoints 25, 30, 36, 43, 51, 60 m/s. The holdout designs on years 0–104 and holds out years 105–149.
   - The closed-form cases on it use asset A1, the draws of the core cases: a linear cover (attachment 36, exhaustion 60 m/s, limit 2.5 million USD), a binary cover (trigger 36 m/s, amount 0.5 million USD) and a piecewise-linear cover (knots 25, 36, 51, 60 m/s; levels 0.01, 0.1, 1.2 and 2.5 million USD).
+- **`synthetic52`**: asset A1 of `synthetic` in its first 52 years (periods 0–51), as written there: 33 storm years, the three indices on breakpoints (years 3, 4 and 5) and a largest loss of 1,962,285 USD. A small sample keeps the cases small. 52 is not a multiple of 5, so the k-fold blocks are uneven: 11, 11, 10, 10 and 10 draws.
+  - The fresh draws of its `-fresh` cases: 50 years of the same process (asset A1, the same values) from `numpy.random.default_rng(20261106)`, without the indices set onto breakpoints. Periods 0–49, as draw numbers.
+  - The closed-form `-options` case on it uses the piecewise-linear cover of `synthetic`.
+  - The binary designs use the trigger 36 m/s, where an index sits.
 - **`thesis`**: 160 years of the parity fixture (IRIS storms at 9 Miami assets, wind at the asset in m/s, loss in USD), assets A1, A2 and A9 (the three of largest value). In year order: the first 100 years with exactly one event row and a loss at one of the three assets at least; the first 30 years with exactly one event row and no loss at them; and the first 30 years without an event row. Years with several event rows are never taken, because the module has one draw per year (ADR 0005 §8). Index and loss are the fixture's values as stored; the periods are the fixture's years (0-based). No noise layer. Step breakpoints 30, 35, …, 60 m/s. The holdout designs on the first 112 draws (years 1 to 1575) and holds out the last 48 (years 1589 to 3224). In the design block no draw of A1 reaches the bin of `levels[4]` (50–55 m/s), and one held-out draw does, so the fill rule decides its payout.
 - **`handmade`**: 20 years, 2001–2020, chosen by hand with round values. Thresholds sit on index values of the samples, to test the boundary rule.
   - Upper tail: the index `rx1day` (mm/day), loss in EUR. Linear cover: attachment 50, exhaustion 150, limit 1000. Binary cover: trigger 100, amount 500. Piecewise-linear cover: knots 50, 80, 120, 175; levels 50, 250, 700, 1200.
-  - Lower tail: the index `spei3` (unitless), loss in EUR. Linear cover: attachment −1, exhaustion −3, limit 800. Binary cover: trigger −1.5, amount 400. Piecewise-linear cover: knots −1, −2, −3; levels 100, 400, 800.
+  - Lower tail: the index `spei3` (unitless), loss in EUR. Linear cover: attachment −1, exhaustion −3, limit 800. Binary cover: trigger −1.5, amount 400. Piecewise-linear cover: knots −1, −2, −3; levels 100, 400, 800. Step covers: breakpoints −1, −1.5, −2, −3; the fixed one has levels 100, 250, 500, 900, and the design's levels are free up to the largest loss, 1100. For the core design every year is an event row, a zero loss included.
+  - The upper-tail `-options` case uses the piecewise-linear cover with β ∈ {0.5, 0.8, 0.975}, T ∈ {2.5, 4, 20, 1000}, ℓ ∈ {150, 262.5} and ε = 50. A loss of the sample is 150, and the cover pays exactly 50 at its first knot, so both boundaries are tested: a loss equal to ℓ is not above it, and a payout equal to ε is no payout. The `synthetic52` `-options` case has β ∈ {0.75, 0.975}, T ∈ {2.5, 20, 1000}, ℓ ∈ {0, 100,000, 1,000,000} and ε = 10,000 (the cover's payout at 25 m/s, where an index sits).
 
 ### Core settings (ADR 0005 §8)
 
@@ -182,13 +238,15 @@ Every design case has `budget` 0.8 and weighted-CVaR weight α 0.9. The core cas
 - The annual basis, with one draw per year.
 - At most one event row per year. The core sees no row for a year without an event and pools it into one zero-loss outcome; that gives the same values as a draw with index 0 and loss 0.
 - The core's `Budget(0.8)`, `WeightedCVaR(alpha=0.9, beta)`, `PurePremium()` and `CostOfCapitalLoad(rate=0.06, q=0.99)`, in the scopes `Individual()` and `Portfolio()`.
-- Out-of-sample cases: the core's `splits.holdout(eventset, train_fraction=0.7)`; `build_problems(..., sample=train)` designs, and `evaluate.kpis(..., sample=test)` evaluates. The core's `kpis` prices the premium again on the evaluation sample; the cases replace it with the design premium, so their `premium` and net-loss columns come from the core's risk measures (`riskmeasures.var_cvar`, `lower_quantile`) of loss − payout + the design premium.
+- Out-of-sample cases: the core's `splits.holdout(eventset, train_fraction=0.7)` or `splits.year_block_kfold(eventset, k=5)[i]`; `build_problems(..., sample=train)` designs, and `evaluate.kpis(..., sample=test)` evaluates. Fresh draws: `build_problems` designs on the whole design EventSet, and `evaluate.kpis` evaluates the design's result on the fresh draws' EventSet (the same asset). The core's `kpis` prices the premium again on the evaluation sample; the cases replace it with the design premium, so their `premium` and net-loss columns come from the core's risk measures (`riskmeasures.var_cvar`, `lower_quantile`) of loss − payout + the design premium.
+- Binary designs: the core's `StepPayout` with one bin from the trigger (and a second edge above it, which changes no payout). The core's optimum must agree with the closed form ([Binary designs](#binary-designs-and-the-grid-route)) within 1e-7 relative.
+- Lower-tail steps: the core works on the severity −x, with the breakpoints' severities.
 - Solvers, through the core's `solve.solve` with these policies: HiGHS for the LP vertices and the ranging LPs; Clarabel with `tol_gap_abs`, `tol_gap_rel` and `tol_feas` at 1e-12 for the QPs and the non-unique LPs; OSQP at `eps` 1e-12 to check the QPs (agreement 1e-9). The core's default policy is run too, as a check (agreement 1e-5). Its OSQP, at `eps` 1e-8, meets a binding budget only to about 1e-6 relative, which moves the MSE objective by up to about 1.5e-6 relative: more than the cases' tolerance, so its solutions are not written.
 - Levels within 1e-9 of the scale of zero are written as 0 (ADR 0005 §5.3's rule). Computed values are rounded to 12 significant digits; inputs are written as stored.
 
 ### Metrics
 
-ADR 0005 §6's column names, with its `MetricOptions` defaults: β ∈ {0.9, 0.95, 0.99}, return periods T ∈ {2, 5, 10, 25, 50, 100, 250} years, loss threshold 0 and payout threshold 0. Labels follow crc-sdk's rule: 0.99 gives `b0_99`, 100 gives `rp100`, 0 gives `l0`.
+ADR 0005 §6's column names, with the case's `metric_options`, null for its `MetricOptions` defaults: β ∈ {0.9, 0.95, 0.99}, return periods T ∈ {2, 5, 10, 25, 50, 100, 250} years, loss threshold 0 and payout threshold 0. Every core case has the defaults. Labels follow crc-sdk's rule: 0.99 gives `b0_99`, 100 gives `rp100`, 2.5 gives `rp2_5`, 0 gives `l0`.
 
 The core cases carry the metrics the core computes, in sample and out of sample. The script recomputes the plain ones and the quantile atoms from the draws and requires agreement to 1e-12, so the draws and the core's outcomes match.
 
@@ -203,11 +261,14 @@ The core cases carry the metrics the core computes, in sample and out of sample.
 | `loss_rp<T>`, `payout_rp<T>`, `uncovered_rp<T>` | `evaluate.exceedance_curves`, the AEP curves |
 | `net_loss_rp<T>` | `riskmeasures.lower_quantile` of loss − payout + premium |
 
-The closed-form cases carry every column of ADR 0005 §6. The new metrics (`coverage_ratio`, `tail_coverage_b<β>`, `cvar_uncovered_to_loss_b<β>`, `false_negative_rate_l<ℓ>`, `false_positive_rate_l<ℓ>`) are only there: one case has one source, and the core has none of them. On the realistic data they are in the four closed-form cases of the `synthetic` sample. The script computes every value in exact rational arithmetic; the columns that are also core quantities must agree with the core's risk measures to 1e-12, and a binary payout must equal the core's step payout with one bin from the trigger.
+The closed-form cases carry every column of ADR 0005 §6. The new metrics (`coverage_ratio`, `tail_coverage_b<β>`, `cvar_uncovered_to_loss_b<β>`, `false_negative_rate_l<ℓ>`, `false_positive_rate_l<ℓ>`) are only there: one case has one source, and the core has none of them. On the realistic data they are in the four closed-form cases of the `synthetic` sample and the `-options` case of `synthetic52`. The script computes every value in exact rational arithmetic; the columns that are also core quantities must agree with the core's risk measures to 1e-12 (VaR and CVaR at every β, the return-period quantiles at every T), and a binary or step payout must equal the core's step payout (one bin from the trigger; on the severity for the lower tail).
 
 ## Beyond ADR 0005 §8
 
-The accepted ADR settles the format of the in-sample cases. The cases go beyond it in two points; both use the ADR's own names, and both are defined in `_Fields`.
+The accepted ADR settles the format of the in-sample cases (erratum 4 records the holdout fields). The cases go beyond it in these points; all use the ADR's own names, and all are defined in `_Fields`.
 
-1. **Out-of-sample cases.** §8 has no split. The fields `split` (`{"kind": "holdout", "train_fraction": 0.7}`, after §2's `holdout(sample, train_fraction=0.7)`), `evaluation_sample` and `expected.out_of_sample` (`fold` and `premium_basis` after §6's comparison table) are new. They are null in every in-sample case.
-2. **The `kind` of the new families.** §3 names the registry keys `"linear"` and `"step"`. The cases write `"binary"` for `BinaryPayout` and `"piecewise_linear"` for `PiecewiseLinearPayout`, after the same pattern (the class name without "Payout", in snake case).
+1. **Out-of-sample cases.** §8 has no split; erratum 4 records the holdout's fields. The fields `split` (`{"kind": "holdout", "train_fraction": 0.7}`, after §2's `holdout(sample, train_fraction=0.7)`), `evaluation_sample` and `expected.out_of_sample` (`fold` and `premium_basis` after §6's comparison table) are null in every in-sample case.
+2. **The k-fold and fresh-draw splits.** `{"kind": "kfold", "k": 5, "fold": i}`, after §2's `year_block_kfold(sample, k)` and the plan's `KFold(5)` (the merged module records the same step); one case per fold, `expected.out_of_sample.fold` = i. `{"kind": "fresh_draws", "n_draws": 50, "seed": 20261106}`, after §4.4's `fresh_draws` and the plan's `FreshDraws(n_draws, seed=...)`; §7 records "the seed of the fresh draws" in the setup. The seed is this script's generator's, not one the module can use.
+3. **`metric_options`**, after §6's `MetricOptions` and its four arguments; null for the defaults.
+4. **The grid route.** A shape parameter free on a grid is §3's `Free` with an explicit grid, and its chosen value is in `expected.parameters` by its flat name (`trigger`). `expected.profile`, after §5.3's `DesignResult.profile`, lists the objective at every candidate; its rows are this format's, not the module's table layout. No tie count (`DesignResult.ties`) is written: §5.3 leaves the tie tolerance open and does not say whether the best candidate counts itself, so the cases have no tie at the optimum instead.
+5. **The `kind` of the new families.** Erratum 2 records them: `"binary"` for `BinaryPayout` and `"piecewise_linear"` for `PiecewiseLinearPayout`.

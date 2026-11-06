@@ -1,4 +1,6 @@
-r"""Export golden fixtures from the core for the CRC module's tests (MAR-245, MAR-255).
+r"""Export golden fixtures from the core for the CRC module's tests.
+
+MAR-245 built the fixtures; MAR-255 and MAR-264 extended them.
 
 The parametric insurance module ``crc_sdk.parametric`` is built in a fork of
 crc-sdk. It never imports this repository's core, ``parametric_insurance_design``,
@@ -7,8 +9,11 @@ writes the bridge: small, self-describing JSON cases, one document per case,
 that the module's tests read (R-14 to R-17, later R-21). The field names
 follow the parity contract of ADR 0005 §8 (accepted 2026-11-06, MAR-244);
 they are defined once, in :data:`F`, so that a rename is one edit. The
-out-of-sample fields, which §8 does not define, are named after §2 and §6
-(``holdout``, ``train_fraction``, ``fold``, ``premium_basis``).
+fields §8 does not define are named after the ADR's other sections: the
+out-of-sample fields after §2, §4.4 and §6 (``holdout``, ``train_fraction``,
+``kfold``, ``k``, ``fresh_draws``, ``n_draws``, ``seed``, ``fold``,
+``premium_basis``), ``metric_options`` after §6's ``MetricOptions`` and
+``profile`` after §5.3's ``DesignResult.profile``.
 
 Outputs, relative to the repository root:
 
@@ -47,21 +52,33 @@ How the expected values are computed
     core's default policy, run too, to :data:`DEFAULT_AGREEMENT_RTOL`.
   - Unidentified levels are written by ADR 0005 §5.4's default fill rule,
     ``"lowest"`` (:func:`_fill_lowest`).
-* **Out-of-sample design cases** (``split = {"kind": "holdout", ...}``): the
-  core's ``splits.holdout`` splits the draws into year blocks; the core
-  designs on the first block, as above, and evaluates the design on the
-  second with the design premium (ADR 0005 §6, decision 9:
-  ``premium_basis = "design"``).
+* **Out-of-sample design cases** (``split`` not null, :class:`SplitSpec`):
+  the core's ``splits.holdout`` or ``splits.year_block_kfold`` splits the
+  draws into year blocks, and the core designs on the design block, as
+  above, and evaluates the design on the held-out block; or the core designs
+  on every draw and evaluates the design on fresh draws, another sample of
+  the same process. Either way with the design premium (ADR 0005 §6,
+  decision 9: ``premium_basis = "design"``).
+* **Binary designs** (``kind = "design"``, ``source = "core"``): a binary
+  payout with a fixed trigger and a free amount is the core's one-bin step
+  from the trigger, so the core designs it; the one-amount problem also has
+  a closed form (:func:`binary_optimum`), which must agree. The grid route
+  of ADR 0005 §5.3 (a free trigger on a grid, :func:`grid_design_case`):
+  the core designs the amount at every candidate, and the best candidate
+  wins by a margin (:data:`GRID_MARGIN`).
+* **Lower-tail step designs**: the core has no lower tail, so it designs the
+  step on the severity ``s = -x`` (:attr:`Dataset.severity`).
 * **Fixed covers with a step payout** (``kind = "evaluate"``,
   ``source = "core"``): the core's ``StepPayout.evaluate`` and
   ``evaluate.kpis`` on a hand-set cover.
-* **Fixed covers with a linear, binary or piecewise-linear payout**
-  (``kind = "evaluate"``, ``source = "closed_form"``): the core has none of
-  these families, so this script computes every value from the closed forms
+* **Fixed covers with a linear, binary, piecewise-linear or lower-tail step
+  payout** (``kind = "evaluate"``, ``source = "closed_form"``): the core has
+  none of these, so this script computes every value from the closed forms
   of ADR 0005 §3 and §6 itself, in exact rational arithmetic
-  (:func:`_exact_metrics`), on hand-made samples and on the synthetic sample.
-  Where a metric is also a core quantity, the core's risk measures must agree
-  to 1e-12; a binary payout must also equal the core's one-bin step payout.
+  (:func:`_exact_metrics`), on hand-made samples and on the synthetic sample,
+  with §6's default or stated :class:`MetricOptions`. Where a metric is also
+  a core quantity, the core's risk measures must agree to 1e-12; a binary or
+  step payout must also equal the core's step payout (on the severity).
 
 The metrics of a core case are the ones the core computes: ``evaluate.kpis``,
 ``evaluate.exceedance_curves`` and ``riskmeasures.var_cvar``
@@ -2639,8 +2656,8 @@ def synthetic_closed_form_sample(data: Dataset) -> ClosedFormSample:
 
     These are the draws of the core cases' asset A1, as written there, so the
     closed-form cases put ADR 0005 §6's new metrics on the same realistic
-    sample (150 years, 30 % without a storm, basis risk between index and
-    loss).
+    sample (150 years, or the short data set's 52; 30 % without a storm,
+    basis risk between index and loss).
     """
     return ClosedFormSample(
         name=data.name,
