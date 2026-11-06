@@ -100,13 +100,14 @@ These rules apply to every issue whose work lands in `marc272/crc-sdk` or `marc2
 
 - Read the fork's own `AGENTS.md` first. It and the fork's checks are binding, together with this file. Where the two differ on code style or tooling, the fork's wins in the fork, because the code is written for upstream. Escalate any other conflict.
 - crc-sdk:
-  - checks: `uv run pytest -q`, `uv run mypy` (strict), `uv run ruff check . && uv run ruff format --check .`;
+  - checks, as its `AGENTS.md` and CI run them: `uv sync --locked --all-extras` first, then `uv run --locked --all-extras pytest -q`, `uv run --locked --all-extras mypy` (strict), and `uv run --locked --all-extras ruff check . && uv run --locked --all-extras ruff format --check .`. pytest, mypy and ruff are only in the `test` extra, and highspy in `parametric`;
   - offline tests;
   - no I/O in builders or `explain()`;
   - atomic writes;
   - licence and provenance for every source;
   - no breaking changes to `__all__`.
-- crc-docs: its `AGENTS.md`, and its tests (`uv run pytest -q`). Its CI checks only the agent skills, so the checks you run on the final head are the gate.
+- crc-docs: its `AGENTS.md`, and its tests (`uv run --with pytest python -m pytest -q`: pytest isn't a crc-docs dependency, and the tests import `pipelines` from the repository root, which `python -m` puts on the path). Its CI checks only the agent skills, so the checks you run on the final head are the gate.
+  - One upstream test fails on crc-docs' `main` as of 2026-11-06, and so on `parametric`: `tests/test_notebooks.py::test_flood_demo_reuses_cache_and_explores_canonical_curve` (reported to RiskThinking through MAR-249). Until upstream fixes it, the gate is no new failures against the base: run the tests on `origin/parametric` and on your head, and paste both summaries.
 
 **Written for upstream**
 
@@ -125,7 +126,7 @@ These rules apply to every issue whose work lands in `marc272/crc-sdk` or `marc2
 - Push your branch to the fork (`git -C <worktree> push -u origin <branch>`) and open the PR inside the fork, with base `parametric`. Push early, as in this repository.
 - Every `gh pr` command names the fork: `gh pr create --repo marc272/crc-sdk --base parametric --head <branch> --draft …`, and the same `--repo` on `gh pr view`, `edit`, `ready` and `checks`. Without `--repo`, `gh` in a fork clone can resolve to RiskThinking's repository.
 - PR title: `[MAR-<n>] <conventional-commit subject>`. PR body: as in this repository (the issue, the acceptance criteria with evidence, deviations, follow-ups), plus the summary of the fork's checks on the final head. Pass it with `--body-file`: a `gh` command line that contains a `github.com/RiskThinking` URL is denied, even inside a body.
-- Done means: every acceptance criterion is evidenced, and the fork's CI is green on the PR. In crc-docs, where CI doesn't run the tests, the fork's checks pass on the final head and their summary is in the PR body.
+- Done means: every acceptance criterion is evidenced, and the fork's CI is green on the PR. In crc-docs, where CI doesn't run the tests, the fork's checks pass on the final head (no new failures against the base, while the upstream failure above stands) and their summary is in the PR body.
 
 **No contact with RiskThinking**
 
