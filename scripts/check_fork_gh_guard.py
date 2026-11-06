@@ -2,13 +2,22 @@
 """Test the fork gh guard hook, ``.claude/hooks/fork_gh_guard.py`` (MAR-253).
 
 The hook refuses a repo-scoped ``gh`` command (``gh pr``, ``issue``,
-``label``, ``run``, ``secret``, ``variable``, ``cache``) that may run in a CRC
-fork path without ``--repo marc272/<fork>``, and a ``gh api`` call there that
-uses the ``{owner}``/``{repo}`` placeholders (MAR-261). This script runs it
-the way Claude Code does, one process per case with the ``PreToolUse`` JSON
-on stdin, and checks the exit status: 0 allows with no output, 2 refuses with
-a message on stderr that says how to fix the command. It also checks that:
+``release``, ``workflow`` and the other groups of its
+``REPO_FLAG_SUBCOMMANDS``) that may run in a CRC fork path without
+``--repo marc272/<fork>``, and a ``gh api`` call there that uses the
+``{owner}``/``{repo}`` placeholders (MAR-261). Wherever it runs, it refuses
+the gh commands that the deny rules deny, in every spelling (MAR-263). This
+script runs it the way Claude Code does, one process per case with the
+``PreToolUse`` JSON on stdin, and checks the exit status: 0 allows with no
+output, 2 refuses with a message on stderr that says what to do. It also
+checks that:
 
+- the Bash deny rules of ``.claude/settings.json`` deny the ``gh -R <repo>
+  <group>`` forms and other spellings of the denied gh writes, and don't deny
+  the runbook's prescribed commands (``RULE_CASES``, MAR-263). Rules load at
+  session start, so they are matched here the way the permissions page says
+  Claude Code matches them (``rule_matches``, ``denied_by``), a model checked
+  against the page's own examples (``DOC_RULE_EXAMPLES``);
 - ``.claude/settings.json`` wires the hook as one ``PreToolUse`` hook whose
   matcher names Bash, Monitor and the terminal tool, by running its command
   string through ``sh -c`` with ``CLAUDE_PROJECT_DIR`` set, as Claude Code
@@ -80,6 +89,8 @@ GH_REPO_DENY_RULES = (
 # tool runs in the user's login shell, outside them, so it is also denied.
 TERMINAL_TOOL = "mcp__terminal__run_in_terminal"
 GUARDED_TOOLS = ("Bash", "Monitor", TERMINAL_TOOL)
+# The hook says this of a denied gh command (MAR-263), and only of one.
+DENIED_MARK = "is denied in every spelling"
 # The hooks reference, "Matcher patterns": a matcher of only these characters
 # is an exact tool name, or a list of them separated by | or ,; any other
 # character makes it an unanchored JavaScript regular expression.
@@ -291,11 +302,12 @@ CASES: list[tuple[str, str, str]] = [
     ("refuse", REPO, f"(( n = 1 << 2 ))\ncd {SDK} && gh pr list"),
     ("refuse", REPO, f"echo $(( 1 << 2 ))\ncd {SDK} && gh pr list"),
     ("refuse", REPO, f"cat <<'EOF'\nnotes\nEOF\ncd {SDK} && gh pr list"),
-    # Refused: a repo flag that isn't a literal marc272 repository.
-    ("refuse", SDK, "gh pr list --repo RiskThinking/crc-sdk"),
+    # Refused: a repo flag that isn't a literal marc272 repository. A
+    # RiskThinking one is denied wherever it runs (MAR-263: "deny").
+    ("deny", SDK, "gh pr list --repo RiskThinking/crc-sdk"),
     ("refuse", SDK, 'gh pr list --repo "$REPO"'),
     ("refuse", SDK, "gh pr view 3 --repo=$FORK"),
-    ("refuse", SDK, "gh pr list -R marc272/crc-sdk -R RiskThinking/crc-sdk"),
+    ("deny", SDK, "gh pr list -R marc272/crc-sdk -R RiskThinking/crc-sdk"),
     ("refuse", SDK, "gh pr create --title t -- --repo marc272/crc-sdk"),
     ("refuse", SDK, "gh pr view 3 --repo"),
     ("refuse", SDK, "gh pr view 3 --repo marc272/"),
@@ -345,11 +357,11 @@ CASES: list[tuple[str, str, str]] = [
         "gh api graphql -F owner=marc272 -F name=crc-sdk -f query='query($owner:"
         "String!,$name:String!){repository(owner:$owner,name:$name){id}}'",
     ),
-    # Not checked: gh run as another tool's word, and other gh groups (their
-    # writes are denied by the deny rules).
+    # Not checked: gh run as another tool's word. Case 121 was allowed until
+    # MAR-263, which checks gh workflow in fork paths: it is refused now.
     ("allow", WT, "uv run pytest -q && gh pr checks 3 --repo marc272/crc-sdk"),
     ("allow", SDK, "gh --version && uv run pytest -q"),
-    ("allow", SDK, "gh workflow list"),
+    ("refuse", SDK, "gh workflow list"),
     ("allow", SDK, "gh --version && uv run 'unterminated"),
     # Refused: label, run, secret, variable and cache without --repo.
     ("refuse", SDK, "gh label create needs-review --color ededed"),
@@ -366,7 +378,7 @@ CASES: list[tuple[str, str, str]] = [
     ("refuse", SDK, "gh cache delete --all"),
     ("refuse", SDK, "gh cache list"),
     ("refuse", SDK, 'gh secret list --repo "$FORK"'),
-    ("refuse", SDK, "gh run rerun 123 --repo RiskThinking/crc-sdk"),
+    ("deny", SDK, "gh run rerun 123 --repo RiskThinking/crc-sdk"),
     ("refuse", REPO, f"cd {WT} && gh run rerun 123 --failed"),
     ("refuse", REPO, f"git -C {SDK} fetch origin && gh label list"),
     ("refuse", REPO, f"bash -c 'cd {DOCS} && gh variable list'"),
@@ -388,6 +400,549 @@ CASES: list[tuple[str, str, str]] = [
     ("refuse", SDK, "gh api -- repos/{owner}/{repo}/pulls"),
     ("refuse", REPO, f"cd {SDK} && gh api repos/{{owner}}/{{repo}}/pulls"),
     ("refuse", SDK, "gh api 'repos/{owner}/{repo}/pulls' 'unterminated"),
+    # MAR-263: every gh group with a group-level -R is checked in fork paths:
+    # browse, co, discussion, release, ruleset and workflow too.
+    ("allow", SDK, "gh workflow list --repo marc272/crc-sdk"),
+    ("allow", SDK, "gh -R marc272/crc-sdk workflow view release.yaml"),
+    ("allow", SDK, "gh release list -R marc272/crc-sdk"),
+    ("allow", DOCS, "gh browse -n --repo marc272/crc-docs"),
+    ("allow", SDK, "gh run list -R marc272/crc-sdk --workflow release.yaml"),
+    ("allow", REPO, "gh workflow list && gh release list && gh browse -n"),
+    (
+        "allow",
+        REPO,
+        "gh release download v1.6.40 -R quarto-dev/quarto-cli"
+        " -p 'quarto-1.6.40-macos.tar.gz' -p 'quarto-1.6.40-checksums.txt'",
+    ),
+    ("refuse", SDK, "gh workflow view release.yaml"),
+    ("refuse", SDK, "gh release list"),
+    ("refuse", SDK, "gh release view v1.0.0 --json createdAt"),
+    ("refuse", DOCS, "gh browse -n"),
+    ("refuse", SDK, "gh browse --settings"),
+    ("refuse", SDK, "gh discussion list"),
+    ("refuse", SDK, "gh ruleset list"),
+    ("refuse", SDK, "gh co 3"),
+    ("refuse", REPO, f"cd {SDK} && gh release list"),
+    ("refuse", SDK, "gh release download v1 -R quarto-dev/quarto-cli"),
+    ("refuse", SDK, "gh release list 'unterminated"),
+    # MAR-263: the denied gh commands, refused wherever they run and whatever
+    # --repo says: the issue's three gh -R forms, every repo flag spelling and
+    # position, the aliases, and gh by path, in quotes or in sh -c.
+    ("deny", REPO, "gh -R marc272/crc-sdk workflow run release.yaml"),
+    ("deny", REPO, "gh -R marc272/crc-sdk release create v1"),
+    ("deny", REPO, "gh -R marc272/crc-sdk pr merge 3 --admin"),
+    ("deny", SDK, "gh -R marc272/crc-sdk release create v1"),
+    ("deny", REPO, "gh --repo marc272/crc-sdk release upload v1 dist/a.whl"),
+    ("deny", REPO, "gh --repo=marc272/crc-sdk workflow enable release.yaml"),
+    ("deny", REPO, "gh -Rmarc272/crc-sdk release delete v1 --yes"),
+    ("deny", REPO, "gh -R=marc272/crc-sdk workflow disable ci.yml"),
+    ("deny", REPO, "gh release -R marc272/crc-sdk create v1"),
+    ("deny", REPO, "gh workflow --repo marc272/crc-sdk run release.yaml"),
+    ("deny", REPO, "gh pr -R marc272/crc-sdk merge 3 --squash --admin"),
+    ("deny", REPO, "gh -R marc272/crc-sdk release -R marc272/crc-sdk create v1"),
+    ("deny", REPO, "gh release new v1.2.3"),
+    ("deny", REPO, "gh release edit v1 --draft=false"),
+    ("deny", REPO, "gh release delete-asset v1 a.whl"),
+    ("deny", REPO, "gh repo new crc-scratch --public"),
+    ("deny", REPO, "gh repo delete marc272/crc-docs --yes"),
+    ("deny", REPO, "gh pr merge 3 --admin=true"),
+    ("deny", REPO, "gh pr merge --admin 3"),
+    ("deny", REPO, "/opt/homebrew/bin/gh release create v1"),
+    ("deny", REPO, '"gh" -R marc272/crc-sdk workflow run release.yaml'),
+    ("deny", REPO, "bash -c 'gh -R marc272/crc-sdk release new v1'"),
+    ("deny", REPO, "timeout 60 gh -R marc272/crc-sdk workflow run release.yaml"),
+    ("deny", REPO, "echo v1 | xargs -n1 gh release create"),
+    ("deny", REPO, "gh -R RiskThinking/crc-sdk pr create --title t --body b"),
+    ("deny", REPO, "gh --repo RiskThinking/crc-sdk issue create --title t"),
+    ("deny", REPO, "gh pr create -RRiskThinking/crc-sdk --title t"),
+    ("deny", REPO, "gh pr list -R RISKTHINKING/crc-sdk"),
+    ("deny", REPO, "gh repo view riskThinking/crc-sdk"),
+    ("deny", REPO, "gh api orgs/RISKTHINKING/repos"),
+    (
+        "deny",
+        REPO,
+        "gh pr comment 3 --repo marc272/crc-sdk"
+        ' --body "port of RiskThinking/crc-sdk#12"',
+    ),
+    ("deny", REPO, "gh -R marc272/crc-sdk release create v1 --notes 'unterminated"),
+    ("deny", REPO, "gh repo new x --description 'unterminated"),
+    # Not denied: reads, other commands of the same groups, and the words in
+    # a quoted argument or a body file.
+    ("allow", REPO, "gh -R marc272/parametric-insurance-design pr list"),
+    ("allow", REPO, "gh release view v1.0.0 --repo marc272/crc-sdk --json createdAt"),
+    ("allow", REPO, "gh workflow view release.yaml --repo marc272/crc-sdk --yaml"),
+    ("allow", REPO, "gh repo view marc272/crc-sdk --json name"),
+    (
+        "allow",
+        REPO,
+        "gh pr merge 196 --squash --repo marc272/parametric-insurance-design",
+    ),
+    ("allow", REPO, 'git commit -m "MAR-263: deny gh -R x release create forms"'),
+    ("allow", REPO, 'grep -rn "gh release create" docs/'),
+    (
+        "allow",
+        REPO,
+        "gh pr view 3 --repo marc272/crc-sdk --json body -q .body"
+        " | grep -c RiskThinking",
+    ),
+    (
+        "allow",
+        AGENT_WT,
+        'gh pr create --draft --title "[MAR-263] x" --body-file results/pr-body.md',
+    ),
+    ("allow", REPO, "gh --version && gh workflow list 'unterminated"),
+]
+
+# --- The deny rules (MAR-263) ----------------------------------------------
+#
+# Claude Code loads .claude/settings.json at session start, so a new rule
+# can't be tried live in the session that writes it. ``denied_by`` models how
+# the permissions page (code.claude.com/docs/en/permissions, read 2026-11-06)
+# says a Bash deny rule matches, and ``DOC_RULE_EXAMPLES`` checks the model
+# against the page's own examples:
+#
+# - "Wildcard patterns": ``*`` stands for any text, spaces included, and the
+#   rest of the pattern is matched as written against the whole command. A
+#   trailing `` *`` that is the rule's only wildcard also matches the bare
+#   command, and a trailing ``:*`` is the same as `` *``.
+# - "Compound commands": a deny rule applies when any subcommand matches. The
+#   command is split at &&, ||, ;, |, |&, & and newlines, and commands in
+#   subshells and command substitutions count too.
+# - "Wrappers": timeout, time, nice, nohup, stdbuf, command, builtin, noglob
+#   and xargs without flags are stripped, and so is any leading assignment.
+# - "What a Bash rule doesn't match": quotes and paths count as written, so
+#   ``git 'push'`` and ``/usr/bin/curl`` match neither ``git push *`` nor
+#   ``curl *``.
+#
+# What the page doesn't say isn't modelled (whether runs of spaces are
+# collapsed, how here-documents split), and the cases avoid those forms.
+_RULE_SEPARATORS = ("&&", "||", "|&", ";", "|", "&", "\n")
+_RULE_ASSIGNMENT = re.compile(
+    r"[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|\"[^\"]*\"|[^\s'\"])*\s+"
+)
+_PLAIN_WRAPPERS = frozenset({"time", "nohup", "noglob", "builtin", "command"})
+
+
+def rule_matches(pattern: str, command: str) -> bool:
+    """Whether the pattern of a ``Bash(<pattern>)`` rule matches a command.
+
+    Parameters
+    ----------
+    pattern
+        The text between ``Bash(`` and ``)``.
+    command
+        One simple command, as written.
+
+    Returns
+    -------
+    bool
+        Whether the rule matches, as "Wildcard patterns" describes.
+    """
+    if pattern.endswith(":*"):
+        pattern = pattern[:-2] + " *"
+    regex = ".*".join(re.escape(part) for part in pattern.split("*"))
+    if pattern.endswith(" *") and pattern.count("*") == 1:
+        regex = re.escape(pattern[:-2]) + "(?: .*)?"
+    return re.fullmatch(regex, command, re.DOTALL) is not None
+
+
+def _closing(text: str, i: int) -> tuple[int, list[str]]:
+    """Return the end of the quote or substitution at ``i``, and its scripts.
+
+    ``i`` is at a double quote, a ``$(`` or a backtick. The scripts are the
+    contents of the command substitutions in it.
+    """
+    n = len(text)
+    if text[i] == "`":
+        j = i + 1
+        while j < n and text[j] != "`":
+            j += 2 if text[j] == "\\" else 1
+        return min(j + 1, n), [text[i + 1 : j]]
+    if text[i] == '"':
+        scripts: list[str] = []
+        j = i + 1
+        while j < n and text[j] != '"':
+            if text[j] == "\\":
+                j += 2
+            elif text.startswith("$(", j) or text[j] == "`":
+                j, inner = _closing(text, j)
+                scripts += inner
+            else:
+                j += 1
+        return min(j + 1, n), scripts
+    depth, j = 1, i + 2  # $(
+    while j < n:
+        if text[j] == "\\":
+            j += 2
+            continue
+        if text[j] == "'":
+            end = text.find("'", j + 1)
+            j = n if end < 0 else end + 1
+            continue
+        if text[j] == '"':
+            j, _ = _closing(text, j)
+            continue
+        depth += {"(": 1, ")": -1}.get(text[j], 0)
+        if depth == 0:
+            return j + 1, [text[i + 2 : j]]
+        j += 1
+    return n, [text[i + 2 :]]
+
+
+def subcommands(command: str) -> list[str]:
+    """Return the simple commands of shell text, as written, nested ones too.
+
+    Parameters
+    ----------
+    command
+        Shell command text.
+
+    Returns
+    -------
+    list of str
+        Each simple command, stripped of surrounding space: the top-level
+        ones, then those in subshells and command substitutions.
+    """
+    found: list[str] = []
+    nested: list[str] = []
+    current: list[str] = []
+
+    def flush() -> None:
+        text = "".join(current).strip()
+        current.clear()
+        if text:
+            found.append(text)
+
+    i, n = 0, len(command)
+    while i < n:
+        c = command[i]
+        if c == "\\":
+            current.append(command[i : i + 2])
+            i += 2
+        elif c == "'":
+            end = command.find("'", i + 1)
+            end = n if end < 0 else end + 1
+            current.append(command[i:end])
+            i = end
+        elif c in '"`' or command.startswith("$(", i):
+            end, scripts = _closing(command, i)
+            for script in scripts:
+                nested += subcommands(script)
+            current.append(command[i:end])
+            i = end
+        elif c in "()":
+            flush()
+            i += 1
+        else:
+            sep = next((s for s in _RULE_SEPARATORS if command.startswith(s, i)), "")
+            if sep:
+                flush()
+                i += len(sep)
+            else:
+                current.append(c)
+                i += 1
+    flush()
+    return found + nested
+
+
+def strip_wrappers(command: str) -> str:
+    """Return a simple command without its leading assignments and wrappers.
+
+    Parameters
+    ----------
+    command
+        One simple command, as written.
+
+    Returns
+    -------
+    str
+        The command after the wrappers that "Wrappers" lists.
+    """
+    while True:
+        assignment = _RULE_ASSIGNMENT.match(command)
+        if assignment:
+            command = command[assignment.end() :]
+            continue
+        words = command.split()
+        first = words[0] if words else ""
+        skip = 0
+        if first in _PLAIN_WRAPPERS and words[1:2] != ["-v"]:
+            skip = 1
+        elif first == "timeout":
+            skip = 1
+            while skip < len(words) and words[skip].startswith("-"):
+                skip += 2 if words[skip] in ("-s", "-k") else 1
+            skip += 1  # the duration
+        elif first == "nice":
+            skip = 3 if words[1:2] == ["-n"] else 1
+        elif first == "stdbuf":
+            skip = 1
+            while skip < len(words) and words[skip].startswith("-"):
+                skip += 1
+        elif first == "xargs" and words[1:2] and not words[1].startswith("-"):
+            skip = 1
+        if not skip or skip >= len(words):
+            return command
+        command = command.split(None, skip)[skip]
+
+
+def bash_deny_patterns(settings: dict[str, object]) -> list[str]:
+    """Return the patterns of the ``Bash(...)`` deny rules of a settings object.
+
+    Parameters
+    ----------
+    settings
+        A parsed settings file.
+
+    Returns
+    -------
+    list of str
+        The text between ``Bash(`` and ``)`` of each Bash deny rule.
+    """
+    permissions = settings.get("permissions")
+    deny = permissions.get("deny", []) if isinstance(permissions, dict) else []
+    return [
+        rule[len("Bash(") : -1]
+        for rule in deny
+        if isinstance(rule, str) and rule.startswith("Bash(") and rule.endswith(")")
+    ]
+
+
+def denied_by(command: str, patterns: list[str]) -> str | None:
+    """Return the first deny rule that refuses ``command``, or ``None``.
+
+    Parameters
+    ----------
+    command
+        Shell command text, as the Bash tool receives it.
+    patterns
+        Bash deny patterns (``bash_deny_patterns``).
+
+    Returns
+    -------
+    str or None
+        The rule, as ``Bash(<pattern>)``, or ``None`` if none matches.
+    """
+    for sub in subcommands(command):
+        for form in dict.fromkeys((sub, strip_wrappers(sub))):
+            for pattern in patterns:
+                if rule_matches(pattern, form):
+                    return f"Bash({pattern})"
+    return None
+
+
+# (pattern, command, matches) from the permissions page: the "Wildcard
+# patterns" table, and the examples under "Compound commands", "Wrappers" and
+# "What a Bash rule doesn't match".
+DOC_RULE_EXAMPLES: list[tuple[str, str, bool]] = [
+    ("npm run build", "npm run build", True),
+    ("npm run build", "npm run build --watch", False),
+    ("npm run *", "npm run build", True),
+    ("npm run *", "npm run test --watch", True),
+    ("npm run *", "npm run", True),
+    ("npm run *", "npm install", False),
+    ("git log * main", "git log --oneline main", True),
+    ("git log * main", "git log --output=<file> main", True),
+    ("git log * main", "git log main", False),
+    ("git log * main", "git push origin main", False),
+    ("git * main", "git merge main", True),
+    ("git * main", "git push origin main", True),
+    ("git * main", "git -c core.fsmonitor=<script> diff main", True),
+    ("git * main", "git log", False),
+    ("* --version", "node --version", True),
+    ("* --version", "bash -c 'echo hi' --version", True),
+    ("* --version", "node -v", False),
+    ("ls *", "ls -la", True),
+    ("ls *", "ls", True),
+    ("ls *", "lsof", False),
+    ("ls*", "ls -la", True),
+    ("ls*", "lsof", True),
+    ("* --help *", "npm --help x", True),
+    ("* --help *", "npm --help", False),
+    ("ls:*", "ls -la", True),
+    ("git clean *", "cd /tmp && git clean -f", True),
+    ("git clean *", 'echo "$(git clean -f)"', True),
+    ("npm test *", "timeout 30 npm test", True),
+    ("rm *", "FOO=bar rm -rf tmp/", True),
+    ("grep *", "xargs grep pattern", True),
+    ("grep *", "xargs -n1 grep pattern", False),
+    ("curl *", "curl https://example.com", True),
+    ("curl *", "/usr/bin/curl https://example.com", False),
+    ("curl *", "sh -c 'curl https://example.com'", False),
+    ("rm *", "bash -c 'rm -rf build/'", False),
+    ("git push *", "git push origin main", True),
+    ("git push *", "git -C . push origin main", False),
+    ("git push *", "git -c push.default=current push origin main", False),
+    ("git push *", "git 'push' origin main", False),
+]
+
+# (deny rules, hook, command): what the deny rules of .claude/settings.json
+# do with a command ("deny" or "pass", by denied_by), and what the hook does
+# with it from this repository's main checkout. Commands are written as an
+# agent would write them.
+RULE_CASES: list[tuple[str, str, str]] = [
+    # The issue's three gh -R forms (MAR-263), and the other spellings and
+    # positions of the repo flag.
+    ("deny", "deny", "gh -R marc272/crc-sdk workflow run release.yaml"),
+    ("deny", "deny", "gh -R marc272/crc-sdk release create v1"),
+    ("deny", "deny", "gh -R marc272/crc-sdk pr merge 3 --admin"),
+    ("deny", "deny", "gh --repo marc272/crc-sdk release upload v1 dist/a.whl"),
+    ("deny", "deny", "gh --repo=marc272/crc-sdk workflow enable release.yaml"),
+    ("deny", "deny", "gh -Rmarc272/crc-sdk release delete v1 --yes"),
+    ("deny", "deny", "gh -R=marc272/crc-sdk workflow disable ci.yml"),
+    ("deny", "deny", "gh -R marc272/crc-sdk release edit v1 --draft=false"),
+    ("deny", "deny", "gh -R marc272/crc-sdk release delete-asset v1 a.whl"),
+    ("deny", "deny", "gh release -R marc272/crc-sdk create v1"),
+    ("deny", "deny", "gh release --repo marc272/crc-sdk upload v1 a.whl"),
+    ("deny", "deny", "gh workflow --repo marc272/crc-sdk run release.yaml"),
+    ("deny", "deny", "gh workflow -R marc272/crc-sdk enable release.yaml"),
+    ("deny", "deny", "gh pr -R marc272/crc-sdk merge 3 --squash --admin"),
+    # The aliases gh release new and gh repo new, and --admin=<value>.
+    ("deny", "deny", "gh release new v1.2.3"),
+    ("deny", "deny", "gh -R marc272/crc-sdk release new v1.2.3"),
+    ("deny", "deny", "gh release -R marc272/crc-sdk new v1.2.3"),
+    ("deny", "deny", "gh repo new crc-scratch --public"),
+    ("deny", "deny", "gh pr merge 3 --admin=true"),
+    ("deny", "deny", "gh pr merge --admin 3"),
+    (
+        "deny",
+        "deny",
+        "gh --repo marc272/parametric-insurance-design pr merge 196 --squash --admin",
+    ),
+    # A RiskThinking repository, in any position and quoting.
+    ("deny", "deny", "gh -R RiskThinking/crc-sdk pr create --title t --body b"),
+    ("deny", "deny", "gh --repo RiskThinking/crc-sdk issue create --title t"),
+    ("deny", "deny", "gh --repo=riskthinking/crc-docs pr list"),
+    ("deny", "deny", "gh pr create -RRiskThinking/crc-sdk --title t"),
+    ("deny", "deny", "gh pr create -R=RiskThinking/crc-sdk --title t"),
+    ("deny", "deny", 'gh pr create --repo "RiskThinking/crc-sdk" --title t'),
+    ("deny", "deny", "gh repo view RiskThinking/crc-sdk"),
+    ("deny", "deny", "gh repo clone RiskThinking/crc-docs"),
+    (
+        "deny",
+        "deny",
+        "gh pr comment 3 --repo marc272/crc-sdk"
+        ' --body "port of RiskThinking/crc-sdk#12"',
+    ),
+    # The forms the rules denied before, still denied.
+    ("deny", "deny", "gh release create v1"),
+    ("deny", "deny", "gh workflow run release.yaml"),
+    ("deny", "deny", "gh pr merge 3 --squash --admin"),
+    ("deny", "deny", "gh pr create --repo RiskThinking/crc-sdk --title t"),
+    ("deny", "deny", "gh api repos/RiskThinking/crc-sdk/pulls"),
+    ("deny", "deny", "gh repo delete marc272/crc-docs --yes"),
+    ("deny", "refuse", "GH_REPO=RiskThinking/crc-sdk gh pr list"),
+    ("deny", "allow", "gh api -X DELETE repos/marc272/crc-sdk/actions/caches/1"),
+    ("deny", "allow", "git tag v1.0.0"),
+    ("deny", "allow", "git push origin v1.0.0"),
+    ("deny", "allow", f"git -C {WT} push --force origin x"),
+    # Through wrappers, assignments, compound commands and substitutions.
+    ("deny", "deny", f"cd {SDK} && gh -R marc272/crc-sdk release create v1"),
+    ("deny", "deny", "timeout 60 gh -R marc272/crc-sdk workflow run release.yaml"),
+    ("deny", "deny", "GH_DEBUG=1 gh -R marc272/crc-sdk release create v1"),
+    ("deny", "deny", 'echo "$(gh -R marc272/crc-sdk release create v1)"'),
+    # Spellings the text rules miss, as the permissions page says they do;
+    # the hook refuses them.
+    ("pass", "deny", "/opt/homebrew/bin/gh -R marc272/crc-sdk release create v1"),
+    ("pass", "deny", "bash -c 'gh release create v1'"),
+    ("pass", "deny", '"gh" -R marc272/crc-sdk workflow run release.yaml'),
+    ("pass", "deny", "echo v1 | xargs -n1 gh release create"),
+    ("pass", "deny", "gh -R marc272/crc-sdk release -R marc272/crc-sdk create v1"),
+    ("pass", "deny", "gh pr list -R RISKTHINKING/crc-sdk"),
+    # The rules' known false positives: a body that says "workflow run" after
+    # a leading -R, and a release read that asks for createdAt with -R after
+    # the group. Pass the body with --body-file, or the flag after the command.
+    (
+        "deny",
+        "allow",
+        'gh -R marc272/parametric-insurance-design pr comment 196 --body "the'
+        ' workflow run failed"',
+    ),
+    ("deny", "allow", "gh release -R marc272/crc-sdk view v1 --json createdAt"),
+    # The runbook's prescribed commands, and reads of the same groups: none is
+    # denied.
+    ("pass", "allow", "gh -R marc272/parametric-insurance-design pr list"),
+    (
+        "pass",
+        "allow",
+        "gh pr merge 196 --repo marc272/parametric-insurance-design --squash",
+    ),
+    (
+        "pass",
+        "allow",
+        "gh pr merge 12 --repo marc272/crc-sdk --squash"
+        ' --subject "feat(parametric): add the step payout (#12)"'
+        ' --body "Refs: MAR-260"',
+    ),
+    ("pass", "allow", "gh pr merge 13 --repo marc272/crc-sdk --merge"),
+    (
+        "pass",
+        "allow",
+        "gh pr create --repo marc272/crc-sdk --base parametric"
+        " --head marcprinzing/mar-260-step-payout --draft"
+        ' --title "[MAR-260] feat(parametric): add the step payout"'
+        f" --body-file {WT}-notes/pr-body.md",
+    ),
+    (
+        "pass",
+        "allow",
+        "gh pr create --repo marc272/crc-sdk --base parametric"
+        " --head sync/upstream-main-2026-11-05"
+        ' --title "chore: merge upstream main into parametric"',
+    ),
+    ("pass", "allow", "gh pr checks 12 --repo marc272/crc-sdk --watch"),
+    ("pass", "allow", "gh pr ready 12 --repo marc272/crc-sdk"),
+    (
+        "pass",
+        "allow",
+        "gh pr list --repo marc272/crc-docs --state open"
+        " --json number,title,headRefName,baseRefName,isDraft,statusCheckRollup",
+    ),
+    ("pass", "allow", "gh repo set-default --view"),
+    (
+        "pass",
+        "allow",
+        "gh api repos/marc272/parametric-insurance-design/check-runs/42122091157"
+        "/annotations",
+    ),
+    (
+        "pass",
+        "allow",
+        "gh release download v1.6.40 -R quarto-dev/quarto-cli"
+        " -p 'quarto-1.6.40-macos.tar.gz' -p 'quarto-1.6.40-checksums.txt'",
+    ),
+    ("pass", "allow", "gh release view v1.0.0 --repo marc272/crc-sdk --json createdAt"),
+    ("pass", "allow", "gh release list -R marc272/crc-sdk"),
+    ("pass", "allow", "gh -R marc272/crc-sdk workflow view release.yaml"),
+    ("pass", "allow", "gh run list --repo marc272/crc-sdk --workflow release.yaml"),
+    ("pass", "allow", "gh run rerun 42122091157 --failed"),
+    ("pass", "allow", f"git -C {SDK} remote get-url --push upstream"),
+    ("pass", "allow", f"git -C {SDK} fetch upstream && git -C {SDK} fetch origin"),
+    (
+        "pass",
+        "allow",
+        f"git -C {SDK} worktree add --no-track -b marcprinzing/mar-260-step-payout"
+        f" {WT} origin/parametric",
+    ),
+    ("pass", "allow", f"git -C {WT} push -u origin marcprinzing/mar-260-step-payout"),
+    (
+        "pass",
+        "allow",
+        f"git -C {SDK} merge-base --is-ancestor upstream/main origin/parametric",
+    ),
+    ("pass", "allow", f"git -C {WT} merge --no-edit upstream/main"),
+    (
+        "pass",
+        "allow",
+        f"git -C {WT} diff origin/parametric... | grep -nE 'MAR-[0-9]+|linear\\.app'",
+    ),
+    ("pass", "allow", "git for-each-ref refs/tags && git ls-remote --tags origin"),
+    ("pass", "allow", 'git commit -m "MAR-263: deny gh -R x release create forms"'),
+    (
+        "pass",
+        "allow",
+        'gh pr create --draft --title "[MAR-263] x" --body-file results/pr-body.md',
+    ),
 ]
 
 
@@ -542,10 +1097,12 @@ def verdict(proc: subprocess.CompletedProcess[str]) -> str:
     Returns
     -------
     str
-        ``allow`` for exit 0 with no output; ``refuse`` for exit 2 with a
-        message that names the fix (a ``marc272/`` repository: ``--repo
-        marc272/<fork>``, or ``repos/marc272/<fork>`` for gh api) and nothing
-        on stdout; otherwise a description of what went wrong.
+        ``allow`` for exit 0 with no output; for exit 2 with nothing on
+        stdout and the guard's message on stderr, ``deny`` if the message
+        says the command is denied in every spelling (a denied gh command,
+        MAR-263), else ``refuse`` if it names the fork fix (a ``marc272/``
+        repository: ``--repo marc272/<fork>``, or ``repos/marc272/<fork>``
+        for gh api); otherwise a description of what went wrong.
     """
     if proc.returncode == 0 and not proc.stdout and not proc.stderr:
         return "allow"
@@ -553,9 +1110,11 @@ def verdict(proc: subprocess.CompletedProcess[str]) -> str:
         proc.returncode == 2
         and not proc.stdout
         and "Refused by the fork gh guard" in proc.stderr
-        and ("--repo marc272/" in proc.stderr or "repos/marc272/" in proc.stderr)
     ):
-        return "refuse"
+        if DENIED_MARK in proc.stderr:
+            return "deny"
+        if "--repo marc272/" in proc.stderr or "repos/marc272/" in proc.stderr:
+            return "refuse"
     return f"exit {proc.returncode}, stdout {proc.stdout!r}, stderr {proc.stderr!r}"
 
 
@@ -586,6 +1145,65 @@ def check_cases(
         if got == expected:
             lines.append(f"ok   {line}")
         else:
+            lines.append(f"FAIL {line}\n     got: {got}")
+            failures.append(line)
+    return lines, failures, results
+
+
+def check_doc_examples() -> list[str]:
+    """Check ``rule_matches`` and ``denied_by`` on the docs' examples.
+
+    Returns
+    -------
+    list of str
+        One line per example that the model gets wrong.
+    """
+    failures = []
+    for pattern, command, expected in DOC_RULE_EXAMPLES:
+        got = denied_by(command, [pattern]) is not None
+        if got != expected:
+            failures.append(
+                f"deny-rule model: Bash({pattern}) on {command!r}:"
+                f" want {'match' if expected else 'no match'}"
+            )
+    return failures
+
+
+def check_rule_cases(
+    python: str, env: dict[str, str]
+) -> tuple[list[str], list[str], list[tuple[str, str]]]:
+    """Run every case of ``RULE_CASES``; return the report, failures, results.
+
+    Each command goes through the Bash deny rules of ``.claude/settings.json``
+    (``denied_by``) and through the hook, from this repository's main
+    checkout.
+
+    Parameters
+    ----------
+    python
+        The interpreter to run the hook with.
+    env
+        The environment of the hook process.
+
+    Returns
+    -------
+    tuple
+        One report line per case, the lines of the failed cases, and per
+        case the deny rule that matched (or ``""``) and the hook's result.
+    """
+    settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+    patterns = bash_deny_patterns(settings)
+    lines, failures, results = [], [], []
+    for n, (rules_want, hook_want, command) in enumerate(RULE_CASES, 1):
+        rule = denied_by(command, patterns) or ""
+        rules_got = "deny" if rule else "pass"
+        hook_got = verdict(run_hook(python, bash_input(REPO, command), env))
+        results.append((rule, hook_got))
+        line = f"R{n:<3d}[rules {rules_want}, hook {hook_want}] {command}"
+        if rules_got == rules_want and hook_got == hook_want:
+            lines.append(f"ok   {line}" + (f"  ({rule})" if rule else ""))
+        else:
+            got = f"rules {rule or 'pass'}, hook {hook_got}"
             lines.append(f"FAIL {line}\n     got: {got}")
             failures.append(line)
     return lines, failures, results
@@ -850,6 +1468,42 @@ def input_cases() -> list[tuple[str, str, object, str | None, bool]]:
             None,
             True,
         ),
+        # MAR-263: a failure also refuses what looks like a denied gh command.
+        (
+            "refuse",
+            "internal error: gh repo new crc-scratch, this repo",
+            bash_input(REPO, "gh repo new crc-scratch"),
+            None,
+            True,
+        ),
+        (
+            "refuse",
+            "internal error: gh -R marc272/crc-sdk workflow run x, this repo",
+            bash_input(REPO, "gh -R marc272/crc-sdk workflow run release.yaml"),
+            None,
+            True,
+        ),
+        (
+            "allow",
+            "internal error: gh repo view marc272/crc-sdk, this repo",
+            bash_input(REPO, "gh repo view marc272/crc-sdk"),
+            None,
+            True,
+        ),
+        (
+            "deny",
+            "Monitor, this repo: gh -R marc272/crc-sdk release create v1",
+            monitor_input(REPO, "gh -R marc272/crc-sdk release create v1"),
+            None,
+            False,
+        ),
+        (
+            "deny",
+            "terminal tool, cwd this repo: gh release new v1",
+            terminal_input(REPO, "gh release new v1", REPO),
+            None,
+            False,
+        ),
     ]
 
 
@@ -1004,6 +1658,7 @@ def check_settings(env: dict[str, str]) -> list[str]:
         ("refuse", monitor_input(SDK, "gh run watch 3")),
         ("refuse", terminal_input(REPO, "gh pr list", SDK)),
         ("allow", terminal_input(REPO, "gh pr list --repo marc272/crc-sdk", SDK)),
+        ("deny", bash_input(REPO, "gh -R marc272/crc-sdk release create v1")),
     ):
         proc = subprocess.run(
             ["sh", "-c", command],
@@ -1053,11 +1708,6 @@ def markdown_table(results: list[str]) -> str:
         A table with the number, starting directory, command, expectation and
         result of each case.
     """
-
-    def code(text: str) -> str:
-        text = text.replace(WS, "<WS>").replace("\n", "\\n").replace("|", "\\|")
-        return f"`` {text} ``" if "`" in text else f"`{text}`"
-
     rows = [
         "| # | Starts in | Command | Expected | Result |",
         "|---|---|---|---|---|",
@@ -1066,7 +1716,42 @@ def markdown_table(results: list[str]) -> str:
     for n, ((expected, cwd, command), got) in enumerate(pairs, 1):
         label = CWD_LABELS.get(cwd, cwd)
         result = f"**{got}**" if got == expected else f"FAIL: {got}"
-        rows.append(f"| {n} | {label} | {code(command)} | {expected} | {result} |")
+        rows.append(f"| {n} | {label} | {_code(command)} | {expected} | {result} |")
+    return "\n".join(rows)
+
+
+def _code(text: str) -> str:
+    """Return ``text`` as Markdown inline code, ``WS`` shown as ``<WS>``."""
+    text = text.replace(WS, "<WS>").replace("\n", "\\n").replace("|", "\\|")
+    return f"`` {text} ``" if "`" in text else f"`{text}`"
+
+
+def markdown_rule_table(results: list[tuple[str, str]]) -> str:
+    """Return the cases of ``RULE_CASES`` and their results as a table.
+
+    Parameters
+    ----------
+    results
+        Per case, the deny rule that matched (or ``""``) and the hook's
+        result, in the order of ``RULE_CASES``.
+
+    Returns
+    -------
+    str
+        A table with the number, command, what the deny rules and the hook
+        were expected to do and did, and the rule that matched.
+    """
+    rows = [
+        "| # | Command | Deny rules | Hook | Matching rule |",
+        "|---|---|---|---|---|",
+    ]
+    pairs = zip(RULE_CASES, results, strict=True)
+    for n, ((rules_want, hook_want, command), (rule, hook_got)) in enumerate(pairs, 1):
+        rules_got = "deny" if rule else "pass"
+        rules = f"**{rules_got}**" if rules_got == rules_want else f"FAIL: {rules_got}"
+        hook = f"**{hook_got}**" if hook_got == hook_want else f"FAIL: {hook_got}"
+        shown = _code(rule) if rule else ""
+        rows.append(f"| R{n} | {_code(command)} | {rules} | {hook} | {shown} |")
     return "\n".join(rows)
 
 
@@ -1120,7 +1805,10 @@ def main() -> int:
     input_lines, input_failures, input_results = check_inputs(args.python, env)
     print("\n".join(input_lines))
     failures += input_failures
-    for problem in check_settings(env) + check_grammar():
+    rule_lines, rule_failures, rule_results = check_rule_cases(args.python, env)
+    print("\n".join(rule_lines))
+    failures += rule_failures
+    for problem in check_settings(env) + check_grammar() + check_doc_examples():
         print(f"FAIL {problem}")
         failures.append(problem)
     if args.markdown:
@@ -1128,13 +1816,16 @@ def main() -> int:
         print(markdown_table(results))
         print()
         print(markdown_input_table(input_results))
+        print()
+        print(markdown_rule_table(rule_results))
     version = subprocess.run(
         [args.python, "--version"], capture_output=True, text=True, check=False
     ).stdout.strip()
     per_case = 1000 * elapsed / len(CASES)
     print(
         f"check_fork_gh_guard: {len(CASES)} cases on {version},"
-        f" {per_case:.0f} ms per hook call"
+        f" {per_case:.0f} ms per hook call; {len(RULE_CASES)} deny-rule cases"
+        f" and {len(DOC_RULE_EXAMPLES)} docs examples"
     )
     if failures:
         print(f"check_fork_gh_guard: FAILED, {len(failures)} problem(s) (see above)")
