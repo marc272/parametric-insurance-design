@@ -147,6 +147,7 @@ parametric-insurance-design/
 │   ├── viz/             # parametric-insurance-design-viz: matplotlib figures, reading the result store and the runs' content-hashed input EventSets; never solving or re-optimising (C6)
 │   ├── crc/             # parametric-insurance-design-crc: dormant AGPL adapter skeleton (py>=3.12); the CRC data path lives in crc_sdk.parametric
 │   └── climada/         # parametric-insurance-design-climada: tracks → CLIMADA → EventSet (own pixi env, NOT a uv member)
+│       └── src/petals_parametric/  # prototype of a climada_petals parametric module (MAR-168); imports none of this repository's packages
 ├── examples/            # runnable scripts on the public API (core and viz only), smoke-tested in CI; BSD (ADR 0004 Q6)
 ├── research/            # paper: configs, run scripts, figure scripts, manuscript
 │   └── configs/         # research run configs; climada/ holds the research-only CLIMADA build configs (ADR 0004 Q5)
