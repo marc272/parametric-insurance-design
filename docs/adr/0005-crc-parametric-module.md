@@ -301,6 +301,8 @@ class OutcomeSample:
 
 #### 4.2 Sources and the probability semantics each needs
 
+Amendment 1 (D11) sets the order of release: Monte Carlo from a fitted curve first, per-year values as the second step. The rules below don't change.
+
 | Source | Function | One draw is | Probability | Semantics required |
 |---|---|---|---|---|
 | Monte Carlo from a fitted curve | `sample_curve` (a crc-framework `Distribution`); the plan's `.monte_carlo(...)` | a simulated year | 1/n | `annual_exceedance` (the curve of an annual maximum) or `annual_value_distribution` (an annual value). Any other declared value raises `ProbabilitySemanticsError`. Unspecified raises too, unless the caller passes `assume_semantics=` one of the two; a stated value that contradicts the declared one raises |
@@ -648,7 +650,7 @@ Phase 1 exports only what it implements. Each name below is added to `__all__` w
 
 ### 10. The issue map
 
-The split into R-14 to R-18 holds, with four adjustments (marked "adjusted").
+The split into R-14 to R-18 holds, with four adjustments (marked "adjusted"). Amendment 1 (D11) splits R-18 into MAR-42 and MAR-271, and adds R-25 (MAR-274).
 
 | Issue | Covers | Files (§2) | Starts after |
 |---|---|---|---|
@@ -662,7 +664,7 @@ The split into R-14 to R-18 holds, with four adjustments (marked "adjusted").
 
 ### 11. Open questions for RiskThinking (for R-20, MAR-249)
 
-- **Q1. Asset curves.** May R-18 add the public execution point `PortfolioEvaluation.asset_curves()` (the matched canonical rows, through the existing join)? Or would you rather add one yourselves, under another name or in another place?
+- **Q1. Asset curves.** May R-18 add the public execution point `PortfolioEvaluation.asset_curves()` (the matched canonical rows, through the existing join)? Or would you rather add one yourselves, under another name or in another place? (Amendment 1, D11: the fork builds it now, and the upstream PR offers it as a proposal that RiskThinking can rename, move or replace.)
 - **Q2. Chaining.** Do you want a method on `PortfolioEvaluation` (for example `.parametric(...)`), or the stand-alone `ParametricPlan.for_evaluation(...)`?
 - **Q3. Annual extremes and assets.** Do you plan an asset join for `annual_extremes()`? Is "the nearest cell centre, within half a grid step" right for the ERA5, CMIP6 and NEX grids?
 - **Q4. Dependence.** Do you have, or plan, event sets, spatially co-simulated fields, or the per-year and per-member samples behind the pooled curves? Phase 2's joint and multi-hazard designs need one of them, or an assumed copula.
@@ -773,3 +775,25 @@ Upstream files at the commits read (2026-11-05):
 [docs]: https://github.com/RiskThinking/crc-docs/tree/7691f5f1631941ebcb34a6a2278101a07739097a
 [docs-readme]: https://github.com/RiskThinking/crc-docs/blob/7691f5f1631941ebcb34a6a2278101a07739097a/README.md
 [docs-tests]: https://github.com/RiskThinking/crc-docs/blob/7691f5f1631941ebcb34a6a2278101a07739097a/tests/test_notebooks.py
+
+## Amendment 1 (2026-11-06, MAR-275): D11, curves first
+
+On 2026-11-06 the owner, Marc Prinzing, decided D11 (in chat; recorded on the Program hub, on MAR-249 and on MAR-271). It sets the order in which the module is released, and it builds `PortfolioEvaluation.asset_curves()` in the fork without waiting for RiskThinking's answer to Q1. Unlike errata 1 to 7, which correct the text, this amendment records a decision. The rest of the ADR stands: the two layers, the names, the payout families, the semantics rules, the design, the metrics, the provenance and the parity contract are unchanged.
+
+- **Curves first (§2, §4.2).** The first release leads with CRC's fitted hazard curves: Monte Carlo of simulated years from each asset's curve (`sample_curve`), through the entry point `ParametricPlan.for_evaluation(request)` and the plan's `.monte_carlo(...)`.
+  - Per-year series (ERA5, CMIP6 and NEX-GDDP-CMIP6, stations), through `ParametricPlan.for_annual_extremes(...)` and `sample_annual`, are the second step, in a later release (R-25, MAR-274). Their code is already on the fork's `parametric` branch (MAR-43, MAR-42). Whether the Phase 1 upstream PR holds them back or carries them as a secondary route is decided at upstream time (MAR-249).
+  - The reasons, as the orchestrator gave them to the owner. Curves are CRC's core product and cover every hazard CRC publishes, including those it publishes only as curves, such as cyclone and flood. Per-year series give the real dependence between index and loss (spatial basis risk, the `index=` series of §4.2), but they cover fewer hazards, and their records are short in the tail.
+  - The rules of §4.2 apply unchanged. A curve whose `probability_semantics` is unspecified is refused unless the caller states `assume_semantics=`. The cyclone and flood layers declare none, so Q6 matters more under curves first.
+  - Both entry points and all three sources of §4.2 stay in the design. Only the order of release changes.
+- **`asset_curves()` is built in the fork now (§2, §11 Q1).** The one additive public method that §2 recommended, `PortfolioEvaluation.asset_curves() -> pyarrow.Table`, is built in the fork by MAR-271 (R-18b), as §2 describes it: in crc-sdk's `workflows/portfolio.py` and `workflows/_portfolio.py`, on the existing join. Nothing else in `workflows/` changes, and no existing behaviour changes.
+  - RiskThinking's answer to Q1 is no longer awaited. The upstream PR flags the method to them as a proposal, which they can rename, move or replace. §11 keeps Q1, now as that proposal.
+  - Q2, a chaining method on `PortfolioEvaluation`, stays open.
+  - So "if RiskThinking agrees" in §2's module layout, in §10's row for R-18 and in "Consequences", and "asking RiskThinking for" in D10's point 10, now read: built in the fork, and proposed upstream.
+  - "Not verified" lists that the existing join can serve `asset_curves()` without a change in behaviour. MAR-271's tests check it.
+- **The issue map (§10).** R-18 is split in two, and R-25 is added. The other rows stand, except that the notebook (MAR-46, R-19) now starts after MAR-271, because it shows the curve route.
+
+| Issue | Covers | Files (§2) | Starts after |
+|---|---|---|---|
+| MAR-42 (R-18) | `ParametricPlan`, `explain()`, `write_parquet`, the entry point `for_annual_extremes(...)`, `docs/parametric.md`, the README line and the end-to-end offline test. Done (marc272/crc-sdk#8) | `plan` | R-16 |
+| MAR-271 (R-18b) | `PortfolioEvaluation.asset_curves()`, the entry point `for_evaluation(request)`, `.monte_carlo(...)` and `FreshDraws(...)` in the plan; `docs/parametric.md` leads with the curve route | `plan`; `workflows/portfolio.py` and `workflows/_portfolio.py` (one additive method) | MAR-42. No longer Q1 |
+| MAR-274 (R-25) | The per-year route as the second step (ERA5, CMIP6 and NEX-GDDP-CMIP6, stations): its upstream packaging, a stated option for climate trends, pooled model-years, and its docs and notebook section. Scope and acceptance are set when it is refined | Set when it is refined | MAR-271 |
