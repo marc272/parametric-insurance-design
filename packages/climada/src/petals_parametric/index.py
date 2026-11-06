@@ -613,8 +613,9 @@ def _simulation_years(  # pylint: disable=too-many-arguments
     ParametricInputError
         If the event years cannot be read, ``years`` is given with
         ``n_years`` or ``first_year``, the number of years is not given and
-        the frequencies differ, or the first year is not given and the event
-        years do not determine it.
+        the frequencies differ, the event years do not fit the span, or, on
+        the ``"event_name"`` route, the first year is not given and the
+        event years do not determine it.
     """
     if years is not None and (n_years is not None or first_year is not None):
         raise ParametricInputError(
