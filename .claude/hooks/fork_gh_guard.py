@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Refuse repo-scoped ``gh`` commands in the CRC forks without ``--repo marc272/``.
 
-A Claude Code ``PreToolUse`` hook (MAR-253, MAR-261, MAR-263), wired in
-``.claude/settings.json`` on the tools that run shell commands: ``Bash``,
+A Claude Code ``PreToolUse`` hook (MAR-253, MAR-261, MAR-263, MAR-282), wired
+in ``.claude/settings.json`` on the tools that run shell commands: ``Bash``,
 ``Monitor`` and the desktop app's terminal tool
 (``mcp__terminal__run_in_terminal``). It adds two checks to the deny rules in
 ``.claude/settings.json``, which match the command text and so miss some
@@ -11,18 +11,30 @@ spellings.
 **Denied gh commands, in every spelling, wherever they run** (MAR-263). The
 hook parses each ``gh`` command, so ``-R``/``--repo`` before or after the
 group (``gh -R <repo> release create``, ``gh release -R <repo> create``),
-``gh`` by path or in quotes, and ``gh`` inside ``sh -c`` don't hide it. It
-refuses these, with a message that says no ``--repo`` makes them allowed:
+``gh`` by path or in quotes, a group's alias (``gh ext``), and ``gh`` inside
+``sh -c`` don't hide it. It refuses these, with a message that says no
+``--repo`` makes them allowed:
 
 - ``gh release create`` (alias ``new``), ``edit``, ``upload``, ``delete`` and
   ``delete-asset``; ``gh workflow run``, ``enable`` and ``disable``; ``gh repo
-  create`` (alias ``new``), ``delete``, ``edit``, ``fork`` and ``sync``
-  (``DENIED_COMMANDS``);
+  create`` (alias ``new``), ``delete``, ``edit``, ``fork``, ``sync``,
+  ``archive``, ``unarchive`` and ``rename``; ``gh alias set`` and ``import``;
+  ``gh extension install``; ``gh skill install`` (alias ``add``), ``update``
+  and ``publish`` (``DENIED_COMMANDS``, MAR-282 for the last four groups);
+  and ``gh copilot`` (``DENIED_GROUPS``);
 - ``gh pr merge`` with ``--admin`` or ``--admin=<value>``;
 - any ``gh`` command with ``riskthinking/`` or ``github.com/riskthinking`` in
   an argument, in any case, and ``gh api`` with ``riskthinking`` anywhere in
   its arguments (the deny rules' RiskThinking forms). An inline PR body that
-  names a RiskThinking repository counts: pass bodies with ``--body-file``.
+  names a RiskThinking repository counts: pass bodies with ``--body-file``;
+- a ``gh`` command whose subcommand, or the command of a group in
+  ``LITERAL_COMMAND_GROUPS``, is a word the shell expands (``gh $c …``,
+  ``gh release "$x" …``, ``gh release cre{ate,} …``): neither the rules nor
+  the hook can tell what it runs (MAR-282). ``gh`` as a plain word followed
+  by an expansion (``grep gh "$f"``) is refused too;
+- ``gh run rerun`` of a run in a fork (a repo flag that names ``crc-sdk`` or
+  ``crc-docs`` or isn't literal, or none in a fork path), and a ``gh api``
+  rerun endpoint there (MAR-282): a rerun of crc-sdk's release run publishes.
 
 The other ``gh api`` deny rules (``dispatches``, ``git/refs`` and the like)
 are left to the text rules: ``gh api`` takes no ``-R``.
@@ -36,9 +48,15 @@ says how to fix it, if it runs:
 - a command of a ``gh`` group that takes the repository from the clone
   unless ``--repo`` or ``-R`` names one (``REPO_FLAG_SUBCOMMANDS``: the groups
   with a group-level ``-R`` in gh 2.103.2, ``browse``, ``cache``, ``co``,
-  ``discussion``, ``issue``, ``label``, ``pr``, ``release``, ``ruleset``,
-  ``run``, ``secret``, ``variable`` and ``workflow``) without naming a
-  ``marc272/`` repository with ``--repo`` or ``-R``, written literally;
+  ``discussion``, ``issue``, ``label``, ``pr``, ``release``, ``ruleset``
+  (alias ``rs``), ``run``, ``secret``, ``variable`` and ``workflow``), or one
+  of the other commands that have their own ``-R`` and do the same
+  (``REPO_FLAG_COMMANDS``, MAR-282: ``gh agent-task create`` and ``view``,
+  ``gh project link`` and ``unlink``, ``gh repo autolink``, ``deploy-key``,
+  ``read-dir`` and ``read-file``), without naming a ``marc272/`` repository
+  with ``--repo`` or ``-R``, written literally;
+- ``gh repo view`` without a literal ``marc272/`` repository as its argument
+  (it has no ``-R``);
 - ``gh api`` with ``{owner}``, ``{repo}``, ``:owner`` or ``:repo`` in its
   endpoint or a ``-F`` field, which gh fills in from the clone's repository.
   ``gh api`` has no ``--repo``: the repository must be written out.
@@ -98,6 +116,19 @@ from dataclasses import dataclass, field
 
 FORKS_ROOT = "/Users/marcprinzing/Parametric_Insurance/forks"
 OWNER = "marc272"
+# gh's aliases of command groups (gh help reference, gh 2.103.2). A group is
+# known by its own name here, whichever name the command uses (MAR-282).
+GROUP_ALIASES = {
+    "agent": "agent-task",
+    "agent-tasks": "agent-task",
+    "agents": "agent-task",
+    "at": "attestation",
+    "cs": "codespace",
+    "ext": "extension",
+    "extensions": "extension",
+    "rs": "ruleset",
+    "skills": "skill",
+}
 # gh command groups that act on the clone's repository unless --repo or -R
 # names one (MAR-253, MAR-261, MAR-263): the groups whose `gh <group> --help`
 # lists a group-level -R in gh 2.103.2 (co is gh's default alias for
@@ -121,14 +152,49 @@ REPO_FLAG_SUBCOMMANDS = frozenset(
 )
 # gh api has no --repo; it is checked for repository placeholders instead.
 CHECKED_SUBCOMMANDS = REPO_FLAG_SUBCOMMANDS | {"api"}
+# Commands of other groups that have their own -R and also take the clone's
+# repository without it (MAR-282): checked in fork paths like the groups
+# above. gh repo view takes the repository as an argument instead (see
+# GhInvocation.safe).
+REPO_FLAG_COMMANDS = {
+    "agent-task": frozenset({"create", "view"}),
+    "project": frozenset({"link", "unlink"}),
+    "repo": frozenset({"autolink", "deploy-key", "read-dir", "read-file"}),
+}
+# gh repo view's flags that take a value (gh repo view --help, gh 2.103.2).
+REPO_VIEW_VALUE_FLAGS = frozenset(
+    {"-b", "--branch", "-q", "--jq", "--json", "-t", "--template"}
+)
 # gh writes that the deny rules in .claude/settings.json refuse, by group and
-# command, refused here in every spelling (MAR-263). gh release new and
-# gh repo new are aliases of create (gh help reference, gh 2.103.2).
+# command, refused here in every spelling (MAR-263, MAR-282). gh release new,
+# gh repo new and gh skill add are aliases of create and install (gh help
+# reference, gh 2.103.2). gh skill publish creates a tag and a release.
 DENIED_COMMANDS = {
     "release": frozenset({"create", "new", "edit", "upload", "delete", "delete-asset"}),
     "workflow": frozenset({"run", "enable", "disable"}),
-    "repo": frozenset({"create", "new", "delete", "edit", "fork", "sync"}),
+    "repo": frozenset(
+        {
+            "create",
+            "new",
+            "delete",
+            "edit",
+            "fork",
+            "sync",
+            "archive",
+            "unarchive",
+            "rename",
+        }
+    ),
+    "alias": frozenset({"set", "import"}),
+    "extension": frozenset({"install"}),
+    "skill": frozenset({"install", "add", "update", "publish"}),
 }
+# gh groups denied as a whole (MAR-282): gh copilot runs the Copilot CLI.
+DENIED_GROUPS = frozenset({"copilot"})
+# Groups whose command word must be written out (MAR-282): a command taken
+# from an expansion could be one of the denied ones, or a rerun.
+LITERAL_COMMAND_GROUPS = frozenset({*DENIED_COMMANDS, "pr", "run", *REPO_FLAG_COMMANDS})
+FORK_REPOS = re.compile(r"crc-(?:sdk|docs)", re.IGNORECASE)
 RISKTHINKING = "riskthinking"
 # The tools whose input carries a shell command (tool_input.command).
 SHELL_TOOLS = frozenset({"Bash", "Monitor"})
@@ -170,6 +236,12 @@ _OWNER_REPO = re.compile(
 # gh api fills these in from the clone's repository, in its endpoint and in
 # -F/--field values (gh api --help; gh still accepts the older :owner form).
 _API_PLACEHOLDER = re.compile(r"\{(?:owner|repo)\}|:(?:owner|repo)\b")
+# The REST endpoints that rerun a workflow run or job (MAR-282).
+_API_RERUN = re.compile(r"actions/(?:runs|jobs)/[^/\s]+/rerun", re.IGNORECASE)
+# A word the shell expands: a parameter, a command substitution, a glob or a
+# brace pattern (gh release cre{ate,} runs gh release create cre).
+_EXPANSION = re.compile(r"[$`*?\[{]")
+_SHELL_VALUE = re.compile(r"[$`]")
 # gh api flags whose values gh never fills in: raw fields, headers, output
 # filters (a jq filter such as '{repo}' is not a placeholder) and the like.
 _API_LITERAL_FLAGS = frozenset(
@@ -207,32 +279,55 @@ def _words(names: frozenset[str]) -> str:
     return "(?:" + "|".join(sorted(names)) + r")\b"
 
 
+def _group(*groups: str) -> str:
+    """Return a pattern for the words of ``groups``, their aliases included."""
+    names = set(groups) | {a for a, g in GROUP_ALIASES.items() if g in groups}
+    return _WORD + _words(frozenset(names))
+
+
+def _group_commands(group: str, commands: frozenset[str]) -> str:
+    return _group(group) + _SAME_COMMAND + _WORD + _words(commands)
+
+
 _GH_CHECKED = re.compile(
-    r"\bgh\b" + _SAME_COMMAND + _WORD + _words(CHECKED_SUBCOMMANDS)
+    r"\bgh\b"
+    + _SAME_COMMAND
+    + "(?:"
+    + "|".join(
+        [
+            _group(*CHECKED_SUBCOMMANDS),
+            *(_group_commands(g, c) for g, c in sorted(REPO_FLAG_COMMANDS.items())),
+            _group_commands("repo", frozenset({"view"})),
+        ]
+    )
+    + ")"
 )
-# The same, for the denied gh commands (DENIED_COMMANDS, an admin merge, a
-# RiskThinking repository), in any case.
+# The same, for the denied gh commands (DENIED_COMMANDS, DENIED_GROUPS, an
+# admin merge, a rerun that names a fork, a RiskThinking repository), in any
+# case, and gh followed by an expansion.
 _GH_DENIED = re.compile(
     r"\bgh\b"
     + _SAME_COMMAND
     + "(?:"
     + "|".join(
-        _WORD + group + r"\b" + _SAME_COMMAND + _WORD + _words(commands)
-        for group, commands in sorted(DENIED_COMMANDS.items())
+        [
+            *(_group_commands(g, c) for g, c in sorted(DENIED_COMMANDS.items())),
+            _group(*DENIED_GROUPS),
+            _WORD
+            + r"pr\b"
+            + _SAME_COMMAND
+            + _WORD
+            + r"merge\b"
+            + _SAME_COMMAND
+            + r"--admin\b",
+            r"(?<!\w)rerun\b" + _SAME_COMMAND + FORK_REPOS.pattern,
+            FORK_REPOS.pattern + _SAME_COMMAND + r"(?<!\w)rerun\b",
+            RISKTHINKING + "/",
+            "github\\.com/" + RISKTHINKING,
+        ]
     )
-    + "|"
-    + _WORD
-    + r"pr\b"
-    + _SAME_COMMAND
-    + _WORD
-    + r"merge\b"
-    + _SAME_COMMAND
-    + r"--admin\b"
-    + "|"
-    + RISKTHINKING
-    + "/|github\\.com/"
-    + RISKTHINKING
-    + ")",
+    + ")"
+    + r"|\bgh\s+[\"']?[$`]",
     re.IGNORECASE,
 )
 _FORKISH = re.compile(
@@ -642,7 +737,8 @@ class GhInvocation:
     words
         ``gh`` and its arguments.
     subcommand
-        Its subcommand (the command group, e.g. ``pr``).
+        Its subcommand (the command group, e.g. ``pr``), by the group's own
+        name if it is an alias in ``GROUP_ALIASES`` (``rs`` is ``ruleset``).
     repos
         The values of its ``--repo`` and ``-R`` flags, in order.
     placeholders
@@ -650,6 +746,8 @@ class GhInvocation:
     command
         The word after the subcommand that isn't a flag or a repo flag's
         value (e.g. ``create`` in ``gh release -R x create``), or ``""``.
+    argument
+        For ``gh repo view``, its repository argument, or ``""``.
     """
 
     words: list[str]
@@ -657,11 +755,21 @@ class GhInvocation:
     repos: list[str]
     placeholders: list[str] = field(default_factory=list)
     command: str = ""
+    argument: str = ""
 
     @property
     def checked(self) -> bool:
-        """Whether its subcommand is checked in fork paths."""
-        return self.subcommand in CHECKED_SUBCOMMANDS
+        """Whether it is checked in fork paths.
+
+        The groups of ``CHECKED_SUBCOMMANDS`` are checked as a whole, the
+        other groups' commands of ``REPO_FLAG_COMMANDS`` one by one, and
+        ``gh repo view``.
+        """
+        if self.subcommand in CHECKED_SUBCOMMANDS:
+            return True
+        if self.command in REPO_FLAG_COMMANDS.get(self.subcommand, ()):
+            return True
+        return self.subcommand == "repo" and self.command == "view"
 
     @property
     def names_owner_repo(self) -> bool:
@@ -674,13 +782,16 @@ class GhInvocation:
     def safe(self) -> bool:
         """Whether a fork path doesn't matter for it.
 
-        An unchecked subcommand is safe; ``gh api`` is safe without repository
-        placeholders; every other checked subcommand needs ``names_owner_repo``.
+        An unchecked command is safe; ``gh api`` is safe without repository
+        placeholders; ``gh repo view`` needs a ``marc272/`` repository as its
+        argument; every other checked command needs ``names_owner_repo``.
         """
         if not self.checked:
             return True
         if self.subcommand == "api":
             return not self.placeholders
+        if self.subcommand == "repo" and self.command == "view":
+            return _OWNER_REPO.fullmatch(self.argument) is not None
         return self.names_owner_repo
 
     def denied(self) -> str | None:
@@ -690,9 +801,12 @@ class GhInvocation:
         -------
         str or None
             ``"riskthinking"`` if an argument names a RiskThinking repository
-            (any case; for ``gh api``, ``riskthinking`` anywhere), ``"admin"``
-            for ``gh pr merge --admin``, the subcommand for a command of
-            ``DENIED_COMMANDS``, else ``None``.
+            (any case; for ``gh api``, ``riskthinking`` anywhere);
+            ``"expansion"`` if the subcommand, or the command of a group in
+            ``LITERAL_COMMAND_GROUPS``, is a word the shell expands; the
+            subcommand for a group of ``DENIED_GROUPS``; ``"admin"`` for
+            ``gh pr merge --admin``; the subcommand for a command of
+            ``DENIED_COMMANDS``; else ``None``.
         """
         args = [word.casefold() for word in self.words[1:]]
         marks = (RISKTHINKING + "/", "github.com/" + RISKTHINKING)
@@ -700,6 +814,13 @@ class GhInvocation:
             marks = (RISKTHINKING,)
         if any(mark in arg for arg in args for mark in marks):
             return "riskthinking"
+        if _EXPANSION.search(self.subcommand) or (
+            self.subcommand in LITERAL_COMMAND_GROUPS
+            and _EXPANSION.search(self.command)
+        ):
+            return "expansion"
+        if self.subcommand in DENIED_GROUPS:
+            return self.subcommand
         if self.subcommand == "pr" and self.command == "merge":
             flags = args[: args.index("--")] if "--" in args else args
             if any(a == "--admin" or a.startswith("--admin=") for a in flags):
@@ -707,6 +828,47 @@ class GhInvocation:
         if self.command in DENIED_COMMANDS.get(self.subcommand, ()):
             return self.subcommand
         return None
+
+    def reruns_fork_run(self, fork_path: bool) -> bool:
+        """Whether it reruns a workflow run or job of a fork (MAR-282).
+
+        ``gh run rerun`` does when a repo flag names ``crc-sdk`` or
+        ``crc-docs`` or isn't literal, or when it has no repo flag and may run
+        in a fork path. ``gh api`` does when the repository part of a rerun
+        endpoint (``…/actions/runs/<id>/rerun…``, ``…/actions/jobs/<id>/rerun``)
+        names a fork, isn't literal, or has placeholders in a fork path.
+
+        Parameters
+        ----------
+        fork_path
+            Whether the command may run in a fork path.
+
+        Returns
+        -------
+        bool
+            Whether the rerun is denied.
+        """
+        if self.subcommand == "run" and self.command == "rerun":
+            if not self.repos:
+                return fork_path
+            return any(
+                not repo or FORK_REPOS.search(repo) or _SHELL_VALUE.search(repo)
+                for repo in self.repos
+            )
+        if self.subcommand != "api":
+            return False
+        for arg in self.words[1:]:
+            rerun = _API_RERUN.search(arg)
+            if rerun is None:
+                continue
+            repo = arg[: rerun.start()]
+            if (
+                FORK_REPOS.search(repo)
+                or _SHELL_VALUE.search(repo)
+                or (fork_path and _API_PLACEHOLDER.search(repo))
+            ):
+                return True
+        return False
 
 
 def api_placeholders(args: list[str]) -> list[str]:
@@ -753,7 +915,9 @@ def parse_gh(args: list[str]) -> GhInvocation | None:
     The repo flags (``-R X``, ``-RX``, ``-R=X``, ``--repo X``, ``--repo=X``)
     count wherever they stand before ``--``, as gh takes them before and
     after the subcommand. The subcommand is the first other word that isn't
-    a flag, and the command the next one.
+    a flag, by its group's own name (``GROUP_ALIASES``), and the command the
+    next one. For ``gh repo view``, the first word after the command that
+    isn't a flag or a flag's value is its repository argument.
 
     Parameters
     ----------
@@ -787,14 +951,36 @@ def parse_gh(args: list[str]) -> GhInvocation | None:
     if not positional:
         return None
     sub_at, subcommand = positional[0]
+    subcommand = GROUP_ALIASES.get(subcommand, subcommand)
     placeholders = api_placeholders(args[sub_at + 1 :]) if subcommand == "api" else []
+    command = positional[1][1] if len(positional) > 1 else ""
+    argument = ""
+    if subcommand == "repo" and command == "view":
+        argument = _first_operand(args[positional[1][0] + 1 :], REPO_VIEW_VALUE_FLAGS)
     return GhInvocation(
         words=["gh", *args],
         subcommand=subcommand,
         repos=repos,
         placeholders=placeholders,
-        command=positional[1][1] if len(positional) > 1 else "",
+        command=command,
+        argument=argument,
     )
+
+
+def _first_operand(args: list[str], value_flags: frozenset[str]) -> str:
+    """Return the first word of ``args`` that isn't a flag or a flag's value."""
+    k = 0
+    while k < len(args):
+        arg = args[k]
+        if arg == "--":
+            return args[k + 1] if k + 1 < len(args) else ""
+        if arg in value_flags or arg in ("-R", "--repo"):
+            k += 2
+            continue
+        if not arg.startswith("-"):
+            return arg
+        k += 1
+    return ""
 
 
 def _norm_root(path: str) -> str:
@@ -1002,7 +1188,8 @@ def evaluate(command: str, starts: list[str], home: str) -> str | None:
     str or None
         Why the command is refused and how to fix it, or ``None``. A denied
         gh command (``GhInvocation.denied``) is refused wherever it runs,
-        before the fork-path check.
+        then a rerun of a fork's run (``GhInvocation.reruns_fork_run``),
+        both before the fork-path check.
 
     Raises
     ------
@@ -1019,6 +1206,9 @@ def evaluate(command: str, starts: list[str], home: str) -> str | None:
         kind = invocation.denied()
         if kind is not None:
             return _denial(invocation, kind)
+    for invocation in context.invocations:
+        if invocation.reruns_fork_run(bool(context.reasons)):
+            return _denial(invocation, "rerun")
     unsafe = [i for i in context.invocations if not i.safe]
     if not unsafe or not context.reasons:
         return None
@@ -1050,12 +1240,18 @@ def _refusal(invocation: GhInvocation, context: _Context) -> str:
         "Refused by the fork gh guard (.claude/hooks/fork_gh_guard.py, MAR-253):",
         f"  {shown}",
     ]
+    repo_view = invocation.subcommand == "repo" and invocation.command == "view"
     if invocation.subcommand == "api":
         values = ", ".join(repr(word) for word in invocation.placeholders[:3])
         lines += [
             "may run in a CRC fork, and gh api fills in {owner}/{repo} (or",
             f":owner/:repo) from the clone's repository, in {values}.",
         ]
+    elif repo_view:
+        lines.append(
+            "may run in a CRC fork, and it doesn't name a literal"
+            f" {OWNER}/<repo> as its argument."
+        )
     else:
         lines.append(
             f"may run in a CRC fork, and it doesn't pass --repo {OWNER}/<fork>"
@@ -1088,10 +1284,18 @@ def _refusal(invocation: GhInvocation, context: _Context) -> str:
             f"  gh pr checks <n> --repo {OWNER}/{fork}",
             f"  gh pr merge <n> --repo {OWNER}/{fork} --squash ...",
         ]
-    else:
+    elif repo_view:
         lines += [
             "Fix: name the fork explicitly:",
-            f"  gh {invocation.subcommand} <command> ... --repo {OWNER}/{fork}",
+            f"  gh repo view {OWNER}/{fork} ...",
+        ]
+    else:
+        command = invocation.command
+        if invocation.subcommand not in REPO_FLAG_COMMANDS:
+            command = "<command>"
+        lines += [
+            "Fix: name the fork explicitly:",
+            f"  gh {invocation.subcommand} {command} ... --repo {OWNER}/{fork}",
         ]
     lines.append(
         "For this repository's own PRs, issues and runs, pass --repo"
@@ -1114,8 +1318,8 @@ _DENIALS = {
         "publishes a release.",
     ),
     "repo": (
-        "gh repo create (or new), delete, edit, fork and sync. Repositories are",
-        "Marc's.",
+        "gh repo create (or new), delete, edit, fork, sync, archive, unarchive",
+        "and rename. Repositories are Marc's.",
     ),
     "admin": (
         "gh pr merge --admin. Nobody merges past branch protection: the",
@@ -1127,6 +1331,38 @@ _DENIALS = {
         "git fetch upstream. A PR body or comment that mentions one goes in a",
         "file, passed with --body-file.",
     ),
+    "alias": (
+        "gh alias set and import. An alias is a new gh command, which the deny",
+        "rules and this hook can't see through.",
+    ),
+    "extension": (
+        "gh extension install (also gh ext and gh extensions). An extension is",
+        "third-party code that runs as a new gh command, past the deny rules.",
+    ),
+    "skill": (
+        "gh skill install (or add), update and publish (also gh skills).",
+        "Install and update write agent skills, instructions and commands from",
+        "another repository; publish creates a tag and a GitHub release, and",
+        "tags and releases are Marc's.",
+    ),
+    "copilot": (
+        "gh copilot. It downloads and runs the GitHub Copilot CLI, another agent,",
+        "outside this project's deny rules and hooks.",
+    ),
+    "rerun": (
+        "gh run rerun of a run in a fork, crc-sdk or crc-docs (with its --repo,",
+        "or in a fork path), and the gh api rerun endpoints there. A rerun is a",
+        "manual run, and manual runs in the forks are Marc's: rerunning a",
+        "crc-sdk Package release run publishes again. To rerun a PR's CI, push",
+        "a commit to its branch.",
+    ),
+    "expansion": (
+        "a gh command whose subcommand is a word the shell expands ($var, $(...),",
+        "backticks, a glob or braces), or whose command is one, for gh release,",
+        "workflow, repo, pr, run, alias, extension, skill, project and agent-task",
+        "(gh release cre{ate,} runs gh release create). Neither the deny rules",
+        "nor this hook can tell which command it runs.",
+    ),
 }
 _DENIED_MARK = "is denied in every spelling"
 _CHECKED_LIST = ", ".join(sorted(REPO_FLAG_SUBCOMMANDS)) + " or api"
@@ -1136,16 +1372,24 @@ def _denial(invocation: GhInvocation, kind: str) -> str:
     shown = " ".join(invocation.words)
     if len(shown) > 160:
         shown = shown[:157] + "..."
+    footer = [
+        "The deny rules in .claude/settings.json match the command text; this",
+        "hook also refuses the other spellings (-R/--repo before or after the",
+        "group, gh by path, sh -c). Leave it to Marc (docs/ORCHESTRATION.md,",
+        '"One-time setup", step 4).',
+    ]
+    if kind == "expansion":
+        footer = [
+            "Fix: write the gh subcommand and command out as plain words, one gh",
+            "command per call if a loop needs several.",
+        ]
     return "\n".join(
         [
             "Refused by the fork gh guard (.claude/hooks/fork_gh_guard.py, MAR-263):",
             f"  {shown}",
             f"{_DENIED_MARK}, wherever it runs and whatever --repo or -R says:",
             *_DENIALS[kind],
-            "The deny rules in .claude/settings.json match the command text; this",
-            "hook also refuses the other spellings (-R/--repo before or after the",
-            "group, gh by path, sh -c). Leave it to Marc (docs/ORCHESTRATION.md,",
-            '"One-time setup", step 4).',
+            *footer,
         ]
     )
 
@@ -1160,8 +1404,11 @@ def _when_in_doubt(command: str, starts: list[str], problem: str) -> str | None:
                 f"the hook couldn't analyse this command ({problem}),",
                 f"and it looks like a gh command that {_DENIED_MARK}:",
                 "gh release create/new/edit/upload/delete, gh workflow run/enable/",
-                "disable, gh repo create/new/delete/edit/fork/sync, gh pr merge",
-                "--admin, or a gh command that names a RiskThinking repository.",
+                "disable, gh repo create/new/delete/edit/fork/sync/archive/",
+                "unarchive/rename, gh pr merge --admin, gh alias set/import,",
+                "gh extension install, gh skill install/add/update/publish,",
+                "gh copilot, a rerun in a fork, gh followed by an expansion, or a",
+                "gh command that names a RiskThinking repository.",
                 'Those are Marc\'s (docs/ORCHESTRATION.md, "One-time setup",',
                 "step 4). If it is none of them, split it into simpler commands.",
             ]
