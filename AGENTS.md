@@ -100,7 +100,7 @@ These rules apply to every issue whose work lands in `marc272/crc-sdk` or `marc2
 
 - Read the fork's own `AGENTS.md` first. It and the fork's checks are binding, together with this file. Where the two differ on code style or tooling, the fork's wins in the fork, because the code is written for upstream. Escalate any other conflict.
 - crc-sdk:
-  - checks: `uv run pytest -q`, `uv run mypy` (strict), `uv run ruff check . && uv run ruff format --check .`;
+  - checks, as its `AGENTS.md` and CI run them: `uv sync --locked --all-extras` first, then `uv run --locked --all-extras pytest -q`, `uv run --locked --all-extras mypy` (strict), and `uv run --locked --all-extras ruff check . && uv run --locked --all-extras ruff format --check .`. pytest, mypy and ruff are only in the `test` extra, and highspy in `parametric`;
   - offline tests;
   - no I/O in builders or `explain()`;
   - atomic writes;

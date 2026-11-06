@@ -240,7 +240,7 @@ Commits: conventional-commit subjects (feat(parametric): …), a "Refs: MAR-<n>"
 Push early: git -C <worktree> push -u origin <gitBranchName>, then
 gh pr create --repo marc272/<fork> --base parametric --head <gitBranchName> --draft, titled "[MAR-<n>] <conventional subject>".
 Every gh pr command passes --repo marc272/<fork>. Never push to upstream, main or parametric; never contact RiskThinking.
-Checks: <the fork's checks>. Paste their summary on the final head into the PR body.
+Checks: <the fork's checks, as AGENTS.md "Their rules are binding" gives them>. Paste their summary on the final head into the PR body.
 Keep logs and PR-body drafts in <worktree>-notes/, never in the worktree or the shared session scratchpad.
 Done means: PR open (marked ready), the fork's checks green, every acceptance criterion evidenced in the PR body.
 Report back: PR link, summary, anything unverified, follow-ups you discovered, open questions.
@@ -309,7 +309,7 @@ Marc (2026-11-05): the orchestrator keeps each fork's `parametric` current by me
 1. `git -C <clone> fetch upstream` and `git -C <clone> fetch origin`. If `git -C <clone> merge-base --is-ancestor upstream/main origin/parametric` succeeds, `parametric` is current.
 2. Make a worktree on a sync branch: `git -C <clone> worktree add --no-track -b sync/upstream-main-<YYYY-MM-DD> <worktree> origin/parametric`.
 3. `git -C <worktree> merge --no-edit upstream/main`. Resolve simple conflicts in the worktree. If a resolution needs real work, file an issue for it and dispatch it like any other.
-4. Run the fork's checks in the worktree, push the sync branch, and open a PR into `parametric` (`gh pr create --repo marc272/<fork> --base parametric --head sync/upstream-main-<YYYY-MM-DD> --title "chore: merge upstream main into parametric"`).
+4. Run the fork's checks (`AGENTS.md`, "Their rules are binding") in the worktree, push the sync branch, and open a PR into `parametric` (`gh pr create --repo marc272/<fork> --base parametric --head sync/upstream-main-<YYYY-MM-DD> --title "chore: merge upstream main into parametric"`).
 5. When the gate passes, merge it with a merge commit: `gh pr merge <n> --repo marc272/<fork> --merge`. Never `--squash` or `--rebase` here: either would drop upstream's history from `parametric`, and the upstream PR would then show upstream's own changes as ours.
 
 Sync PRs have no Linear issue. List them in the next Program hub status update, like Dependabot PRs.
