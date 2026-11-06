@@ -39,6 +39,7 @@ Thesis golden data and the parity tests that check the new core reproduces the t
 | `analysis/adapter.md` | The adapter section of `REPORT.md`: the CLIMADA adapter's rebuild of the thesis event set against the fixture. Written by `packages/climada/scripts/thesis_adapter_parity.py`; see [The adapter check](#the-adapter-check) |
 | `REPORT.md` | The parity report (generated; do not edit by hand) |
 | `configs/thesis.yaml` | The thesis experiment config, migrated by `scripts/migrate_thesis_config.py` |
+| `crc/`, `scripts/export_crc_fixtures.py` | The golden fixtures of the CRC module `crc_sdk.parametric` (MAR-245, MAR-255): one JSON case per file in `crc/cases/`, the format in `crc/README.md`, and the script that writes them from the core. `tests/test_crc_fixtures.py` regenerates them and reads them as the module's tests do |
 | `tests/` | Checks the committed files against the manifest and fixed checksums; with a thesis checkout, also recomputes the source checksums and regenerates the fixture |
 
 ## The parity report

@@ -30,6 +30,7 @@
     "schema_version": "1.0",
     "semantics_version": "crc-parametric-cover/1"
   },
+  "evaluation_sample": null,
   "expected": {
     "metrics": {
       "correlation": 0.854428652262,
@@ -87,6 +88,7 @@
       "var_uncovered_b0_99": 1229420.34384
     },
     "objective_value": 132492671265.0,
+    "out_of_sample": null,
     "parameters": {
       "levels[0]": 0.0,
       "levels[1]": 0.0,
@@ -421,6 +423,7 @@
   },
   "scope": "individual",
   "source": "core",
+  "split": null,
   "tolerances": {
     "metrics": 1e-06,
     "objective_value": 1e-06,
