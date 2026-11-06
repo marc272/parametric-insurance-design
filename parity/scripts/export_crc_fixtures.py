@@ -1,12 +1,14 @@
-r"""Export golden fixtures from the core for the CRC module's tests (MAR-245).
+r"""Export golden fixtures from the core for the CRC module's tests (MAR-245, MAR-255).
 
 The parametric insurance module ``crc_sdk.parametric`` is built in a fork of
 crc-sdk. It never imports this repository's core, ``parametric_insurance_design``,
 but where the two overlap its results must match the core's. This script
 writes the bridge: small, self-describing JSON cases, one document per case,
-that the module's tests read (R-16 and R-17, later R-21). The field names
-follow the parity contract of ADR 0005 §8 (draft, MAR-244); they are defined
-once, in :data:`F`, so that a rename is one edit.
+that the module's tests read (R-14 to R-17, later R-21). The field names
+follow the parity contract of ADR 0005 §8 (accepted 2026-11-06, MAR-244);
+they are defined once, in :data:`F`, so that a rename is one edit. The
+out-of-sample fields, which §8 does not define, are named after §2 and §6
+(``holdout``, ``train_fraction``, ``fold``, ``premium_basis``).
 
 Outputs, relative to the repository root:
 
@@ -43,14 +45,23 @@ How the expected values are computed
     0005 §5.4's rule for the MSE route (:func:`_mse_unique`).
   - The objective values must agree to :data:`SOLVER_AGREEMENT_RTOL`, and the
     core's default policy, run too, to :data:`DEFAULT_AGREEMENT_RTOL`.
+  - Unidentified levels are written by ADR 0005 §5.4's default fill rule,
+    ``"lowest"`` (:func:`_fill_lowest`).
+* **Out-of-sample design cases** (``split = {"kind": "holdout", ...}``): the
+  core's ``splits.holdout`` splits the draws into year blocks; the core
+  designs on the first block, as above, and evaluates the design on the
+  second with the design premium (ADR 0005 §6, decision 9:
+  ``premium_basis = "design"``).
 * **Fixed covers with a step payout** (``kind = "evaluate"``,
   ``source = "core"``): the core's ``StepPayout.evaluate`` and
   ``evaluate.kpis`` on a hand-set cover.
-* **Fixed covers with a linear payout** (``kind = "evaluate"``,
-  ``source = "closed_form"``): the core has no linear family, so this script
-  computes every value from the closed forms of ADR 0005 §3 and §6 itself, in
-  exact rational arithmetic (:func:`_exact_metrics`). Where a metric is also
-  a core quantity, the core's risk measures must agree to 1e-12.
+* **Fixed covers with a linear, binary or piecewise-linear payout**
+  (``kind = "evaluate"``, ``source = "closed_form"``): the core has none of
+  these families, so this script computes every value from the closed forms
+  of ADR 0005 §3 and §6 itself, in exact rational arithmetic
+  (:func:`_exact_metrics`), on hand-made samples and on the synthetic sample.
+  Where a metric is also a core quantity, the core's risk measures must agree
+  to 1e-12; a binary payout must also equal the core's one-bin step payout.
 
 The metrics of a core case are the ones the core computes: ``evaluate.kpis``,
 ``evaluate.exceedance_curves`` and ``riskmeasures.var_cvar``
@@ -85,6 +96,7 @@ point of the set, not by the point itself.
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import math
 import subprocess
@@ -120,6 +132,7 @@ from parametric_insurance_design.eventset import (
 from parametric_insurance_design.interfaces import (
     Objective,
     Pricing,
+    Sample,
     Scope,
     SolveResult,
     SolveStatus,
@@ -138,6 +151,7 @@ from parametric_insurance_design.solve import (
     is_qp,
     solve,
 )
+from parametric_insurance_design.splits import holdout
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 SCRIPT_PATH: Final[str] = "parity/scripts/export_crc_fixtures.py"
@@ -149,7 +163,7 @@ CORE_SOURCE: Final[str] = "packages/core/src"
 
 
 # --------------------------------------------------------------------------
-# The contract's names, in one place (ADR 0005 §3, §4.1, §6 and §8, draft)
+# The contract's names, in one place (ADR 0005 §3, §4.1, §6 and §8, accepted)
 # --------------------------------------------------------------------------
 
 
@@ -175,6 +189,13 @@ class _Fields:
     compare_parameters: str = "compare_parameters"
     tolerances: str = "tolerances"
     generator: str = "generator"
+    # out of sample (beyond §8; names from §2 ``holdout`` and §6's table)
+    split: str = "split"
+    evaluation_sample: str = "evaluation_sample"
+    train_fraction: str = "train_fraction"
+    out_of_sample: str = "out_of_sample"
+    fold: str = "fold"
+    premium_basis: str = "premium_basis"
     # sample (§4.1)
     asset_ids: str = "asset_ids"
     period: str = "period"
@@ -223,6 +244,9 @@ class _Fields:
     attachment: str = "attachment"
     exhaustion: str = "exhaustion"
     limit_param: str = "limit"
+    knots: str = "knots"
+    trigger: str = "trigger"
+    amount_param: str = "amount"
     free: str = "free"
     grid: str = "grid"
     lower: str = "lower"
@@ -244,7 +268,14 @@ class _Fields:
     pricing_cost_of_capital: str = "cost_of_capital"
     payout_step: str = "step"
     payout_linear: str = "linear"
+    # The registry keys of PiecewiseLinearPayout and BinaryPayout: ADR 0005
+    # §3 names "linear" and "step" only; these follow their pattern (the
+    # class name without "Payout", in snake case).
+    payout_piecewise_linear: str = "piecewise_linear"
+    payout_binary: str = "binary"
     location_asset: str = "asset"
+    split_holdout: str = "holdout"
+    premium_basis_design: str = "design"
     cover_schema_version: str = "1.0"
     cover_semantics_version: str = "crc-parametric-cover/1"
 
@@ -358,6 +389,11 @@ ALPHA: Final[float] = 0.9
 DESIGN_BETAS: Final[tuple[float, ...]] = (0.9, 0.99)
 COC_RATE: Final[float] = 0.06
 COC_Q: Final[float] = 0.99
+
+TRAIN_FRACTION: Final[float] = 0.7
+"""Holdout of the out-of-sample cases: the first 70 % of the years design."""
+HOLDOUT_OBJECTIVES: Final[tuple[str, ...]] = ("mse", "wcvar-b0_9")
+"""Objectives of the out-of-sample cases (a QP and an LP), by id token."""
 
 BETAS: Final[tuple[float, ...]] = (0.9, 0.95, 0.99)
 """Metric levels: ADR 0005 §6, ``MetricOptions`` defaults."""
@@ -564,6 +600,29 @@ class Dataset:
             index=np.ascontiguousarray(self.index[:, cols]),
             loss=np.ascontiguousarray(self.loss[:, cols]),
             values=tuple(self.values[c] for c in cols),
+        )
+
+    def draws(self, positions: NDArray[np.int64]) -> Dataset:
+        """Return the data set restricted to some draws, by position.
+
+        Parameters
+        ----------
+        positions : numpy.ndarray of int
+            Positions ``0 .. n - 1``, increasing.
+
+        Returns
+        -------
+        Dataset
+            The draws at those positions, with their periods.
+        """
+        if positions.size == 0 or np.any(np.diff(positions) <= 0):
+            raise ValueError("positions must be non-empty and increasing")
+        return replace(
+            self,
+            period=self.period[positions].copy(),
+            index=np.ascontiguousarray(self.index[positions]),
+            loss=np.ascontiguousarray(self.loss[positions]),
+            event_row=self.event_row[positions].copy(),
         )
 
 
@@ -916,6 +975,13 @@ def _sample_document(data: Dataset) -> dict[str, Any]:
     }
 
 
+def _split_document(train_fraction: float | None) -> dict[str, Any] | None:
+    """Return the split block: null in sample, or the holdout (ADR 0005 §2)."""
+    if train_fraction is None:
+        return None
+    return {F.kind_key: F.split_holdout, F.train_fraction: float(train_fraction)}
+
+
 def _index_document(
     hazard_name: str, aggregation: str, unit: str, tail: str
 ) -> dict[str, Any]:
@@ -1062,6 +1128,9 @@ def core_metrics(
     results: Sequence[SolveResult],
     pricing: Pricing,
     draws: _Draws,
+    *,
+    sample: Sample | None = None,
+    premium: float | None = None,
 ) -> dict[str, Any]:
     """Compute the metrics of a run's problem-level subject with the core.
 
@@ -1083,7 +1152,13 @@ def core_metrics(
     pricing : Pricing
         The pricing of the premium.
     draws : _Draws
-        Loss and payout of the subject per draw.
+        Loss and payout of the subject per draw of ``sample``.
+    sample : Sample, optional
+        The core's evaluation sample (a holdout block); default all years.
+    premium : float, optional
+        A stated premium: the ``premium`` column and the net loss use it
+        instead of the premium priced on ``sample``. Out-of-sample metrics of
+        a design use the design premium (ADR 0005 §6, decision 9).
 
     Returns
     -------
@@ -1111,7 +1186,7 @@ def core_metrics(
         value = float(np.asarray(rows["value"], dtype=np.float64)[0])
         return None if math.isnan(value) else value
 
-    premium: float | None = None
+    stated = premium
     for i, beta in enumerate(BETAS):
         table = kpis(
             eventset,
@@ -1120,6 +1195,7 @@ def core_metrics(
             basis=Basis.ANNUAL,
             beta=beta,
             run_id=RUN_ID,
+            sample=sample,
             pricing=pricing,
         )
         if i == 0:
@@ -1138,13 +1214,17 @@ def core_metrics(
                 ("rmse", "rmse_residual"),
                 ("correlation", "correlation"),
             ):
-                value = kpi_row(table, kpi)
+                value = (
+                    stated
+                    if name == "premium" and stated is not None
+                    else kpi_row(table, kpi)
+                )
                 if name in plain:
                     if value is None:
                         raise AssertionError(f"{name} is undefined")
                     _check_close(name, value, plain[name], scale)
                 out_metrics[metric(name)] = None if value is None else out(value)
-            premium = kpi_row(table, "premium")
+            premium = stated if stated is not None else kpi_row(table, "premium")
         var = kpi_row(table, "var_uncovered")
         cvar = kpi_row(table, "cvar_uncovered")
         if var is None or cvar is None:
@@ -1156,7 +1236,7 @@ def core_metrics(
     if premium is None:
         raise AssertionError("the premium is always defined")
 
-    ev = evaluate_results(eventset, scope, results, basis=Basis.ANNUAL)
+    ev = evaluate_results(eventset, scope, results, basis=Basis.ANNUAL, sample=sample)
     subject = next(s for s in ev.subjects if s.level is KpiLevel.PROBLEM)
     measure = ev.measure
     loss_o = measure.aggregate(subject.loss)
@@ -1181,6 +1261,7 @@ def core_metrics(
         basis=Basis.ANNUAL,
         run_id=RUN_ID,
         return_periods=RETURN_PERIODS,
+        sample=sample,
     )
     curves = curves[
         (curves["level"] == KpiLevel.PROBLEM.value)
@@ -1209,7 +1290,8 @@ def core_metrics(
         atoms = quantile_atoms(net.tolist(), level)
         _check_atom(f"net_loss_rp{period}", core_net, atoms, scale)
         out_metrics[metric("net_loss", period=period)] = _metric_value(atoms)
-    if n != eventset.metadata.n_years:
+    years = eventset.metadata.n_years if sample is None else sample.years.size
+    if n != years:
         raise AssertionError("every year must be a draw")
     return out_metrics
 
@@ -1392,6 +1474,40 @@ def _snap(theta: NDArray[np.float64], scale: float) -> NDArray[np.float64]:
     return np.where(np.abs(theta) <= ZERO_AMOUNT * scale, 0.0, theta) + 0.0
 
 
+def _fill_lowest(
+    theta: NDArray[np.float64], identified: NDArray[np.bool_]
+) -> NDArray[np.float64]:
+    """Set the unidentified levels by ADR 0005 §5.4's default rule, ``"lowest"``.
+
+    An unidentified level changes nothing on the design sample, so any value
+    the constraints allow is optimal. The rule takes the smallest: under
+    ``monotone`` the previous identified level, or 0 (the lower bound) if
+    there is none. The design stays exactly optimal and feasible. Out of
+    sample a draw can fall into such a bin, so the value matters there.
+
+    Parameters
+    ----------
+    theta : numpy.ndarray
+        Levels, ``(n_assets, n_levels)``, monotone in each row.
+    identified : numpy.ndarray of bool
+        Which levels are identified, the same shape.
+
+    Returns
+    -------
+    numpy.ndarray
+        A copy with every unidentified level filled.
+    """
+    filled = theta.copy()
+    for j in range(filled.shape[0]):
+        previous = 0.0
+        for k in range(filled.shape[1]):
+            if identified[j, k]:
+                previous = float(filled[j, k])
+            else:
+                filled[j, k] = previous
+    return filled
+
+
 def _rel_close(a: float, b: float, rtol: float) -> bool:
     return math.isclose(a, b, rel_tol=rtol, abs_tol=0.0) or a == b
 
@@ -1403,6 +1519,8 @@ def design_case(
     pricing: PricingSpec,
     commit: str,
     settings: SolverSettings,
+    *,
+    train_fraction: float | None = None,
 ) -> GeneratedCase:
     """Build one design case: the core designs a step cover on ``data``.
 
@@ -1419,6 +1537,12 @@ def design_case(
         The generator block's commit.
     settings : SolverSettings
         The solver policies.
+    train_fraction : float, optional
+        An out-of-sample case: the core's ``splits.holdout`` at this fraction
+        splits the draws; the core designs on the first block (the case's
+        ``sample``) and evaluates the design on the second (its
+        ``evaluation_sample``) with the design premium. Default: design and
+        evaluate on every draw.
 
     Returns
     -------
@@ -1433,6 +1557,15 @@ def design_case(
     payout = step_payout(data)
     scope: Scope = pid.Portfolio() if joint else pid.Individual()
     constraints = (pid.Budget(BUDGET_RATIO),)
+    train: Sample | None = None
+    test: Sample | None = None
+    design_data, eval_data = data, None
+    if train_fraction is not None:
+        # The core's EventSet numbers the years by position (core_eventset),
+        # so the years of a block are the positions of its draws.
+        train, test = holdout(eventset, train_fraction=train_fraction)
+        design_data = data.draws(train.years)
+        eval_data = data.draws(test.years)
 
     def build() -> BuiltProblem:
         (built,) = build_problems(
@@ -1443,22 +1576,25 @@ def design_case(
             pricing.core,
             constraints,
             basis=Basis.ANNUAL,
+            sample=train,
         )
         return built
 
     first = build()
     qp = is_qp(first.problem)
-    identified = _identified(data)
+    identified = _identified(design_data)
+    rows = (Sample.full(eventset) if train is None else train).select(eventset)
     for j in range(len(data.asset_ids)):
-        core_columns = payout.basis_matrix(eventset.index[:, j]).sum(axis=0) > 0
+        core_columns = payout.basis_matrix(rows.index[:, j]).sum(axis=0) > 0
         if not np.array_equal(core_columns, identified[j]):
             raise AssertionError("the core's bins and the module's bin rule differ")
-    where = f"{data.name}/{scope_name}/{objective.token}/{pricing.token}"
+    split_token = "" if train_fraction is None else f"/{F.split_holdout}"
+    where = f"{data.name}/{scope_name}/{objective.token}/{pricing.token}{split_token}"
     ranges: _Ranges | None = None
     if qp:
         accurate = solve(first, settings.accurate)
         check = solve(build(), settings.qp_check)
-        unique = _mse_unique(data, identified)
+        unique = _mse_unique(design_data, identified)
         chosen = accurate
     else:
         check = solve(first, settings.vertex)
@@ -1488,29 +1624,56 @@ def design_case(
         if np.any(gap > UNIQUE_WIDTH * scale):
             raise AssertionError(f"{where}: unique, but the solvers' amounts differ")
     theta = np.vectorize(out)(_snap(chosen.theta, scale)).astype(np.float64)
-    loss_draws = data.loss.sum(axis=1)
-    caps = data.loss.max(axis=0)
+    theta = _fill_lowest(theta, identified)
+    loss_draws = design_data.loss.sum(axis=1)
+    caps = design_data.loss.max(axis=0)
     budget = BUDGET_RATIO * float(np.mean(loss_draws))
 
-    def evaluate(levels: NDArray[np.float64]) -> dict[str, Any]:
-        """Return the objective, premium and metrics of the cover at ``levels``."""
-        payout_draws = np.zeros(data.n)
-        for j in range(len(data.asset_ids)):
+    def payout_of(on: Dataset, levels: NDArray[np.float64]) -> NDArray[np.float64]:
+        payout_draws = np.zeros(on.n)
+        for j in range(len(on.asset_ids)):
             payout_draws = payout_draws + step_values(
-                data.index[:, j], data.edges[:-1], levels[j]
+                on.index[:, j], on.edges[:-1], levels[j]
             )
-        metrics = core_metrics(
+        return payout_draws
+
+    def in_sample(levels: NDArray[np.float64]) -> dict[str, Any]:
+        """Return the metrics of the cover at ``levels`` on the design sample."""
+        return core_metrics(
             eventset,
             scope,
             (replace(chosen, theta=levels),),
             pricing.core,
-            _Draws(loss_draws, payout_draws),
+            _Draws(loss_draws, payout_of(design_data, levels)),
+            sample=train,
         )
-        value = _objective_value(objective.core, loss_draws, payout_draws)
+
+    def evaluate(levels: NDArray[np.float64]) -> dict[str, Any]:
+        """Return the objective, premium and metrics of the cover at ``levels``."""
+        metrics = in_sample(levels)
+        value = _objective_value(
+            objective.core, loss_draws, payout_of(design_data, levels)
+        )
+        oos: dict[str, Any] | None = None
+        if eval_data is not None and test is not None:
+            oos = {
+                F.fold: test.fold,
+                F.premium_basis: F.premium_basis_design,
+                F.metrics: core_metrics(
+                    eventset,
+                    scope,
+                    (replace(chosen, theta=levels),),
+                    pricing.core,
+                    _Draws(eval_data.loss.sum(axis=1), payout_of(eval_data, levels)),
+                    sample=test,
+                    premium=metrics[metric("premium")],
+                ),
+            }
         return {
             F.objective_value: out(value),
             F.premium: metrics[metric("premium")],
             F.metrics: metrics,
+            F.out_of_sample: oos,
         }
 
     def violations(levels: NDArray[np.float64]) -> list[str]:
@@ -1523,7 +1686,7 @@ def design_case(
             found.append("the levels are not monotone")
         if np.any(levels > caps[:, None] + tol):
             found.append("a level is above its asset's cap")
-        premium = evaluate(levels)[F.premium]
+        premium = in_sample(levels)[metric("premium")]
         if premium > budget * (1.0 + WRITTEN_RTOL):
             found.append(f"premium {premium!r} above the budget {budget!r}")
         return found
@@ -1568,11 +1731,17 @@ def design_case(
             unidentified[0],
         )
     case_id = f"step-{objective.token}-{pricing.token}-{scope_name}-{data.name}"
+    if train_fraction is not None:
+        case_id = f"{case_id}-{F.split_holdout}"
     document = {
         F.case_id: case_id,
         F.kind: F.kind_design,
         F.source: F.source_core,
-        F.sample: _sample_document(data),
+        F.sample: _sample_document(design_data),
+        F.split: _split_document(train_fraction),
+        F.evaluation_sample: (
+            None if eval_data is None else _sample_document(eval_data)
+        ),
         F.cover: cover_doc,
         F.objective: dict(objective.document),
         F.pricing: dict(pricing.document),
@@ -1586,6 +1755,7 @@ def design_case(
             F.unidentified: unidentified_doc,
             F.unique: unique,
             F.metrics: evaluation[F.metrics],
+            F.out_of_sample: evaluation[F.out_of_sample],
         },
         F.compare_parameters: compare,
         F.tolerances: _tolerances(),
@@ -1660,6 +1830,8 @@ def fixed_step_case(data: Dataset, pricing: PricingSpec, commit: str) -> dict[st
         F.kind: F.kind_evaluate,
         F.source: F.source_core,
         F.sample: _sample_document(data),
+        F.split: None,
+        F.evaluation_sample: None,
         F.cover: cover,
         F.objective: None,
         F.pricing: dict(pricing.document),
@@ -1673,6 +1845,7 @@ def fixed_step_case(data: Dataset, pricing: PricingSpec, commit: str) -> dict[st
             F.unidentified: None,
             F.unique: None,
             F.metrics: metrics,
+            F.out_of_sample: None,
         },
         F.compare_parameters: F.compare_none,
         F.tolerances: _tolerances(),
@@ -1681,8 +1854,21 @@ def fixed_step_case(data: Dataset, pricing: PricingSpec, commit: str) -> dict[st
 
 
 @dataclass(frozen=True)
-class LinearCase:
-    """A hand-made sample and a fixed linear cover (ADR 0005 §3)."""
+class ClosedFormSample:
+    """A sample of one asset for the closed-form cases (ADR 0005 §4.1).
+
+    Attributes
+    ----------
+    name : str
+        The data set, the last part of a case id: ``"handmade"`` or
+        ``"synthetic"``.
+    tail : {"upper", "lower"}
+        The severe side of its index; the covers on it share it.
+    hazard_name, aggregation, index_unit, loss_unit : str
+        The index definition of the cover document and the sample's units.
+    period, index, loss : tuple
+        One value per draw (year), each draw of probability ``1 / n``.
+    """
 
     name: str
     tail: Literal["upper", "lower"]
@@ -1693,14 +1879,33 @@ class LinearCase:
     period: tuple[int, ...]
     index: tuple[float, ...]
     loss: tuple[float, ...]
-    attachment: float
-    exhaustion: float
-    limit: float
 
 
-LINEAR_CASES: Final[tuple[LinearCase, ...]] = (
-    LinearCase(
-        name="upper",
+@dataclass(frozen=True)
+class ClosedFormCover:
+    """A fixed cover of a family the core does not have (ADR 0005 §3).
+
+    Attributes
+    ----------
+    family : str
+        The payout kind: :attr:`_Fields.payout_linear`,
+        :attr:`_Fields.payout_binary` or :attr:`_Fields.payout_piecewise_linear`.
+    parameters : mapping
+        The payout document's parameters, thresholds in index units (in
+        order of increasing severity) and amounts in payout units, e.g.
+        ``{"trigger": 100.0, "amount": 500.0}``.
+    pricings : tuple of str
+        The pricing tokens of its cases (:data:`CLOSED_FORM_PRICINGS`).
+    """
+
+    family: str
+    parameters: Mapping[str, float | tuple[float, ...]]
+    pricings: tuple[str, ...]
+
+
+HANDMADE_SAMPLES: Final[Mapping[str, ClosedFormSample]] = {
+    "upper": ClosedFormSample(
+        name="handmade",
         tail="upper",
         hazard_name="rx1day",
         aggregation="annual_maximum",
@@ -1751,12 +1956,9 @@ LINEAR_CASES: Final[tuple[LinearCase, ...]] = (
             1400.0,
             500.0,
         ),
-        attachment=50.0,
-        exhaustion=150.0,
-        limit=1000.0,
     ),
-    LinearCase(
-        name="lower",
+    "lower": ClosedFormSample(
+        name="handmade",
         tail="lower",
         hazard_name="spei3",
         aggregation="annual_minimum",
@@ -1807,12 +2009,72 @@ LINEAR_CASES: Final[tuple[LinearCase, ...]] = (
             100.0,
             500.0,
         ),
-        attachment=-1.0,
-        exhaustion=-3.0,
-        limit=800.0,
     ),
-)
-"""The closed-form cases' samples and covers (20 years each)."""
+}
+"""The hand-made samples (20 years each): rainfall (upper tail), drought
+index (lower tail)."""
+
+CLOSED_FORM_COVERS: Final[Mapping[str, tuple[ClosedFormCover, ...]]] = {
+    "handmade-upper": (
+        ClosedFormCover(
+            F.payout_linear,
+            {F.attachment: 50.0, F.exhaustion: 150.0, F.limit_param: 1000.0},
+            ("pure", "coc"),
+        ),
+        ClosedFormCover(
+            F.payout_binary,
+            {F.trigger: 100.0, F.amount_param: 500.0},
+            ("pure", "coc"),
+        ),
+        ClosedFormCover(
+            F.payout_piecewise_linear,
+            {
+                F.knots: (50.0, 80.0, 120.0, 175.0),
+                F.levels: (50.0, 250.0, 700.0, 1200.0),
+            },
+            ("pure", "coc"),
+        ),
+    ),
+    "handmade-lower": (
+        ClosedFormCover(
+            F.payout_linear,
+            {F.attachment: -1.0, F.exhaustion: -3.0, F.limit_param: 800.0},
+            ("pure",),
+        ),
+        ClosedFormCover(
+            F.payout_binary, {F.trigger: -1.5, F.amount_param: 400.0}, ("pure",)
+        ),
+        ClosedFormCover(
+            F.payout_piecewise_linear,
+            {F.knots: (-1.0, -2.0, -3.0), F.levels: (100.0, 400.0, 800.0)},
+            ("pure",),
+        ),
+    ),
+    "synthetic-upper": (
+        ClosedFormCover(
+            F.payout_linear,
+            {F.attachment: 36.0, F.exhaustion: 60.0, F.limit_param: 2_500_000.0},
+            ("pure",),
+        ),
+        ClosedFormCover(
+            F.payout_binary,
+            {F.trigger: 36.0, F.amount_param: 500_000.0},
+            ("pure",),
+        ),
+        ClosedFormCover(
+            F.payout_piecewise_linear,
+            {
+                F.knots: (25.0, 36.0, 51.0, 60.0),
+                F.levels: (10_000.0, 100_000.0, 1_200_000.0, 2_500_000.0),
+            },
+            ("pure", "coc"),
+        ),
+    ),
+}
+"""The fixed covers of the closed-form cases, by ``<data>-<tail>`` of their
+sample. Thresholds sit on index values of the samples (rx1day 50, 100, 120,
+175; SPEI -1, -1.5, -2, -3; synthetic wind 25, 36 and 60), so the cases test
+ADR 0005 §3's boundary rule: a threshold belongs to the more severe side."""
 
 CLOSED_FORM_PRICINGS: Final[Mapping[str, tuple[Fraction, Fraction] | None]] = {
     "pure": None,
@@ -1821,16 +2083,145 @@ CLOSED_FORM_PRICINGS: Final[Mapping[str, tuple[Fraction, Fraction] | None]] = {
 """Pricing of the closed-form cases: pure, and a load of rate 0.1 at q 0.9."""
 
 
-def _linear_payout(case: LinearCase, x: Fraction) -> Fraction:
-    """``limit * clip((s - a) / (e - a), 0, 1)`` on the severity ``s`` (§3)."""
-    sign = 1 if case.tail == "upper" else -1
-    s, a, e = (
-        sign * x,
-        sign * _fraction(case.attachment),
-        sign * _fraction(case.exhaustion),
+def synthetic_closed_form_sample(data: Dataset) -> ClosedFormSample:
+    """Return the synthetic data set's first asset as a closed-form sample.
+
+    These are the draws of the core cases' asset A1, as written there, so the
+    closed-form cases put ADR 0005 §6's new metrics on the same realistic
+    sample (150 years, 30 % without a storm, basis risk between index and
+    loss).
+    """
+    return ClosedFormSample(
+        name=data.name,
+        tail="upper",
+        hazard_name=data.hazard_name,
+        aggregation=data.aggregation,
+        index_unit=data.index_unit,
+        loss_unit=data.loss_unit,
+        period=tuple(int(p) for p in data.period),
+        index=tuple(float(x) + 0.0 for x in data.index[:, 0]),
+        loss=tuple(float(x) + 0.0 for x in data.loss[:, 0]),
     )
-    share = min(max((s - a) / (e - a), Fraction(0)), Fraction(1))
-    return _fraction(case.limit) * share
+
+
+def _param(cover: ClosedFormCover, name: str) -> Fraction:
+    """Return a scalar parameter of a fixed cover, exact."""
+    value = cover.parameters[name]
+    if isinstance(value, tuple):
+        raise ValueError(f"{name} of {cover.family} is a scalar")
+    return _fraction(value)
+
+
+def _params(cover: ClosedFormCover, name: str) -> list[Fraction]:
+    """Return a vector parameter (knots, levels) of a fixed cover, exact."""
+    value = cover.parameters[name]
+    if not isinstance(value, tuple):
+        raise ValueError(f"{name} of {cover.family} is a vector")
+    return [_fraction(v) for v in value]
+
+
+def _check_closed_form_cover(cover: ClosedFormCover, tail: str) -> None:
+    """Validate a hand-set cover as ADR 0005 §3 does at construction.
+
+    Raises
+    ------
+    ValueError
+        If thresholds don't increase in severity, an amount is negative, or
+        piecewise-linear levels are not monotone or don't match the knots.
+    """
+    sign = 1 if tail == "upper" else -1
+    if cover.family == F.payout_linear:
+        a = sign * _param(cover, F.attachment)
+        e = sign * _param(cover, F.exhaustion)
+        if not a < e or _param(cover, F.limit_param) < 0:
+            raise ValueError(f"invalid linear cover {cover.parameters!r}")
+    elif cover.family == F.payout_binary:
+        _param(cover, F.trigger)
+        if _param(cover, F.amount_param) < 0:
+            raise ValueError(f"invalid binary cover {cover.parameters!r}")
+    elif cover.family == F.payout_piecewise_linear:
+        knots = [sign * c for c in _params(cover, F.knots)]
+        levels = _params(cover, F.levels)
+        if (
+            len(knots) < 2
+            or len(knots) != len(levels)
+            or any(b <= a for a, b in itertools.pairwise(knots))
+            or any(b < a for a, b in itertools.pairwise(levels))
+            or levels[0] < 0
+        ):
+            raise ValueError(f"invalid piecewise-linear cover {cover.parameters!r}")
+    else:
+        raise ValueError(f"no closed form for the payout kind {cover.family!r}")
+
+
+def _exact_payout(cover: ClosedFormCover, tail: str, x: Fraction) -> Fraction:
+    """Return a fixed cover's payout at index value ``x``, exact (ADR 0005 §3).
+
+    On the severity ``s`` (``x`` or ``-x``), with the thresholds mapped the
+    same way; a severity equal to a threshold belongs to the more severe
+    side.
+
+    * linear: ``limit * clip((s - a) / (e - a), 0, 1)``;
+    * binary: ``amount`` for ``s >= t``, else 0;
+    * piecewise linear: 0 for ``s < c_0``; the linear interpolation of the
+      points ``(c_k, y_k)`` on ``[c_0, c_{m-1}]``; ``y_{m-1}`` for
+      ``s >= c_{m-1}``.
+    """
+    sign = 1 if tail == "upper" else -1
+    s = sign * x
+    zero = Fraction(0)
+    if cover.family == F.payout_linear:
+        a = sign * _param(cover, F.attachment)
+        e = sign * _param(cover, F.exhaustion)
+        share = min(max((s - a) / (e - a), zero), Fraction(1))
+        return _param(cover, F.limit_param) * share
+    if cover.family == F.payout_binary:
+        trigger = sign * _param(cover, F.trigger)
+        return _param(cover, F.amount_param) if s >= trigger else zero
+    if cover.family == F.payout_piecewise_linear:
+        c = [sign * k for k in _params(cover, F.knots)]
+        y = _params(cover, F.levels)
+        if s < c[0]:
+            return zero
+        if s >= c[-1]:
+            return y[-1]
+        k = max(i for i in range(len(c) - 1) if c[i] <= s)
+        return y[k] + (y[k + 1] - y[k]) * (s - c[k]) / (c[k + 1] - c[k])
+    raise ValueError(f"no closed form for the payout kind {cover.family!r}")
+
+
+def _payout_document(cover: ClosedFormCover, tail: str) -> dict[str, Any]:
+    """Return the payout block of a fixed cover's document (ADR 0005 §3)."""
+    document: dict[str, Any] = {F.kind_key: cover.family, F.tail: tail}
+    for name, value in cover.parameters.items():
+        if isinstance(value, tuple):
+            document[name] = [float(v) for v in value]
+        else:
+            document[name] = float(value)
+    if cover.family == F.payout_piecewise_linear:
+        document[F.monotone] = True
+    return document
+
+
+def _check_binary_with_core(
+    cover: ClosedFormCover, sample: ClosedFormSample, payout: NDArray[np.float64]
+) -> None:
+    """Check a binary payout against the core's one-bin step payout.
+
+    A binary payout is a step payout with one breakpoint, the trigger: the
+    core's ``StepPayout`` with ``below_attachment="zero"`` and one bin that
+    starts at the trigger, on the severity.
+    """
+    sign = 1.0 if sample.tail == "upper" else -1.0
+    trigger = sign * float(_param(cover, F.trigger))
+    core = pid.StepPayout(
+        attachment=trigger, limit=trigger + 1.0, n_bins=1, below_attachment="zero"
+    )
+    severity = sign * np.asarray(sample.index, dtype=np.float64)
+    amount = float(_param(cover, F.amount_param))
+    core_payout = core.basis_matrix(severity) @ np.array([amount])
+    if not np.array_equal(core_payout, payout):
+        raise AssertionError("the binary payout differs from the core's one-bin step")
 
 
 def _exact_metrics(
@@ -1974,19 +2365,39 @@ def _check_closed_form_with_core(
     )
 
 
-def linear_case(case: LinearCase, pricing_token: str, commit: str) -> dict[str, Any]:
-    """Build a closed-form evaluation case of a fixed linear cover."""
+def closed_form_case(
+    sample: ClosedFormSample, cover: ClosedFormCover, pricing_token: str, commit: str
+) -> dict[str, Any]:
+    """Build a closed-form evaluation case of a fixed cover on one asset.
+
+    Parameters
+    ----------
+    sample : ClosedFormSample
+        The draws.
+    cover : ClosedFormCover
+        A linear, binary or piecewise-linear cover with the sample's tail.
+    pricing_token : {"pure", "coc"}
+        The pricing (:data:`CLOSED_FORM_PRICINGS`).
+    commit : str
+        The generator block's commit.
+
+    Returns
+    -------
+    dict
+        The case document, every metric of ADR 0005 §6 in exact arithmetic.
+    """
+    _check_closed_form_cover(cover, sample.tail)
     coc = CLOSED_FORM_PRICINGS[pricing_token]
-    x = [_fraction(v) for v in case.index]
-    loss = [_fraction(v) for v in case.loss]
-    payout = [_linear_payout(case, xi) for xi in x]
+    x = [_fraction(v) for v in sample.index]
+    loss = [_fraction(v) for v in sample.loss]
+    payout = [_exact_payout(cover, sample.tail, xi) for xi in x]
+    payout_floats = np.asarray([float(v) for v in payout], dtype=np.float64)
+    if cover.family == F.payout_binary:
+        _check_binary_with_core(cover, sample, payout_floats)
     exact = _exact_metrics(loss, payout, coc)
     premium = float(exact[metric("premium")])
     _check_closed_form_with_core(
-        exact,
-        np.asarray(case.loss, dtype=np.float64),
-        np.asarray([float(v) for v in payout], dtype=np.float64),
-        premium,
+        exact, np.asarray(sample.loss, dtype=np.float64), payout_floats, premium
     )
     metrics = {name: _write_exact(value) for name, value in exact.items()}
     if coc is None:
@@ -1997,34 +2408,32 @@ def linear_case(case: LinearCase, pricing_token: str, commit: str) -> dict[str, 
             F.rate: float(coc[0]),
             F.q: float(coc[1]),
         }
-    n = len(case.period)
-    sample = {
+    n = len(sample.period)
+    sample_doc = {
         F.asset_ids: ["A1"],
-        F.period: list(case.period),
+        F.period: list(sample.period),
         F.probability: [1.0 / n] * n,
-        F.index: [[float(v)] for v in case.index],
-        F.loss: [[float(v)] for v in case.loss],
-        F.index_unit: case.index_unit,
-        F.loss_unit: case.loss_unit,
-    }
-    payout_doc = {
-        F.attachment: float(case.attachment),
-        F.exhaustion: float(case.exhaustion),
-        F.kind_key: F.payout_linear,
-        F.limit_param: float(case.limit),
-        F.tail: case.tail,
+        F.index: [[float(v)] for v in sample.index],
+        F.loss: [[float(v)] for v in sample.loss],
+        F.index_unit: sample.index_unit,
+        F.loss_unit: sample.loss_unit,
     }
     index_doc = _index_document(
-        case.hazard_name, case.aggregation, case.index_unit, case.tail
+        sample.hazard_name, sample.aggregation, sample.index_unit, sample.tail
     )
+    payout_doc = _payout_document(cover, sample.tail)
+    family = cover.family.replace("_", "-")
     return {
         F.case_id: (
-            f"linear-{case.name}-fixed-{pricing_token}-{F.scope_individual}-handmade"
+            f"{family}-{sample.tail}-fixed-{pricing_token}-{F.scope_individual}-"
+            f"{sample.name}"
         ),
         F.kind: F.kind_evaluate,
         F.source: F.source_closed_form,
-        F.sample: sample,
-        F.cover: _cover_document("A1", index_doc, payout_doc, case.loss_unit),
+        F.sample: sample_doc,
+        F.split: None,
+        F.evaluation_sample: None,
+        F.cover: _cover_document("A1", index_doc, payout_doc, sample.loss_unit),
         F.objective: None,
         F.pricing: pricing_doc,
         F.budget: None,
@@ -2037,11 +2446,34 @@ def linear_case(case: LinearCase, pricing_token: str, commit: str) -> dict[str, 
             F.unidentified: None,
             F.unique: None,
             F.metrics: metrics,
+            F.out_of_sample: None,
         },
         F.compare_parameters: F.compare_none,
         F.tolerances: _tolerances(),
         F.generator: _generator(commit),
     }
+
+
+def closed_form_matrix(
+    synthetic: Dataset,
+) -> tuple[tuple[ClosedFormSample, ClosedFormCover], ...]:
+    """Return every (sample, cover) pair of the closed-form cases, in case order.
+
+    Parameters
+    ----------
+    synthetic : Dataset
+        The synthetic data set; its first asset is the realistic sample.
+    """
+    samples = {
+        "handmade-upper": HANDMADE_SAMPLES["upper"],
+        "handmade-lower": HANDMADE_SAMPLES["lower"],
+        "synthetic-upper": synthetic_closed_form_sample(synthetic),
+    }
+    return tuple(
+        (sample, cover)
+        for key, sample in samples.items()
+        for cover in CLOSED_FORM_COVERS[key]
+    )
 
 
 # --------------------------------------------------------------------------
@@ -2077,7 +2509,8 @@ def build_cases(
     commit = core_commit() if commit is None else commit
     settings = SolverSettings() if settings is None else settings
     cases: list[GeneratedCase] = []
-    for data in datasets():
+    synthetic, thesis = datasets()
+    for data in (synthetic, thesis):
         individual = data.select(data.asset_ids[:1])
         for objective in objectives():
             for pricing in pricings():
@@ -2092,10 +2525,24 @@ def build_cases(
                     )
         for pricing in pricings():
             cases.append(GeneratedCase(fixed_step_case(individual, pricing, commit)))
-    for case in LINEAR_CASES:
-        tokens = ("pure", "coc") if case.tail == "upper" else ("pure",)
-        for token in tokens:
-            cases.append(GeneratedCase(linear_case(case, token, commit)))
+        for objective in objectives():
+            if objective.token not in HOLDOUT_OBJECTIVES:
+                continue
+            for pricing in pricings():
+                cases.append(
+                    design_case(
+                        individual,
+                        F.scope_individual,
+                        objective,
+                        pricing,
+                        commit,
+                        settings,
+                        train_fraction=TRAIN_FRACTION,
+                    )
+                )
+    for sample, cover in closed_form_matrix(synthetic.select(synthetic.asset_ids[:1])):
+        for token in cover.pricings:
+            cases.append(GeneratedCase(closed_form_case(sample, cover, token, commit)))
     out_cases: dict[str, GeneratedCase] = {}
     for case in cases:
         name = f"{case.document[F.case_id]}.json"
@@ -2252,6 +2699,13 @@ def _floor(path: tuple[str, ...], case: Mapping[str, Any]) -> float:
         return scale**2 if objective.get(F.kind_key) == F.objective_mse else scale
     if path[1] == F.metrics and len(path) > 2 and metric_is_unitless(path[2]):
         return 1.0
+    if (
+        path[1] == F.out_of_sample
+        and len(path) > 3
+        and path[2] == F.metrics
+        and metric_is_unitless(path[3])
+    ):
+        return 1.0
     return scale
 
 
@@ -2356,6 +2810,7 @@ SOLVER_POINT_FIELDS: Final[tuple[tuple[str, ...], ...]] = (
     (F.expected, F.parameters),
     (F.expected, F.premium),
     (F.expected, F.metrics),
+    (F.expected, F.out_of_sample, F.metrics),
 )
 """The fields that are one solver's point of a set of optimal designs when a
 design is not unique: they are judged by :func:`compare_case`, not compared."""
@@ -2414,7 +2869,8 @@ def compare_case(committed: Mapping[str, Any], generated: GeneratedCase) -> list
 
     1. **The committed values are the core's at the committed levels.** The
        core evaluates ``expected.parameters`` again; the objective value, the
-       premium and every metric must agree within :data:`REGEN_RTOL_EXACT`.
+       premium and every metric, out of sample too, must agree within
+       :data:`REGEN_RTOL_EXACT`.
     2. **The committed levels are an optimal design of the regenerated
        problem.** They meet every constraint (bounds, monotonicity, cap,
        budget), and their objective value agrees with the regenerated optimum
@@ -2458,7 +2914,7 @@ def compare_case(committed: Mapping[str, Any], generated: GeneratedCase) -> list
     except (KeyError, TypeError, ValueError) as exc:
         return [*problems, f"{F.expected}/{F.parameters}: unreadable ({exc!r})"]
     evaluated = generated.evaluate(levels)
-    keys = (F.objective_value, F.premium, F.metrics)
+    keys = (F.objective_value, F.premium, F.metrics, F.out_of_sample)
     problems += compare_documents(
         {**committed, F.expected: {k: committed[F.expected].get(k) for k in keys}},
         {**regenerated, F.expected: evaluated},
@@ -2499,20 +2955,23 @@ def summary(
 ) -> str:
     """Return a Markdown table of the cases: kind, source, comparison, size."""
     lines = [
-        "| Case | Kind | Source | Scope | Compare parameters | Unique | Size (bytes) |",
-        "|---|---|---|---|---|---|---|",
+        "| Case | Kind | Source | Scope | Split | Compare parameters | Unique "
+        "| Size (bytes) |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     total = 0
     for name, doc in documents.items():
         size = sizes[name]
         total += size
         unique = doc[F.expected][F.unique]
+        split = doc[F.split]
         lines.append(
             f"| `{doc[F.case_id]}` | {doc[F.kind]} | {doc[F.source]} | "
-            f"{doc[F.scope]} | {doc[F.compare_parameters]} | "
+            f"{doc[F.scope]} | {'—' if split is None else split[F.kind_key]} | "
+            f"{doc[F.compare_parameters]} | "
             f"{'—' if unique is None else str(unique).lower()} | {size:,} |"
         )
-    lines.append(f"| **Total ({len(documents)} cases)** | | | | | | **{total:,}** |")
+    lines.append(f"| **Total ({len(documents)} cases)** | | | | | | | **{total:,}** |")
     return "\n".join(lines)
 
 
