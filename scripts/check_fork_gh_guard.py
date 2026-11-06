@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 """Test the fork gh guard hook, ``.claude/hooks/fork_gh_guard.py`` (MAR-253).
 
-The hook refuses a ``gh pr`` or ``gh issue`` command that may run in a CRC
-fork path without ``--repo marc272/<fork>``. This script runs it the way
-Claude Code does, one process per case with the ``PreToolUse`` JSON on stdin,
-and checks the exit status: 0 allows with no output, 2 refuses with a message
-on stderr that says how to fix the command. It also checks that:
+The hook refuses a repo-scoped ``gh`` command (``gh pr``, ``issue``,
+``label``, ``run``, ``secret``, ``variable``, ``cache``) that may run in a CRC
+fork path without ``--repo marc272/<fork>``, and a ``gh api`` call there that
+uses the ``{owner}``/``{repo}`` placeholders (MAR-261). This script runs it
+the way Claude Code does, one process per case with the ``PreToolUse`` JSON
+on stdin, and checks the exit status: 0 allows with no output, 2 refuses with
+a message on stderr that says how to fix the command. It also checks that:
 
-- ``.claude/settings.json`` wires the hook as a ``PreToolUse`` hook on Bash,
-  by running its command string through ``sh -c`` with ``CLAUDE_PROJECT_DIR``
-  set, as Claude Code does, and keeps its deny rules;
+- ``.claude/settings.json`` wires the hook as one ``PreToolUse`` hook whose
+  matcher names Bash, Monitor and the terminal tool, by running its command
+  string through ``sh -c`` with ``CLAUDE_PROJECT_DIR`` set, as Claude Code
+  does; that it keeps its deny rules; and that it denies the terminal tool;
 - the hook parses with Python 3.9's grammar, the oldest ``python3`` it may get
   (macOS's ``/usr/bin/python3``);
-- bad input (not JSON, no command) is refused and other tools pass.
+- Monitor and terminal-tool calls are checked like Bash calls, a Monitor
+  WebSocket watch and other tools pass, and bad input (not JSON, no command)
+  is refused when it mentions a checked gh command.
 
 No path needs to exist: the cases use the owner's paths, and the hook compares
 paths as text.
@@ -33,6 +38,7 @@ import argparse
 import ast
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -69,6 +75,15 @@ GH_REPO_DENY_RULES = (
     "Bash(env GH_REPO=*)",
     "Bash(export GH_REPO*)",
 )
+# The tools that run shell commands, which the guard's matcher must name
+# (MAR-261). Monitor uses Bash's permission rules; the desktop app's terminal
+# tool runs in the user's login shell, outside them, so it is also denied.
+TERMINAL_TOOL = "mcp__terminal__run_in_terminal"
+GUARDED_TOOLS = ("Bash", "Monitor", TERMINAL_TOOL)
+# The hooks reference, "Matcher patterns": a matcher of only these characters
+# is an exact tool name, or a list of them separated by | or ,; any other
+# character makes it an unanchored JavaScript regular expression.
+EXACT_MATCHER = re.compile(r"[A-Za-z0-9_\-, |]*")
 
 # Loads the hook as a module, makes evaluate() raise, and runs main(), so
 # that main's handling of an internal error runs in a real hook process.
@@ -290,6 +305,89 @@ CASES: list[tuple[str, str, str]] = [
     ("refuse", REPO, f"cd {SDK} && gh pr list --body 'unterminated"),
     # Refused, by design: gh as a plain word in a fork path.
     ("refuse", SDK, "echo gh pr list"),
+    # MAR-261: the other repo-scoped gh commands. Allowed outside the forks,
+    # and in them with --repo marc272/<fork>; the runbook's gh api call.
+    (
+        "allow",
+        REPO,
+        "gh api repos/marc272/parametric-insurance-design/check-runs/42122091157"
+        "/annotations",
+    ),
+    ("allow", REPO, "gh api 'repos/{owner}/{repo}/pulls' --jq '.[].number'"),
+    ("allow", AGENT_WT, "gh run view 42122091157 --log-failed"),
+    ("allow", REPO, "gh label list && gh run rerun 42122091157 --failed"),
+    (
+        "allow",
+        SDK,
+        "gh label create needs-review --repo marc272/crc-sdk --color ededed",
+    ),
+    ("allow", DOCS, "gh label clone marc272/crc-sdk -R marc272/crc-docs"),
+    ("allow", WT, "gh run rerun 123 --failed --repo marc272/crc-sdk"),
+    ("allow", DOCS, "gh run cancel 456 -R marc272/crc-docs"),
+    ("allow", SDK, "gh run list --repo marc272/crc-sdk --branch parametric -L 5"),
+    ("allow", SDK, "gh secret list --repo marc272/crc-sdk"),
+    ("allow", SDK, "gh variable set FOO --body bar --repo marc272/crc-sdk"),
+    ("allow", SDK, "gh cache delete --all --repo marc272/crc-sdk"),
+    ("allow", SDK, "gh cache list -R marc272/crc-sdk"),
+    # gh api in a fork: allowed when the repository is written out, and when
+    # {owner}/{repo} only appear where gh doesn't fill them in.
+    ("allow", SDK, "gh api user --jq .login"),
+    ("allow", SDK, "gh api repos/marc272/crc-sdk/branches/{branch}"),
+    ("allow", SDK, "gh api repos/marc272/crc-sdk/pulls --jq '.[].head | {repo}'"),
+    (
+        "allow",
+        SDK,
+        "gh api repos/marc272/crc-sdk/issues/3/comments -f body='rename {repo}'",
+    ),
+    (
+        "allow",
+        SDK,
+        "gh api graphql -F owner=marc272 -F name=crc-sdk -f query='query($owner:"
+        "String!,$name:String!){repository(owner:$owner,name:$name){id}}'",
+    ),
+    # Not checked: gh run as another tool's word, and other gh groups (their
+    # writes are denied by the deny rules).
+    ("allow", WT, "uv run pytest -q && gh pr checks 3 --repo marc272/crc-sdk"),
+    ("allow", SDK, "gh --version && uv run pytest -q"),
+    ("allow", SDK, "gh workflow list"),
+    ("allow", SDK, "gh --version && uv run 'unterminated"),
+    # Refused: label, run, secret, variable and cache without --repo.
+    ("refuse", SDK, "gh label create needs-review --color ededed"),
+    ("refuse", DOCS, "gh label list"),
+    ("refuse", SDK, "gh label clone marc272/crc-docs"),
+    ("refuse", WT, "gh run rerun 123 --failed"),
+    ("refuse", SDK, "gh run cancel 456"),
+    ("refuse", SDK, "gh run delete 456"),
+    ("refuse", SDK, "gh run watch 456"),
+    ("refuse", SDK, "gh secret set FOO --body bar"),
+    ("refuse", SDK, "gh secret delete FOO"),
+    ("refuse", SDK, "gh variable set FOO --body bar"),
+    ("refuse", DOCS, "gh variable delete FOO"),
+    ("refuse", SDK, "gh cache delete --all"),
+    ("refuse", SDK, "gh cache list"),
+    ("refuse", SDK, 'gh secret list --repo "$FORK"'),
+    ("refuse", SDK, "gh run rerun 123 --repo RiskThinking/crc-sdk"),
+    ("refuse", REPO, f"cd {WT} && gh run rerun 123 --failed"),
+    ("refuse", REPO, f"git -C {SDK} fetch origin && gh label list"),
+    ("refuse", REPO, f"bash -c 'cd {DOCS} && gh variable list'"),
+    ("refuse", SDK, "gh run rerun 3 --failed 'unterminated"),
+    # Refused: gh api with {owner}/{repo} placeholders in a fork path.
+    ("refuse", SDK, "gh api repos/{owner}/{repo}/pulls"),
+    ("refuse", SDK, "gh api 'repos/{owner}/{repo}/issues/3/comments' -f body=hi"),
+    ("refuse", WT, "gh api -X POST repos/{owner}/{repo}/actions/runs/123/rerun"),
+    ("refuse", SDK, "gh api --method DELETE 'repos/{owner}/{repo}/actions/caches/1'"),
+    ("refuse", SDK, "gh api repos/:owner/:repo/labels -f name=bug"),
+    (
+        "refuse",
+        SDK,
+        "gh api graphql -F owner='{owner}' -F name='{repo}' -f query='query($owner:"
+        "String!,$name:String!){repository(owner:$owner,name:$name){id}}'",
+    ),
+    ("refuse", SDK, "gh api -Fname={repo} -f query=x graphql"),
+    ("refuse", SDK, "gh api --paginate repos/{owner}/{repo}/issues --jq '.[].number'"),
+    ("refuse", SDK, "gh api -- repos/{owner}/{repo}/pulls"),
+    ("refuse", REPO, f"cd {SDK} && gh api repos/{{owner}}/{{repo}}/pulls"),
+    ("refuse", SDK, "gh api 'repos/{owner}/{repo}/pulls' 'unterminated"),
 ]
 
 
@@ -335,6 +433,39 @@ def run_hook(
     )
 
 
+def hook_input(cwd: str, tool: str, tool_input: object) -> dict[str, object]:
+    """Return a ``PreToolUse`` hook input for a call of ``tool``.
+
+    Parameters
+    ----------
+    cwd
+        The hook input's ``cwd``: the directory Claude is in.
+    tool
+        The tool name.
+    tool_input
+        The tool's input.
+
+    Returns
+    -------
+    dict
+        The hook input, shaped like the example in the hooks reference. A
+        terminal-tool call also carries ``mcp_server``, as MCP calls do.
+    """
+    payload: dict[str, object] = {
+        "session_id": "check-fork-gh-guard",
+        "transcript_path": "/dev/null",
+        "cwd": cwd,
+        "permission_mode": "auto",
+        "hook_event_name": "PreToolUse",
+        "tool_name": tool,
+        "tool_input": tool_input,
+        "tool_use_id": "toolu_check",
+    }
+    if tool.startswith("mcp__"):
+        payload["mcp_server"] = {"name": tool.split("__")[1], "source": "sdk"}
+    return payload
+
+
 def bash_input(cwd: str, command: str, tool: str = "Bash") -> dict[str, object]:
     """Return a ``PreToolUse`` hook input for a Bash command.
 
@@ -352,16 +483,52 @@ def bash_input(cwd: str, command: str, tool: str = "Bash") -> dict[str, object]:
     dict
         The hook input, shaped like the example in the hooks reference.
     """
-    return {
-        "session_id": "check-fork-gh-guard",
-        "transcript_path": "/dev/null",
-        "cwd": cwd,
-        "permission_mode": "auto",
-        "hook_event_name": "PreToolUse",
-        "tool_name": tool,
-        "tool_input": {"command": command, "description": "test case"},
-        "tool_use_id": "toolu_check",
-    }
+    return hook_input(cwd, tool, {"command": command, "description": "test case"})
+
+
+def monitor_input(cwd: str, command: str) -> dict[str, object]:
+    """Return a ``PreToolUse`` hook input for a Monitor command.
+
+    Parameters
+    ----------
+    cwd
+        The directory the command starts in.
+    command
+        The command.
+
+    Returns
+    -------
+    dict
+        The hook input, with the Monitor tool's own input.
+    """
+    tool_input = {"command": command, "description": "test", "timeout_ms": 300000}
+    return hook_input(cwd, "Monitor", tool_input)
+
+
+def terminal_input(
+    cwd: str, command: str, tool_cwd: object = None
+) -> dict[str, object]:
+    """Return a ``PreToolUse`` hook input for a terminal-tool command.
+
+    Parameters
+    ----------
+    cwd
+        The hook input's ``cwd``.
+    command
+        The command.
+    tool_cwd
+        The tool's own ``cwd``, or ``None`` to leave it out.
+
+    Returns
+    -------
+    dict
+        The hook input, with the terminal tool's input (``command``, ``cwd``,
+        ``title``).
+    """
+    tool_input: dict[str, object] = {"command": command, "title": "test"}
+    if tool_cwd is not None:
+        tool_input["cwd"] = tool_cwd
+    return hook_input(cwd, TERMINAL_TOOL, tool_input)
 
 
 def verdict(proc: subprocess.CompletedProcess[str]) -> str:
@@ -376,8 +543,9 @@ def verdict(proc: subprocess.CompletedProcess[str]) -> str:
     -------
     str
         ``allow`` for exit 0 with no output; ``refuse`` for exit 2 with a
-        message that names the fix and nothing on stdout; otherwise a
-        description of what went wrong.
+        message that names the fix (a ``marc272/`` repository: ``--repo
+        marc272/<fork>``, or ``repos/marc272/<fork>`` for gh api) and nothing
+        on stdout; otherwise a description of what went wrong.
     """
     if proc.returncode == 0 and not proc.stdout and not proc.stderr:
         return "allow"
@@ -385,7 +553,7 @@ def verdict(proc: subprocess.CompletedProcess[str]) -> str:
         proc.returncode == 2
         and not proc.stdout
         and "Refused by the fork gh guard" in proc.stderr
-        and "--repo marc272/" in proc.stderr
+        and ("--repo marc272/" in proc.stderr or "repos/marc272/" in proc.stderr)
     ):
         return "refuse"
     return f"exit {proc.returncode}, stdout {proc.stdout!r}, stderr {proc.stderr!r}"
@@ -431,12 +599,181 @@ def input_cases() -> list[tuple[str, str, object, str | None, bool]]:
     list of tuple
         ``(expected, label, payload, raw stdin or None, force an internal
         error)``. A failure of the hook refuses a command that mentions gh
-        with pr or issue, without parsing it, and lets the rest through.
+        with a checked subcommand, without parsing it, and lets the rest
+        through. The terminal-tool cases run with ``CLAUDE_PROJECT_DIR`` set
+        to this repository's main checkout (``REPO``).
     """
     no_cwd = bash_input(SDK, "gh pr list")
     del no_cwd["cwd"]
     gh_elsewhere = {"tool_name": "Bash", "tool_input": {"cmd": "gh issue create"}}
+    ws_watch = hook_input(
+        SDK,
+        "Monitor",
+        {
+            "ws": {"url": "wss://events.example.com/stream"},
+            "description": "gh pr events",
+            "timeout_ms": 300000,
+        },
+    )
+    monitor_empty = hook_input(
+        SDK, "Monitor", {"description": "gh pr checks", "timeout_ms": 1000}
+    )
+    poll = (
+        "while true; do gh api 'repos/{owner}/{repo}/issues/3/comments'"
+        " --jq '.[].body'; sleep 30; done"
+    )
     return [
+        # Monitor: its command runs in the same shell environment as Bash.
+        (
+            "refuse",
+            "Monitor, forks/crc-sdk: gh pr checks 3 --watch",
+            monitor_input(SDK, "gh pr checks 3 --watch"),
+            None,
+            False,
+        ),
+        (
+            "allow",
+            "Monitor, forks/crc-sdk: gh pr checks 3 --repo marc272/crc-sdk --watch",
+            monitor_input(SDK, "gh pr checks 3 --repo marc272/crc-sdk --watch"),
+            None,
+            False,
+        ),
+        (
+            "refuse",
+            "Monitor, forks/crc-sdk: a gh api poll loop with {owner}/{repo}",
+            monitor_input(SDK, poll),
+            None,
+            False,
+        ),
+        (
+            "refuse",
+            "Monitor, this repo: cd forks/worktrees/crc-sdk-mar-260 && gh run watch 9",
+            monitor_input(REPO, f"cd {WT} && gh run watch 9"),
+            None,
+            False,
+        ),
+        (
+            "allow",
+            "Monitor, forks/crc-sdk: tail -f a log",
+            monitor_input(SDK, "tail -f results/run.log | grep --line-buffered ERROR"),
+            None,
+            False,
+        ),
+        (
+            "allow",
+            "Monitor, this repo: gh pr checks 3 --watch",
+            monitor_input(REPO, "gh pr checks 3 --watch"),
+            None,
+            False,
+        ),
+        (
+            "allow",
+            "Monitor WebSocket watch (no command; description says gh pr)",
+            ws_watch,
+            None,
+            False,
+        ),
+        (
+            "refuse",
+            "Monitor with neither command nor ws, gh pr in the input",
+            monitor_empty,
+            None,
+            False,
+        ),
+        # The terminal tool: its own cwd, else the session's working directory.
+        (
+            "refuse",
+            "terminal tool, cwd forks/crc-sdk: gh pr list",
+            terminal_input(REPO, "gh pr list", SDK),
+            None,
+            False,
+        ),
+        (
+            "refuse",
+            "terminal tool, cwd ~/Parametric_Insurance/forks/crc-docs: gh issue list",
+            terminal_input(
+                REPO, "gh issue list", "~/Parametric_Insurance/forks/crc-docs"
+            ),
+            None,
+            False,
+        ),
+        (
+            "refuse",
+            "terminal tool, cwd ../forks/crc-sdk (project dir): gh run rerun 3",
+            terminal_input(AGENT_WT, "gh run rerun 3", "../forks/crc-sdk"),
+            None,
+            False,
+        ),
+        (
+            "refuse",
+            "terminal tool, no cwd, Claude in forks/crc-sdk: gh pr list",
+            terminal_input(SDK, "gh pr list"),
+            None,
+            False,
+        ),
+        (
+            "refuse",
+            "terminal tool, no cwd: cd forks/worktrees/crc-sdk-mar-260 && gh pr create",
+            terminal_input(REPO, f"cd {WT} && gh pr create --base parametric"),
+            None,
+            False,
+        ),
+        (
+            "refuse",
+            "terminal tool, cwd forks/crc-sdk: gh api repos/{owner}/{repo}/pulls",
+            terminal_input(REPO, "gh api repos/{owner}/{repo}/pulls", SDK),
+            None,
+            False,
+        ),
+        (
+            "allow",
+            "terminal tool, cwd forks/crc-sdk: gh pr list --repo marc272/crc-sdk",
+            terminal_input(REPO, "gh pr list --repo marc272/crc-sdk", SDK),
+            None,
+            False,
+        ),
+        (
+            "allow",
+            "terminal tool, cwd this repo, Claude in forks/crc-sdk: gh pr list",
+            terminal_input(SDK, "gh pr list", REPO),
+            None,
+            False,
+        ),
+        (
+            "allow",
+            "terminal tool, no cwd, this repo: gh pr list",
+            terminal_input(REPO, "gh pr list"),
+            None,
+            False,
+        ),
+        (
+            "allow",
+            "terminal tool, cwd forks/worktrees/crc-sdk-mar-260: uv run pytest -q",
+            terminal_input(REPO, "uv run pytest -q", WT),
+            None,
+            False,
+        ),
+        (
+            "refuse",
+            "terminal tool, cwd not a string: gh pr list --repo marc272/crc-sdk",
+            terminal_input(REPO, "gh pr list --repo marc272/crc-sdk", 3),
+            None,
+            False,
+        ),
+        (
+            "allow",
+            "terminal tool, cwd not a string: ls",
+            terminal_input(REPO, "ls", 3),
+            None,
+            False,
+        ),
+        (
+            "allow",
+            "another MCP tool with a command, forks/crc-sdk: gh pr list",
+            hook_input(SDK, "mcp__other__run", {"command": "gh pr list"}),
+            None,
+            False,
+        ),
         (
             "allow",
             "another tool (Edit)",
@@ -482,6 +819,34 @@ def input_cases() -> list[tuple[str, str, object, str | None, bool]]:
             "allow",
             "internal error: git push, a fork",
             bash_input(SDK, "git push"),
+            None,
+            True,
+        ),
+        (
+            "refuse",
+            "internal error: gh run rerun 3, a fork",
+            bash_input(SDK, "gh run rerun 3"),
+            None,
+            True,
+        ),
+        (
+            "refuse",
+            "internal error: Monitor gh api repos/{owner}/{repo}/pulls, a fork",
+            monitor_input(SDK, "gh api repos/{owner}/{repo}/pulls"),
+            None,
+            True,
+        ),
+        (
+            "refuse",
+            "internal error: terminal tool gh label list, cwd a fork",
+            terminal_input(REPO, "gh label list", SDK),
+            None,
+            True,
+        ),
+        (
+            "allow",
+            "internal error: gh --version && uv run pytest -q, a fork",
+            bash_input(SDK, "gh --version && uv run pytest -q"),
             None,
             True,
         ),
@@ -556,12 +921,33 @@ def hook_key_problems(settings: dict[str, object]) -> list[str]:
     return problems
 
 
+def matcher_names(matcher: str) -> set[str] | None:
+    """Return the tool names an exact-match hook matcher lists.
+
+    Parameters
+    ----------
+    matcher
+        A hook matcher.
+
+    Returns
+    -------
+    set of str or None
+        The names separated by ``|`` or ``,``, or ``None`` if the hooks
+        reference reads the matcher as a regular expression.
+    """
+    if not EXACT_MATCHER.fullmatch(matcher):
+        return None
+    return {name.strip() for name in re.split(r"[|,]", matcher) if name.strip()}
+
+
 def check_settings(env: dict[str, str]) -> list[str]:
     """Check the hook's wiring in ``.claude/settings.json``; return failures.
 
-    The hook's command string runs through ``sh -c`` with
-    ``CLAUDE_PROJECT_DIR`` set to this checkout, as Claude Code runs it, once
-    for a command it must refuse and once for one it must allow.
+    The guard must be one ``PreToolUse`` hook whose matcher is a list of exact
+    tool names that includes ``GUARDED_TOOLS``, and the terminal tool must be
+    denied. The hook's command string runs through ``sh -c`` with
+    ``CLAUDE_PROJECT_DIR`` set to this checkout, as Claude Code runs it, for
+    Bash, Monitor and terminal-tool commands it must refuse or allow.
 
     Parameters
     ----------
@@ -580,22 +966,30 @@ def check_settings(env: dict[str, str]) -> list[str]:
     }
     if not hook_key_problems(probe):
         failures.append("the schema key check doesn't fire on onFailure")
+    if matcher_names("mcp__terminal__.*") is not None:
+        failures.append("the matcher check doesn't read .* as a regular expression")
     deny = settings.get("permissions", {}).get("deny") or []
     if not deny:
         failures.append("settings.json lost its permissions.deny rules")
-    for rule in GH_REPO_DENY_RULES:
+    for rule in (*GH_REPO_DENY_RULES, TERMINAL_TOOL):
         if rule not in deny:
             failures.append(f"settings.json lacks the deny rule {rule}")
-    hooks = [
-        hook
+    found = [
+        (str(group.get("matcher", "")), hook)
         for group in settings.get("hooks", {}).get("PreToolUse", [])
-        if group.get("matcher") == "Bash"
         for hook in group.get("hooks", [])
         if "fork_gh_guard.py" in str(hook.get("command", ""))
     ]
-    if len(hooks) != 1:
-        return [*failures, f"want 1 PreToolUse Bash hook on the guard: {len(hooks)}"]
-    hook = hooks[0]
+    if len(found) != 1:
+        return [*failures, f"want 1 PreToolUse hook on the guard: {len(found)}"]
+    matcher, hook = found[0]
+    names = matcher_names(matcher)
+    if names is None:
+        failures.append(f"the guard's matcher {matcher!r} is a regular expression")
+    else:
+        missing = [tool for tool in GUARDED_TOOLS if tool not in names]
+        if missing:
+            failures.append(f"the guard's matcher {matcher!r} lacks {missing}")
     command = str(hook["command"])
     if hook.get("type") != "command" or "args" in hook:
         failures.append("the hook must be a shell-form command hook (no args)")
@@ -604,13 +998,16 @@ def check_settings(env: dict[str, str]) -> list[str]:
     if not isinstance(hook.get("timeout"), (int, float)):
         failures.append("the hook must set a timeout")
     sh_env = {**env, "CLAUDE_PROJECT_DIR": str(ROOT)}
-    for expected, cwd, bash in (
-        ("refuse", REPO, f"cd {SDK} && gh pr create --base parametric"),
-        ("allow", SDK, "gh pr checks 3 --repo marc272/crc-sdk"),
+    for expected, payload in (
+        ("refuse", bash_input(REPO, f"cd {SDK} && gh pr create --base parametric")),
+        ("allow", bash_input(SDK, "gh pr checks 3 --repo marc272/crc-sdk")),
+        ("refuse", monitor_input(SDK, "gh run watch 3")),
+        ("refuse", terminal_input(REPO, "gh pr list", SDK)),
+        ("allow", terminal_input(REPO, "gh pr list --repo marc272/crc-sdk", SDK)),
     ):
         proc = subprocess.run(
             ["sh", "-c", command],
-            input=json.dumps(bash_input(cwd, bash)),
+            input=json.dumps(payload),
             capture_output=True,
             text=True,
             env=sh_env,
@@ -620,7 +1017,8 @@ def check_settings(env: dict[str, str]) -> list[str]:
         )
         got = verdict(proc)
         if got != expected:
-            failures.append(f"settings command on {bash!r}: want {expected}, {got}")
+            shown = f"{payload['tool_name']} {payload['tool_input']!r}"
+            failures.append(f"settings command on {shown}: want {expected}, {got}")
     return failures
 
 
@@ -711,7 +1109,9 @@ def main() -> int:
         "--markdown", action="store_true", help="also print the cases as a table"
     )
     args = parser.parse_args()
-    env = {**os.environ, "HOME": HOME}
+    # Claude Code sets CLAUDE_PROJECT_DIR for hooks: the main checkout, which
+    # the terminal tool's relative cwd may be resolved against.
+    env = {**os.environ, "HOME": HOME, "CLAUDE_PROJECT_DIR": REPO}
 
     started = time.monotonic()
     lines, failures, results = check_cases(args.python, env)

@@ -1,19 +1,28 @@
 #!/usr/bin/env python3
-"""Refuse ``gh pr`` and ``gh issue`` in the CRC forks without ``--repo marc272/``.
+"""Refuse repo-scoped ``gh`` commands in the CRC forks without ``--repo marc272/``.
 
-A Claude Code ``PreToolUse`` hook on the Bash tool (MAR-253), wired in
-``.claude/settings.json``. In a clone of the forks ``marc272/crc-sdk`` and
-``marc272/crc-docs``, ``gh`` without ``--repo`` can resolve to the parent
-repository, RiskThinking's, where agents must never act. The deny rules in
-``.claude/settings.json`` block commands that *name* RiskThinking. This hook
-adds what they can't express: a ``gh pr ...`` or ``gh issue ...`` command that
-may run in a fork path must name a ``marc272/`` repository with ``--repo`` or
-``-R``, written literally, or it is refused.
+A Claude Code ``PreToolUse`` hook (MAR-253, MAR-261), wired in
+``.claude/settings.json`` on the tools that run shell commands: ``Bash``,
+``Monitor`` and the desktop app's terminal tool
+(``mcp__terminal__run_in_terminal``). In a clone of the forks
+``marc272/crc-sdk`` and ``marc272/crc-docs``, ``gh`` without ``--repo`` can
+resolve to the parent repository, RiskThinking's, where agents must never
+act. The deny rules in ``.claude/settings.json`` block commands that *name*
+RiskThinking. This hook adds what they can't express. A command that may run
+in a fork path is refused if it runs:
+
+- ``gh pr``, ``gh issue``, ``gh label``, ``gh run``, ``gh secret``,
+  ``gh variable`` or ``gh cache`` (``REPO_FLAG_SUBCOMMANDS``) without naming a
+  ``marc272/`` repository with ``--repo`` or ``-R``, written literally;
+- ``gh api`` with ``{owner}``, ``{repo}``, ``:owner`` or ``:repo`` in its
+  endpoint or a ``-F`` field, which gh fills in from the clone's repository.
+  ``gh api`` has no ``--repo``: the repository must be written out.
 
 A command may run in a fork path when any of these holds. Paths are compared
 case-insensitively (macOS), and symlinks are resolved, under ``FORKS_ROOT``:
 
-- the Bash call starts there (the ``cwd`` of the hook input);
+- the call starts there (the ``cwd`` of the hook input, or for the terminal
+  tool its own ``cwd``, see ``terminal_starts``);
 - a ``cd``, ``pushd`` or ``popd`` in the command goes there, or somewhere the
   hook can't resolve (``cd -``, ``popd``, a variable other than ``$HOME``, a
   command substitution, a glob);
@@ -31,21 +40,25 @@ taken. Commands inside ``$(...)``, backticks, ``<(...)``, ``sh -c``/``bash -c``
 bodies are skipped. ``gh`` counts wherever it appears as a word, so
 ``xargs gh pr view`` and ``timeout 60 gh pr checks`` are checked. A command
 the hook can't parse (an unterminated quote, for example) is refused when it
-mentions ``gh`` with ``pr`` or ``issue`` and may touch a fork. Everything else
-passes: the hook prints nothing and exits 0.
+mentions ``gh`` followed by a checked subcommand (``_GH_CHECKED``) and may
+touch a fork. Everything else passes: the hook prints nothing and exits 0.
 
 If the hook itself fails (input that isn't the documented JSON, or an
-exception), it refuses a command that mentions the words ``gh`` and ``pr`` or
-``issue``, and lets every other command through. If ``python3`` is missing,
-the hook can't start: Claude Code treats that as a non-blocking error and runs
-the command.
+exception), it refuses a command that mentions ``gh`` followed by a checked
+subcommand in the same simple command, and lets every other command through.
+If ``python3`` is missing, the hook can't start: Claude Code treats that as a
+non-blocking error and runs the command.
 
 Contract (Claude Code hooks reference): the hook reads the ``PreToolUse`` JSON
-on stdin (``tool_name``, ``tool_input.command``, ``cwd``) and refuses a call by
+on stdin (``tool_name``, ``tool_input``, ``cwd``) and refuses a call by
 exiting 2 with the reason on stderr, which Claude sees. It never exits with
-another code. It needs only the standard library and runs on Python 3.9 or
-later (macOS's ``/usr/bin/python3``), as ``python3 -I``. Its tests are
-``scripts/check_fork_gh_guard.py``.
+another code. ``tool_input.command`` is the shell command of all three tools;
+a ``Monitor`` WebSocket watch (``tool_input.ws``) runs none and passes. On
+Claude Code v2.1.314 or later a ``Bash`` matcher also runs the hook on
+``Monitor`` commands, as Bash calls; a matcher that names ``Monitor`` gets the
+Monitor call's own input. The hook needs only the standard library and runs
+on Python 3.9 or later (macOS's ``/usr/bin/python3``), as ``python3 -I``. Its
+tests are ``scripts/check_fork_gh_guard.py``.
 """
 
 from __future__ import annotations
@@ -58,7 +71,17 @@ from dataclasses import dataclass, field
 
 FORKS_ROOT = "/Users/marcprinzing/Parametric_Insurance/forks"
 OWNER = "marc272"
-CHECKED_SUBCOMMANDS = frozenset({"pr", "issue"})
+# gh command groups that act on the clone's repository unless --repo or -R
+# names one (MAR-253, MAR-261). Every command of a group is checked, reads
+# included, as for gh pr and gh issue.
+REPO_FLAG_SUBCOMMANDS = frozenset(
+    {"pr", "issue", "label", "run", "secret", "variable", "cache"}
+)
+# gh api has no --repo; it is checked for repository placeholders instead.
+CHECKED_SUBCOMMANDS = REPO_FLAG_SUBCOMMANDS | {"api"}
+# The tools whose input carries a shell command (tool_input.command).
+SHELL_TOOLS = frozenset({"Bash", "Monitor"})
+TERMINAL_TOOL = "mcp__terminal__run_in_terminal"
 SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh"})
 LOCATION_VARIABLES = frozenset({"GIT_DIR", "GIT_WORK_TREE"})
 MAX_DEPTH = 8
@@ -93,13 +116,42 @@ _OWNER_REPO = re.compile(
     r"(?:(?:https?://)?(?:www\.)?github\.com/)?" + OWNER + r"/[A-Za-z0-9._-]+/?",
     re.IGNORECASE,
 )
+# gh api fills these in from the clone's repository, in its endpoint and in
+# -F/--field values (gh api --help; gh still accepts the older :owner form).
+_API_PLACEHOLDER = re.compile(r"\{(?:owner|repo)\}|:(?:owner|repo)\b")
+# gh api flags whose values gh never fills in: raw fields, headers, output
+# filters (a jq filter such as '{repo}' is not a placeholder) and the like.
+_API_LITERAL_FLAGS = frozenset(
+    {
+        "-H",
+        "--header",
+        "-X",
+        "--method",
+        "-f",
+        "--raw-field",
+        "--input",
+        "-q",
+        "--jq",
+        "-t",
+        "--template",
+        "--hostname",
+        "-p",
+        "--preview",
+        "--cache",
+    }
+)
 # ``cd -``, ``cd +2``: the directory stack. A bare ``-`` or digit is a cd alias
 # in zsh setups such as oh-my-zsh.
 _DIR_STACK = re.compile(r"-|[+-][0-9]+")
 _BARE_CD = re.compile(r"-|[1-9]")
-# Only for a command the hook can't parse.
-_GH_WORD = re.compile(r"\bgh\b")
-_CHECKED_WORD = re.compile(r"\b(?:pr|issue)\b")
+# Only for a command the hook can't parse, or when the hook fails: the word gh
+# followed by a checked subcommand within one simple command (a line
+# continuation allowed), so that `gh --version && uv run pytest` still passes.
+_GH_CHECKED = re.compile(
+    r"\bgh\b(?:[^;&|\n()`]|\\\n)*?\b(?:"
+    + "|".join(sorted(CHECKED_SUBCOMMANDS))
+    + r")\b"
+)
 _FORKISH = re.compile(
     r"forks|GH_REPO|GIT_DIR|GIT_WORK_TREE|\b(?:cd|pushd|popd|eval)\b|-C\b",
     re.IGNORECASE,
@@ -500,18 +552,24 @@ def _git_locations(args: list[str]) -> list[tuple[str, str]]:
 
 @dataclass
 class GhInvocation:
-    """A ``gh pr ...`` or ``gh issue ...`` command found in the Bash command.
+    """A ``gh`` command of a checked subcommand found in the shell command.
 
     Attributes
     ----------
     words
         ``gh`` and its arguments.
+    subcommand
+        Its subcommand, one of ``CHECKED_SUBCOMMANDS``.
     repos
         The values of its ``--repo`` and ``-R`` flags, in order.
+    placeholders
+        For ``gh api``, the arguments in which gh fills in the repository.
     """
 
     words: list[str]
+    subcommand: str
     repos: list[str]
+    placeholders: list[str] = field(default_factory=list)
 
     @property
     def names_owner_repo(self) -> bool:
@@ -519,6 +577,55 @@ class GhInvocation:
         return bool(self.repos) and all(
             _OWNER_REPO.fullmatch(repo) for repo in self.repos
         )
+
+    @property
+    def safe(self) -> bool:
+        """Whether it names its repository, so a fork path doesn't matter.
+
+        ``gh api`` is safe without repository placeholders; every other
+        checked subcommand needs ``names_owner_repo``.
+        """
+        if self.subcommand == "api":
+            return not self.placeholders
+        return self.names_owner_repo
+
+
+def api_placeholders(args: list[str]) -> list[str]:
+    """Return the arguments of ``gh api`` in which gh fills in the repository.
+
+    gh replaces ``{owner}``, ``{repo}``, ``:owner`` and ``:repo`` with the
+    clone's repository in the endpoint and in ``-F``/``--field`` values. Every
+    argument counts except the values of ``_API_LITERAL_FLAGS``, which gh
+    never fills in, so an unknown flag or form errs towards refusing.
+
+    Parameters
+    ----------
+    args
+        The words after ``gh api``.
+
+    Returns
+    -------
+    list of str
+        The arguments that hold a placeholder, in order.
+    """
+    found = []
+    k = 0
+    while k < len(args):
+        arg = args[k]
+        if arg == "--":
+            found += [a for a in args[k + 1 :] if _API_PLACEHOLDER.search(a)]
+            break
+        if arg in _API_LITERAL_FLAGS:
+            k += 2  # the flag and its value
+            continue
+        if arg.startswith("--"):
+            literal = "=" in arg and arg.split("=", 1)[0] in _API_LITERAL_FLAGS
+        else:
+            literal = len(arg) > 2 and arg[:2] in _API_LITERAL_FLAGS  # -qVALUE
+        if not literal and _API_PLACEHOLDER.search(arg):
+            found.append(arg)
+        k += 1
+    return found
 
 
 def parse_gh(args: list[str]) -> GhInvocation | None:
@@ -535,6 +642,7 @@ def parse_gh(args: list[str]) -> GhInvocation | None:
         ``None`` unless the subcommand is in ``CHECKED_SUBCOMMANDS``.
     """
     subcommand = None
+    sub_at = len(args)
     repos = []
     k = 0
     while k < len(args):
@@ -552,10 +660,17 @@ def parse_gh(args: list[str]) -> GhInvocation | None:
             repos.append(value[1:] if value.startswith("=") else value)
         elif subcommand is None and not arg.startswith("-"):
             subcommand = arg
+            sub_at = k
         k += 1
-    if subcommand not in CHECKED_SUBCOMMANDS:
+    if subcommand is None or subcommand not in CHECKED_SUBCOMMANDS:
         return None
-    return GhInvocation(words=["gh", *args], repos=repos)
+    placeholders = api_placeholders(args[sub_at + 1 :]) if subcommand == "api" else []
+    return GhInvocation(
+        words=["gh", *args],
+        subcommand=subcommand,
+        repos=repos,
+        placeholders=placeholders,
+    )
 
 
 def _norm_root(path: str) -> str:
@@ -596,9 +711,13 @@ def under_forks(path: str) -> bool:
 
 @dataclass
 class _Context:
-    """What the hook learns about one Bash command."""
+    """What the hook learns about one shell command.
 
-    cwd: str
+    ``starts`` are the directories the command may start in: one for Bash
+    and Monitor, one or more for the terminal tool (``terminal_starts``).
+    """
+
+    starts: list[str]
     home: str
     cwds: list[str] = field(default_factory=list)
     unknown_cwd: bool = False
@@ -607,9 +726,12 @@ class _Context:
     invocations: list[GhInvocation] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        self.cwds = [os.path.normpath(self.cwd)]
-        if under_forks(self.cwd):
-            self._fork(f"the command starts in {self.cwd}", self.cwd)
+        for start in self.starts:
+            path = os.path.normpath(start)
+            if path not in self.cwds:
+                self.cwds.append(path)
+            if under_forks(path):
+                self._fork(f"the command starts in {path}", path)
 
     def _fork(self, reason: str, path: str | None = None) -> None:
         if path is not None:
@@ -738,15 +860,16 @@ class _Context:
                 self.invocations.append(invocation)
 
 
-def evaluate(command: str, cwd: str, home: str) -> str | None:
-    """Return the refusal message for a Bash command, or ``None`` to allow it.
+def evaluate(command: str, starts: list[str], home: str) -> str | None:
+    """Return the refusal message for a shell command, or ``None`` to allow it.
 
     Parameters
     ----------
     command
-        The Bash tool's ``command``.
-    cwd
-        The directory the command starts in (the hook input's ``cwd``).
+        The tool's ``command``.
+    starts
+        The directories the command may start in (the hook input's ``cwd``,
+        or ``terminal_starts`` for the terminal tool).
     home
         The home directory, for ``~`` and ``$HOME``.
 
@@ -761,12 +884,12 @@ def evaluate(command: str, cwd: str, home: str) -> str | None:
         If the command can't be split into simple commands.
     """
     commands = split_commands(command)
-    context = _Context(cwd=cwd, home=home)
+    context = _Context(starts=starts, home=home)
     for words in commands:
         context.change_directory(words)
     for words in commands:
         context.inspect(words)
-    unsafe = [i for i in context.invocations if not i.names_owner_repo]
+    unsafe = [i for i in context.invocations if not i.safe]
     if not unsafe or not context.reasons:
         return None
     return _refusal(unsafe[0], context)
@@ -796,61 +919,89 @@ def _refusal(invocation: GhInvocation, context: _Context) -> str:
     lines = [
         "Refused by the fork gh guard (.claude/hooks/fork_gh_guard.py, MAR-253):",
         f"  {shown}",
-        f"may run in a CRC fork, and it doesn't pass --repo {OWNER}/<fork>"
-        f" (or -R {OWNER}/<fork>).",
     ]
-    bad = [repo for repo in invocation.repos if not _OWNER_REPO.fullmatch(repo)]
-    if bad:
-        values = ", ".join(repr(repo) for repo in bad)
+    if invocation.subcommand == "api":
+        values = ", ".join(repr(word) for word in invocation.placeholders[:3])
+        lines += [
+            "may run in a CRC fork, and gh api fills in {owner}/{repo} (or",
+            f":owner/:repo) from the clone's repository, in {values}.",
+        ]
+    else:
         lines.append(
-            f"Its --repo/-R value {values} is not a literal {OWNER}/<repo>"
-            " (no variables)."
+            f"may run in a CRC fork, and it doesn't pass --repo {OWNER}/<fork>"
+            f" (or -R {OWNER}/<fork>)."
         )
+        bad = [repo for repo in invocation.repos if not _OWNER_REPO.fullmatch(repo)]
+        if bad:
+            values = ", ".join(repr(repo) for repo in bad)
+            lines.append(
+                f"Its --repo/-R value {values} is not a literal {OWNER}/<repo>"
+                " (no variables)."
+            )
     lines.append("Why the hook counts it as a fork path:")
     lines += [f"  - {reason}" for reason in context.reasons[:3]]
     lines += [
-        "In a fork clone, gh without --repo can resolve to the parent repository,",
+        "In a fork clone, gh can take the clone's repository to be the parent,",
         "RiskThinking's, where agents must never act.",
-        "Fix: name the fork explicitly, as docs/ORCHESTRATION.md does:",
-        f"  gh pr create --repo {OWNER}/{fork} --base parametric --head <branch> ...",
-        f"  gh pr checks <n> --repo {OWNER}/{fork}",
-        f"  gh pr merge <n> --repo {OWNER}/{fork} --squash ...",
-        f"For this repository's own PRs and issues, pass --repo"
-        f" {OWNER}/parametric-insurance-design.",
     ]
+    if invocation.subcommand == "api":
+        lines += [
+            "Fix: gh api has no --repo, so write the repository out:",
+            f"  gh api repos/{OWNER}/{fork}/pulls ...",
+            f"  gh api graphql -F owner={OWNER} -F name={fork} -f query=...",
+        ]
+    elif invocation.subcommand in ("pr", "issue"):
+        lines += [
+            "Fix: name the fork explicitly, as docs/ORCHESTRATION.md does:",
+            f"  gh pr create --repo {OWNER}/{fork} --base parametric"
+            " --head <branch> ...",
+            f"  gh pr checks <n> --repo {OWNER}/{fork}",
+            f"  gh pr merge <n> --repo {OWNER}/{fork} --squash ...",
+        ]
+    else:
+        lines += [
+            "Fix: name the fork explicitly:",
+            f"  gh {invocation.subcommand} <command> ... --repo {OWNER}/{fork}",
+        ]
+    lines.append(
+        "For this repository's own PRs, issues and runs, pass --repo"
+        f" {OWNER}/parametric-insurance-design."
+    )
     return "\n".join(lines)
 
 
-def _when_in_doubt(command: str, cwd: str, problem: str) -> str | None:
+def _when_in_doubt(command: str, starts: list[str], problem: str) -> str | None:
     """Return a refusal for a command the hook couldn't analyse, or ``None``."""
-    if not (_GH_WORD.search(command) and _CHECKED_WORD.search(command)):
+    if not _GH_CHECKED.search(command):
         return None
-    if not (under_forks(cwd) or _FORKISH.search(command)):
+    if not (any(under_forks(s) for s in starts) or _FORKISH.search(command)):
         return None
     return "\n".join(
         [
             "Refused by the fork gh guard (.claude/hooks/fork_gh_guard.py, MAR-253):",
             f"the hook couldn't analyse this command ({problem}),",
-            "and it may run `gh pr` or `gh issue` in a CRC fork.",
-            "Fix: split it into simpler commands, and pass"
-            f" --repo {OWNER}/<fork> to every gh pr and gh issue command,",
-            f"e.g. gh pr checks <n> --repo {OWNER}/crc-sdk.",
+            "and it may run a repo-scoped gh command (gh pr, issue, label, run,",
+            "secret, variable, cache or api) in a CRC fork.",
+            "Fix: split it into simpler commands, pass"
+            f" --repo {OWNER}/<fork> to every such gh command",
+            f"(e.g. gh pr checks <n> --repo {OWNER}/crc-sdk), and in gh api write"
+            f" the repository out (repos/{OWNER}/<fork>/...).",
         ]
     )
 
 
-def decide(command: str, cwd: str, home: str) -> str | None:
-    """Return the refusal message for a Bash command, or ``None`` to allow it.
+def decide(command: str, starts: list[str], home: str) -> str | None:
+    """Return the refusal message for a shell command, or ``None`` to allow it.
 
-    A command the hook can't parse is refused only if it may run ``gh pr`` or
-    ``gh issue`` in a fork path.
+    A command the hook can't parse is refused only if it may run a checked
+    gh subcommand in a fork path.
 
     Parameters
     ----------
     command
-        The Bash tool's ``command``.
-    cwd
-        The directory the command starts in.
+        The tool's ``command``.
+    starts
+        The directories the command may start in.
     home
         The home directory, for ``~`` and ``$HOME``.
 
@@ -860,39 +1011,82 @@ def decide(command: str, cwd: str, home: str) -> str | None:
         Why the call is refused, or ``None``.
     """
     try:
-        return evaluate(command, cwd, home)
+        return evaluate(command, starts, home)
     except ParseError as exc:
-        return _when_in_doubt(command, cwd, str(exc))
+        return _when_in_doubt(command, starts, str(exc))
+
+
+def terminal_starts(
+    tool_cwd: object, cwd: str, project_dir: str | None, home: str
+) -> list[str] | None:
+    """Return the directories a terminal-tool command may start in.
+
+    The terminal tool starts its shell in its own ``cwd``: absolute, ``~``, or
+    relative to the session's working directory, which is also the default.
+    The hook can't tell which directory the tool takes as the session's, so
+    it takes both the hook input's ``cwd`` and ``CLAUDE_PROJECT_DIR``.
+
+    Parameters
+    ----------
+    tool_cwd
+        The tool input's ``cwd``, if any.
+    cwd
+        The hook input's ``cwd``, absolute.
+    project_dir
+        ``CLAUDE_PROJECT_DIR``, if set.
+    home
+        The home directory, for ``~``.
+
+    Returns
+    -------
+    list of str or None
+        The possible start directories, or ``None`` if ``tool_cwd`` is
+        neither missing nor a string.
+    """
+    bases = [cwd] + ([project_dir] if project_dir else [])
+    if tool_cwd is None or tool_cwd == "":
+        return bases
+    if not isinstance(tool_cwd, str):
+        return None
+    path = tool_cwd
+    if path == "~" or path.startswith("~/"):
+        path = home + path[1:]
+    elif path.startswith("~"):
+        path = os.path.expanduser(path)
+    if os.path.isabs(path):
+        return [path]
+    return [os.path.join(base, path) for base in bases]
 
 
 def fail_closed_for_gh(text: str, problem: str) -> int:
-    """Handle a failure of the hook itself: refuse gh pr/issue, pass the rest.
+    """Handle a failure of the hook itself: refuse checked gh, pass the rest.
 
     Used when the input can't be read or the hook raises. It only looks for
-    the words ``gh`` and ``pr`` or ``issue`` in ``text``, so it doesn't depend
-    on the code that failed.
+    the word ``gh`` followed by a checked subcommand in ``text``
+    (``_GH_CHECKED``), so it doesn't depend on the code that failed.
 
     Parameters
     ----------
     text
-        The Bash command, or the raw hook input if the command is unknown.
+        The shell command, or the raw hook input if the command is unknown.
     problem
         What went wrong.
 
     Returns
     -------
     int
-        The exit status: 2 if ``text`` mentions gh with pr or issue, else 0.
+        The exit status: 2 if ``text`` mentions gh with a checked subcommand,
+        else 0.
     """
-    if not (_GH_WORD.search(text) and _CHECKED_WORD.search(text)):
+    if not _GH_CHECKED.search(text):
         return 0
     if len(problem) > 200:
         problem = problem[:197] + "..."
     lines = [
         "Refused by the fork gh guard (.claude/hooks/fork_gh_guard.py, MAR-253):",
         f"fork_gh_guard failed internally ({problem});",
-        "refusing this gh pr/issue command. Commands without gh pr or gh issue",
-        "still pass.",
+        "refusing this repo-scoped gh command (gh pr, issue, label, run, secret,",
+        "variable, cache or api). Commands without one still pass.",
         "Fix: report the error to the orchestrator, so that the hook is fixed and",
         "a case added to scripts/check_fork_gh_guard.py. Meanwhile a simpler form",
         f"may get through: one gh command per Bash call, with --repo {OWNER}/<repo>.",
@@ -904,8 +1098,11 @@ def fail_closed_for_gh(text: str, problem: str) -> int:
 def main() -> int:
     """Run the hook: read the input on stdin, exit 2 to refuse, 0 to allow.
 
-    Any failure (input that isn't a ``PreToolUse`` JSON object with a
-    ``tool_input.command``, or an exception) goes to ``fail_closed_for_gh``.
+    Bash and Monitor commands start in the hook input's ``cwd``, terminal-tool
+    commands in ``terminal_starts``. Other tools, and a Monitor WebSocket
+    watch, pass. Any failure (input that isn't a ``PreToolUse`` JSON object
+    with a ``tool_input.command``, or an exception) goes to
+    ``fail_closed_for_gh``.
 
     Returns
     -------
@@ -918,10 +1115,15 @@ def main() -> int:
         payload = json.loads(text)
         if not isinstance(payload, dict):
             return fail_closed_for_gh(text, "the hook input is not a JSON object")
-        if payload.get("tool_name", "Bash") != "Bash":
+        tool = payload.get("tool_name", "Bash")
+        if tool not in SHELL_TOOLS and tool != TERMINAL_TOOL:
             return 0
         tool_input = payload.get("tool_input")
-        command = tool_input.get("command") if isinstance(tool_input, dict) else None
+        if not isinstance(tool_input, dict):
+            tool_input = {}
+        if tool == "Monitor" and "command" not in tool_input and "ws" in tool_input:
+            return 0  # a WebSocket watch runs no shell command
+        command = tool_input.get("command")
         if not isinstance(command, str):
             return fail_closed_for_gh(text, "the hook input has no tool_input.command")
         text = command
@@ -931,8 +1133,14 @@ def main() -> int:
             cwd = default_cwd
         cwd = os.path.join(default_cwd, cwd)
         home = os.environ.get("HOME") or os.path.expanduser("~")
-        message = decide(command, cwd, home)
-    except Exception as exc:  # the hook failed: refuse gh pr/issue only
+        starts: list[str] | None = [cwd]
+        if tool == TERMINAL_TOOL:
+            project_dir = os.environ.get("CLAUDE_PROJECT_DIR") or None
+            starts = terminal_starts(tool_input.get("cwd"), cwd, project_dir, home)
+        if starts is None:
+            return fail_closed_for_gh(text, "the terminal tool's cwd is not a string")
+        message = decide(command, starts, home)
+    except Exception as exc:  # the hook failed: refuse checked gh commands only
         return fail_closed_for_gh(text, f"{type(exc).__name__}: {exc}")
     if message is None:
         return 0
