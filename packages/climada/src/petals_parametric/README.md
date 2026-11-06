@@ -1,6 +1,6 @@
 # petals_parametric: a prototype parametric insurance module for CLIMADA
 
-A prototype of a `climada_petals.engine.parametric` module. It designs index-based (parametric) covers for the sites of one risk owner, on CLIMADA's own objects: `Hazard`, `TCTracks`, `Exposures` and `Impact`. It lives in this repository until the CLIMADA maintainers have been asked about it; nothing has been proposed to them yet, and the design may change after their feedback. It is not part of a release.
+A prototype of a `climada_petals.engine.parametric` module. It designs index-based (parametric) covers for the sites of one risk owner, on CLIMADA's own objects: `Hazard`, `TCTracks`, `Exposures` and `Impact`. It is not part of `climada_petals` or of any release, and its design may still change.
 
 It is laid out like the future petals subpackage, so that moving it there is a copy (see "Moving it into climada_petals" below). It never imports this repository's other packages: only the standard library, CLIMADA, numpy, scipy and pandas, plus cvxpy for one optional objective.
 

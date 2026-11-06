@@ -17,22 +17,20 @@ the losses of a CLIMADA ``Impact``, given a
     event, an over-payment at one unit offsets a shortfall at another
     (cross-coverage).
 
-With the same ``budget`` the two scopes spend the same total budget under
-the pure premium: the sum of the individual budgets is the portfolio
-budget. The individual designs then satisfy the portfolio problem's
-constraints, so in sample the portfolio optimum is at most their objective
-on the total. Under a cost-of-capital load, the portfolio budget prices the
-total payout, whose tail diversifies, while each individual budget prices a
-stand-alone payout. Nothing here says that either scope gives the better
-cover out of sample.
+With the same ``budget``, the individual budgets add up to the portfolio
+budget. The individual designs taken together satisfy the portfolio
+problem's constraints (under a cost-of-capital load too, because the loaded
+premium of a total is at most the sum of the loaded premiums), so on the
+calibration years the portfolio optimum is at most their objective on the
+total. That is a property of the optimisation; nothing here says which scope
+gives the better cover on other years.
 
 **Per-unit levels of a portfolio cover are not unique.** The objective of a
-joint design problem depends only on the total payout of each event, so
-other splits of the same totals across the units are optimal too (any for
-the mean squared error, and wherever the linear program has several optimal
-solutions for the other objectives). The levels a portfolio cover holds are
-the one optimal split the solver returned. Read them, and per-unit metrics
-of a portfolio cover, as that.
+joint design problem depends on the units' payouts only through their total
+per event, so other feasible levels with the same totals are optimal too,
+and the linear program can have several optimal solutions besides. The
+levels a portfolio cover holds are the one optimal split the solver
+returned. Read them, and per-unit metrics of a portfolio cover, as that.
 
 The objective, the premium and the budget all use the outcome measure of
 the ``basis`` (:mod:`~petals_parametric.measure`) over the calibration
