@@ -77,8 +77,8 @@ an annual basis:
   :func:`~parametric_insurance_design_climada.tracks.simulation_year_dates`
   dates year ``y`` on 1 January of calendar year ``y + 1``, and
   :func:`~parametric_insurance_design_climada.tracks.simulation_years_of_dates`
-  reads it back. No date holds a year above 9,999, so the storms of the last
-  year of a 10,000-year catalogue (IRIS year 9,999) get
+  reads it back. No date holds a calendar year after 9999, so the storms of
+  the last year of a 10,000-year catalogue (IRIS year 9,999) get
   :data:`~parametric_insurance_design_climada.tracks.UNDATED`, which readers
   of the date reject, and the build logs a warning naming them. Their year
   is then only in ``event_name``.
