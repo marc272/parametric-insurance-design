@@ -5,10 +5,11 @@ Thesis golden data and the parity tests that check the new core reproduces the t
 - The parity gate (`docs/SPEC.md` §7, F-06): no method change lands before the owner signs it off.
 - The parity source is the thesis code, <https://github.com/marc272/parametric-insurance-framework>. Its `thesis-v1` tag is pending.
 - Only small fixtures are committed. Anything larger is fetched by a script with checksums.
-- Licences (owner decisions; ADR 0001, amendment 1):
+- Licences (owner decisions; ADR 0001, amendments 1 and 3):
   - the code under `parity/` is BSD-3-Clause (`LICENSE`);
   - the thesis result tables in `golden/`, the simulation-sweep tables in `golden/simulation_sweeps/` included, are CC-BY-4.0 (`golden/LICENSE`). They were computed from IRIS-derived losses, so they follow the IRIS treatment below (owner decision of 2026-10-27; it supersedes the earlier CC0-1.0);
-  - the fixture data in `tests/data/thesis_eventset/` is CC-BY-4.0, recorded in its `metadata.json`. It is derived from IRIS, whose licence records differ (CC0 on the figshare items, CC BY 4.0 on the collection's DataCite record); IRIS-derived data is treated as CC BY 4.0, the stricter of the two (`docs/data-sources.md`).
+  - the fixture data in `tests/data/thesis_eventset/` is CC-BY-4.0, recorded in its `metadata.json`. It is derived from IRIS, whose licence records differ (CC0 on the figshare items, CC BY 4.0 on the collection's DataCite record); IRIS-derived data is treated as CC BY 4.0, the stricter of the two (`docs/data-sources.md`);
+  - the CRC golden fixtures in `crc/cases/` follow their data set (owner decision of 2026-11-06): CC0-1.0 for the `synthetic`, `synthetic52` and `handmade` cases, and CC-BY-4.0, with the IRIS attribution, for the `thesis` cases, which hold draws of the fixture above. A copy keeps its case's licence. The table by case id and the attribution are in `crc/README.md` ("Licence").
 
 ## Contents
 

@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-10-25
 - Decision issues: MAR-5 (D1 name, D3 licence)
-- Amendments: 1 (2026-10-25, MAR-79) and 2 (2026-11-06, MAR-251), at the end
+- Amendments: 1 (2026-10-25, MAR-79), 2 (2026-11-06, MAR-251) and 3 (2026-11-06, MAR-273), at the end
 
 ## Context
 
@@ -86,3 +86,15 @@ On 2026-11-05 the owner decided D9 (`docs/SPEC.md` §11; MAR-242). The CRC work 
 - **The notebook** is built in the crc-docs fork. Its terms are the owner's (2026-11-05), not this ADR's.
 - **`packages/crc` is dormant.** It holds no adapter code, and no work is planned in it (`docs/SPEC.md` §4, `packages/crc/README.md`). It keeps AGPL-3.0-or-later, and the rule above still applies to it. Whether it stays dormant or is removed is open (MAR-252).
 - **Unchanged:** the table's other rows. CRC Open data remains CC BY-NC 4.0 unless the owner's agreement says otherwise, and no CRC data is committed (`docs/data-sources.md`).
+
+## Amendment 3 (2026-11-06, MAR-273): the CRC golden fixtures
+
+Decided by the owner, Marc Prinzing, on 2026-11-06 (recorded on MAR-245; applied in MAR-273).
+
+The golden fixtures of the CRC module are JSON cases in `parity/crc/cases/` (MAR-245). The BSD-3-Clause export script `parity/scripts/export_crc_fixtures.py` generates them with the core, and the module's tests in the crc-sdk fork read copies of them. This amendment records their licence.
+
+- **A case follows its data set.** A case's licence is that of its data set, the last part of its case id before any suffix. The case files carry no licence field. The licence table in `parity/crc/README.md` ("Licence") is their marker: it names the case ids of each data set and gives the licence and the attribution.
+- **`synthetic`, `synthetic52` and `handmade`: CC0-1.0**, the fresh draws of the `-fresh` cases included. The owner dedicates these cases to the public domain under CC0 1.0 Universal. They hold no third-party data: their draws come from the script's seeded generator or were chosen by hand. The decision names "synthetic and handmade". `synthetic52` is a synthetic data set of the same generator (asset A1 of `synthetic` in its first 52 years), and the fresh draws come from that generator too, so both are covered. MAR-273 states this reading.
+- **`thesis`: CC-BY-4.0**, with the IRIS attribution. These cases hold draws of the parity fixture `parity/tests/data/thesis_eventset/`, which is IRIS-derived and CC-BY-4.0 (amendment 1, MAR-94). The attribution that a copy keeps is in `parity/crc/README.md`.
+- **Copies keep their case's licence.** The crc-sdk fork (AGPL-3.0-or-later) copies cases into `tests/fixtures/parametric/cases/`. Each copy keeps CC0-1.0 or CC-BY-4.0 by its data set, and the `thesis` copies keep the attribution. The fork's `tests/fixtures/parametric/README.md` states these terms. The same holds for any further copy.
+- **Unchanged:** the table's rows and amendments 1 and 2. The export script and its test stay BSD-3-Clause, like the rest of the `parity/` code (`parity/LICENSE`, amendment 1).
