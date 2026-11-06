@@ -180,6 +180,7 @@
       }
     },
     "premium": 1484101.31006,
+    "profile": null,
     "unidentified": {"A1": ["levels[6]"], "A2": [], "A9": ["levels[6]"]},
     "unique": false
   },
@@ -190,6 +191,7 @@
   },
   "kind": "design",
   "limit": null,
+  "metric_options": null,
   "objective": {"alpha": 0.9, "beta": 0.99, "kind": "weighted_cvar"},
   "pricing": {"kind": "cost_of_capital", "q": 0.99, "rate": 0.06},
   "sample": {
