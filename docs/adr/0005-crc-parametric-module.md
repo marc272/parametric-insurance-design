@@ -333,6 +333,8 @@ Amendment 1 (D11) sets the order of release: Monte Carlo from a fitted curve fir
 
 Amendment 2 (the per-year route) adds a stated trend option, pooled model-years and a `scenario` label to the per-year source, and says what of the route goes in the Phase 1 upstream PR.
 
+Amendment 4 (scenario analysis) adds `scenario=` to `sample_curve`.
+
 | Source | Function | One draw is | Probability | Semantics required |
 |---|---|---|---|---|
 | Monte Carlo from a fitted curve | `sample_curve` (a crc-framework distribution, `CurveParameters` or a canonical row mapping; erratum 11, 2026-11-08, MAR-288: this first read "a crc-framework `Distribution`"); the plan's `.monte_carlo(...)` | a simulated year | 1/n | `annual_exceedance` (the curve of an annual maximum) or `annual_value_distribution` (an annual value). Any other declared value raises `ProbabilitySemanticsError`. Unspecified raises too, unless the caller passes `assume_semantics=` one of the two; a stated value that contradicts the declared one raises |
@@ -1317,7 +1319,7 @@ The six decisions don't determine these. The text above settles each as the agen
 
 On 2026-11-08 the owner, Marc Prinzing, decided D-23.1 to D-23.6 (in chat; recorded on MAR-44 and MAR-329). They fix the public API of scenario analysis (R-23, MAR-44), which the owner calls a core capability of CRC, so this amendment comes before any R-23 issue starts, and the owner approves it before it merges. It builds on Amendments 2 and 3 and on errata 11 and 12. Amendment 5 (multi-hazard, MAR-330) follows it.
 
-The rest of the ADR stands. §2, §4.4, §4.5, §6, §7, §9 and §10 keep their text and each carries a one-sentence pointer here, and this amendment says what they now mean, as Amendment 1 did. Every addition has a default, so a call or a plan without scenarios gives the same rows and hashes, with the new columns beside them. The publication rule applies: this amendment presents the options and what each one records, nothing here says that a pathway, a horizon or a design is better than another, and joint designs are described as a method only.
+The rest of the ADR stands. §2, §4.2, §4.4, §4.5, §6, §7, §9 and §10 keep their text and each carries a one-sentence pointer here, and this amendment says what they now mean, as Amendment 1 did. Every addition has a default, so a call or a plan without scenarios gives the same rows and hashes, with the new columns beside them. The one exception is a Layer 1 call that reuses one generator state across curves out of sample, which now raises (below). The publication rule applies: this amendment presents the options and what each one records, nothing here says that a pathway, a horizon or a design is better than another, and joint designs are described as a method only.
 
 ### The six decisions
 
