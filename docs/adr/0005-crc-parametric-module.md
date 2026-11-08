@@ -1592,7 +1592,7 @@ table = compare([holistic, CoverPackage({"rx1day": rain, "txx": heat}, label="se
 
 Every row has one `sample_hash`, and its metrics are on the combined loss.
 
-**What a package is.** A `CoverPackage` holds separately designed contracts, and its `.payout` is the `SumOf` built from covers already designed that the owner asked for. `compare` and `evaluate` treat it as Amendment 3 treats a set of covers: one row per cover and one row for the sum.
+**What a package is.** A `CoverPackage` holds separately designed contracts. Its `.payout` is the owner's "`SumOf` built from covers already designed", with every amount fixed. `compare` and `evaluate` treat it as Amendment 3 treats a set of covers: one row per cover and one row for the sum.
 
 | Option | What it is | Assessment |
 |---|---|---|
