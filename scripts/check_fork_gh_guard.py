@@ -884,6 +884,18 @@ CASES: list[tuple[str, str, str]] = [
         ' --subject "chore: merge upstream main into parametric (#2)"'
         ' --body "Refs: MAR-300"',
     ),
+    # MAR-289: the boundaries of the new checks. A remote is no refspec, a flag's
+    # value is no refspec, git after gh is gh's argument, an unknown program
+    # with an expansion after it passes, and only crc-docs' Actions are guarded.
+    ("allow", REPO, "git push vfork marcprinzing/x"),
+    ("allow", REPO, "git push origin -o v1 marcprinzing/x"),
+    ("allow", REPO, "gh pr comment 3 --body-file notes.md git tag"),
+    ("allow", WT, '$UV run "$SCRIPT"'),
+    (
+        "allow",
+        REPO,
+        "gh api -X PUT repos/marc272/crc-sdk/actions/permissions -F enabled=true",
+    ),
 ]
 
 # --- The deny rules (MAR-263) ----------------------------------------------
