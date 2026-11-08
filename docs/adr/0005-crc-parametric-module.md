@@ -889,13 +889,13 @@ sample_curves(curves, *, dependence, metadata, n_draws, rngs, loss_models, basis
 ```text
 # scopes and joint designs (R-21b)
 Individual()      # one design per asset; the plan's default
-Joint()           # one objective and one budget on the owner's total, one cover per asset
+Joint()           # one objective and one budget on the asset owner's total, one cover per asset
 design_joint(templates, sample, objective, *, pricing=PurePremium(), budget=None, limit=None,
              options=DesignOptions(), scope=Joint()) -> JointDesignResult
     # templates: one Cover per asset, in sample.asset_ids order
 ```
 
-- **What it optimises.** On each draw d of a multi-asset sample, L_d = Σ_j L_{d,j} is the owner's total loss and π_d = Σ_j π_{d,j} the total payout. The objective of §5.1 and the premium of §5.2 are taken on L_d and π_d. `Budget(ratio=κ)` means P ≤ κ·E[L] on the total, and `Budget(amount=B)` means P ≤ B on the total. Each asset keeps its own cover, on its own index, and each cover pays by its own terms. The name stays `Joint` (§1).
+- **What it optimises.** On each draw d of a multi-asset sample, L_d = Σ_j L_{d,j} is the asset owner's total loss and π_d = Σ_j π_{d,j} the total payout. The objective of §5.1 and the premium of §5.2 are taken on L_d and π_d. `Budget(ratio=κ)` means P ≤ κ·E[L] on the total, and `Budget(amount=B)` means P ≤ B on the total. Each asset keeps its own cover, on its own index, and each cover pays by its own terms. The name stays `Joint` (§1).
 - **How it is solved.** §5.3's LP and QP with the block basis B = [B_1 | … | B_m], the amounts in asset order, the `LinearConstraints` stacked block by block, and the summed loss. The scale is §5.3's, the largest summed loss of a draw. The route is `"lp"` or `"qp"`.
 - **`templates`.** Each is written for its position's asset, or for none, and then the resolved cover names that asset. Families may differ between assets, and each must implement `LinearInAmounts`. Every `payout_unit` and index unit must match the sample's.
 - **Fixed thresholds (D-21.6).** A `Free` parameter that isn't an amount raises `DesignError` before solving, naming the parameter. Users compare threshold choices by running `design_joint` once per choice. So joint designs have no grid route: `ties` is 0, `profile` and `grid` are `None`, and a `UserObjective` or a payout without `LinearInAmounts`, which §5.3 sends to the grid, raises `DesignError` too.
@@ -918,7 +918,7 @@ An evaluation is multi-asset when its sample holds several assets. `evaluate` an
 | Column | What changes |
 |---|---|
 | `scope` (new, string, after `level`) | `"individual"` or `"joint"`. Phase 1's rows are `"individual"` |
-| `level` | `"asset"`: an asset's own cover. `"total"`: the owner's sum. `"asset_by_value"`, `"asset_by_loss"`: an asset's share of a joint design's total payout, under the rule in the name. These replace §9's `"joint"` and `"cluster"`: joint is a `scope`, and cluster rows wait for `Clustered` |
+| `level` | `"asset"`: an asset's own cover. `"total"`: the sum over the assets of one owner. `"asset_by_value"`, `"asset_by_loss"`: an asset's share of a joint design's total payout, under the rule in the name. These replace §9's `"joint"` and `"cluster"`: joint is a `scope`, and cluster rows wait for `Clustered` |
 | `asset_id` | Becomes nullable: null exactly on `"total"` rows |
 | `cover_hash`, `cover_label` | On `"total"` and allocated rows, `covers_hash` (for a set of individual covers, built the same way). The label is the covers' label if they all share one, else the first 12 hex digits |
 | `premium_basis` | Becomes nullable: null exactly on allocated rows |
@@ -959,9 +959,9 @@ The key of §6 doesn't change; `cover_hash` and `design_id` already differ betwe
 ### The joint fixtures (§8)
 
 - **The contract** of `design_joint` is the 16 `*-joint-*` cases of `parity/crc/cases/`: step payouts on 3 assets, in sample, with 5 `exact`, 9 `within_ranges` and 2 `none`. Eight are `synthetic` (CC0-1.0) and eight `thesis` (CC-BY-4.0); a copy keeps its case's licence and attribution (`parity/crc/README.md`, "Licence"). All use fixed breakpoints, so D-21.6 excludes nothing they test.
-- MAR-301 copies them byte for byte into the fork and passes them by `parity/crc/README.md`'s "How to compare". `cover` is the list of templates in `asset_ids` order, and `expected.parameters` and `expected.unidentified` are keyed by asset id as `JointDesignResult`'s fields are. The `"within_ranges"` cases need `DesignOptions(ranges=True)`.
+- MAR-301 copies them byte for byte into the fork and passes the objective, the parameters, `unique` and the premium by `parity/crc/README.md`'s "How to compare". MAR-303 adds the metrics, through the `"total"` row. `cover` is the list of templates in `asset_ids` order, and `expected.parameters` and `expected.unidentified` are keyed by asset id as `JointDesignResult`'s fields are. The `"within_ranges"` cases need `DesignOptions(ranges=True)`.
 - `expected.premium` is the premium on the total, and `expected.metrics` are the columns of a `"total"` row. For a non-unique case the comparison is on the templates resolved with `expected.parameters`: one `Cover.with_values` per asset, evaluated as a set of covers with `premium=expected.premium`, because only a stated premium reproduces a price on the total under a cost-of-capital load.
-- No case covers dependence models, allocation, clusters or a joint design out of sample. Those are tested by the properties of their own issues.
+- No case covers dependence models, allocation or a joint design out of sample; the issues that build them test their properties. Clusters wait for new fixtures.
 - **Size.** On 2026-11-08 the cases hold 997,747 bytes of the 1,000,000 that `test_total_size_is_under_1_mb` allows, and a joint case takes 19 to 26 kB. So a new joint case stays small (`synthetic52` or smaller), and the PR that adds it raises the limit, with a reason. The perturbed-solver test moves the solver's point in 9 cases, all non-unique joint designs.
 
 ### The illustrative book (D-21.5)
@@ -985,7 +985,7 @@ R-21 is split as below (each about one PR). The other rows stand.
 | MAR-298 (R-21a) | Multi-asset `OutcomeSample`; `asset()`, `join()` and their refusals; `dependence` and `parts`; `design`, `evaluate` and `compare` raise on a multi-asset sample | `sample`; the checks in `design` and `evaluate` | This amendment |
 | MAR-301 (R-21b) | `Individual`, `Joint`, `design_joint`, `JointDesignResult`; the 16 joint cases; the budget and the premium on the total | `joint` (new); `tests/fixtures/parametric/` | R-21a |
 | MAR-302 (R-21d) | `Independent`, `Comonotonic`, `EmpiricalCopula`, `sample_curves` | `dependence` (new), `sources` | R-21a; in parallel with R-21b |
-| MAR-303 (R-21c) | `compare` and `evaluate` take `JointDesignResult` and sets of covers, with `allocation=` and `values=`; the `scope` column, `level`, the metadata and `setup_text` | `evaluate`, `metadata`, `metrics` | R-21b |
+| MAR-303 (R-21c) | `compare` and `evaluate` take `JointDesignResult` and sets of covers, with `allocation=` and `values=`; the `scope` column, `level`, the metadata and `setup_text`; the 16 joint cases' metrics | `evaluate`, `metadata`, `metrics` | R-21b |
 | MAR-304 (R-21e) | `.scopes`, `.dependence`, `.allocation`, `.joint_sample`; results equal the function route; the method-only section of `docs/parametric.md` | `plan`; `docs/parametric.md` | R-21c, R-21d |
 | MAR-305 (R-21f) | The illustrative book in the notebook (D-21.5) | crc-docs fork | R-21e |
 | R-21g (later, no issue yet) | `Clustered(assignment, *, joint=True)` and its fixtures, an R-13 extension | Set when it is refined | New cluster fixtures |
