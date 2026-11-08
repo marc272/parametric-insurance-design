@@ -1384,7 +1384,8 @@ OutcomeSample(..., scenario="baseline", index_components=None)
 OutcomeSample.from_table(table, *, period, asset_id, index, loss, probability=None, hazard=None, own_loss=None,
                          semantics, index_unit, loss_unit, tails=None, source=None) -> OutcomeSample
     # index: a column, or a mapping from component name to column (two or more)
-    # with a mapping: index_unit is a mapping by name too, tails is required, and hazard and own_loss are mappings
+    # with a mapping: index_unit is a mapping by name too, tails is required, and hazard and own_loss are mappings,
+    # as is Amendment 4's hazard_name=
 ```
 
 - **The field.** `index_components` maps each component's name to an `IndexComponent`, two or more, in order, read-only. It is `None` on every other sample. §4.5 reserved bare arrays. It holds objects instead, because D-22.1 gives each component a unit and a tail and `component()` needs each hazard's own loss. `values`, `hazard` and `own_loss` are (n, 1). `values` are finite. `tail` is `"upper"` or `"lower"`.
@@ -1508,13 +1509,14 @@ class CombineRule(Protocol):
 ```text
 # per-year (R-22d)
 sample_annual_hazards(series, *, tails, loss_models, combine=None, basis_risk, asset_id, rng=None,
-                      missing="raise", trend=AsRecorded(), scenario="baseline") -> OutcomeSample
+                      missing="raise", trend=AsRecorded(), scenario="baseline", hazard_names=None) -> OutcomeSample
     # series, tails, loss_models: mappings by component name; the order of series sets the components
+    # hazard_names: Amendment 4's hazard_name=, a mapping by component name
 
 # curves (R-22e)
 sample_curve_hazards(curves, *, dependence, metadata, n_draws, rngs, loss_models, combine=None, basis_risk,
                      asset_id, assume_semantics=None, outside_support="raise", details=None,
-                     scenario="baseline") -> OutcomeSample
+                     scenario="baseline", hazard_names=None) -> OutcomeSample
     # curves, metadata, rngs, loss_models: mappings by component name; the order of curves sets the components
     # dependence: required, no default. Tails come from each dataset's return_period_tail
 ```
@@ -1659,13 +1661,13 @@ The rows of one entry add up to its E[π], within the metrics' tolerance, and `p
 ```text
 ParametricPlan
     .hazard(name, source=None, *, impact=None, unit=None, tail=None, provenance=None, location=None,
-            year_column="year", hazard_column="value")       # R-22f
+            year_column="year", hazard_column="value", hazard_name=None)       # R-22f
     .combine(rule)                                           # required when two or more impacts read the hazards
     .package(covers, *, label, shares=None)                  # covers: component name to a cover_label in .covers(...)
     .payout_breakdown() -> pyarrow.Table                     # execution
 ```
 
-- **`.hazard(...)`** adds a component. On a plan on curves, `source` is a second `PortfolioEvaluation` for the same assets, selecting one hazard, horizon and pathway, and its `.impact(...)`, if stated, is that component's impact. The plan's own request is the first component, named by its selected hazard. On a per-year plan `source` takes what `for_annual_extremes` takes, and `.hazard(name, tail=...)` with no `source` names the plan's own hazard and comes first. `for_evaluation` keeps refusing several hazards in one request.
+- **`.hazard(...)`** adds a component. On a plan on curves, `source` is a second `PortfolioEvaluation` for the same assets, selecting one hazard, horizon and pathway, and its `.impact(...)`, if stated, is that component's impact. The plan's own request is the first component, named by its selected hazard. On a per-year plan `source` takes what `for_annual_extremes` takes, and `.hazard(name, tail=...)` with no `source` names the plan's own hazard as a component and comes first. Amendment 4's `hazard_name=` stays what names a hazard in the record. `for_evaluation` keeps refusing several hazards in one request.
 - **`.dependence(model)`** is required on a plan on curves with `.hazard(...)`, and states the dependence across the hazards. On a per-year plan it raises, as today.
 - **Refusals** (`ValueError`, at `explain()` and every execution point): `Joint()`, `pool=` and `.index(...)` on a plan with `.hazard(...)`.
 - **What is designed on what.** A composite template is designed on the combined loss. A one-index template is designed on its own hazard's loss, `component(name)`; on a component with no impact it raises, naming the function route.
@@ -1683,6 +1685,7 @@ ParametricPlan
   |---|---|---|
   | The components | Their names, in order | All |
   | Units and tails | Each component's, exactly | All |
+  | Hazard names | Each component's name in its `hazard` record, exactly (Amendment 4's check, per component) | All |
   | Loss models | Each component's `loss_model` document in `components` | All |
   | The rule | The `combine` document | All |
   | Hazard dependence | The `hazard_dependence` document | Curve scenarios |
@@ -1690,6 +1693,7 @@ ParametricPlan
   | Equal curves | The curve documents of any one component | Curve scenarios |
   | A bound cover | Each component's location, against Amendment 4's table | Each cover and scenario |
 
+  - **Hazard names.** Amendment 4's check of the hazard a scenario reads applies per component. A component's record is in `components`, stated through `hazard_names=` under Amendment 4's rule where its source is silent, and `SampleProvenance.hazard` is null on a multi-hazard sample, which has several. A component's name isn't taken for a hazard name. A component with no impact reads no loss, so, like a separate index series, it needs no name.
   - **`pathway` and `horizon`** must agree across a sample's components, or `ScenarioError` says which. **`product`** is the one Amendment 4 left open, and it is relaxed: a multi-hazard sample may read several products, and the column holds the distinct providers, sorted, joined by `+`. The two-products check compares those strings.
   - **Premiums.** A package's `premium`, `premium_repriced` and basis are the sum of its cover rows', as for the `"total"` row of Amendment 4's table.
   - **Years beside draws.** Amendment 4's setup statement 11 also covers `hazard_dependence`: the data's own on one side and the stated model on the other.
@@ -1788,10 +1792,11 @@ The eight decisions don't determine these. The text above settles each as the ag
 30. The first component draws the asset's own child stream, and the others spawn from it.
 31. `product` joins a multi-hazard sample's providers with `+`.
 32. A curve scenario's equal-curves refusal reads any one component.
+33. Amendment 4's `hazard_name=` is a mapping by component on a multi-hazard sample, and a component's name isn't taken for a hazard name.
 
 ### Not verified
 
-- No R-22 code exists, so every name is a proposal. Amendment 4's names are those of its open PR (MAR-329). A throwaway check (2026-11-08, not committed; script and output in the PR) ran the fork's `parametric` at `68f551c` and numpy on synthetic numbers, without any CRC, ERA5 or NEX data:
+- No R-22 code exists, so every name is a proposal. Amendment 4's names are those of its open PR (MAR-329, at `f982d62`). A throwaway check (2026-11-08, not committed; script and output in the PR) ran the fork's `parametric` at `68f551c` and numpy on synthetic numbers, without any CRC, ERA5 or NEX data:
   - **The module's real LP and QP routes**, on stand-in families registered with one encoded index, because `Cover` still refuses several `index_names`. A 2-D table under MSE, no budget and `monotone=False` gave every reached level within 6e-11 of its cell's mean loss, with the unreached cell in `unidentified`. Under E[U] and weighted CVaR, with pure and cost-of-capital pricing, the levels were monotone on both axes, and `fill` ran on the two-axis order under both rules.
   - **A `SumOf` basis.** With a second axis that never pays, the objective equalled `StepPayout`'s under MSE, E[U] and weighted CVaR, to eight digits. A total limit bound at 8.0, also when its row touched an unidentified amount.
   - **`MaxOf`.** One scale under MSE gave the closed form A*. The numpy grid took 1.1 s on 549 rows and 2.9 s on 5,490 at 10,000 candidates, on one macOS arm64 machine. At 11 points each the design raises (14,641 points).
