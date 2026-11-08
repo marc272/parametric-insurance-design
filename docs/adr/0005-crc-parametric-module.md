@@ -8,7 +8,7 @@
   - crc-framework 0.6.0: [`838c295`][fw] (tag `v0.6.0`; the later head changes only the release workflow);
   - crc-docs: [`7691f5f`][docs] (2026-11-04).
 - Revised on 2026-11-05, before the owner's decision, to match the golden fixtures of MAR-245 (PR #183). The end of "Decisions for the owner" lists what changed.
-- Amendments: 1 (2026-11-06, MAR-275), at the end. It records the owner's decision D11: curves first.
+- Amendments, at the end: 1 (2026-11-06, MAR-275), which records the owner's decision D11, curves first; and 3 (2026-11-08, MAR-292), which records the owner's decisions D-21.1 to D-21.6, the portfolio approach.
 
 The section "Decisions for the owner" lists what Marc decides. Every other choice below is the agent's recommendation, with the alternatives named where a choice is open.
 
@@ -126,29 +126,38 @@ Cover(index, payout, *, payout_unit, asset_id=None, label=None)
 Cover.payout_values(index_values) -> NDArray          # resolved covers only
 Cover.with_values(values: Mapping[str, float]) -> Cover
 Cover.free_parameters() -> tuple[str, ...]
-Cover.to_json() -> str; Cover.from_json(text) -> Cover; Cover.definition_hash -> str
+Cover.to_json() -> str; Cover.from_json(text, *, label=None) -> Cover; Cover.definition_hash -> str
 register_payout(cls) -> cls
 
 # outcome samples (R-15)
 OutcomeSample(...)                                     # §4.1
-sample_curve(distribution, *, metadata, n_draws, rng, loss_model, basis_risk, asset_id,
-             assume_semantics=None, outside_support="raise") -> OutcomeSample
+sample_curve(curve, *, metadata, n_draws, rng, loss_model, basis_risk, asset_id,
+             assume_semantics=None, outside_support="raise", details=None) -> OutcomeSample
+    # curve: a crc-framework distribution, CurveParameters or a canonical row mapping
     # metadata: the curve's HazardDatasetMetadata (semantics, tail, support, units, source)
-AnnualSeries.from_table(table, *, year="year", value="value", where=None, unit) -> AnnualSeries
+    # details: caller information for the provenance, for example the file's SHA-256
+AnnualSeries.from_table(table, *, year="year", value="value", where=None, unit,
+                        years=None, source=None) -> AnnualSeries
 AnnualSeries.nearest_cell(table, *, longitude, latitude, unit, ...) -> AnnualSeries
 sample_annual(hazard, *, loss_model, basis_risk, asset_id, index=None, rng=None, missing="raise") -> OutcomeSample
-OutcomeSample.from_table(table, *, period, asset_id, index, loss, probability=None, semantics, index_unit, loss_unit) -> OutcomeSample
+OutcomeSample.from_table(table, *, period, asset_id, index, loss, probability=None, hazard=None,
+                         semantics, index_unit, loss_unit, source=None) -> OutcomeSample
 holdout(sample, train_fraction=0.7) -> tuple[OutcomeSample, OutcomeSample]
 year_block_kfold(sample, k) -> tuple[tuple[OutcomeSample, OutcomeSample], ...]
 
 # evaluation and comparison (R-17)
-evaluate(cover, sample, *, split, fold=0, pricing=PurePremium(), premium=None, options=MetricOptions()) -> pyarrow.Table   # one row
-compare(covers, sample, *, split, fold=0, pricing=PurePremium(), options=MetricOptions()) -> pyarrow.Table
-write_comparison(table, path, *, metadata) -> None    # atomic
+evaluate(cover, sample, *, split, fold=0, pricing=PurePremium(), premium=None, options=MetricOptions(),
+         design_sample=None) -> pyarrow.Table   # one row
+compare(covers, sample, *, split, fold=0, pricing=PurePremium(), options=MetricOptions(),
+        design_sample=None) -> pyarrow.Table
+    # design_sample: the sample a cover given as is was chosen on; a design brings its own
+write_comparison(table, path, *, metadata=None) -> None    # atomic; metadata defaults to the table's own
 
 # design (R-16)
 design(template, sample, objective, *, pricing=PurePremium(), budget=None, limit=None, options=DesignOptions()) -> DesignResult
 ```
+
+(Erratum 10, 2026-11-06, MAR-286: seven entries of this outline first differed from the code that MAR-246 (R-14), MAR-43 (R-15) and MAR-247 (R-17) merged in marc272/crc-sdk#1, #2 and #3, and now read as it does. The `Cover.from_json` entry first read `Cover.from_json(text) -> Cover`: it takes the optional keyword `label=None`, the display name, which the JSON does not hold. The `sample_curve` entry first read `sample_curve(distribution, *, metadata, n_draws, rng, loss_model, basis_risk, asset_id, assume_semantics=None, outside_support="raise") -> OutcomeSample`: the first argument is `curve`, which is a crc-framework distribution, `CurveParameters` or a canonical row mapping, and the optional keyword `details=None` adds caller information to the provenance. The `AnnualSeries.from_table` entry first read `AnnualSeries.from_table(table, *, year="year", value="value", where=None, unit) -> AnnualSeries`, with no `...`: it also takes `years=None` and `source=None`. The `OutcomeSample.from_table` entry first read `OutcomeSample.from_table(table, *, period, asset_id, index, loss, probability=None, semantics, index_unit, loss_unit) -> OutcomeSample`: it also takes `hazard=None`, after `probability`, and `source=None`. The `evaluate` and `compare` entries first ended in `options=MetricOptions()) -> pyarrow.Table`: both also take `design_sample=None`. The `write_comparison` entry first read `write_comparison(table, path, *, metadata) -> None`: `metadata` is optional, `None` by default, and then the table's own metadata is written. The other entries already matched. Each signature is as the PR that added its module merged it (#1, #2 and #3, and #5 for `design`), and no later PR changed it, up to marc272/crc-sdk#14 (d54ec9b), by a comparison of the signatures, read with Python's `ast`, at every merge into `parametric`. The paragraph on seeding below the Layer 2 outline first read: "The plan holds an integer `seed`, which `explain()` can show. At execution it builds `numpy.random.SeedSequence(seed)` and spawns one child generator per asset, in asset order. Layer 1 takes a `numpy.random.Generator` instead, with no default and no global seed." It fitted the curve route only: on the per-year route `for_annual_extremes(..., seed=None)` allows no seed, as MAR-42 (R-18) merged it in marc272/crc-sdk#8, and only a basis-risk model that draws needs one; and `sample_annual` takes `rng=None`, as MAR-43 merged it in marc272/crc-sdk#2. No decision changes.)
 
 **Layer 2 in outline (R-18):**
 
@@ -175,7 +184,7 @@ ParametricPlan.for_annual_extremes(source, assets, *, impact, unit, provenance,
 
 (Erratum 9, 2026-11-06, MAR-285: six lines of this outline first differed from the plan that MAR-42 (R-18) merged in marc272/crc-sdk#8, and now read as its code does. The `for_annual_extremes` line first read `ParametricPlan.for_annual_extremes(source_plan, assets, *, impact, value_column=None, value_unit="1", ...)`: the first argument is `source`, which is a plan with an `annual_extremes()` execution point, an Arrow table or a local Parquet file, and the `...` hid the required keywords `unit` and `provenance` as well as the optional ones. The `.covers` line first read `.covers(*templates)`, with the comment "Cover templates; Free parameters allowed": it takes `*covers`, both resolved covers and templates. The `.objective` line first read `.objective(objective, *, pricing=..., budget=..., limit=..., options=...)`: it takes `*objectives` and designs each template under each, and its defaults are those of `design`. The `.split` and `.metrics` lines first read `.split(Holdout(0.7) | KFold(5) | FreshDraws(n_draws, seed=...))` and `.metrics(MetricOptions(...))`, which named no parameter: they take `rule` and `options`, and the comments now give the types. The `.explain` line first read `.explain(format="text") -> str | dict`: `format` is keyword-only, and `format="json"` returns the dict. The other lines already matched. Of the later PRs, only marc272/crc-sdk#9 (MAR-271) changed `plan.py`: it added `for_evaluation`, `.monte_carlo` (erratum 8) and `FreshDraws` as they read here; marc272/crc-sdk#10 to #13 did not touch it. No decision changes.)
 
-The plan holds an integer `seed`, which `explain()` can show. At execution it builds `numpy.random.SeedSequence(seed)` and spawns one child generator per asset, in asset order. Layer 1 takes a `numpy.random.Generator` instead, with no default and no global seed.
+The plan holds a `seed`, which `explain()` shows (erratum 10 gives this paragraph's first text). On the curve route it is an integer, which `.monte_carlo(n_draws, *, seed, ...)` requires. On the per-year route `for_annual_extremes(..., seed=None)` allows none: only the basis-risk model draws there, so only a model that draws needs a seed, and `.basis_risk(ImpactNoise(...))` raises `ValueError` on a per-year plan without one. A plan with a seed builds `numpy.random.SeedSequence(seed)` at execution and spawns one child generator per asset, in asset order; `FreshDraws` seeds its draws from its own seed in the same way. Layer 1 takes a `numpy.random.Generator` instead, and never a global seed: `sample_curve` requires `rng`, and `sample_annual` takes `rng=None`, which only a basis-risk model that draws needs (§4.4).
 
 **Module layout** under `crc_sdk/parametric/`. One owner issue per file; `__init__.py` is extended by each issue in sequence.
 
@@ -302,6 +311,8 @@ class OutcomeSample:
     @property
     def content_hash(self) -> str
 ```
+
+Amendment 3 (the portfolio approach) lifts the one-asset rule of this section: a sample holds one asset or more, and `OutcomeSample.asset()` and `OutcomeSample.join()` are added.
 
 - **One draw is one year.** A cover pays once per draw, on that draw's index, against that draw's loss. This is the core's annual basis with one row per year. Several events within a year are out of scope for Phase 1 (§9).
 - **One asset per sample in Phase 1** (MAR-43). The asset axis exists, so arrays are (n, 1); a second asset raises `SampleError` until Phase 2. The plan handles several assets as one sample each. So Phase 1 imposes no dependence between assets: it computes no cross-asset sum.
@@ -494,6 +505,8 @@ A smoke check by the agent on 2026-11-05 (synthetic step payouts, one machine, m
 
 **The comparison table** (`compare`): one row per cover and split, metrics as columns (MAR-247), the layout of crc-sdk's portfolio output (U2).
 
+Amendment 3 (D-21.3) changes this table: it adds the `scope` column and the levels `"total"`, `"asset_by_value"` and `"asset_by_loss"`, and makes `asset_id` and `premium_basis` nullable.
+
 | Column | Type | Meaning |
 |---|---|---|
 | `cover_label` | string | The user's label, or the first 12 hex digits of the hash |
@@ -647,6 +660,7 @@ A smoke check by the agent on 2026-11-05 (synthetic step payouts, one machine, m
 Phase 1 exports only what it implements. Each name below is added to `__all__` when it is built; adding is not breaking, and nothing exported in Phase 1 has to change.
 
 - **The portfolio approach (R-21, MAR-45).**
+  - Amendment 3 (D-21.1 to D-21.6) changes this item: `allocation` moves from `design_joint` to evaluation time, `level` takes the values `"total"`, `"asset_by_value"` and `"asset_by_loss"` in place of those below, the dependence models are `Independent()`, `Comonotonic()` and `EmpiricalCopula(reference)`, and `Clustered(...)` comes later.
   - A new function `design_joint(templates, sample, objective, *, scope=Joint(), allocation="value")`. Its objective is on the owner's total loss and total payout over the assets; each asset keeps its own cover. `Clustered(...)` follows the core's cluster scope. `design` stays the per-asset function.
   - The LP and QP routes carry over: B becomes the block matrix over the assets' amounts.
   - A joint payout needs a stated allocation rule (`"value"` or `"loss"`, as in the core's `docs/methodology/payout-allocation.md`) for per-asset rows. The table's `level` column gains `"joint"` and `"cluster"`.
@@ -659,6 +673,8 @@ Phase 1 exports only what it implements. Each name below is added to `__all__` w
 ### 10. The issue map
 
 The split into R-14 to R-18 holds, with four adjustments (marked "adjusted"). Amendment 1 (D11) splits R-18 into MAR-42 and MAR-271, and adds R-25 (MAR-274).
+
+Amendment 3 (the portfolio approach) adds the rows of R-21: MAR-298 and MAR-301 to MAR-305, with R-21g deferred.
 
 | Issue | Covers | Files (§2) | Starts after |
 |---|---|---|---|
@@ -805,3 +821,200 @@ On 2026-11-06 the owner, Marc Prinzing, decided D11 (in chat; recorded on the Pr
 | MAR-42 (R-18) | `ParametricPlan`, `explain()`, `write_parquet`, the entry point `for_annual_extremes(...)`, `docs/parametric.md`, the README line and the end-to-end offline test. Done (marc272/crc-sdk#8) | `plan` | R-16 |
 | MAR-271 (R-18b) | `PortfolioEvaluation.asset_curves()`, the entry point `for_evaluation(request)`, `.monte_carlo(...)` and `FreshDraws(...)` in the plan; `docs/parametric.md` leads with the curve route | `plan`; `workflows/portfolio.py` and `workflows/_portfolio.py` (one additive method) | MAR-42. No longer Q1 |
 | MAR-274 (R-25) | The per-year route as the second step (ERA5, CMIP6 and NEX-GDDP-CMIP6, stations): its upstream packaging, a stated option for climate trends, pooled model-years, and its docs and notebook section. Scope and acceptance are set when it is refined | Set when it is refined | MAR-271 |
+
+## Amendment 3 (2026-11-08, MAR-292): the portfolio approach
+
+On 2026-11-08 the owner, Marc Prinzing, decided D-21.1 to D-21.6 (in chat; recorded on MAR-45 and MAR-292). They shape the public API of the portfolio approach (R-21, MAR-45), Phase 2's first extension, so this amendment comes before any R-21 issue starts, and the owner approves it before it merges. Amendment 2 (MAR-291) is recorded separately.
+
+The rest of the ADR stands. §4.1, §6, §9 and §10 keep their text and each carries a one-sentence pointer here, and this amendment says what they now mean, as Amendment 1 did. The publication rule applies: joint calibration is described as a method only, and nothing here says how a joint design does against designs made asset by asset, in either direction.
+
+### The six decisions
+
+All six are option (A) of the refinement on MAR-45.
+
+| | Decision |
+|---|---|
+| D-21.1 | Dependence between the assets of a curve sample: `Independent()`, `Comonotonic()` and `EmpiricalCopula(reference)`, always stated and never defaulted. `EmpiricalCopula` reorders the curve draws to the ranks of a stated per-year reference. Numpy only. `GaussianCopula` comes later |
+| D-21.2 | Individual and joint scopes now, clusters as a later issue |
+| D-21.3 | Every multi-asset evaluation gets an owner-total row (`level="total"`, plus a `scope` column). Per-asset rows of joint designs exist only under a stated evaluation-time `allocation`, `"value"` or `"loss"` (default none), in `asset_by_value` and `asset_by_loss` rows with no premium or net-loss columns. So `allocation` moves off `design_joint`, a change to §9 |
+| D-21.4 | Show the joint design with its own rows and explain what it optimises. No table or figure sets individual against joint until the owner revisits the RQ2 rule (MAR-152 item 4) |
+| D-21.5 | The illustrative book: a synthetic book of 5–10 stated sites in one region, with stated values (CC0), on ERA5 annual extremes. Optionally the same sites on CRC Open curves with an `EmpiricalCopula` from those ERA5 years |
+| D-21.6 | Fixed thresholds only in joint designs; free shapes raise `DesignError`. Users compare threshold choices by running the design several times. All 16 joint parity cases use fixed thresholds |
+
+### Several assets in one sample (§4.1)
+
+The one-asset rule of §4.1 is lifted. "`asset_ids`: Phase 1: exactly one" and the bullet "One asset per sample in Phase 1" now read: a sample holds one asset or more, with distinct ids. The arrays stay (n, n_assets). `to_table`, `content_hash`, `select`, `holdout` and `year_block_kfold` work on every asset at once, `from_table` reads several assets, and a one-asset sample and its hash don't change.
+
+- **Provenance.** `SampleProvenance` gains `dependence` and `parts`, both with defaults and both null on a one-asset sample. `parts` holds each asset's own provenance document, by asset id. `dependence` says where the dependence between the assets comes from: `{"kind": "data"}`, written "the data's own", or the document of a model of `sample_curves` (below).
+- **`OutcomeSample.asset(asset_id) -> OutcomeSample`** returns that asset's one-asset sample, with the same periods and probabilities and the asset's own provenance from `parts`. It keeps the lineage (of a joined sample, the part's), so §4.4's leakage check still sees the source, and `selection` records the step.
+- **`OutcomeSample.join(samples) -> OutcomeSample`** puts one-asset samples side by side.
+  - It requires distinct asset ids and identical periods, probabilities, units, semantics and scenario, and raises `SampleError` otherwise. A part without a separate `hazard` contributes its index when another part has one.
+  - It records `{"kind": "data"}`: the rows are the same years of the data. A multi-asset `from_table` records the same, because a table's rows are what the caller states (§4.2).
+  - **It refuses Monte Carlo samples** (`source_kind` `"monte_carlo"`). Independently drawn curve samples line up by draw number only, so joining them would impose independence without stating it. The `SampleError` names `sample_curves`.
+  - Its lineage is new, built from the parts' lineages.
+- **`design` stays per asset.** On a multi-asset sample it raises `SampleError`, naming `asset()` and `design_joint`. `evaluate` and `compare` raise the same way until MAR-303 extends them (below).
+
+The plan's default, one sample per asset under `Individual()`, doesn't change: it computes no cross-asset sum and imposes no dependence.
+
+### Dependence between the assets of a curve sample (D-21.1, §9)
+
+```text
+# dependence (R-21d); numpy only
+Independent() | Comonotonic() | EmpiricalCopula(reference)     # frozen, with to_document()
+sample_curves(curves, *, dependence, metadata, n_draws, rngs, loss_models, basis_risk,
+              assume_semantics=None, outside_support="raise", details=None) -> OutcomeSample
+    # curves, metadata, rngs, loss_models: mappings by asset id; the order of curves sets asset_ids
+    # dependence: required, no default. basis_risk: one model for every asset
+```
+
+- **Every model only reorders.** For each asset, `sample_curves` makes exactly what `sample_curve` makes with that asset's generator: the uniforms first, then the basis-risk model (§4.4). The dependence model then puts that asset's rows in another order. A row's hazard, index and loss stay together, and no value changes. So each column holds the rows of `sample_curve` with the same uniforms, and an asset's sample has the same values under all three models. `period` is the draw number, 0 to n − 1.
+- **`Independent()`** keeps every asset's rows in draw order. The assets are independent because each has its own generator.
+- **`Comonotonic()`** keeps the first asset's rows in draw order and moves every other asset's draw of rank r to the row of the first asset's draw of rank r. Ranks are those of the uniforms, so a hurdle curve's atom adds no ties, and the rank correlation of the uniforms is 1.
+- **`EmpiricalCopula(reference)`.** `reference` is a multi-asset `OutcomeSample` of m observed or modelled years (`source_kind` `"annual"` or `"table"`) with equal probabilities, holding exactly the curves' assets. A Monte Carlo sample raises `SampleError`: it has no dependence of its own to lend.
+  - Ranks are read from the reference's `hazard`, or from its `index` when it has no separate hazard. Only the ranks are used, so the reference's unit may differ from the curve's. A larger reference value takes a larger draw; a reference that moves the other way must be negated by the caller.
+  - **More draws than reference years.** This is the point D-21.1 left open, and the owner decides it by approving this amendment. The recommendation is rank blocks.
+    - The rule: `n_draws` must be a whole multiple of the reference's years, `n_draws = k·m` with k ≥ 1. Any other count, fewer draws than years included, raises `SampleError` naming the two nearest valid counts. For each asset, the n draws are sorted by their uniforms and cut into m consecutive blocks of k. A reference year of rank r at that asset takes block r. Inside a block the draws keep the order in which they were drawn. The rows are in reference-year order: the first k rows are the first reference year, and so on.
+    - What it means: the reference fixes, for each year, which block of its own draws each asset falls in. With k = 1 the sample's ranks are the reference's ranks exactly; with k > 1 the block of every row's draw equals the reference's rank of that row's year. Inside a block the reference says nothing, so the model assumes independence between the assets there: a block's draw order is random, and each asset's comes from its own generator. This is the checkerboard form of the empirical copula. The reordering uses no random numbers beyond `sample_curve`'s.
+    - The limit, which the setup text states: dependence finer than one year in m is assumed, not observed.
+
+    | Option | What it assumes | Assessment |
+    |---|---|---|
+    | **Rank blocks** (recommended) | Independence between assets inside one reference year's block | Keeps each asset's draws, adds no random numbers, holds the reference's ranks exactly at block level, and its assumption is one sentence in the setup text |
+    | Refuse unless `n_draws` is m | Nothing beyond the data | A reference of m years caps the sample at m draws, so the curve's tail beyond the record, the reason to simulate, isn't sampled |
+    | Resample the reference years at random | As rank blocks, plus random year counts | Needs more random numbers, gives some years more weight by chance, and holds the ranks only approximately |
+    | Keep a block's draws sorted | Perfect dependence inside a block | Deterministic too, but asserts the strongest dependence where the reference has no information, which is what the top blocks hold |
+    | A smoothed copula (empirical beta copula) | A stated smoothing around each year's ranks | Not a reordering of the draws, as D-21.1 asks, holds the ranks only approximately, and is harder to state |
+
+  - **Ties.** Years with equal reference values at one asset (dry years, rounded values) share the blocks of their ranks. The blocks are pooled and dealt to the tied years' rows in draw order, k each, in year order, so a tie adds no dependence between assets.
+  - **Record.** `dependence` holds the kind, the reference's `content_hash`, its sources, its first and last year, m and k. The setup text names the model and calls the dependence an assumption.
+  - **Splits.** Fresh draws (`FreshDraws`) use the same reference with new uniforms, and their `n_draws` must be a multiple of m too. Because the rows come in reference-year blocks, `holdout` and `year_block_kfold` raise `SampleError` on an `EmpiricalCopula` sample, naming `FreshDraws`. The reference is part of the stated model, so the design and the fresh draws share it, and the setup text says so.
+- **`GaussianCopula(correlation)`** comes later: it needs a vectorised normal CDF without scipy ("Not verified").
+- This amendment is about dependence between assets. §4.4's index at a reference point for Monte Carlo samples, a joint distribution of two curves for one asset, stays out of it. Q4 stays open.
+
+### Scopes and `design_joint` (D-21.2, D-21.6, §5, §9)
+
+```text
+# scopes and joint designs (R-21b)
+Individual()      # one design per asset; the plan's default
+Joint()           # one objective and one budget on the asset owner's total, one cover per asset
+design_joint(templates, sample, objective, *, pricing=PurePremium(), budget=None, limit=None,
+             options=DesignOptions(), scope=Joint()) -> JointDesignResult
+    # templates: one Cover per asset, in sample.asset_ids order
+```
+
+- **What it optimises.** On each draw d of a multi-asset sample, L_d = Σ_j L_{d,j} is the asset owner's total loss and π_d = Σ_j π_{d,j} the total payout. The objective of §5.1 and the premium of §5.2 are taken on L_d and π_d. `Budget(ratio=κ)` means P ≤ κ·E[L] on the total, and `Budget(amount=B)` means P ≤ B on the total. Each asset keeps its own cover, on its own index, and each cover pays by its own terms. The name stays `Joint` (§1).
+- **How it is solved.** §5.3's LP and QP with the block basis B = [B_1 | … | B_m], the amounts in asset order, the `LinearConstraints` stacked block by block, and the summed loss. The scale is §5.3's, the largest summed loss of a draw. The route is `"lp"` or `"qp"`.
+- **`templates`.** Each is written for its position's asset, or for none, and then the resolved cover names that asset. Families may differ between assets, and each must implement `LinearInAmounts`. Every `payout_unit` and index unit must match the sample's.
+- **Fixed thresholds (D-21.6).** A `Free` parameter that isn't an amount raises `DesignError` before solving, naming the parameter. Users compare threshold choices by running `design_joint` once per choice. So joint designs have no grid route: `ties` is 0, `profile` and `grid` are `None`, and a `UserObjective` or a payout without `LinearInAmounts`, which §5.3 sends to the grid, raises `DesignError` too.
+- A sample with one asset raises `DesignError`, naming `design`. `limit=` is each cover's own limit (§3), because `Limit` is a term of one contract; a limit on the total isn't offered. `scope` is `Joint()` for now.
+- **`JointDesignResult`** holds `DesignResult`'s record (§5.3, §5.4), with these differences:
+  - `covers` (asset id to resolved `Cover`, in `asset_ids` order) replaces `cover`, and `template_hashes` replaces `template_hash`;
+  - `parameters`, `unidentified`, `zeroed` and `ranges` are keyed by asset id, then by §3's flat names, the shape of the fixtures' `expected` (§8);
+  - `objective_value`, `premium`, `expected_loss`, `budget_bound`, `budget_use`, `p_zero_loss`, `tail_outcomes` and `degenerate_tail` are on the total;
+  - `covers_hash` is the `sha256:` hash of the canonical JSON of the asset ids and cover hashes, sorted by asset id. `design_id` is §7's, with the template hashes in asset order and the scope's document.
+- **Non-uniqueness.** §5.4 applies on the block basis: `fill` per asset, `DesignOptions(ranges=True)` for every identified amount of every asset. A joint design is often not identified per asset (review F8), so its per-asset amounts are one member of an optimal set unless `unique` is true.
+- **`Clustered(assignment, *, joint=True)` is deferred** (R-21g, no issue yet). It waits for new cluster fixtures. The core's cluster scope pays one cover per cluster on a value-weighted mean index, so it changes the trigger; the module takes a stated assignment because the core's Ward clustering needs scipy.
+
+### The comparison table (D-21.3, D-21.4, §6, §7)
+
+An evaluation is multi-asset when its sample holds several assets. `evaluate` and `compare` gain `allocation=None` and `values=None`, and each entry on a multi-asset sample is one of:
+
+- a `JointDesignResult`;
+- a mapping from every asset id of the sample to that asset's resolved `Cover` or `DesignResult`, a set of covers that each stand on their own. They are all covers or all designs; a mix raises `EvaluationError`.
+
+| Column | What changes |
+|---|---|
+| `scope` (new, string, after `level`) | `"individual"` or `"joint"`. Phase 1's rows are `"individual"` |
+| `level` | `"asset"`: an asset's own cover. `"total"`: the sum over the assets of one owner. `"asset_by_value"`, `"asset_by_loss"`: an asset's share of a joint design's total payout, under the rule in the name. These replace §9's `"joint"` and `"cluster"`: joint is a `scope`, and cluster rows wait for `Clustered` |
+| `asset_id` | Becomes nullable: null exactly on `"total"` rows |
+| `cover_hash`, `cover_label` | On `"total"` and allocated rows, `covers_hash` (for a set of individual covers, built the same way). The label is the covers' label if they all share one, else the first 12 hex digits |
+| `premium_basis` | Becomes nullable: null exactly on allocated rows |
+
+The key of §6 doesn't change; `cover_hash` and `design_id` already differ between scopes.
+
+| Entry | Rows |
+|---|---|
+| A set of individual covers | One `"asset"` row per asset, as in Phase 1, and one `"total"` row, all `scope="individual"` |
+| A `JointDesignResult` | One `"total"` row, `scope="joint"`, and one allocated row per asset when `allocation` is set. No `"asset"` row, because the solver's split isn't identified per asset (review F8) |
+
+- **`"total"` rows** hold every metric of §6 on L_d and π_d, the sums the fixtures' `expected.metrics` are taken on (§8).
+  - A joint design's premium is its design premium, the price of one contract on the total, or `premium=`.
+  - A set of individual covers pays one premium per contract, so its total row's premium is the sum of the asset rows' premiums, with their `premium_basis`. `evaluate`'s `premium=` states the total instead (`premium_basis` `"stated"`), as a test of a non-unique joint fixture needs (§8). The row's `design_id`, `unique`, `ties` and `degenerate_tail` are null: they describe single designs, which the asset rows carry.
+- **Allocated rows.** `"value"`: π_{d,i} = π_d · v_i / Σ_k v_k. `"loss"`: π_{d,i} = π_d · L_{d,i} / L_d, and the value shares in a draw with L_d = 0. These are the core's rules (`docs/methodology/payout-allocation.md`), over all the assets of the design.
+  - `values=` maps every asset id to its value, in the loss unit, and is required when `allocation` is set: a sample holds no asset values (§7 keeps them private). Missing, negative or non-finite values, or all zero, raise `EvaluationError`. The hash of the (asset id, value) pairs goes into `assets` (§7).
+  - `premium` and the net-loss columns (`var_net_loss_b<β>`, `cvar_net_loss_b<β>`, `net_loss_rp<T>`) are null: a pricing prices the total payout, not a part of it.
+  - `expected_loss` and `expected_payout` add up to the total row's under both rules, and `expected_uncovered` under `"loss"` only. The other metrics don't add up.
+  - A rule is an accounting statement about the total payout, not the payout of an asset's cover. The rule is in `level`, so no row can be read as the solver's split.
+  - `allocation` applies to joint entries only; with no joint entry it raises `EvaluationError` rather than being ignored.
+- **The metadata (§7).** Each entry of `setup.evaluations` gains `level` (the levels of its rows, a list), `scope` (a list) and `allocation` (`"value"`, `"loss"` or null). Each entry of `setup.samples` gains `dependence`. A document or table without these reads as Phase 1's: `level` `["asset"]`, `scope` `["individual"]`, no allocation, no dependence; `schema_version` stays `"1.0"`. `setup_text` states the levels, which assets a total sums, the allocation rule and the dependence.
+- **What the module shows (D-21.4).** `docs/parametric.md`, the docstrings and the notebook show a joint design with its own rows and explain what it optimises. No table or figure there sets individual against joint until the owner revisits the RQ2 rule (MAR-152 item 4). The `scope` column keeps the rows of each scope apart, and it makes no statement about them.
+
+### The plan (§2, Layer 2)
+
+```text
+    .scopes(*scopes)              # Individual() and/or Joint(); default Individual()
+    .dependence(model)            # curve sources only; required for Joint() on curves
+    .allocation(rule)             # "value" or "loss"; per-asset rows of a joint design; default none
+    .joint_sample() -> OutcomeSample   # execution; Joint() only
+```
+
+- The default is `Individual()`, so a plan that names no scope behaves as before: one sample per asset, and no `"total"` row. A multi-asset sample, and so a `"total"` row, exists only when the plan holds `Joint()`.
+- `Joint()` needs at least two assets. On curves it needs `.dependence(...)`, and without it `explain()` and every execution point raise `ValueError`. `.dependence(...)` on a per-year plan raises: its dependence is the data's own.
+- `.scopes` takes both scopes, because the `scope` column keeps them apart. Under D-21.4 the module's docs and notebook run `Joint()` alone.
+- The plan applies each template to every asset, as it does today; different terms per asset go through `design_joint`. `.designs()` returns `JointDesignResult` under `Joint()`, and `.samples()` returns each asset's view. `.allocation` reads the values the plan's loss model read. `explain()` states the scopes, the dependence and the allocation.
+
+### The joint fixtures (§8)
+
+- **The contract** of `design_joint` is the 16 `*-joint-*` cases of `parity/crc/cases/`: step payouts on 3 assets, in sample, with 5 `exact`, 9 `within_ranges` and 2 `none`. Eight are `synthetic` (CC0-1.0) and eight `thesis` (CC-BY-4.0); a copy keeps its case's licence and attribution (`parity/crc/README.md`, "Licence"). All use fixed breakpoints, so D-21.6 excludes nothing they test.
+- MAR-301 copies them byte for byte into the fork and passes the objective, the parameters, `unique` and the premium by `parity/crc/README.md`'s "How to compare". MAR-303 adds the metrics, through the `"total"` row. `cover` is the list of templates in `asset_ids` order, and `expected.parameters` and `expected.unidentified` are keyed by asset id as `JointDesignResult`'s fields are. The `"within_ranges"` cases need `DesignOptions(ranges=True)`.
+- `expected.premium` is the premium on the total, and `expected.metrics` are the columns of a `"total"` row. For a non-unique case the comparison is on the templates resolved with `expected.parameters`: one `Cover.with_values` per asset, evaluated as a set of covers with `premium=expected.premium`, because only a stated premium reproduces a price on the total under a cost-of-capital load.
+- No case covers dependence models, allocation or a joint design out of sample; the issues that build them test their properties. Clusters wait for new fixtures.
+- **Size.** On 2026-11-08 the cases hold 997,747 bytes of the 1,000,000 that `test_total_size_is_under_1_mb` allows, and a joint case takes 19 to 26 kB. So a new joint case stays small (`synthetic52` or smaller), and the PR that adds it raises the limit, with a reason. The perturbed-solver test moves the solver's point in 9 cases, all non-unique joint designs.
+
+### The illustrative book (D-21.5)
+
+MAR-305 builds the book of D-21.5 in the crc-docs fork, labelled illustrative, with its sites and values stated (CC0). On ERA5 annual extremes the dependence is the data's own. The optional second part puts the same sites on CRC Open curves with an `EmpiricalCopula` from those ERA5 years; no CRC Open data is committed. The notebook prints the dependence as an assumption, states the setup of every number, uses out-of-sample numbers only, and follows D-21.4.
+
+### What the other sections now mean
+
+- **§2.** The Layer 1 and Layer 2 outlines gain the entries above. The module layout gains `dependence.py` (R-21d) and `joint.py` (R-21b: `Individual`, `Joint`, `design_joint`, `JointDesignResult`).
+- **§5.** "Phase 1 designs one cover on one asset's sample" stays true of `design`. `design_joint` is the second design function.
+- **§8.** "Not ported" now lists clustering, and no longer the joint scope.
+- **§9, the portfolio approach.** `design_joint(templates, sample, objective, *, scope=Joint(), allocation="value")` now reads as the outline above, without `allocation`. "`Clustered(...)` follows" now means later, as R-21g. The allocation rule is the evaluation-time one above. "The table's `level` column gains `"joint"` and `"cluster"`" now reads as the table above. `Comonotonic()`, `Independent()` or `GaussianCopula(correlation)` now reads `Independent()`, `Comonotonic()` or `EmpiricalCopula(reference)`, with `GaussianCopula` later.
+- **D10's point 7 and "Consequences"** describe Phase 1. For one-asset samples they still hold.
+
+### The issue map (§10)
+
+R-21 is split as below (each about one PR). The other rows stand.
+
+| Issue | Covers | Files (§2) | Starts after |
+|---|---|---|---|
+| MAR-298 (R-21a) | Multi-asset `OutcomeSample`; `asset()`, `join()` and their refusals; `dependence` and `parts`; `design`, `evaluate` and `compare` raise on a multi-asset sample | `sample`; the checks in `design` and `evaluate` | This amendment |
+| MAR-301 (R-21b) | `Individual`, `Joint`, `design_joint`, `JointDesignResult`; the 16 joint cases; the budget and the premium on the total | `joint` (new); `tests/fixtures/parametric/` | R-21a |
+| MAR-302 (R-21d) | `Independent`, `Comonotonic`, `EmpiricalCopula`, `sample_curves` | `dependence` (new), `sources` | R-21a; in parallel with R-21b |
+| MAR-303 (R-21c) | `compare` and `evaluate` take `JointDesignResult` and sets of covers, with `allocation=` and `values=`; the `scope` column, `level`, the metadata and `setup_text`; the 16 joint cases' metrics | `evaluate`, `metadata`, `metrics` | R-21b |
+| MAR-304 (R-21e) | `.scopes`, `.dependence`, `.allocation`, `.joint_sample`; results equal the function route; the method-only section of `docs/parametric.md` | `plan`; `docs/parametric.md` | R-21c, R-21d |
+| MAR-305 (R-21f) | The illustrative book in the notebook (D-21.5) | crc-docs fork | R-21e |
+| R-21g (later, no issue yet) | `Clustered(assignment, *, joint=True)` and its fixtures, an R-13 extension | Set when it is refined | New cluster fixtures |
+
+### Beyond the six decisions
+
+The six decisions don't determine these. The text above settles each as the agent recommends, and the owner's approval of this amendment covers them.
+
+1. How `EmpiricalCopula` handles more draws than reference years: rank blocks, `n_draws = k·m`. D-21.1 asks the amendment to say; the table above has the options.
+2. Ties in a reference: tied years pool their blocks.
+3. An `EmpiricalCopula` sample takes `FreshDraws`; `holdout` and `year_block_kfold` raise on it.
+4. The reference is a multi-asset `OutcomeSample`, ranked on its hazard.
+5. `sample_curves` takes one generator per asset, so it reproduces `sample_curve` column by column and the plan's child generators.
+6. A joint evaluation names its asset values with `values=`, because a sample holds none, and `"loss"` needs them for draws without loss.
+7. The `"total"` row of a set of individual covers has the sum of the contract premiums.
+8. On `"total"` rows `asset_id` is null and `cover_hash` is `covers_hash`, so no sentinel asset id is reserved.
+9. `design_joint` raises for a `UserObjective`, a payout without `LinearInAmounts` and a one-asset sample; `limit=` is per cover.
+10. `.scopes` takes both scopes, and a plan writes a `"total"` row only when it holds `Joint()`.
+
+### Not verified
+
+- No R-21 code exists, and the module's own routes were not run on a block basis. A throwaway check (2026-11-08, not committed; script and output in the PR) solved §5.1 and §5.2 on B = [B_1 | … | B_m] with the summed loss in cvxpy and Clarabel, without the core or the fork: all 16 joint cases gave their `expected.objective_value`, within 7e-9 relative.
+- The rank-block reordering was checked the same way on synthetic numbers (numpy, not committed): the columns are permutations of the draws, the blocks equal the reference's ranks for k = 1, 3 and 100, ties pool, and no generator state moved.
+- How long §5.4's ranges take on a large block basis: four LPs per amount.
+- No ERA5 or CRC Open data was read for this amendment.

@@ -158,7 +158,7 @@ The Program hub sets these rules (from 2026-11-05):
    - external-facing work follows the publication rule.
 
    For a fork PR, also check:
-   - the base is `parametric`, and the fork's own checks pass (see "Merge policy"; in crc-docs, no new failures against the base while the known upstream failure stands, see "Fork PRs");
+   - the base is `parametric`, and the fork's own checks pass (see "Merge policy"; in crc-docs, where Actions are off, the local checks on the final head, see "Fork PRs");
    - no file of the diff imports `parametric_insurance_design`;
    - no MAR IDs or Linear links in code or docs (`git -C <worktree> diff origin/parametric... | grep -nE 'MAR-[0-9]+|linear\.app'` prints nothing); commit subjects are conventional, each with a `Refs: MAR-<n>` trailer;
    - nothing new in crc-sdk's base dependencies (`[project].dependencies`): the solver sits in an optional extra, as ADR 0005 chooses;
@@ -199,7 +199,7 @@ The fork clones (R-10, MAR-242) are `/Users/marcprinzing/Parametric_Insurance/fo
 
 Every `gh pr` command on fork work, yours and the workers', passes `--repo marc272/<fork>` explicitly: in a fork clone, `gh` without it can resolve to RiskThinking's repository. Read upstream only through `git fetch upstream`; `gh` commands that name a RiskThinking repository are denied.
 
-Agents never create tags or run workflows by hand in the forks. Both forks' workflows are enabled (Marc, 2026-11-05), and crc-sdk's `release.yaml` ("Package release") runs on any pushed `v*` tag and on `workflow_dispatch`, with `id-token: write`. A tag or a manual run could publish a release.
+Agents never create tags or run workflows by hand in the forks. crc-sdk's workflows are enabled (Marc, 2026-11-05), and its `release.yaml` ("Package release") runs on any pushed `v*` tag and on `workflow_dispatch`, with `id-token: write`. A tag or a manual run could publish a release. crc-docs' Actions are off, and stay off (see "Fork PRs").
 
 ### Briefs
 
@@ -244,7 +244,7 @@ Work only in that worktree: absolute paths, git -C <worktree> for git, cd <workt
 Edit nothing else: not parametric-insurance-design, not the fork clone's own checkout.
 Read first: <worktree>/AGENTS.md; docs/adr/0005 in parametric-insurance-design; <merged PRs of the blockers>
 You own: <files or modules in the fork>. Import anything except parametric_insurance_design; edit nothing else.
-Commits: conventional-commit subjects (feat(parametric): …), a "Refs: MAR-<n>" trailer, no MAR IDs or Linear links in code or docs.
+Commits: conventional-commit subjects (feat(parametric): …), no MAR IDs or Linear links in code or docs, and a "Refs: MAR-<n>" trailer in the final paragraph, with any Co-Authored-By line next to it and no blank line between them.
 Push early: git -C <worktree> push -u origin <gitBranchName>, then
 gh pr create --repo marc272/<fork> --base parametric --head <gitBranchName> --draft, titled "[MAR-<n>] <conventional subject>".
 Every gh pr command passes --repo marc272/<fork>. Never push to upstream, main or parametric; never contact RiskThinking.
@@ -296,11 +296,15 @@ Otherwise, set the issue to In Review, assign it to Marc, and alert him. Never u
 
 ### Fork PRs
 
-The merge gate differs by fork (checked 2026-11-05):
+The merge gate differs by fork (crc-sdk checked 2026-11-05, crc-docs 2026-11-08):
 
 - **crc-sdk:** `.github/workflows/ci.yml` runs on every `pull_request`, with no branch filter: ruff and strict mypy, the tests on Python 3.11 to 3.14 and on Windows, and a wheel build. PRs into `parametric` get it, and it is the merge gate.
-- **crc-docs:** the only PR workflow is `validate-skills.yml`, filtered to the agent skills, `AGENTS.md`, `CLAUDE.md` and `.mcp.json`. Nothing runs `tests/` or the notebooks in CI. So the gate is local, as in "Fallback: local CI" below: the worker pastes the summary of the fork's own checks (`uv run --with pytest python -m pytest -q`) on the final head, and you re-run them in the PR's worktree, on the head you are about to merge. `uv run pytest -q` can't start, because pytest isn't a crc-docs dependency, and `uv run --with pytest pytest -q` can't import the repository's `pipelines`. When the PR touches the files `validate-skills.yml` watches, that check must be green too. Merge only if your run passes.
-  - **Known upstream failure (2026-11-06).** `tests/test_notebooks.py::test_flood_demo_reuses_cache_and_explores_canonical_curve` fails on crc-docs' `main`, and so on `parametric` (reported to RiskThinking through MAR-249). Until upstream fixes it, the gate for every crc-docs PR, sync PRs included, is no new failures against the base: run the tests on the base and on the head, and merge only if every test that fails on the head also fails on the base. Run the base in a throwaway worktree (`git -C <clone> worktree add --detach <path> origin/parametric`, then `git -C <clone> worktree remove --force <path>`). The worker pastes both summaries. Drop this note when a sync PR brings upstream's fix.
+- **crc-docs:** Actions are off on `marc272/crc-docs` (Marc, 2026-11-08, because the new `live` job in upstream's `ci.yml` would reach RiskThinking's data on every PR; `gh api repos/marc272/crc-docs/actions/permissions --jq .enabled` prints `false`). No workflow runs on a PR, so the gate is local, as in "Fallback: local CI" below: the worker pastes the summary of the fork's own checks on the final head, and you re-run them in the PR's worktree, on the head you are about to merge. The checks are `uv sync --locked`, `uv run pytest -q`, `uv run ruff check pipelines tests tools` and `uv run ruff format --check pipelines tests tools`. Merge only if your run passes.
+  - **`uv sync --locked`, on purpose.** Upstream's `AGENTS.md` lists `uv sync --locked --extra velo`, while its `ci.yml` and the run on crc-docs#2 use `uv sync --locked`. The `velo` extra adds only `velo-sdk`, which only the tests that need a CDT API key import, and agents never run those.
+  - **Actions must stay off.** `ci.yml` runs on a weekly `schedule` and on `push` to `main` as well as on `pull_request`, so re-enabling Actions would run the `live` job.
+  - **Agents never set `CRC_DOCS_LIVE=1`,** although upstream's `AGENTS.md` lists that run. It runs all of `tests/test_live.py`, and this rule has no exception, MAR-299 included. So `uv run pytest -q` skips the tests in `tests/test_live.py`, which need `CRC_DOCS_LIVE=1` or a CDT API key. Those skips are expected.
+  - **The one exception so far to "never connect to RiskThinking's services"** is MAR-299 (Marc, 2026-11-08): agents may download the public CRC Open release for the primer notebook, with no credentials and only for that notebook.
+  - **The skills check, by hand.** When a PR changes a path that `validate-skills.yml` watches (`.agents/skills/**`, `.claude/skills`, `.mcp.json`, `AGENTS.md`, `CLAUDE.md` or the workflow itself), run that workflow's steps on the final head as part of the gate: `.claude/skills` is a symlink to `../.agents/skills`, `CLAUDE.md` is the single line `@AGENTS.md`, `uv run python -m json.tool .mcp.json` succeeds, `.agents/skills/` holds at least one skill, and every skill there passes `uvx --from "skills-ref==0.1.1" agentskills validate <skill>` and is named in `AGENTS.md`; a sync PR is exempt when those paths at its head are identical to `upstream/main` (`git -C <worktree> diff --quiet upstream/main HEAD -- <paths>` succeeds), because the steps read only those paths, so their result would be upstream's own.
 - Both forks carry upstream's `rebase-dependabot.yml`, which has no job in a fork.
 
 Merge a fork PR so that the commit on `parametric` reads like upstream's history, with no MAR ID in its subject:
@@ -318,9 +322,9 @@ Marc (2026-11-05): the orchestrator keeps each fork's `parametric` current by me
 2. Make a worktree on a sync branch: `git -C <clone> worktree add --no-track -b sync/upstream-main-<YYYY-MM-DD> <worktree> origin/parametric`.
 3. `git -C <worktree> merge --no-edit upstream/main`. Resolve simple conflicts in the worktree. If a resolution needs real work, file an issue for it and dispatch it like any other.
 4. Run the fork's checks (`AGENTS.md`, "Their rules are binding") in the worktree, push the sync branch, and open a PR into `parametric` (`gh pr create --repo marc272/<fork> --base parametric --head sync/upstream-main-<YYYY-MM-DD> --title "chore: merge upstream main into parametric"`).
-5. When the gate passes, merge it with a merge commit: `gh pr merge <n> --repo marc272/<fork> --merge`. Never `--squash` or `--rebase` here: either would drop upstream's history from `parametric`, and the upstream PR would then show upstream's own changes as ours.
+5. When the gate passes, merge it with a merge commit: `gh pr merge <n> --repo marc272/<fork> --merge`. Never `--squash` or `--rebase` here: either would drop upstream's history from `parametric`, and the upstream PR would then show upstream's own changes as ours. A sync PR carried by a MAR-issue branch, as crc-docs#2 was, also needs `--subject "<conventional-commit subject> (#<n>)" --body "Refs: MAR-<issue>"`: the default merge message holds the branch name and the PR title, and both have the MAR ID.
 
-Sync PRs have no Linear issue. List them in the next Program hub status update, like Dependabot PRs.
+A sync PR on a `sync/…` branch has no Linear issue. List it in the next Program hub status update, like Dependabot PRs.
 
 ### Dependabot PRs
 
