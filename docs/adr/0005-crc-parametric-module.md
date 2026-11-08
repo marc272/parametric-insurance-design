@@ -882,9 +882,9 @@ LinearTrend(reference_year=None, *, min_years=10, fit_years=None)
 
 - **The fit sees the design years only.** The held-out years are adjusted with the design years' slope. A changed held-out value changes neither the fit nor any row of the design block.
 - **The plan builds one sample per fold.** With `LinearTrend` and `Holdout` or `KFold`, the plan builds each asset's sample once per fold, with that fold's design years as the fit years, and takes the fold's two blocks from it. The fit years are the years `holdout` or `year_block_kfold` puts in the design block, so the two can't disagree. A model that draws (`ImpactNoise`) starts every fold from the asset's same generator state, so a year's factor doesn't depend on the fold.
-- **`.samples()` and `ParametricResult.samples`** hold all the years before any split (§2), so their fit uses all the years, and their record says so. The comparison's rows come from the per-fold samples.
+- **`.samples()` and `ParametricResult.samples`** hold all the years before any split, so their fit uses all the years, and their record says so. The comparison's rows come from the per-fold samples.
 - **Layer 1.** `LinearTrend(fit_years=years)` states the fit years; by default they are every kept year. A year the series doesn't hold raises `SampleError`. A year dropped as missing is left out, so the record lists the years actually used. On the plan, `fit_years` raises `ValueError`, because the plan sets it per fold.
-- **Leakage.** An out-of-sample `evaluate` or `compare` raises `LeakageError` when the trend of the design sample or of the evaluation sample was fitted on a year the evaluation sample holds. So `holdout(sample_annual(..., trend=LinearTrend()))` is refused at evaluation, and the error names `fit_years`. The lineage (§4.4) leaves the trend out: a design on adjusted years, evaluated on the same years as recorded, still shares their rows.
+- **Leakage.** An out-of-sample `evaluate` or `compare` raises `LeakageError` when the trend of the design sample or of the evaluation sample was fitted on a year the evaluation sample holds from the same source. So `holdout(sample_annual(..., trend=LinearTrend()))` is refused at evaluation, and the error names `fit_years`. The lineage (§4.4) leaves the trend out: a design on adjusted years, evaluated on the same years as recorded, still shares their rows.
 - **`RecentYears(n)`.** The window comes first and the split divides it, so the held-out block is the latest years inside the window. Nothing is fitted, so nothing is rebuilt per fold.
 
 **The record.** `SampleProvenance` gains `trend`, with a default; it is `None` on Monte Carlo and table samples.
@@ -924,7 +924,7 @@ ModelPool(model="model", member="member", pathway="scenario")     # the plan's p
 - **`FreshDraws`** raises `TypeError`, as on every per-year plan: a pool's rows are model-years, not draws from a curve.
 - **Trend.** Each run has its own fit, on the same design years with the same reference year, the last of the pool's years. `RecentYears(n)` takes the last n years of each run.
 - **Basis risk.** `NoBasisRisk()` warns with `ComonotoneIndexWarning`, as for one series: pooling puts no difference between index and loss. `ImpactNoise` draws one factor per row, in row order, from the asset's generator.
-- **What the setup text says.** The runs, the pathway, the years, the number of rows and that every run has the same weight, and two statements. A draw mixes model spread with year-to-year variability, as §4.2 says of a pooled curve. And the rows are not independent years: rows of one run share that model's climate and rows of one year its forcing, so the number of rows is not an effective sample size.
+- **What the setup text says.** The runs, the pathway, the years, the number of rows and that every run has the same weight, and two statements. A draw mixes model spread with year-to-year variability, as §4.2 says of a pooled curve. And the rows are not independent years: rows of one run share that model's climate and rows of one year the pathway's forcing, so the number of rows is not an effective sample size.
 - **The plan.** `for_annual_extremes(..., pool=ModelPool())` pools. `source` is then one table, file or plan whose rows carry the three columns `ModelPool` names, as NEX-GDDP-CMIP6's batches do, or a sequence of sources, one per run, as CMIP6's plans are (one model each).
   - A run's identity comes from those columns or, where a source has none, from its plan's `explain(format="json")` (`model`, `member`, `pathway`). A source that states neither raises `SampleError`.
   - Each run is located on its own grid, so the matched cell and the distance are recorded per run. `provenance` states the archive's licence and attribution once; each run's own columns are recorded with it.
@@ -1043,7 +1043,7 @@ R-25 is split as below (each about one PR). The other rows stand. In the owner's
 
 | Issue | Covers | Files (§2) | Starts after |
 |---|---|---|---|
-| MAR-293 (R-25a) | Per-year sources name their provider, dataset and pathway. Done (marc272/crc-sdk#17) | `sources`, `metadata` | R-18 |
+| MAR-293 (R-25a) | Per-year sources name their provider, dataset and pathway. Done (marc272/crc-sdk#17) | `sources`, `metadata` | No blocker |
 | MAR-295 (R-25b) | `AsRecorded`, `RecentYears`, `LinearTrend`; `trend=`, fitted per fold; the leakage check; `SampleProvenance.trend`; the trend sentence. Also `scenario=` (D-25.5), which has no issue of its own and touches the same two signatures | `trend` (new), `sources`, `sample`, `plan`, `metadata` | This amendment, R-25a |
 | MAR-297 (R-25d) | `.index(...)`: the index series, the binding of the covers, the years and `missing=`, its records | `plan`, `metadata` | This amendment |
 | MAR-296 (R-25c) | `ModelRun`, `sample_annual_pool`, `ModelPool`, `pool=`; splits and leakage on a pool; `SampleProvenance.pool` | `sources`, `sample`, `plan`, `metadata` | This amendment, R-25a; in the owner's order after R-25b and R-25d, whose `trend=` and `.index(...)` it extends |
@@ -1051,14 +1051,14 @@ R-25 is split as below (each about one PR). The other rows stand. In the owner's
 | MAR-300 (R-25f) | Notebook material in crc-docs: ERA5 annual extremes at the illustrative site, with the trend option and an out-of-sample split, every number out of sample next to `setup_text`, and no claim that a trend option, a station index or pooling changes how covers do | crc-docs fork | R-25b, R-25d, the primer notebook (MAR-299) |
 | MAR-307 (R-25g) | Source-plan follow-ups: a lineage independent of cache state, ERA5's licence and attribution, CMIP6's pathway on the plan route, NOAA's `explain()`, the docs line | Set when it is refined | R-25e |
 
-`join`'s two added checks (Amendment 3's `sample.py`) land with whichever of MAR-298 (R-21a), MAR-295 and MAR-296 merges second.
+`join` comes with Amendment 3 (MAR-298, R-21a). Its check of the trend lands with the later of MAR-298 and MAR-295, and its check of a pool's rows with the later of MAR-298 and MAR-296.
 
 ### Beyond the five decisions
 
 The five decisions don't determine these. The text above settles each as the agent recommends, and the owner's approval of this amendment covers them.
 
 1. `LinearTrend`'s default reference year is the last year of the series, the same in every fold. The table above has the options.
-2. A fold with too few fit years raises `SampleError`: `min_years=10`, a keyword that D-25.2's signature leaves room for, and at least 3.
+2. A fold with too few fit years raises `SampleError`, under a new keyword `min_years=10`, which may not go below 3.
 3. One fit per series: per asset, per run, and for the hazard and the index separately.
 4. `fit_years` is a field of `LinearTrend`, so a Layer 1 caller can fit on design years with one argument, and `LeakageError` guards the fit at evaluation.
 5. `.samples()` under `LinearTrend` and a split gives the all-years fit; the rows come from per-fold samples, and every fold starts from the same generator state.
