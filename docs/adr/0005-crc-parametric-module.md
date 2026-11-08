@@ -849,7 +849,7 @@ All five are option (A) of the refinement on MAR-274.
 
 ### The route in the upstream PR (D-25.1)
 
-Amendment 1 left open whether the Phase 1 upstream PR holds the per-year route back or carries it as a secondary route. D-25.1 settles it: the PR carries it. "In a later release" in Amendment 1 now reads: in the same upstream PR, as the secondary, documented route. There is no second-step upstream PR. The curves still lead `docs/parametric.md`, its quick start and the notebook, and §11 keeps Q3.
+Amendment 1 left open whether the Phase 1 upstream PR holds the per-year route back or carries it as a secondary route. D-25.1 settles it: the PR carries the route as it stood when that PR was opened (`sample_annual`, `for_annual_extremes`, `NearestCell` and `StationColumn`), as the secondary, documented route, so "in a later release" in Amendment 1 no longer describes that route. This amendment's additions (`trend=`, `pool=`, `.index(...)`, `scenario=` and `cell=`) are not in that PR: they land on the fork's `parametric` afterwards, and reach upstream as MAR-249 decides later. The curves still lead `docs/parametric.md`, its quick start and the notebook, and §11 keeps Q3.
 
 ### Climate trends (D-25.2, §4.2)
 
@@ -955,7 +955,7 @@ ModelPool(model="model", member="member", pathway="scenario")     # the plan's p
 
 ### A per-asset H3 cell (§2, R-25e)
 
-`cell=` on `for_annual_extremes` gives a registry impact the H3 cell it needs: `cell="<column>"` names an asset column holding the cell, and `cell=H3Cell(resolution=r)` computes it from an asset's point with `crc_sdk.geometry.h3.point_to_cell`. `r` has no default: which resolution the registry impacts expect is open point 7 on the upstream PR. Where H3's library is needed, without the `geometry` extra `cell=` raises an `ImportError` naming `crc-sdk[geometry]`. The cell fills the `cell` field of the impact's `TransformContext`, and the loss model's document records it, not the point. It changes only the impact's context, not where the hazard or the index is read. Without `cell=`, the refusal of `for_annual_extremes` for a registry impact that needs a cell stays.
+`cell=` on `for_annual_extremes`, as MAR-294 merged it (marc272/crc-sdk#18), puts an H3 cell for each asset in the impact's context, on top of `context`: `cell="<column>"` names an asset column of unsigned 64-bit H3 cells, and `cell=H3Cell(resolution=r)` takes the cell of the asset's point, computed at execution with `crc_sdk.geometry.h3.point_to_cell`. `H3Cell` needs the `geometry` extra, and without it execution raises an `ImportError` naming `crc-sdk[geometry]`. It needs a point too, so for assets located by `CellColumn` it raises `SampleError`. `r` runs from 0 to 15 and has no default: which resolution the registry impacts expect is open point 7 on the upstream PR. `cell=` for an impact that takes no context raises `SampleError`, and `cell=` where the impact's context already holds a cell raises `ValueError`. Each sample's provenance and the setup text record the cell, not the point, and `explain()` states under `assets` what `cell=` says. It changes only the impact's context: the series is still located by `location`. Without `cell=`, the refusal of `for_annual_extremes` for a registry impact that needs a cell stays.
 
 ### The outlines (§2)
 
@@ -1010,7 +1010,7 @@ This amendment adds:
 - **A pool.** `sources` has one hazard entry per run, and a sequence of sources has one `annual_table` record each.
 - **`covers`** holds the bound documents.
 
-MAR-307 lists what stays open: a lineage independent of cache state, ERA5's licence and attribution, CMIP6's pathway on the plan route, NOAA's `explain()` and the docs line.
+MAR-307 lists what stays open: a lineage independent of cache state, ERA5's licence and attribution, CMIP6's pathway on the plan route, NOAA's `explain()`, the docs line, and whether a nearest-cell series keeps `distance_km`.
 
 ### With Amendment 3
 
@@ -1047,7 +1047,7 @@ R-25 is split as below (each about one PR). The other rows stand. In the owner's
 | MAR-295 (R-25b) | `AsRecorded`, `RecentYears`, `LinearTrend`; `trend=`, fitted per fold; the leakage check; `SampleProvenance.trend`; the trend sentence. Also `scenario=` (D-25.5), which has no issue of its own and touches the same two signatures | `trend` (new), `sources`, `sample`, `plan`, `metadata` | This amendment, R-25a |
 | MAR-297 (R-25d) | `.index(...)`: the index series, the binding of the covers, the years and `missing=`, its records | `plan`, `metadata` | This amendment |
 | MAR-296 (R-25c) | `ModelRun`, `sample_annual_pool`, `ModelPool`, `pool=`; splits and leakage on a pool; `SampleProvenance.pool` | `sources`, `sample`, `plan`, `metadata` | This amendment, R-25a; in the owner's order after R-25b and R-25d, whose `trend=` and `.index(...)` it extends |
-| MAR-294 (R-25e) | `cell=`, `H3Cell`; the cell in the loss model's document; the existing refusal without a cell | `plan`, `loss` | R-25a |
+| MAR-294 (R-25e) | `cell=`, `H3Cell`; the cell in the loss model's document; the existing refusal without a cell. Done (marc272/crc-sdk#18) | `plan` | R-25a |
 | MAR-300 (R-25f) | Notebook material in crc-docs: ERA5 annual extremes at the illustrative site, with the trend option and an out-of-sample split, every number out of sample next to `setup_text`, and no claim that a trend option, a station index or pooling changes how covers do | crc-docs fork | R-25b, R-25d, the primer notebook (MAR-299) |
 | MAR-307 (R-25g) | Source-plan follow-ups: a lineage independent of cache state, ERA5's licence and attribution, CMIP6's pathway on the plan route, NOAA's `explain()`, the docs line | Set when it is refined | R-25e |
 
@@ -1078,7 +1078,7 @@ The five decisions don't determine these. The text above settles each as the age
 
 ### Not verified
 
-- No code for R-25b, R-25c or R-25d exists, and MAR-294 (R-25e) is in progress. A throwaway check (2026-11-08, not committed; script and output in the PR) ran the arithmetic of the rules on synthetic numbers with numpy only, without the fork or any CRC data:
+- No code for R-25b, R-25c or R-25d exists. A throwaway check (2026-11-08, not committed; script and output in the PR) ran the arithmetic of the rules on synthetic numbers with numpy only, without the fork or any CRC data:
   - x_t = 50 + 0.5(t − 1981) gives an adjusted range of 0.0, on all years and on a 70 % design block;
   - adding 500 to every held-out value changes the slope, the intercept and every design row by 0.0;
   - the adjusted fit years have mean a, within 1.5e-14;
