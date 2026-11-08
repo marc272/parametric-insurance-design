@@ -1397,7 +1397,7 @@ OutcomeSample.from_table(table, *, period, asset_id, index, loss, probability=No
 - **Hashes and tables.** A one-hazard sample's `content_hash` and `to_table` don't change. With components, the hash document adds `components` (each one's name, unit, tail, values, hazard and own loss), and `to_table` adds the columns `index[<name>]`, `hazard[<name>]` and `own_loss[<name>]`, with the units and tails in `crc.parametric.sample`. Both write `schema_version` `"1.1"`, so a reader that knows only `"1.0"` refuses the table, as `from_written_table` does today, and doesn't drop the components.
 - **A user's table.** With a mapping as `index`, `from_table` builds a multi-hazard sample of one asset. Its `loss` column is the combined loss as the caller states it, and `combine` records `{"kind": "table"}`. `hazard_dependence` records `{"kind": "data"}`, as Amendment 3 records a multi-asset table: its rows are what the caller states.
 
-**`component(name, *, loss="own")`** returns that hazard's one-hazard sample, with the same periods and probabilities. Its `index`, `index_unit` and `hazard` are the component's.
+**`component(name, *, loss="own")`** returns that hazard's one-hazard sample, with the same periods and probabilities. Its `index`, `index_unit` and `hazard` are the component's. On a one-hazard sample it raises `SampleError`.
 
 - `loss="own"` holds `own_loss`, so a separate cover can be designed on its own hazard's loss. A component with no impact has none, so the default raises `SampleError`, naming `loss="combined"`.
 - `loss="combined"` keeps the sample's combined loss, for a cover on this index designed against what the owner loses in total.
@@ -1476,7 +1476,7 @@ StepGrid(breakpoints, levels, *, tail=("upper", "upper"), monotone=True)
 | `StepGrid` | none | any built-in | any | one LP or QP, on the one-hot basis of the cells |
 | `SumOf` or `StepGrid` | some | any built-in | any | §5.3's grid over the shape candidates, with the LP or QP above at each point, under `max_grid_points` (D-22.5) |
 | `MaxOf` with `scale=Free(...)` and fixed component amounts | none, or on a grid | any built-in | any | one LP or QP in one amount, with basis max_k π_k(s_k), at each shape candidate |
-| `MaxOf` with free component amounts, a `SumOf` with a component that isn't `LinearInAmounts`, a user vector payout without `LinearInAmounts`, or a `UserObjective` | any | any | any | §5.3's numpy grid over every free parameter, under `max_grid_points` |
+| `MaxOf` with a fixed scale, a `SumOf` with a component that isn't `LinearInAmounts`, a user vector payout without `LinearInAmounts`, or a `UserObjective` | any | any | any | §5.3's numpy grid over every free parameter, under `max_grid_points` |
 
 - **The gate.** §5.3's first rows now read "`LinearInAmounts` with at least one amount". `MaxOf` and `SumOf` answer `amount_names()` with `()` when their amounts aren't linear in the sense above, and `design` then takes the numpy grid. So each family keeps one public name, and a user family with no amounts takes the same route.
 - **A free breakpoint** needs a grid (§3). Candidates are the product over every free threshold of every axis, restricted to ordered thresholds. Two free breakpoints per axis at 8 points are 4,096 points, of which 784 are ordered when each axis's two breakpoints share one grid.
@@ -1549,7 +1549,7 @@ class DependenceModel(Protocol):
 - **Mixed tails.** Every model reorders by the values of the draws, not their severity. With one `"upper"` and one `"lower"` component, `Comonotonic()` pairs the most severe of one with the least severe of the other, and the setup text says so.
 - **The user protocol.** `DependenceModel` is what the built-ins already do. `sample_curves` and `sample_curve_hazards` take anything that passes one gate, run before the sample is returned, which raises `SampleError` unless:
   - `to_document()` is plain JSON and its `kind` isn't a built-in's, so nothing else can be recorded as `"independent"`;
-  - `statement(...)` is a non-empty string, which the module writes after its own opening, "The dependence between the hazards is an assumption:", so no model can leave that word out;
+  - `statement(...)` is a non-empty string, which for a user's model the module writes after its own opening, "The dependence between the hazards is an assumption:", so no model can leave that word out (the built-ins' sentences already open so);
   - `reorder` returns integers of shape (n, d), each column a permutation of 0 to n − 1, so no draw is dropped, repeated or changed;
   - two calls on the same uniforms agree: a model may hold its parameters, but no generator its document doesn't describe.
 
@@ -1599,7 +1599,7 @@ Every row has one `sample_hash`, and its metrics are on the combined loss.
 | Amendment 3's mapping, keyed by component name | No new type | No label and no hash of its own, and one form would mean assets on one sample and hazards on another, which breaks once a sample holds both |
 | A `contracts=` term on `SumOf` | A flag in the cover's document | Puts a pricing statement in the contract's terms and hash, and `compare` still needs each contract's premium |
 
-- **The covers.** Two or more. Each key is the component the cover reads, so it needn't equal the cover's `hazard_name`. Each is one-index, and all share one `payout_unit` and one `asset_id` (or none). A mix of covers and designs raises `EvaluationError`, as in Amendment 3. A package of composite covers is a later, additive option.
+- **The covers.** Two or more. Each key is the component the cover reads, so it needn't equal the cover's `hazard_name`. Each is one-index, and all share one `payout_unit` and one `asset_id` (or none). A mix of covers and designs raises `EvaluationError`, as in Amendment 3, and Amendment 3's mapping on a multi-hazard sample raises, naming `CoverPackage`. A package of composite covers is a later, additive option.
 - **The rows.** One `"asset"` row per cover, with its own `cover_hash` and `design_id`, and one `"package"` row:
 
   | Column | The `"package"` row |
@@ -1632,7 +1632,7 @@ Every row has one `sample_hash`, and its metrics are on the combined loss.
   | `Budget(ratio=κ)` | `Budget(ratio=κ)` on each own loss | κ·Σ_k E[L_k], which exceeds κ·E[L] when the rule caps or compounds in some year |
 
   `split_budget` returns `Budget(amount=...)`, the bound on `sample` times each share. `shares` has no default, because how to split a budget between two hazards is an assumption. `"own_loss"` takes each component's share of the summed expected own losses and raises if a component has no own loss. A mapping states the shares. The third row is a legitimate statement of a different budget: `compare` neither refuses nor adjusts it, and the setup text gives the numbers. Under a cost-of-capital load, equal premiums don't mean equal expected payouts.
-- **The same draws and the same combined loss.** There is one multi-hazard sample and one split. `component()` views a block, with the block's periods and lineage, so each separate cover is designed on the rows the holistic cover is designed on, with its own hazard's loss. `compare` evaluates every entry on the held-out block's `loss`, the combined loss. §4.4's check holds for each pair: as Amendment 3 does for a set, `compare` checks each contract's design sample against the same component view of the block, and compares a stated `design_sample=` with that view of it.
+- **The same draws and the same combined loss.** There is one multi-hazard sample and one split. `component()` views a block, with the block's periods and lineage, so each separate cover is designed on the rows the holistic cover is designed on, with its own hazard's loss. `compare` evaluates every entry on the held-out block's `loss`, the combined loss. §4.4's check holds for each pair: as Amendment 3 does for a set, `compare` checks the design sample of each contract and of each one-index design against the same component view of the block, and compares a stated `design_sample=` with that view of it.
 
 ### `payout_breakdown` (D-22.7, §6)
 
