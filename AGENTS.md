@@ -106,13 +106,15 @@ These rules apply to every issue whose work lands in `marc272/crc-sdk` or `marc2
   - atomic writes;
   - licence and provenance for every source;
   - no breaking changes to `__all__`.
-- crc-docs: its `AGENTS.md`, and its tests (`uv run --with pytest python -m pytest -q`: pytest isn't a crc-docs dependency, and the tests import `pipelines` from the repository root, which `python -m` puts on the path). Its CI checks only the agent skills, so the checks you run on the final head are the gate.
-  - One upstream test fails on crc-docs' `main` as of 2026-11-06, and so on `parametric`: `tests/test_notebooks.py::test_flood_demo_reuses_cache_and_explores_canonical_curve` (reported to RiskThinking through MAR-249). Until upstream fixes it, the gate is no new failures against the base: run the tests on `origin/parametric` and on your head, and paste both summaries.
+- crc-docs:
+  - checks, as the `checks` job of its `ci.yml` runs them: `uv sync --locked` first, then `uv run pytest -q`, and `uv run ruff check pipelines tests tools && uv run ruff format --check pipelines tests tools`;
+  - two lines of its `AGENTS.md` differ on purpose. We sync without `--extra velo`, as its `ci.yml` does: the extra adds only `velo-sdk`, which only the tests that need a CDT API key import, and agents never run those. And we leave out the `CRC_DOCS_LIVE=1` run ("No contact with RiskThinking"). So the tests in `tests/test_live.py` are skipped, which is expected;
+  - Actions are off on `marc272/crc-docs` (Marc, 2026-11-08), so nothing runs on your PR, and the checks you run on the final head are the merge gate. They stay off: the `live` job in upstream's `ci.yml` reaches RiskThinking's data, and `ci.yml` runs on a weekly `schedule` and on `push` to `main` as well as on `pull_request`.
 
 **Written for upstream**
 
 - Code, docs and commit subjects follow their conventional-commit style, e.g. `feat(parametric): add the step payout`. No MAR IDs or Linear links in code or docs.
-- The Linear ID goes in the fork PR's title and body, and in a `Refs: MAR-<n>` trailer on each commit.
+- The Linear ID goes in the fork PR's title and body, and in a `Refs: MAR-<n>` trailer on each commit. The `Refs` line and any `Co-Authored-By` line go in the same final paragraph, with no blank line between them: otherwise git doesn't parse `Refs` as a trailer.
 - The fork has no `no-linear-urls` hook. Before each push, `git -C <worktree> diff origin/parametric... | grep -nE 'MAR-[0-9]+|linear\.app'` must print nothing.
 
 **Self-contained, no new base dependencies, no data**
@@ -126,13 +128,14 @@ These rules apply to every issue whose work lands in `marc272/crc-sdk` or `marc2
 - Push your branch to the fork (`git -C <worktree> push -u origin <branch>`) and open the PR inside the fork, with base `parametric`. Push early, as in this repository.
 - Every `gh pr` command names the fork: `gh pr create --repo marc272/crc-sdk --base parametric --head <branch> --draft …`, and the same `--repo` on `gh pr view`, `edit`, `ready` and `checks`. Without `--repo`, `gh` in a fork clone can resolve to RiskThinking's repository.
 - PR title: `[MAR-<n>] <conventional-commit subject>`. PR body: as in this repository (the issue, the acceptance criteria with evidence, deviations, follow-ups), plus the summary of the fork's checks on the final head. Pass it with `--body-file`: a `gh` command line that contains a `github.com/RiskThinking` URL is denied, even inside a body.
-- Done means: every acceptance criterion is evidenced, and the fork's CI is green on the PR. In crc-docs, where CI doesn't run the tests, the fork's checks pass on the final head (no new failures against the base, while the upstream failure above stands) and their summary is in the PR body.
+- Done means: every acceptance criterion is evidenced, and the fork's CI is green on the PR. In crc-docs, where Actions are off, the fork's checks pass on the final head and their summary is in the PR body.
 
 **No contact with RiskThinking**
 
 - Never open issues, PRs or discussions on RiskThinking's repositories, never push to the `upstream` remote, and never contact RiskThinking. Those steps are Marc's (MAR-249), and so are the upstream PRs.
-- Never connect to RiskThinking's services, such as the CDT Express MCP server in crc-docs' `.mcp.json`. Read upstream only through `git fetch upstream`.
-- Never create tags or releases, and never run workflows by hand. crc-sdk's release workflow runs on any pushed `v*` tag.
+- Never connect to RiskThinking's services, such as the CDT Express MCP server in crc-docs' `.mcp.json`. Read upstream only through `git fetch upstream`. The one exception so far: agents may download the public CRC Open release for the primer notebook, MAR-299 (Marc, 2026-11-08), with no credentials and only for that notebook.
+- Never set `CRC_DOCS_LIVE=1` in crc-docs: it runs all of `tests/test_live.py`. This rule has no exception, MAR-299 included.
+- Never create tags or releases, never run workflows by hand, and never turn Actions back on in `marc272/crc-docs`. crc-sdk's release workflow runs on any pushed `v*` tag.
 - The publication rule applies to the module's docs and to the notebook. The CLIMADA stream stays CRC-free.
 
 ## Engineering standards (SPEC §4.3)
