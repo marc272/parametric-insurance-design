@@ -324,7 +324,7 @@ Amendment 2 (the per-year route) adds pooled samples, whose `period` is a draw n
 
 Amendment 1 (D11) sets the order of release: Monte Carlo from a fitted curve first, per-year values as the second step. The rules below don't change.
 
-Amendment 2 (the per-year route) adds a stated trend option, pooled model-years and a `scenario` label to the per-year source, and puts the route in the Phase 1 upstream PR.
+Amendment 2 (the per-year route) adds a stated trend option, pooled model-years and a `scenario` label to the per-year source, and says what of the route goes in the Phase 1 upstream PR.
 
 | Source | Function | One draw is | Probability | Semantics required |
 |---|---|---|---|---|
