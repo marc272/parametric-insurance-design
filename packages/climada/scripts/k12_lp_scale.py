@@ -13,9 +13,10 @@ loss (no shortfall variable is dropped). An event touches
 There are two events per simulation year on average, and the annual basis has
 one outcome per year.
 
-``--seconds`` splits the time into the assembly, the HiGHS run and everything
-``linprog`` does around it. Run from any environment with numpy, scipy, pandas
-and the prototype on ``PYTHONPATH``::
+The time is split into the HiGHS run and everything ``linprog`` does around it.
+``--method`` replaces the ``linprog`` method of the prototype (default ``highs``,
+as in the prototype). Run from any environment with numpy, scipy, pandas and the
+prototype on ``PYTHONPATH``::
 
     python packages/climada/scripts/k12_lp_scale.py --out lp.json
 """
@@ -88,8 +89,8 @@ def build_data(
     return data, measure, {"n_years": n_years, "units_touched_per_event": hit}
 
 
-def run_one(n_units: int, n_events: int) -> dict[str, Any]:
-    """Solve one configuration and return its timings and memory."""
+def run_one(n_units: int, n_events: int, method: str = "highs") -> dict[str, Any]:
+    """Solve one configuration with ``method`` and return its timings and memory."""
     build_start = time.perf_counter()
     data, measure, setup = build_data(n_units, n_events)
     build_seconds = time.perf_counter() - build_start
@@ -99,6 +100,7 @@ def run_one(n_units: int, n_events: int) -> dict[str, Any]:
     linprog_seconds = {"value": 0.0}
 
     def timed_linprog(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        kwargs["method"] = method
         start = time.perf_counter()
         result = real_linprog(*args, **kwargs)
         linprog_seconds["value"] = time.perf_counter() - start
@@ -123,6 +125,7 @@ def run_one(n_units: int, n_events: int) -> dict[str, Any]:
     return {
         "n_units": n_units,
         "n_events": n_events,
+        "method": method,
         **setup,
         "n_outcomes": n_outcomes,
         "n_variables_about": n_variables,
@@ -149,9 +152,12 @@ def main() -> None:
     parser.add_argument("--timeout", type=float, default=1800.0)
     parser.add_argument("--units", nargs="*", type=int, default=list(UNITS))
     parser.add_argument("--events", nargs="*", type=int, default=list(EVENTS))
+    parser.add_argument(
+        "--method", default="highs", choices=("highs", "highs-ds", "highs-ipm")
+    )
     args = parser.parse_args()
     if args.one:
-        print(json.dumps(run_one(args.one[0], args.one[1])))
+        print(json.dumps(run_one(args.one[0], args.one[1], args.method)))
         return
     rows = []
     for n_units in args.units:
@@ -162,6 +168,8 @@ def main() -> None:
                 "--one",
                 str(n_units),
                 str(n_events),
+                "--method",
+                args.method,
             ]
             try:
                 done = subprocess.run(

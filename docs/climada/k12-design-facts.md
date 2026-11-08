@@ -8,7 +8,7 @@ Questions 1 to 8 are answered in order below. Every number comes with its setup 
 
 | Label | CLIMADA | Petals | Python | scipy | numpy | pandas | cvxpy | highspy | Source |
 |---|---|---|---|---|---|---|---|---|---|
-| `6.1-lock` | 6.1.0 (`pyhd8ed1ab_4`) | none | 3.12.15 | 1.15.2 | 2.3.5 | 2.3.3 | 1.9.3 | none | the repository's `packages/climada/pixi.lock` |
+| `6.1-lock` | 6.1.0 (`pyhd8ed1ab_4`) | none | 3.12.15 | 1.15.2 | 2.3.5 | 2.3.3 | 1.9.3 | 1.15.1 | the repository's `packages/climada/pixi.lock` |
 | `6.2.0` | 6.2.0 (`pypyhd8ed1ab_0`) | none | 3.11.18 | 1.17.1 | 2.4.6 | 2.2.3 | 1.9.3 | 1.15.1 | throwaway pixi manifest, conda-forge |
 | `dev` | develop `a3d101a` (`6.2.1-dev`, 2026-11-06) | develop `3f57dcf` (`6.2.1-dev`, 2026-10-02) | 3.12.16 | 1.18.1 | 2.5.4 | 2.2.3 | 1.9.3 | 1.15.1 | throwaway pixi manifest: the two `requirements/env_climada.yml` at those commits, plus both packages from source tarballs |
 | `pypi-X` | none | none | 3.12.11 | X | see Q5 | see Q5 | none | none | one uv venv per scipy version, wheels from PyPI |
@@ -39,10 +39,12 @@ Things that differ from what a move to 6.2.0 might assume:
 
 The one skipped test needs the IRIS catalogue, absent in all three environments. All tests ran with a pytest plugin that refuses Python-level network connections.
 
-**What breaks?** Nothing in the prototype or the adapter changed behaviour. The only failures on `6.2.0` were `ImportError: Missing optional dependency 'pytables'` in `tests/test_portfolio_litpop.py` and `tests/test_hazard_years.py`. The cause is outside CLIMADA: on `osx-arm64`, `c-blosc2 3.5.0 h7c780c3_0` links `liblz4` by the absolute path `/opt/homebrew/opt/lz4/lib/liblz4.1.dylib` (`otool -L`), which does not exist here. `linux-64` was not tested.
+**What breaks?** No test of the prototype or the adapter fails once the library path below is set. The only failures on `6.2.0` were `ImportError: Missing optional dependency 'pytables'` in `tests/test_portfolio_litpop.py` and `tests/test_hazard_years.py`. The cause is outside CLIMADA: on `osx-arm64`, `c-blosc2 3.5.0 h7c780c3_0` links `liblz4` by the absolute path `/opt/homebrew/opt/lz4/lib/liblz4.1.dylib` (`otool -L`), which does not exist here. `linux-64` was not tested.
 
 - `Exposures.gdf`, named in the issue as deprecated, is a plain property in 6.2.0 and `develop`, with no deprecation decorator. It is not under "Deprecated" in the 6.2.0 changelog. The `6.2.0` test log has no deprecation warning about it, and the `dev` log's warnings do not mention it.
 - The 6.2.0 changelog's "Deprecated" entry is `Impact.calc_freq_curve(return_per=...)`. The prototype does not call it. "Removed" lists `climada.util.earth_engine` and two `climada.util.finance` constants; the prototype uses none of them. `develop` adds two cartopy `DeprecationWarning`s on import.
+
+Noticed in passing, on 6.1.0 and 6.2.0 alike: if a `Centroids` object holds the same coordinates twice, `TropCyclone.from_tracks` returns an intensity matrix with one column fewer than the centroids and a column index of −1, and `check_matrices` then raises `indices must be >= 0`. Two insured points at the same location would meet this if the centroids are built from the exposures.
 
 ## Q2. Event and year structure of the Data API hazards
 
@@ -117,14 +119,24 @@ Three routes:
 
 Observations:
 
-- **`1 / frequency` is not one number on the whole file for any tropical-cyclone dataset except STORM.** Restricted to the events with wind in Jamaica it is uniform, in all RW files. That is a property of this country, because the unequal periods are in other basins. On this data no per-event frequency needs a different year length.
+- **`1 / frequency` is not one number on the whole file for any tropical-cyclone dataset except STORM.** The events with wind in Jamaica all have 1/451 in each RW file and 1/41 in TC observed, and the other values are on events that do not reach Jamaica. Other countries were not checked.
 - **For the RW future files, frequency also varies between members of the same parent**, so `1 / frequency` is not a catalogue length there.
 - **Hazards with one event per year or per member and year** (flood, wildfire) have no year without an event in the catalogue. Poisson(1) sampling gives 36.9 % of years without one.
 - **STORM, flood and windstorm through the prototype's default date route give a much smaller number of distinct outcomes than the years they represent** (2 of 10,000; 21 of 920; 66 of 2,190). The only signal is a logged warning, and the default is accepted. The labels route works (except for windstorm), but only by passing an array built from the names, which the prototype's own `event_year="event_name"` route cannot read: it needs names of the form `<prefix>_<year>_<number>`.
 - **Windstorm.** The ensemble labels raise, because the file's frequency implies 73 seasons and its dates reach 74. The dates include a few events in the summer months.
 - **Ensembles and the 70/30 year split.** With `year + member × span` labels, splitting the labelled years 70/30 leaves events of the same parent on both sides: 85.7 % of the test events with wind have their parent in the training years for RW, 100 % for windstorm.
 
-The table reports which routes run and how the resulting year structures compare. The choice of route per hazard is left to the ADR.
+What the two routes did on each hazard, from the table above. The choice of a route per hazard is left to the ADR.
+
+| Hazard | Catalogue years | `yearsets` (with replacement) |
+|---|---|---|
+| RW (present and future) | Runs on the events with wind, with an array of labels (N = 451). Members act as extra years, and parents leak across a year split | Runs on the whole file. Mean and q90 close to the catalogue, q99 13 % higher (present) |
+| TC observed | Runs on the events with wind, 41 years | Runs; q99 241 against 196 |
+| STORM | Runs with labels from the names, 10,000 years; `date` carries no year | Runs; q99 254 against 250 |
+| Flood | Runs with labels, each event a whole member-year | Runs, but 36.9 % of years are empty against none in the catalogue |
+| Earthquake | Runs with `date`, 114 years | Runs; q99 20.3 against 20.0 |
+| Wildfire | Runs with `date`, 20 years | Runs, but 36.9 % of years are empty against none; q99 3,008 against 1,011 |
+| Windstorm | Does not run as labelled: the dates cover 74 seasons and the frequency implies 73 | Runs; q99 369 against 445, share of zero-proxy years 0.142 against 0.122 |
 
 ## Q4. `yearsets` as an outcome route
 
@@ -175,11 +187,75 @@ A pool's frequencies are rescaled by its share of the total (test pool: 30 % of 
 
 ## Q5. Scale of the design LP
 
-PLACEHOLDER_Q5
+**Setup.** The prototype's own linear program, through its `solve_design`: one joint problem over all units, weighted CVaR with `alpha = 0.9`, `beta = 0.95`, pure premium, budget 1.0, 5 steps, annual basis. The data are synthetic and built as the large case: every event has a loss, so no shortfall variable is dropped. An event touches `max(1, ceil(0.05 × units))` adjacent units, its index is uniform on 25 to 80 and its loss is `(index − 25)²` times lognormal(0, 0.5) noise, with two events per simulation year on average. Each configuration runs in a process of its own, and its peak resident memory is its own. Other jobs of this spike ran at the same time, so the timings are upper bounds of a kind, not benchmarks.
+
+```
+python packages/climada/scripts/k12_lp_scale.py --out lp.json --timeout 2400
+python packages/climada/scripts/k12_lp_scale.py --units 1000 --events 10000 50000 --method highs-ipm --out ipm.json --timeout 1800
+```
+
+**Time and memory, environment `6.2.0` (scipy 1.17.1, HiGHS 1.12.0 inside).** `method="highs"` is what the prototype uses and leaves the choice of algorithm to HiGHS. `highs-ipm` is the interior-point method, with HiGHS's default crossover setting; it was run where the default was slow.
+
+| Units × events | Variables (about) | Outcomes | Dense inputs (MB) | `method` | Solve (s) | HiGHS (s) | `linprog` around HiGHS (s) | Peak RSS (MB) |
+|---|---|---|---|---|---|---|---|---|
+| 1 × 10,000 | 14,329 | 4,322 | 0.15 | `highs` | 0.27 | 0.25 | 0.02 | 195 |
+| 1 × 50,000 | 71,717 | 21,710 | 0.76 | `highs` | 6.8 | 6.7 | 0.08 | 398 |
+| 67 × 10,000 | 14,688 | 4,351 | 10.2 | `highs` | 6.4 | 6.4 | 0.02 | 224 |
+| 67 × 50,000 | 71,996 | 21,659 | 51 | `highs` | 127 | 127 | 0.09 | 410 |
+| 67 × 50,000 | 71,996 | 21,659 | 51 | `highs-ipm` | 36 | 36 | 0.15 | 424 |
+| 1,000 × 10,000 | 19,298 | 4,296 | 153 | `highs` | not solved in 2,400 s | | | |
+| 1,000 × 10,000 | 19,298 | 4,296 | 153 | `highs-ipm` | 59 | 59 | 0.10 | 787 |
+| 1,000 × 50,000 | 76,575 | 21,573 | 763 | `highs` | stopped by hand after about 10 minutes, once 1,000 × 10,000 had hit its limit | | | |
+| 1,000 × 50,000 | 76,575 | 21,573 | 763 | `highs-ipm` | 410 | 409 | 0.46 | 1,572 |
+
+On 67 × 50,000 the two methods' objective values agree to every printed digit (6479.525753749786). "Dense inputs" are the index and loss arrays of the prototype's `DesignData`, which are dense; the peak memory is otherwise mostly HiGHS and the assembly.
+
+**Is the overhead after HiGHS returns gone?** The time `linprog` spends outside `Highs.run`, in seconds, for the same LP. HiGHS itself took 0.1 to 6 s in these runs.
+
+| Units × events | Variables (about) | scipy 1.15.2 (conda-forge) | scipy 1.15.2 (PyPI) | 1.15.3 (PyPI) | 1.16.3 (PyPI) | 1.17.1 (PyPI) | 1.18.1 (PyPI) |
+|---|---|---|---|---|---|---|---|
+| 1 × 4,000 | 5,740 | 49.7 | 49.6 | 0.02 | 0.05 | 0.02 | 0.02 |
+| 67 × 10,000 | 14,688 | 65.8 | 66.4 | 0.02 | 0.02 | 0.02 | 0.02 |
+| 1 × 20,000 | 28,672 | 972 | 668 | 0.06 | 0.06 | 0.04 | 0.05 |
+
+The overhead is present in scipy 1.15.2 and absent from 1.15.3 on, on both conda-forge and PyPI builds of 1.15.2. The difference in the source is one line of `optimize/_highspy/_highs_wrapper.py`: 1.15.2 reads `basis.col_status[ii]` inside its loop over the variables, and the 1.15.3 wheel and conda-forge's 1.17.1 read `basis.col_status` once before the loop (the other versions' sources were not read). conda-forge has no 1.15.3 (`pixi search -c conda-forge "scipy 1.15.*"` ends at 1.15.2), so CLIMADA 6.1's pin resolves to the slow version, as this repository's lock does; CLIMADA 6.2.0's pin is `scipy 1.17.*`. The growth with the number of variables is not a clean square in these runs (other jobs were running), but the overhead reaches about 11 minutes or more at 28,672 variables.
 
 ## Q6. The MSE route without a new package
 
-PLACEHOLDER_Q6
+**Setup.** The problem is `min Σ_o p_o (L_o − P_o)²` over the payout levels, with `0 ≤ level ≤ cap`, monotone levels and the premium budget. Annual basis, 5 steps, one joint design problem over all units, pure premium, budget 0.8 (it binds: the multiplier found is 0.107, 0.290 and 0.222 on the first three sizes). The data are the synthetic generator of Q5, where every event has a loss. Environment `6.2.0`: scipy 1.17.1 (HiGHS 1.12.0 inside), highspy 1.15.1, cvxpy 1.9.3. Each run is its own process, with a timeout of 600 s, while other jobs of this spike were running.
+
+```
+python packages/climada/scripts/k12_mse_routes.py --out mse.json --timeout 600
+```
+
+The reference is the prototype's own route, cvxpy with Clarabel at tolerances of `1e-10`. The options of the others: `trust-constr` `gtol` `1e-9`, `xtol` `1e-12`, `barrier_tol` `1e-9`; `SLSQP` `ftol` `1e-13`; `lsq_linear` `trf` with `lsmr`, `tol` `1e-12`, on the level increments, with Brent's method on the budget's multiplier. `lsq_linear` takes bounds only, so its cap is a bound on each increment; no route's result broke a bound, the monotonicity or the budget by more than `1e-15`.
+
+Cells are wall time and the objective's relative gap to cvxpy on the same data (negative: below cvxpy's value). The levels are per unit and step (`n_units × 5`).
+
+| Route | New package | 1 × 10,000 (5 levels) | 67 × 10,000 (335) | 67 × 50,000 (335) | 1,000 × 10,000 (5,000) |
+|---|---|---|---|---|---|
+| cvxpy with Clarabel (reference) | cvxpy | 0.58 s | 0.55 s | 1.25 s | 14.0 s |
+| `highspy` QP | highspy | 0.015 s, −3e-12 | 0.042 s, −2e-11 | 0.051 s, −1e-11 | 37.5 s, −7e-11 |
+| scipy's private HiGHS bindings, QP | none (private module) | 0.001 s, −3e-12 | 0.034 s, −2e-11 | 0.040 s, −1e-11 | 42.3 s, −7e-11 |
+| `scipy.optimize` `trust-constr` | none | 0.022 s, 1.2e-5 | 0.25 s, 2.1e-5 | 0.33 s, 1.8e-5 | 53.3 s, 1.4e-3 |
+| `scipy.optimize` `SLSQP` | none | 0.001 s, −3e-12 | 1.41 s, −2e-11 | 1.03 s, −1e-11 | not done in 600 s |
+| `lsq_linear` with a multiplier on the budget | none | 0.063 s, −3e-12 | 51.0 s, 4e-9 | 157 s, 7e-10 | not done in 600 s |
+
+Peak resident memory is 144 to 354 MB on the first three sizes. On 1,000 × 10,000 it is 974 MB (cvxpy), 1,654 MB (`highspy`), 1,743 MB (private bindings) and 896 MB (`trust-constr`).
+
+With a **cost-of-capital load** (rate 0.3, q 0.99; the premium needs auxiliary variables, one per outcome with a payout), only cvxpy and `highspy` were run, because the other routes have no linear rows for these auxiliaries here:
+
+| Size | cvxpy | `highspy` |
+|---|---|---|
+| 1 × 10,000 | 1.19 s | 0.15 s, gap −1.2e-10 |
+| 67 × 10,000 | 1.89 s | not done in 600 s |
+
+Facts on the dependency side:
+
+- Neither cvxpy nor highspy is a dependency of CLIMADA (Q1). Petals' `pyproject.toml` at develop `3f57dcf` has no optional-dependencies table.
+- scipy bundles HiGHS: 1.8.0 in scipy 1.15.2 and 1.15.3, 1.12.0 in 1.17.1 and 1.18.1. The bindings `scipy.optimize._highspy._core` expose `HighsHessian` and `passHessian` in those four versions (1.16.3 not checked). The module name starts with an underscore, so it is not scipy's public interface.
+- `linprog` itself has no quadratic term, so the private bindings are the only way into that solver from scipy alone.
+- `pymoo`, the one solver package petals requires, is a genetic-algorithm library and was not tried here.
 
 ## Q7. The zero-basis-risk trap
 
