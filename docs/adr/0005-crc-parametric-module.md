@@ -312,6 +312,8 @@ class OutcomeSample:
     def content_hash(self) -> str
 ```
 
+Amendment 3 (the portfolio approach) lifts the one-asset rule of this section: a sample holds one asset or more, and `OutcomeSample.asset()` and `OutcomeSample.join()` are added.
+
 - **One draw is one year.** A cover pays once per draw, on that draw's index, against that draw's loss. This is the core's annual basis with one row per year. Several events within a year are out of scope for Phase 1 (§9).
 - **One asset per sample in Phase 1** (MAR-43). The asset axis exists, so arrays are (n, 1); a second asset raises `SampleError` until Phase 2. The plan handles several assets as one sample each. So Phase 1 imposes no dependence between assets: it computes no cross-asset sum.
 - Arrays are read-only (`setflags(write=False)`). A sample written to Parquet uses the long table above and the metadata key `crc.parametric.sample`.
@@ -503,6 +505,8 @@ A smoke check by the agent on 2026-11-05 (synthetic step payouts, one machine, m
 
 **The comparison table** (`compare`): one row per cover and split, metrics as columns (MAR-247), the layout of crc-sdk's portfolio output (U2).
 
+Amendment 3 (D-21.3) changes this table: it adds the `scope` column and the levels `"total"`, `"asset_by_value"` and `"asset_by_loss"`, and makes `asset_id` and `premium_basis` nullable.
+
 | Column | Type | Meaning |
 |---|---|---|
 | `cover_label` | string | The user's label, or the first 12 hex digits of the hash |
@@ -656,6 +660,7 @@ A smoke check by the agent on 2026-11-05 (synthetic step payouts, one machine, m
 Phase 1 exports only what it implements. Each name below is added to `__all__` when it is built; adding is not breaking, and nothing exported in Phase 1 has to change.
 
 - **The portfolio approach (R-21, MAR-45).**
+  - Amendment 3 (D-21.1 to D-21.6) changes this item: `allocation` moves from `design_joint` to evaluation time, `level` takes the values `"total"`, `"asset_by_value"` and `"asset_by_loss"` in place of those below, the dependence models are `Independent()`, `Comonotonic()` and `EmpiricalCopula(reference)`, and `Clustered(...)` comes later.
   - A new function `design_joint(templates, sample, objective, *, scope=Joint(), allocation="value")`. Its objective is on the owner's total loss and total payout over the assets; each asset keeps its own cover. `Clustered(...)` follows the core's cluster scope. `design` stays the per-asset function.
   - The LP and QP routes carry over: B becomes the block matrix over the assets' amounts.
   - A joint payout needs a stated allocation rule (`"value"` or `"loss"`, as in the core's `docs/methodology/payout-allocation.md`) for per-asset rows. The table's `level` column gains `"joint"` and `"cluster"`.
@@ -668,6 +673,8 @@ Phase 1 exports only what it implements. Each name below is added to `__all__` w
 ### 10. The issue map
 
 The split into R-14 to R-18 holds, with four adjustments (marked "adjusted"). Amendment 1 (D11) splits R-18 into MAR-42 and MAR-271, and adds R-25 (MAR-274).
+
+Amendment 3 (the portfolio approach) adds the rows of R-21: MAR-298 and MAR-301 to MAR-305, with R-21g deferred.
 
 | Issue | Covers | Files (§2) | Starts after |
 |---|---|---|---|
@@ -819,7 +826,7 @@ On 2026-11-06 the owner, Marc Prinzing, decided D11 (in chat; recorded on the Pr
 
 On 2026-11-08 the owner, Marc Prinzing, decided D-21.1 to D-21.6 (in chat; recorded on MAR-45 and MAR-292). They shape the public API of the portfolio approach (R-21, MAR-45), Phase 2's first extension, so this amendment comes before any R-21 issue starts, and the owner approves it before it merges. Amendment 2 (MAR-291) is recorded separately.
 
-The rest of the ADR stands. §4.1, §6, §9 and §10 keep their text, and this amendment says what they now mean, as Amendment 1 did. The publication rule applies: joint calibration is described as a method only, and nothing here says how a joint design does against designs made asset by asset, in either direction.
+The rest of the ADR stands. §4.1, §6, §9 and §10 keep their text and each carries a one-sentence pointer here, and this amendment says what they now mean, as Amendment 1 did. The publication rule applies: joint calibration is described as a method only, and nothing here says how a joint design does against designs made asset by asset, in either direction.
 
 ### The six decisions
 
