@@ -46,7 +46,10 @@ def small_hazard(exp: Exposures, n_events: int = 20) -> Hazard:
         haz_type="TC",
         intensity=sp.csr_matrix(rng.uniform(0.0, 60.0, (n_events, n_centroids))),
         fraction=sp.csr_matrix(np.ones((n_events, n_centroids))),
-        centroids=Centroids(lat=exp.latitude, lon=exp.longitude),
+        centroids=Centroids(
+            lat=np.asarray(exp.latitude, dtype=float),
+            lon=np.asarray(exp.longitude, dtype=float),
+        ),
         event_id=np.arange(1, n_events + 1),
         event_name=[f"e{i}" for i in range(n_events)],
         date=np.full(n_events, 730000),

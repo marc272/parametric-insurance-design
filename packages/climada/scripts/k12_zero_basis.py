@@ -227,7 +227,7 @@ def rank_correlation(
 ) -> dict[str, float]:
     """Return the Spearman correlation of index and loss over events with loss."""
     mask = loss.ravel() > 0
-    result = spearmanr(index.ravel()[mask], loss.ravel()[mask])
+    result: Any = spearmanr(index.ravel()[mask], loss.ravel()[mask])
     return {
         "spearman": float(result.statistic),
         "n_events_with_loss": int(mask.sum()),
@@ -293,7 +293,7 @@ def run() -> dict[str, Any]:
             cat_exposures,
             hazard=hazard,
             radius_km=50.0,
-            metric=metric,
+            metric=metric,  # pyright: ignore[reportArgumentType]
             event_year=years,
             n_years=N_YEARS,
             first_year=0,

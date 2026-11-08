@@ -150,6 +150,11 @@ def _expected(data: Any) -> float:  # noqa: ANN401
     return float(data.measure.event_probability @ scaled)
 
 
+def _rows(matrix: Any) -> int:  # noqa: ANN401 (any scipy sparse matrix)
+    """Return the number of rows of a sparse matrix."""
+    return int(matrix.shape[0])
+
+
 def _highs_model(
     qp: Qp,
     core: Any,  # noqa: ANN401
@@ -164,7 +169,7 @@ def _highs_model(
     upper = np.array(qp.ub, copy=True)
     if loaded is None:
         rows = sp.vstack([qp.monotone, sp.csr_matrix(qp.premium[None, :])]).tocsr()
-        rhs = np.append(np.zeros(qp.monotone.shape[0]), qp.rhs)
+        rhs = np.append(np.zeros(_rows(qp.monotone)), qp.rhs)
     else:
         pays, prob, rate, level = loaded
         active = pays.getnnz(axis=1) > 0
@@ -187,11 +192,9 @@ def _highs_model(
                 ]
             )[None, :]
         )
-        monotone = sp.hstack(
-            [qp.monotone, sp.csr_matrix((qp.monotone.shape[0], n_new))]
-        )
+        monotone = sp.hstack([qp.monotone, sp.csr_matrix((_rows(qp.monotone), n_new))])
         rows = sp.vstack([monotone, tail_rows, budget_row]).tocsr()
-        rhs = np.concatenate([np.zeros(qp.monotone.shape[0] + extra), [qp.rhs]])
+        rhs = np.concatenate([np.zeros(_rows(qp.monotone) + extra), [qp.rhs]])
         cost = np.append(cost, np.zeros(n_new))
         lower = np.concatenate([lower, [-np.inf], np.zeros(extra)])
         upper = np.concatenate([upper, np.full(n_new, np.inf)])
@@ -206,20 +209,20 @@ def _highs_model(
     columns = rows.tocsc()
     lp = core.HighsLp()
     lp.num_col_ = cost.size
-    lp.num_row_ = rows.shape[0]
+    lp.num_row_ = _rows(rows)
     lp.col_cost_ = cost
     lp.col_lower_ = lower
     lp.col_upper_ = upper
-    lp.row_lower_ = np.full(rows.shape[0], -np.inf)
+    lp.row_lower_ = np.full(_rows(rows), -np.inf)
     lp.row_upper_ = rhs
     lp.a_matrix_.format_ = core.MatrixFormat.kColwise
     lp.a_matrix_.num_col_ = cost.size
-    lp.a_matrix_.num_row_ = rows.shape[0]
+    lp.a_matrix_.num_row_ = _rows(rows)
     lp.a_matrix_.start_ = columns.indptr
     lp.a_matrix_.index_ = columns.indices
     lp.a_matrix_.value_ = columns.data
     hess = core.HighsHessian()
-    hess.dim_ = hessian.shape[0]
+    hess.dim_ = _rows(hessian)
     hess.format_ = core.HessianFormat.kTriangular
     hess.start_ = hessian.indptr
     hess.index_ = hessian.indices
@@ -253,15 +256,15 @@ def solve_trust_constr(qp: Qp) -> dict[str, Any]:
     fun = qp.objective
     jac = lambda t: 2.0 * (qp.a.T @ (qp.a @ t - qp.b)) / qp.norm  # noqa: E731
     rows = sp.vstack([qp.monotone, sp.csr_matrix(qp.premium[None, :])]).tocsr()
-    rhs = np.append(np.zeros(qp.monotone.shape[0]), qp.rhs)
+    rhs = np.append(np.zeros(_rows(qp.monotone)), qp.rhs)
     result = minimize(
         fun,
         np.zeros(n),
         jac=jac,
         hess=lambda _: hessian,
         method="trust-constr",
-        bounds=Bounds(np.zeros(n), qp.ub),
-        constraints=[LinearConstraint(rows, -np.inf, rhs)],
+        bounds=Bounds(np.zeros(n), qp.ub),  # pyright: ignore[reportArgumentType]
+        constraints=[LinearConstraint(rows, -np.inf, rhs)],  # pyright: ignore[reportArgumentType]
         options={"gtol": 1e-9, "xtol": 1e-12, "barrier_tol": 1e-9, "maxiter": 20_000},
     )
     return {
@@ -329,15 +332,14 @@ def solve_lsq_linear(qp: Qp) -> dict[str, Any]:
         high = 1e-4
         while float(qp.premium @ theta_of(high)) > qp.rhs and high < 1e6:
             high *= 4.0
-        multiplier = float(
-            brentq(
-                lambda lam: float(qp.premium @ theta_of(lam)) - qp.rhs,
-                0.0,
-                high,
-                xtol=1e-12,
-                rtol=1e-10,
-            )
+        root: Any = brentq(
+            lambda lam: float(qp.premium @ theta_of(lam)) - qp.rhs,
+            0.0,
+            high,
+            xtol=1e-12,
+            rtol=1e-10,  # pyright: ignore[reportArgumentType]
         )
+        multiplier = float(root)
         theta = theta_of(multiplier)
     return {
         "theta": theta,
