@@ -1003,6 +1003,8 @@ ParametricPlan.for_annual_extremes(source, assets, *, impact, unit, provenance,
 - **Pathway.** `setup_text` reads a series' pathway from its source's `pathway` key, or from a one-valued `scenario` column when the table also has `model` and `member` columns. A `scenario` column alone states no pathway.
 - **On the plan**, a series' `source` is the caller's `SourceProvenance`, with the source plan's type or the file's SHA-256. `source_records` holds `{"annual_table": ...}`: the rows, the columns, the table's SHA-256, the source plan's `explain()` and, for a file, its path and SHA-256. Each hazard entry of `sources` names it by `annual_table_sha256`.
 
+MAR-307 (marc272/crc-sdk#19) then changed two records. On the plan route, a pathway the source plan states is recorded on the series, beside the caller's `SourceProvenance`, and `setup_text` reads it there. A source plan's cache state and run details are left out of a series' lineage, as are a table's `retrieved_at` column and how the series found its rows, so one source links across fetches and windows; a `source` of the caller's own is kept whole.
+
 This amendment adds:
 
 - **`setup.samples`.** Each entry gains `trend` and `pool`. `pool` holds the runs and their years, without the row arrays: the rows follow from them, by the order of D-25.3, and the full arrays are in the sample's own metadata (`crc.parametric.sample`). A document without these keys reads as before: as recorded on a per-year sample, no pool, and `schema_version` stays `"1.0"`. `explain()` gives the trend option, the pool's columns and the scenario before anything is read.
@@ -1010,7 +1012,7 @@ This amendment adds:
 - **A pool.** `sources` has one hazard entry per run, and a sequence of sources has one `annual_table` record each.
 - **`covers`** holds the bound documents.
 
-MAR-307 lists what stays open: a lineage independent of cache state, ERA5's licence and attribution, CMIP6's pathway on the plan route, NOAA's `explain()`, the docs line, and whether a nearest-cell series keeps `distance_km`.
+MAR-307 settled the lineage's independence of cache state, ERA5's licence and attribution (crc-sdk's `ERA5_LICENCE` and `ERA5_ATTRIBUTION`, where the document states none), CMIP6's pathway on the plan route, NOAA's `explain()` (called without `format` where a plan takes none) and the docs line. `distance_km` stays recorded, out of the lineage; whether to drop it is a question for the owner on MAR-308.
 
 ### With Amendment 3
 
@@ -1049,7 +1051,7 @@ R-25 is split as below (each about one PR). The other rows stand. In the owner's
 | MAR-296 (R-25c) | `ModelRun`, `sample_annual_pool`, `ModelPool`, `pool=`; splits and leakage on a pool; `SampleProvenance.pool` | `sources`, `sample`, `plan`, `metadata` | This amendment, R-25a; in the owner's order after R-25b and R-25d, whose `trend=` and `.index(...)` it extends |
 | MAR-294 (R-25e) | `cell=`, `H3Cell`; the cell in the loss model's document; the existing refusal without a cell. Done (marc272/crc-sdk#18) | `plan` | R-25a |
 | MAR-300 (R-25f) | Notebook material in crc-docs: ERA5 annual extremes at the illustrative site, with the trend option and an out-of-sample split, every number out of sample next to `setup_text`, and no claim that a trend option, a station index or pooling changes how covers do | crc-docs fork | R-25b, R-25d, the primer notebook (MAR-299) |
-| MAR-307 (R-25g) | Source-plan follow-ups: a lineage independent of cache state, ERA5's licence and attribution, CMIP6's pathway on the plan route, NOAA's `explain()`, the docs line | Set when it is refined | R-25e |
+| MAR-307 (R-25g) | Source-plan follow-ups: a lineage independent of cache state, ERA5's licence and attribution, CMIP6's pathway on the plan route, NOAA's `explain()`, the docs line. Done (marc272/crc-sdk#19) | `sources`, `plan`, `metadata` | R-25e |
 
 `join` comes with Amendment 3 (MAR-298, R-21a). Its check of the trend lands with the later of MAR-298 and MAR-295, and its check of a pool's rows with the later of MAR-298 and MAR-296.
 
