@@ -8,7 +8,7 @@
   - crc-framework 0.6.0: [`838c295`][fw] (tag `v0.6.0`; the later head changes only the release workflow);
   - crc-docs: [`7691f5f`][docs] (2026-11-04).
 - Revised on 2026-11-05, before the owner's decision, to match the golden fixtures of MAR-245 (PR #183). The end of "Decisions for the owner" lists what changed.
-- Amendments, at the end: 1 (2026-11-06, MAR-275), which records the owner's decision D11, curves first; and 3 (2026-11-08, MAR-292), which records the owner's decisions D-21.1 to D-21.6, the portfolio approach.
+- Amendments, at the end: 1 (2026-11-06, MAR-275), which records the owner's decision D11, curves first; 2 (2026-11-08, MAR-291), which records the owner's decisions D-25.1 to D-25.5, the per-year route; and 3 (2026-11-08, MAR-292), which records the owner's decisions D-21.1 to D-21.6, the portfolio approach.
 
 The section "Decisions for the owner" lists what Marc decides. Every other choice below is the agent's recommendation, with the alternatives named where a choice is open.
 
@@ -110,6 +110,8 @@ Naming rules:
 **Entry point.** `ParametricPlan.for_evaluation(request)` takes the `PortfolioEvaluation` the user already built with `HazardDataset.<source>(...).for_assets(assets).select(...).impact(...)`, and reuses its dataset, assets, selection and impact function. It changes nothing in `PortfolioEvaluation`. `ParametricPlan.for_annual_extremes(...)` is the second entry, for per-year sources (U5). (Amendment 1, D11: the first release leads with `for_evaluation` and the curves; the per-year entry is the second step.)
 
 To sample from curves the plan needs each asset's curve, and the join that finds it is private (U3). **Recommendation:** R-18 adds one public execution point to crc-sdk, `PortfolioEvaluation.asset_curves() -> pyarrow.Table`, with one row per asset, hazard, horizon and pathway, the curve columns and `spatial_match`, built on the existing join. It is additive. RiskThinking confirms the name and the place (Q1). A chaining method on `PortfolioEvaluation` (for example `.parametric(...)`) is the alternative; it edits their class, so it is their choice (Q2). (Amendment 1, D11: `asset_curves()` is built in the fork now, by MAR-271, and proposed to RiskThinking in the upstream PR. Q2 stays open.)
+
+Amendment 2 (the per-year route) adds to both outlines below: `trend=`, `scenario=`, `pool=`, `cell=`, `.index(...)` and `sample_annual_pool`.
 
 **Layer 1 in outline** (names and signatures for R-14 to R-17; types abbreviated):
 
@@ -318,9 +320,13 @@ Amendment 3 (the portfolio approach) lifts the one-asset rule of this section: a
 - **One asset per sample in Phase 1** (MAR-43). The asset axis exists, so arrays are (n, 1); a second asset raises `SampleError` until Phase 2. The plan handles several assets as one sample each. So Phase 1 imposes no dependence between assets: it computes no cross-asset sum.
 - Arrays are read-only (`setflags(write=False)`). A sample written to Parquet uses the long table above and the metadata key `crc.parametric.sample`.
 
+Amendment 2 (the per-year route) adds pooled samples, whose `period` is a draw number and whose rows record their (year, model, member), and two fields of `SampleProvenance`: `trend` and `pool`.
+
 #### 4.2 Sources and the probability semantics each needs
 
 Amendment 1 (D11) sets the order of release: Monte Carlo from a fitted curve first, per-year values as the second step. The rules below don't change.
+
+Amendment 2 (the per-year route) adds a stated trend option, pooled model-years and a `scenario` label to the per-year source, and says what of the route goes in the Phase 1 upstream PR.
 
 | Source | Function | One draw is | Probability | Semantics required |
 |---|---|---|---|---|
@@ -358,6 +364,8 @@ Amendment 1 (D11) sets the order of release: Monte Carlo from a fitted curve fir
 
 #### 4.4 Basis-risk models and seeding
 
+Amendment 2 (D-25.4) brings the `index=` series of this table into the plan, as `.index(...)`.
+
 | Model | What it does | Sources |
 |---|---|---|
 | `NoBasisRisk()` | index = hazard at the asset, loss = impact(hazard) × value. It warns with `ComonotoneIndexWarning`: index and loss move together, so a cover can track the loss almost exactly | all |
@@ -373,6 +381,8 @@ Amendment 1 (D11) sets the order of release: Monte Carlo from a fitted curve fir
 **Splits.** `holdout(sample, train_fraction=0.7)` and `year_block_kfold(sample, k)` split by contiguous blocks of `period`, as the core's `splits.py` does. For per-year samples the test block is the latest years. Monte Carlo draws are i.i.d., so a fresh sample with another seed (`fresh_draws`) is the plainer out-of-sample test; the plan offers both. Evaluating a design out of sample on a sample that shares a period with its design sample from the same source raises `LeakageError`.
 
 #### 4.5 Dimensions reserved for Phase 2
+
+Amendment 2 (D-25.5) lets a per-year sample state its `scenario` label.
 
 - **Assets.** The asset axis exists (`asset_ids`, axis 1 of `index` and `loss`). Phase 2 lifts the one-asset rule and adds dependence models for Monte Carlo samples (§9).
 - **Hazards.** Phase 2 adds a field `index_components: Mapping[str, NDArray] | None = None` (named (n, n_assets) arrays) and a `CompositeIndex` definition. `index` stays the primary component. A new field with a default doesn't break callers.
@@ -527,6 +537,8 @@ Amendment 3 (D-21.3) changes this table: it adds the `scope` column and the leve
 - `write_comparison` writes one Parquet file atomically, with the metadata of §7 under `crc.parametric.evaluation`.
 
 ### 7. Provenance
+
+Amendment 2 (the per-year route) describes the per-year source records as merged, and adds the records of the trend, the pool and the index series.
 
 **Hashes.**
 
@@ -686,6 +698,8 @@ Amendment 3 (the portfolio approach) adds the rows of R-21: MAR-298 and MAR-301 
 | MAR-46 (R-19) | The notebook in the crc-docs fork, following crc-docs' conventions: a row in the README's "Choose a problem" table, a `REQUIREMENTS` set-up cell and static chart previews as [`tests/test_notebooks.py`][docs-tests] checks them. A skill and a pipeline are optional follow-ups | crc-docs fork | R-18 |
 | MAR-245 (R-13) | The golden fixtures in this repository, with the fields of §8 | this repository | This ADR is accepted |
 
+Amendment 2 (the per-year route) adds the rows of R-25: MAR-293 to MAR-297, MAR-300 and MAR-307.
+
 ### 11. Open questions for RiskThinking (for R-20, MAR-249)
 
 - **Q1. Asset curves.** May R-18 add the public execution point `PortfolioEvaluation.asset_curves()` (the matched canonical rows, through the existing join)? Or would you rather add one yourselves, under another name or in another place? (Amendment 1, D11: the fork builds it now, and the upstream PR offers it as a proposal that RiskThinking can rename, move or replace.)
@@ -821,6 +835,266 @@ On 2026-11-06 the owner, Marc Prinzing, decided D11 (in chat; recorded on the Pr
 | MAR-42 (R-18) | `ParametricPlan`, `explain()`, `write_parquet`, the entry point `for_annual_extremes(...)`, `docs/parametric.md`, the README line and the end-to-end offline test. Done (marc272/crc-sdk#8) | `plan` | R-16 |
 | MAR-271 (R-18b) | `PortfolioEvaluation.asset_curves()`, the entry point `for_evaluation(request)`, `.monte_carlo(...)` and `FreshDraws(...)` in the plan; `docs/parametric.md` leads with the curve route | `plan`; `workflows/portfolio.py` and `workflows/_portfolio.py` (one additive method) | MAR-42. No longer Q1 |
 | MAR-274 (R-25) | The per-year route as the second step (ERA5, CMIP6 and NEX-GDDP-CMIP6, stations): its upstream packaging, a stated option for climate trends, pooled model-years, and its docs and notebook section. Scope and acceptance are set when it is refined | Set when it is refined | MAR-271 |
+
+## Amendment 2 (2026-11-08, MAR-291): the per-year route
+
+On 2026-11-08 the owner, Marc Prinzing, decided D-25.1 to D-25.5 (in chat; recorded on MAR-274 and MAR-291). They fix the public API of the per-year route (R-25, MAR-274), so this amendment comes before the issues that build on it (MAR-295, MAR-296 and MAR-297), and the owner approves it before it merges. Amendment 3 (MAR-292) is recorded separately; "With Amendment 3" below says where the two meet.
+
+The rest of the ADR stands. §2, §4.1, §4.2, §4.4, §4.5, §7 and §10 keep their text and each carries a one-sentence pointer here, and this amendment says what they now mean, as Amendment 1 did. Every addition has a default, so a call or a plan written before this amendment gives the same rows. The publication rule applies: this amendment presents the options and what each one records, and nothing here says that a trend option, pooled model-years or an index read elsewhere changes how a cover does.
+
+### The five decisions
+
+All five are option (A) of the refinement on MAR-274.
+
+| | Decision |
+|---|---|
+| D-25.1 | The per-year route goes in the Phase 1 upstream PR as the secondary, documented route |
+| D-25.2 | Default `AsRecorded()`, always named in the setup text, with options `RecentYears(n)` and `LinearTrend(reference_year=None)`, an additive OLS fit on the year. Under a split, the trend is fitted on the design years only |
+| D-25.3 | Pool model-years per asset, rows in (year, model, member) order, `period` as a draw number, each row's identity recorded. Holdout and k-fold hold out the latest years of every model. One pathway per pool |
+| D-25.4 | A plan builder `.index(source, *, location=StationColumn(...) \| NearestCell(...), unit, provenance)`, binding each asset's covers to the resolved `AtStation` or `AtPoint` |
+| D-25.5 | `scenario=` on `sample_annual` and `for_annual_extremes`, default `"baseline"` |
+
+### The route in the upstream PR (D-25.1)
+
+Amendment 1 left open whether the Phase 1 upstream PR holds the per-year route back or carries it as a secondary route. D-25.1 settles it: the PR carries the route as it stood when that PR was opened (`sample_annual`, `for_annual_extremes`, `NearestCell` and `StationColumn`), as the secondary, documented route, so "in a later release" in Amendment 1 no longer describes that route. This amendment's additions (`trend=`, `pool=`, `.index(...)`, `scenario=` and `cell=`) are not in that PR: they land on the fork's `parametric` afterwards, and reach upstream as MAR-249 decides later. The curves still lead `docs/parametric.md`, its quick start and the notebook, and §11 keeps Q3.
+
+### Climate trends (D-25.2, §4.2)
+
+```text
+# trend (R-25b); numpy only; frozen, each with to_document()
+AsRecorded()
+RecentYears(n)
+LinearTrend(reference_year=None, *, min_years=10, fit_years=None)
+```
+
+`trend=` takes one of the three, on `sample_annual`, `sample_annual_pool` and `for_annual_extremes`. The default is `AsRecorded()`.
+
+- **`AsRecorded()`** uses the years as they are. This is what the route does today.
+- **`RecentYears(n)`** keeps the last n years of the series: the last n entries of its years, after `years=` and before `missing=`. A gap before the window doesn't matter, and a gap inside it is a missing year. An n above the series' length raises `SampleError`. No value changes.
+- **`LinearTrend`** removes an additive linear trend in the mean. On the fit years it fits x_t = a + b·(t − t₀) + e_t by ordinary least squares, with t the calendar year and t₀ the reference year, and replaces every year's value by x_t − b·(t − t₀). So a, the recorded intercept, is the fitted value at the reference year, and the adjusted fit years have mean a. The spread around the line isn't touched, so a change in the variance or the tail stays in the data.
+  - **The reference year.** `reference_year=None` means the last year of the series: the last entry of its years, whether or not it has a value and whichever block it falls in, so it is the same in every fold. A stated year may lie outside the record.
+
+    | Option | Assessment |
+    |---|---|
+    | **The last year of the series** (recommended) | Every fold's rows are at one level, the climate a threshold stated today is read against. Only the calendar of the held-out years enters, never their values. The design years' line is extrapolated over the held-out years, which the setup text shows through the fit years and the reference year |
+    | The last design year | Stays inside the fit, but the level changes from fold to fold and differs from the plan without a split, so a fixed threshold is read against another climate in each fold |
+    | The mean of the fit years | The level is that of the middle of the record, not the climate a threshold stated today refers to |
+
+  - **One fit per series.** Each asset's hazard series has its own fit. A separate index series has its own, on the same years with the same reference year, and so does each run of a pool.
+  - **Too few years.** Fewer than `min_years` fit years raise `SampleError`, naming the fold and the count; no fold is dropped. The default of 10 is a floor against a slope that is nearly all noise, not a statement that ten years are enough. `min_years` below 3, which would leave no residual, raises at construction.
+  - **No clipping.** A non-finite value, or a value that was non-negative as recorded and is negative after the adjustment, raises `SampleError`. A value that is negative as recorded (a temperature) may stay negative.
+- **The order.** `years=`; the window of `RecentYears`; `missing=`; the fit and the adjustment of the hazard and of the index; the impact on the adjusted hazard; the basis-risk model. A trend draws no random numbers, so §4.4's draw order stands. The sample's `index` and `hazard` hold the adjusted values, and `source_kind` stays `"annual"`.
+
+**Under a split (D-25.2).**
+
+- **The fit sees the design years only.** The held-out years are adjusted with the design years' slope. A changed held-out value changes neither the fit nor any row of the design block.
+- **The plan builds one sample per fold.** With `LinearTrend` and `Holdout` or `KFold`, the plan builds each asset's sample once per fold, with that fold's design years as the fit years, and takes the fold's two blocks from it. The fit years are the years `holdout` or `year_block_kfold` puts in the design block, so the two can't disagree. A model that draws (`ImpactNoise`) starts every fold from the asset's same generator state, so a year's factor doesn't depend on the fold.
+- **`.samples()` and `ParametricResult.samples`** hold all the years before any split, so their fit uses all the years, and their record says so. The comparison's rows come from the per-fold samples.
+- **Layer 1.** `LinearTrend(fit_years=years)` states the fit years; by default they are every kept year. A year the series doesn't hold raises `SampleError`. A year dropped as missing is left out, so the record lists the years actually used. On the plan, `fit_years` raises `ValueError`, because the plan sets it per fold.
+- **Leakage.** An out-of-sample `evaluate` or `compare` raises `LeakageError` when the trend of the design sample or of the evaluation sample was fitted on a year the evaluation sample holds from the same source. So `holdout(sample_annual(..., trend=LinearTrend()))` is refused at evaluation, and the error names `fit_years`. The lineage (§4.4) leaves the trend out: a design on adjusted years, evaluated on the same years as recorded, still shares their rows.
+- **`RecentYears(n)`.** The window comes first and the split divides it, so the held-out block is the latest years inside the window. Nothing is fitted, so nothing is rebuilt per fold.
+
+**The record.** `SampleProvenance` gains `trend`, with a default; it is `None` on Monte Carlo and table samples.
+
+```text
+{"kind": "as_recorded"}
+{"kind": "recent_years", "n": n, "years": [first, last]}
+{"kind": "linear_trend", "method": "ols_additive", "reference_year": t0, "min_years": 10,
+ "fit_years": [...], "fits": [{"role": "hazard", "slope": b, "intercept": a}, ...]}     # one entry per series
+```
+
+`setup_text` writes one sentence for it on every per-year sample, the default included: which option, and for `LinearTrend` the fit years, the slope with its unit, the intercept and the reference year. Which option suits a hazard is the user's choice, and the module says nothing about it.
+
+### Pooled model-years (D-25.3, §4.1, §4.2)
+
+```text
+# pooled model-years (R-25c)
+ModelRun(series, *, model, member, pathway)      # one run's AnnualSeries at one location
+sample_annual_pool(runs, *, loss_model, basis_risk, asset_id, rng=None, missing="raise",
+                   trend=AsRecorded(), scenario="baseline") -> OutcomeSample
+ModelPool(model="model", member="member", pathway="scenario")     # the plan's pool=, naming the table's columns
+```
+
+- **The rows.** One sample per asset. Every model-year is one row, in (year, model, member) order, with models and members in UTF-8 byte order. `period` is the draw number, 0 to N − 1, and each row has probability 1/N, so 3 models × n years give 3n rows at 1/(3n) each. `source_kind` stays `"annual"`, and §4.1's rule that `period` strictly increases holds.
+- **Each row's identity.** `SampleProvenance` gains `pool`, with a default; it is `None` on every other sample. `runs` has one document per run (model, member, pathway, the run's lineage and its series' provenance), and `year` and `run` have one entry per row. `select`, `holdout` and `year_block_kfold` carry the identity of the rows they keep.
+- **Refusals** (`SampleError`): runs under different pathways (`historical` is one, so a pool can't span NEX-GDDP-CMIP6's historical and SSP experiments); different units; different recipes, where the runs state one; the same model twice, whatever the member, so every model has the same weight; fewer than two runs; and runs that don't cover the same years. `AnnualSeries` keeps its rule of one row per year, so a table with several models at one location still raises unless the plan states `pool=`.
+- **The same years.** After `years=`, the window and `missing=`, every run must hold the same years. With `missing="drop_year"`, a year without a value in any run is dropped from every run and listed with the run that lacked it.
+
+  | Option, when models cover different years | What it does | Assessment |
+  |---|---|---|
+  | **The same years for every run** (recommended) | Otherwise `SampleError` lists each run's years | "The latest years" is one calendar block for every model, every run weighs the same at 1/N per row, and a stated `years=` resolves it. A short run narrows the window for all |
+  | Each run's own latest share | Each run holds out the latest share of its own years | Every model has a held-out block, but the blocks are different calendar years, so one run's design block can reach past another's held-out block. A longer run weighs more |
+  | One calendar cut | The latest share of the pool's distinct years is held out | One block for all, but a run that ends early has nothing held out, so it isn't "every model". A longer run weighs more |
+
+- **Splits.** `holdout` and `year_block_kfold` work on a pool's distinct years, not on its rows. `holdout` puts the first ⌊train_fraction · n + 1e-9⌋ of the n years in the design block, and `year_block_kfold` splits the n years with `array_split`, so k is at most n. Cutting rows could cut through a year: of 3 models × 30 years from 2015, a fraction of 0.75 gives 67 rows, which puts 2037 in the design block for one model and in the held-out block for the others. Every run has the same held-out years: the latest ones under `Holdout`, and one block per fold under `KFold`, the last fold holding out the latest.
+- **Leakage.** On a pool, §4.4's leakage check compares (run lineage, year) pairs instead of periods, and a plain per-year sample counts as one run. So a model-year can't be on both sides, between pools of different runs or between a pool and one of its runs.
+- **`FreshDraws`** raises `TypeError`, as on every per-year plan: a pool's rows are model-years, not draws from a curve.
+- **Trend.** Each run has its own fit, on the same design years with the same reference year, the last of the pool's years. `RecentYears(n)` takes the last n years of each run.
+- **Basis risk.** `NoBasisRisk()` warns with `ComonotoneIndexWarning`, as for one series: pooling puts no difference between index and loss. `ImpactNoise` draws one factor per row, in row order, from the asset's generator.
+- **What the setup text says.** The runs, the pathway, the years, the number of rows and that every run has the same weight, and two statements. A draw mixes model spread with year-to-year variability, as §4.2 says of a pooled curve. And the rows are not independent years: rows of one run share that model's climate and rows of one year the pathway's forcing, so the number of rows is not an effective sample size.
+- **The plan.** `for_annual_extremes(..., pool=ModelPool())` pools. `source` is then one table, file or plan whose rows carry the three columns `ModelPool` names, as NEX-GDDP-CMIP6's batches do, or a sequence of sources, one per run, as CMIP6's plans are (one model each).
+  - A run's identity comes from those columns or, where a source has none, from its plan's `explain(format="json")` (`model`, `member`, `pathway`). A source that states neither raises `SampleError`.
+  - Each run is located on its own grid, so the matched cell and the distance are recorded per run. `provenance` states the archive's licence and attribution once; each run's own columns are recorded with it.
+  - `years=`, `missing=` and `trend=` apply to every run. `.samples()` returns one pooled sample per asset.
+
+### An index read elsewhere (D-25.4, §2, §4.4)
+
+```text
+    .index(source, *, location, unit, provenance, point=None, year_column="year", index_column="value")     # R-25d
+```
+
+- **What it does.** The cover pays on a series read from `source` at `location`; the loss still reads the hazard of `for_annual_extremes`. `source` takes the kinds `for_annual_extremes` takes. `location` is required: `StationColumn(name)`, or `NearestCell(...)`, which reads the index source's grid. Each asset's sample equals `sample_annual(hazard, index=series, ...)` built by hand. `unit` is the index series' unit; it isn't checked against the impact, because the loss doesn't read it (§4.2).
+- **Where `NearestCell` reads.** At the asset's own location by default, which suits an index from another product or grid. `point=PointColumns(longitude, latitude)` names asset columns holding another point, for a reference site or a neighbouring cell. Only the matched cell is recorded, as for the hazard. With `StationColumn`, `point=` raises `ValueError`.
+- **Refusals** (`ValueError`, at the builder): on a plan on curves, because §4.4's index at a reference point needs a joint distribution of two curves; and with `pool=`. An observed station and a free-running model share no weather: year t of a model is not year t of the station, so pairing them by year would invent a dependence. An index from the same run at another cell has a meaning, and is a later, additive option.
+- **The years.** The index is read on exactly the hazard's years. A hazard year the index lacks or holds as null (a station's incomplete year) is a missing year, under the plan's one `missing=`, as in `sample_annual`: `"raise"` raises and lists it, and `"drop_year"` drops the year from the sample and lists it in `dropped_years`. An index year the hazard doesn't have is not used, and the record lists it. So gaps in a station need no second argument.
+- **Binding the covers.** A cover stated with `AtAsset()` is bound at execution to each asset's resolved location, as the plan already binds it to the asset:
+  - `StationColumn` gives `AtStation(<the asset's station id>)`;
+  - `NearestCell` gives `AtPoint(<the cell centre>)`, its longitude wrapped to [−180, 180], because `AtPoint` takes that range and some grids run from 0 to 360. The asset's own point stays out of the document.
+  - The location is in the cover's document, so it is in `definition_hash`, `cover_hash` and `design_id`. A cover that already names a location must name that one, or the plan raises `SampleError`.
+- **Without `.index(...)`** the refusal of `.covers` for a location other than `AtAsset()` stays.
+- **Units and order.** `.covers` checks a cover's index unit against `.index`'s `unit`, not the hazard's, so `.index(...)` comes first when the two differ or a cover already names a location. `.index(...)` after `.covers(...)` checks the covers again and raises on a mismatch.
+- **Basis risk.** `.basis_risk(model)` stays required (§4.4). `NoBasisRisk()` with a separate index series doesn't warn, as in `sample_annual`, and `ImpactNoise` may be added on top.
+- **`explain()`** shows the covers as stated and the location rule; the bound documents are in the written metadata.
+
+### The scenario label (D-25.5, §4.5)
+
+`scenario="baseline"` on `sample_annual`, `sample_annual_pool` and `for_annual_extremes` sets `OutcomeSample.scenario`, so it reaches `to_table`, `content_hash` and the comparison's `scenario` column. It is the user's name for the rows and is not derived from the source. The `scenario` column of a CMIP6 table is the pathway, another thing, and the setup text states both. So a pool under `ssp245` with no label stated is labelled `"baseline"`, and its setup text names the pathway; `docs/parametric.md` and the notebook state a label whenever they use a pathway. The lineage leaves the label out, so §4.4's leakage check sees through a relabelling.
+
+### A per-asset H3 cell (§2, R-25e)
+
+`cell=` on `for_annual_extremes`, as MAR-294 merged it (marc272/crc-sdk#18), puts an H3 cell for each asset in the impact's context, on top of `context`: `cell="<column>"` names an asset column of unsigned 64-bit H3 cells, and `cell=H3Cell(resolution=r)` takes the cell of the asset's point, computed at execution with `crc_sdk.geometry.h3.point_to_cell`. `H3Cell` needs the `geometry` extra, and without it execution raises an `ImportError` naming `crc-sdk[geometry]`. It needs a point too, so for assets located by `CellColumn` it raises `SampleError`. `r` runs from 0 to 15 and has no default: which resolution the registry impacts expect is open point 7 on the upstream PR. `cell=` for an impact that takes no context raises `SampleError`, and `cell=` where the impact's context already holds a cell raises `ValueError`. Each sample's provenance and the setup text record the cell, not the point, and `explain()` states under `assets` what `cell=` says. It changes only the impact's context: the series is still located by `location`. Without `cell=`, the refusal of `for_annual_extremes` for a registry impact that needs a cell stays.
+
+### The outlines (§2)
+
+One outline for the route, as R-25b to R-25e build it. Other builders stand.
+
+```text
+# Layer 1, per-year samples
+AsRecorded() | RecentYears(n) | LinearTrend(reference_year=None, *, min_years=10, fit_years=None)
+sample_annual(hazard, *, loss_model, basis_risk, asset_id, index=None, rng=None, missing="raise",
+              trend=AsRecorded(), scenario="baseline") -> OutcomeSample
+ModelRun(series, *, model, member, pathway)
+sample_annual_pool(runs, *, loss_model, basis_risk, asset_id, rng=None, missing="raise",
+                   trend=AsRecorded(), scenario="baseline") -> OutcomeSample
+
+# Layer 2, the per-year entry
+ParametricPlan.for_annual_extremes(source, assets, *, impact, unit, provenance,
+                                   value_column=None, value_unit="1", context=None,
+                                   location=NearestCell(), year_column="year",
+                                   hazard_column="value", years=None, missing="raise", seed=None,
+                                   trend=AsRecorded(), scenario="baseline", pool=None, cell=None)
+    # source: as in §2; with pool=, also a sequence of them, one per run
+    # pool: None or ModelPool(model="model", member="member", pathway="scenario")
+    # cell: None, the name of an asset column holding an H3 cell, or H3Cell(resolution=r)
+    .index(source, *, location, unit, provenance, point=None, year_column="year", index_column="value")
+    # location: StationColumn(name) or NearestCell(...); per-year plans only; not with pool=
+```
+
+| Together | Rule |
+|---|---|
+| `trend=` and `.index(...)` | Both series are adjusted, each with its own fit, on the same years with the same reference year |
+| `trend=` and `pool=` | One fit per run |
+| `years=` and `RecentYears(n)` | `years=` first; the window takes the last n of them |
+| `pool=` and `.index(...)` | `ValueError` |
+| `pool=` and `StationColumn` | `ValueError`: models have no stations |
+| `cell=` and `pool=` | Allowed: the cell belongs to the asset, not to a run |
+| `FreshDraws` on a per-year plan | `TypeError`, as today |
+
+### The per-year source records (§7)
+
+§7 says of per-year values: "the source plan's `explain()` output and the matched cell or station". As MAR-293 merged it (marc272/crc-sdk#17):
+
+- **A series' `provenance`** holds its `source`, its `columns`, the `where` filter or the matched `cell` with `distance_km` and `spacing_degrees`, and `table_columns`: for each of the table's provenance columns (such as `model`, `member`, `scenario`, `recipe`, `source_url`, `archive_licence` and `attribution`), its distinct values, at most 20, and their count.
+- **`source=`** on `AnnualSeries.from_table` and `nearest_cell` takes a name, a `SourceProvenance`, a mapping or the source plan itself. Of a plan only `explain(format="json")` is called, so no data is fetched.
+- **Provider and dataset.** ERA5 and CMIP6 documents state what was asked for, not who holds it, so they get derived names: for ERA5, provider `era5` and dataset `<store> <recipe>`; for CMIP6, provider `cmip6` and dataset `<model> <member> <recipe>`. The document's own names win.
+- **Pathway.** `setup_text` reads a series' pathway from its source's `pathway` key, or from a one-valued `scenario` column when the table also has `model` and `member` columns. A `scenario` column alone states no pathway.
+- **On the plan**, a series' `source` is the caller's `SourceProvenance`, with the source plan's type or the file's SHA-256. `source_records` holds `{"annual_table": ...}`: the rows, the columns, the table's SHA-256, the source plan's `explain()` and, for a file, its path and SHA-256. Each hazard entry of `sources` names it by `annual_table_sha256`.
+
+MAR-307 (marc272/crc-sdk#19) then changed two records. On the plan route, a pathway the source plan states is recorded on the series, beside the caller's `SourceProvenance`, and `setup_text` reads it there. A source plan's cache state and run details are left out of a series' lineage, as are a table's `retrieved_at` column and how the series found its rows, so one source links across fetches and windows; a `source` of the caller's own is kept whole.
+
+This amendment adds:
+
+- **`setup.samples`.** Each entry gains `trend` and `pool`. `pool` holds the runs and their years, without the row arrays: the rows follow from them, by the order of D-25.3, and the full arrays are in the sample's own metadata (`crc.parametric.sample`). A document without these keys reads as before: as recorded on a per-year sample, no pool, and `schema_version` stays `"1.0"`. `explain()` gives the trend option, the pool's columns and the scenario before anything is read.
+- **The index series.** `sources` has an entry with role `"index"`, `source_records` an `{"index_table": ...}` record of the same form, named by `index_table_sha256`, and `licences` the index source's licence and attribution.
+- **A pool.** `sources` has one hazard entry per run, and a sequence of sources has one `annual_table` record each.
+- **`covers`** holds the bound documents.
+
+MAR-307 settled the lineage's independence of cache state, ERA5's licence and attribution (crc-sdk's `ERA5_LICENCE` and `ERA5_ATTRIBUTION`, where the document states none), CMIP6's pathway on the plan route, NOAA's `explain()` (called without `format` where a plan takes none) and the docs line. `distance_km` stays recorded, out of the lineage; whether to drop it is a question for the owner on MAR-308.
+
+### With Amendment 3
+
+Amendment 3 lifts the one-asset rule and adds `join`, `scope`, `.dependence` and more `level` values. The two fit as follows.
+
+- **`join`.** A multi-asset per-year sample is `OutcomeSample.join` of one-asset samples built as above, under its checks. It gains two:
+  - the parts must share the trend's kind, its reference year and its fit years, so the total sums years on one basis. The slopes differ per asset, and `parts` holds them;
+  - pools must hold the same (year, model, member) rows. Draw numbers alone would not line them up, the reason Amendment 3 gives for refusing Monte Carlo samples. `dependence` stays `{"kind": "data"}`: the rows are the same model-years.
+- **Different windows** (`missing="drop_year"`, stations with different records) raise through `join`'s check of identical periods. One stated `years=` resolves it.
+- **`Joint()`.** It works with `trend=`, `pool=` and `.index(...)`. With `LinearTrend` and a split the plan joins per fold, and `.joint_sample()` is all-years, like `.samples()`. Each asset keeps its own cover on its own bound index, as Amendment 3 has it.
+- **`.dependence(...)`** still raises on every per-year plan, pooled or not, with or without `.index(...)`. The dependence stays the data's own, after the stated adjustment, and the setup text states both.
+- **`level` and `scope`.** This amendment adds no value to either. A pool is one asset's sample, so it gets `"asset"` rows and, under `Joint()`, a `"total"` row.
+- **`OutcomeSample.asset()`** returns the part's own `trend` and `pool`. `holdout` and `year_block_kfold` split a multi-asset pool by its years.
+- **`EmpiricalCopula(reference)`.** A reference may be adjusted or pooled: only its ranks are used, `source_kind` stays `"annual"`, and m is its number of rows. Its record's first and last year come from `pool`.
+- **The setup text.** The trend and pooling sentences come next to Amendment 3's levels, allocation and dependence, and `setup.samples` holds `trend`, `pool` and `dependence` side by side.
+
+### What the other sections now mean
+
+- **§2.** The outlines gain the entries above. The module layout gains `trend.py` (R-25b: `AsRecorded`, `RecentYears`, `LinearTrend`). `sources.py` gains `ModelRun` and `sample_annual_pool`, and `plan.py` `ModelPool` and `H3Cell`.
+- **§4.1.** `period` is a draw number on a pool too. `SampleProvenance` gains `trend` and `pool`.
+- **§4.2.** "A trend is not removed" now reads: by default; `trend=` states otherwise. "The years of both series must match" stays for `sample_annual`; the plan reads the index on the hazard's years.
+- **§4.4.** The row "a second `AnnualSeries` as `index=`" reaches the plan through `.index(...)`. The row for `NoBasisRisk()` holds for a pool.
+- **§4.5.** A per-year sample may name its label. §9's `ScenarioSet` doesn't change.
+- **§7.** `setup`'s per-sample list gains the trend and the pool, and `sources` the records above.
+- **Amendment 1.** As in "The route in the upstream PR".
+
+### The issue map (§10)
+
+R-25 is split as below (each about one PR). The other rows stand. In the owner's order, R-25a and R-25e run alongside the portfolio work, R-25b, R-25d and R-25c follow this amendment, and R-25f comes last. Each issue updates the per-year section of `docs/parametric.md` for what it adds.
+
+| Issue | Covers | Files (§2) | Starts after |
+|---|---|---|---|
+| MAR-293 (R-25a) | Per-year sources name their provider, dataset and pathway. Done (marc272/crc-sdk#17) | `sources`, `metadata` | No blocker |
+| MAR-295 (R-25b) | `AsRecorded`, `RecentYears`, `LinearTrend`; `trend=`, fitted per fold; the leakage check; `SampleProvenance.trend`; the trend sentence. Also `scenario=` (D-25.5), which has no issue of its own and touches the same two signatures | `trend` (new), `sources`, `sample`, `plan`, `metadata` | This amendment, R-25a |
+| MAR-297 (R-25d) | `.index(...)`: the index series, the binding of the covers, the years and `missing=`, its records | `plan`, `metadata` | This amendment |
+| MAR-296 (R-25c) | `ModelRun`, `sample_annual_pool`, `ModelPool`, `pool=`; splits and leakage on a pool; `SampleProvenance.pool` | `sources`, `sample`, `plan`, `metadata` | This amendment, R-25a; in the owner's order after R-25b and R-25d, whose `trend=` and `.index(...)` it extends |
+| MAR-294 (R-25e) | `cell=`, `H3Cell`; the cell in the loss model's document; the existing refusal without a cell. Done (marc272/crc-sdk#18) | `plan` | R-25a |
+| MAR-300 (R-25f) | Notebook material in crc-docs: ERA5 annual extremes at the illustrative site, with the trend option and an out-of-sample split, every number out of sample next to `setup_text`, and no claim that a trend option, a station index or pooling changes how covers do | crc-docs fork | R-25b, R-25d, the primer notebook (MAR-299) |
+| MAR-307 (R-25g) | Source-plan follow-ups: a lineage independent of cache state, ERA5's licence and attribution, CMIP6's pathway on the plan route, NOAA's `explain()`, the docs line. Done (marc272/crc-sdk#19) | `sources`, `plan`, `metadata` | R-25e |
+
+`join` comes with Amendment 3 (MAR-298, R-21a). Its check of the trend lands with the later of MAR-298 and MAR-295, and its check of a pool's rows with the later of MAR-298 and MAR-296.
+
+### Beyond the five decisions
+
+The five decisions don't determine these. The text above settles each as the agent recommends, and the owner's approval of this amendment covers them.
+
+1. `LinearTrend`'s default reference year is the last year of the series, the same in every fold. The table above has the options.
+2. A fold with too few fit years raises `SampleError`, under a new keyword `min_years=10`, which may not go below 3.
+3. One fit per series: per asset, per run, and for the hazard and the index separately.
+4. `fit_years` is a field of `LinearTrend`, so a Layer 1 caller can fit on design years with one argument, and `LeakageError` guards the fit at evaluation.
+5. `.samples()` under `LinearTrend` and a split gives the all-years fit; the rows come from per-fold samples, and every fold starts from the same generator state.
+6. `RecentYears(n)` is the last n calendar years of the series, before `missing=`, and the window comes before the split.
+7. A pool requires the same years for every run, and `drop_year` drops a year from all of them. The table above has the options.
+8. A model appears once in a pool, whatever its member, as MAR-296 asks. Several members of one model would be a later, additive option with a stated weighting.
+9. A pool's splits cut years, not rows, and its leakage check compares (run lineage, year).
+10. The names: `ModelRun`, `sample_annual_pool`, `ModelPool`, `pool=` and a sequence of sources.
+11. `.index(...)` and `index=` are refused on a pool.
+12. `.index(...)` reads the index on the hazard's years, with the plan's one `missing=`.
+13. `point=` on `.index(...)` lets `NearestCell` read at a point other than the asset, which MAR-274's "another cell as the trigger" needs. `year_column` and `index_column` name the index table's columns.
+14. Covers are bound to the cell centre as `AtPoint`, its longitude wrapped; a cover already bound must match; and `.index(...)` comes before `.covers(...)` when the units differ.
+15. `ComonotoneIndexWarning` follows `NoBasisRisk()` on a pool as on one series, and the setup text states the two things a pool's rows are not.
+16. `join` also compares the trend's kind, reference year and fit years, and a pool's rows.
+17. `H3Cell` has no default resolution.
+18. `scenario=` (D-25.5) goes with MAR-295 in §10.
+
+### Not verified
+
+- No code for R-25b, R-25c or R-25d exists. A throwaway check (2026-11-08, not committed; script and output in the PR) ran the arithmetic of the rules on synthetic numbers with numpy only, without the fork or any CRC data:
+  - x_t = 50 + 0.5(t − 1981) gives an adjusted range of 0.0, on all years and on a 70 % design block;
+  - adding 500 to every held-out value changes the slope, the intercept and every design row by 0.0;
+  - the adjusted fit years have mean a, within 1.5e-14;
+  - 3 models × 30 years give 90 rows at 1/90; a fraction of 0.75 gives 22 design years and 66 rows with no year on both sides, while a cut of rows puts 2037 on both sides; every run has the same years held out in each of 4 folds.
+- No CMIP6 or NEX-GDDP-CMIP6 table was read, only their code. How often models differ in their years at one location, which decides how often the same-years rule raises, is not known here. Nor are the longitude ranges of the CMIP6 grids.
+- The cost of per-fold sample building, and of the row identity on a large pool, was not measured.
+- No ERA5, station or CRC Open data was read for this amendment.
 
 ## Amendment 3 (2026-11-08, MAR-292): the portfolio approach
 
