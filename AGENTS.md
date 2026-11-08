@@ -127,7 +127,7 @@ These rules apply to every issue whose work lands in `marc272/crc-sdk` or `marc2
 
 - Push your branch to the fork (`git -C <worktree> push -u origin <branch>`) and open the PR inside the fork, with base `parametric`. Push early, as in this repository.
 - Every `gh pr` command names the fork: `gh pr create --repo marc272/crc-sdk --base parametric --head <branch> --draft …`, and the same `--repo` on `gh pr view`, `edit`, `ready` and `checks`. Without `--repo`, `gh` in a fork clone can resolve to RiskThinking's repository.
-- PR title: `[MAR-<n>] <conventional-commit subject>`. PR body: as in this repository (the issue, the acceptance criteria with evidence, deviations, follow-ups), plus the summary of the fork's checks on the final head. Pass it with `--body-file`: a `gh` command line that contains a `github.com/RiskThinking` URL is denied, even inside a body.
+- PR title: `[MAR-<n>] <conventional-commit subject>`. PR body: as in this repository (the issue, the acceptance criteria with evidence, deviations, follow-ups), plus the summary of the fork's checks on the final head. Pass it with `--body-file`: a `gh` command line that names a RiskThinking repository (`RiskThinking/<repo>`, in a flag, a URL or a body) is denied.
 - Done means: every acceptance criterion is evidenced, and the fork's CI is green on the PR. In crc-docs, where Actions are off, the fork's checks pass on the final head and their summary is in the PR body.
 
 **No contact with RiskThinking**
