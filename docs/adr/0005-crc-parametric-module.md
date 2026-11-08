@@ -1358,18 +1358,19 @@ ScenarioError                            # a SampleError, so also a ValueError
 
 ```text
 ParametricPlan
+    .for_annual_extremes(..., hazard_name=None)                   # the hazard its own source reads
     .scenarios(scenarios, *, design_on="each", premiums=None)     # R-23d
     .split(rule, *, per_year=None)                                # per_year: Holdout(f), beside FreshDraws
     .scenario_samples() -> Mapping[str, Mapping[str, OutcomeSample]]    # execution; label, then asset
 
 # what a plan reads, beside its own source
 AnnualScenario(label, source, *, provenance, unit=None, location=None, year_column=None, hazard_column=None,
-               years=None, missing=None, trend=None, pool=None, pathway=None)
+               years=None, missing=None, trend=None, pool=None, pathway=None, hazard_name=None)
 CurveScenario(label, dataset, *, pathway=None, horizon=None)
 ```
 
 - **The way in, on the curve route.** `for_evaluation(request)` keeps refusing several hazards, but no longer several horizons or pathways. `.scenarios(...)` comes after it, so that check moves: `explain()` and every execution point raise today's `ValueError` when several horizons or pathways are selected and no scenarios are stated.
-  - With `.scenarios(...)`, the request's `select(...)` must state `horizons` and `pathways`, so `explain()` can list the scenarios without reading anything.
+  - With `.scenarios(...)`, the request's `select(...)` must state exactly one hazard in `hazard_names`, and `horizons` and `pathways`, so `explain()` can list the scenarios and their hazard without reading anything.
   - Every selected (pathway, horizon) is one curve scenario, labelled `<pathway>_<horizon>`. `labels={("ssp585", 2050): "mid-century"}` names them, and when given it lists exactly the pairs used, because a dataset need not hold every pair of the product.
   - One `.monte_carlo(n_draws, seed=...)` serves every curve scenario.
   - With nothing else to read, `ScenarioSet(reference="ssp585_2030")` is the whole statement: `entries` stays empty on a plan whose scenarios all come from the selection. An empty set raises at Layer 1.
@@ -1378,7 +1379,8 @@ CurveScenario(label, dataset, *, pathway=None, horizon=None)
   - On a plan on curves, `unit` is required, the location defaults to `NearestCell()`, the columns to `"year"` and `"value"`, `missing` to `"raise"` and `trend` to `AsRecorded()`. The impact's H3 cell is the one the asset's curve row matched, so the loss model stays the same.
   - `pool=None` takes the plan's `pool=`, `pool=False` states a series that is not pooled, such as ERA5 beside NEX pools, and a `ModelPool` states one.
   - `pathway=` states a pathway. It fills the column where the source states none, and must agree with the source where it does (D-23.5).
-- **`CurveScenario`** is a scenario read from another local canonical dataset with the plan's assets, such as ERA5's own fitted curve (`HazardDataset.era5(recipe)…canonicalize(...).materialize(path)`). `pathway` and `horizon` pick one of its curves and are required if it holds several. On a per-year plan it raises `ValueError`.
+  - `hazard_name=` states the hazard it reads, as "What is refused" sets out.
+- **`CurveScenario`** is a scenario read from another local canonical dataset with the plan's assets, such as ERA5's own fitted curve (`HazardDataset.era5(recipe)…canonicalize(...).materialize(path)`). It reads the plan's selected hazard. `pathway` and `horizon` pick one of its curves and are required if it holds several. On a per-year plan it raises `ValueError`.
 - **ERA5 on both routes (D-23.6).** On the curve route it is `AnnualScenario("era5", era5_plan, unit=..., provenance=...)`, its years beside the curves, or a `CurveScenario` of its fitted curve. On the per-year route it is the plan's own source, or an `AnnualScenario` with `pool=False` beside NEX pools. Either way it needs no flag. "What is shared" below says what its rows mean beside draws.
 - **`design_on`.** `"each"`, the default, designs every template under every objective on every scenario's design block, which makes "drift" and "a design per scenario" slices of one table. `"reference"` designs on the reference's only.
 - **`premiums=`** maps a `cover_label` to a stated premium, for covers given as is (D-23.3). A key that matches no such cover raises `EvaluationError`.
@@ -1462,6 +1464,8 @@ Each `ScenarioError` names the two scenarios and the field.
 | Refusal | What is compared | Between |
 |---|---|---|
 | Assets | `asset_ids`, in order | All |
+| Hazard (an addition to D-23.5, below) | The name of the hazard each scenario reads, exactly | All |
+| No hazard named (the same addition) | A scenario whose record states none | Each scenario |
 | Units | `index_unit`, `loss_unit`, exactly | All |
 | Loss model | The `loss_model` document per asset (`parts` on a multi-asset sample) | All |
 | Basis-risk model | The `basis_risk` document | All |
@@ -1485,6 +1489,23 @@ The reference may be any product, so ERA5 needs no flag, and neither does any ot
 | `AtPoint(p)` | A per-year series whose matched cell is centred at p, compared as `.index(...)` compares a bound location |
 | `AtStation(id)` | A per-year series of that station |
 | `AtCell(c)` | A curve at H3 cell c |
+
+**Which hazard a scenario reads (an addition to D-23.5).** D-23.5's list would let a set put ERA5's `rx1day` beside a curve's `rx5day` when their units agree, because a per-year sample records no hazard name. So every scenario of a set names the hazard its loss reads, and two that differ raise `ScenarioError`, naming the two scenarios and `hazard_name`. Names are compared exactly: crc-sdk has no crosswalk of hazard names, as `crc_sdk.pathways` is of pathways, and this amendment adds none.
+
+| A scenario that is | Its name comes from | `hazard_name=` | If nothing states one |
+|---|---|---|---|
+| One of the plan's selected curves | The canonical row's `hazard_name`, which `select(hazard_names=[name])` picks | None. `.scenarios(...)` requires exactly one selected hazard, so `explain()` names it without I/O | Can't happen: a canonical row holds one |
+| A `CurveScenario` | The same column of its own dataset, read for the plan's selected hazard | None. It reads the plan's hazard, so it needs no argument | A dataset with no curve of that hazard raises `ScenarioError`, naming the hazards it holds |
+| An `AnnualScenario`, or a per-year plan's own source | The source plan's `explain()`, its `recipe` (ERA5 and CMIP6 canonicalization plans, station plans) and otherwise its `hazard_name`; or a one-valued `recipe` column of the table (NEX-GDDP-CMIP6) | `AnnualScenario(hazard_name=)` and `for_annual_extremes(hazard_name=)`. Optional where the source states a name, and then the two must agree. Required where it doesn't: a plain table or file, NOAA water levels, or a `recipe` column with several values | `ScenarioError` at execution, naming the scenario and `hazard_name`. The plan's own hazard is not a default |
+| A curve sample at Layer 1 | The canonical row passed as `curve` | `sample_curve(..., hazard_name=None)` and `sample_curves`. Required for a distribution or `CurveParameters`, which hold no row | `ScenarioSet` raises |
+| A per-year, pool or table sample at Layer 1 | Its `source=` document's `recipe` or `hazard_name`, or the one-valued `recipe` column | `sample_annual`, `sample_annual_pool` and `OutcomeSample.from_table`, under the same rule | `ScenarioSet` raises |
+
+- **A stated name never overrides the record.** A `hazard_name=` the source contradicts raises `ScenarioError` at the builder, naming the scenario and both names, as a stated pathway does. A name stated for a source that is silent is the caller's statement, and the setup text says so.
+- **Spelling.** A product that spells one hazard differently is refused: a station plan's `recipe` is `temperature_max`, ERA5's `txx`. Its table, passed without the source plan, is silent, so it takes a stated name.
+- **Only a set requires a name.** `hazard_name=None` is the default everywhere, so a sample without one stays valid, and a call or a plan without scenarios doesn't change.
+- **When it is known.** A source plan states its name before anything is read, so `explain()` shows it and raises on a difference. A table's or a file's is known at execution.
+- **The record.** `SampleProvenance` gains `hazard`, with a default: `{"name": name, "from": "curve_row" | "source_plan" | "table_column" | "stated"}`. It stays out of `content_hash`, `design_id` and the lineage, so §4.4's check sees through it. Every asset of a sample and every run of a pool must agree.
+- **Which series.** The name is that of the series the loss reads, the source with role `"hazard"`. A separate index series may read another hazard on purpose (D-25.4), so it isn't compared, and the setup text names it.
 
 ### What is shared, and ERA5 beside curves (D-23.2, D-23.6)
 
@@ -1534,7 +1555,7 @@ A scenario's *evaluation block* is the rows its out-of-sample metrics are taken 
 
 **What the setup text says.** `setup_text` states, next to the numbers:
 
-1. Every scenario: its label, whether it is the reference, its product, pathway and horizon, its rows (years with their range, or draws), and how the block was made.
+1. Every scenario: its label, whether it is the reference, the hazard it reads and whether the caller stated that name, its product, pathway and horizon, its rows (years with their range, or draws), and how the block was made.
 2. What stays fixed, and that a cross row is a cover or design from one scenario on another's block, naming both.
 3. For curve scenarios, that they share one set of evaluation draws, separate from the design's.
 4. Where a row's product differs from the reference's, that the difference includes the products: resolution, method and pooling differ, so it can't be attributed to the scenario alone. For years beside draws, also that no row of one corresponds to a row of the other and that the blocks hold different numbers of rows.
@@ -1556,11 +1577,11 @@ A scenario's *evaluation block* is the rows its out-of-sample metrics are taken 
 - **Joint designs.** Under `Joint()`, each scenario has one multi-asset sample per block, and a `JointDesignResult` gets one `"total"` row per scenario, and allocated rows under `.allocation(...)`. `design_on` applies as for `Individual()`.
 - **Dependence.** `.dependence(...)` applies to the curve scenarios and the per-year scenarios keep the data's own. An `EmpiricalCopula` set uses `FreshDraws`, with `per_year=` where it also holds years.
 - **D-21.4.** The `scope` column keeps the scopes apart. `to_drift` pairs a row only with the same cover or design, so it never sets one scope against the other. The docs and the notebook run `Joint()` alone until the owner revisits the RQ2 rule (MAR-152 item 4).
-- **Amendment 5.** Nothing above assumes one asset or one hazard. A set compares its samples' fields, the generator check covers every `hazard` step, and the three columns read every hazard source. Amendment 5 adds a multi-hazard sample's component names and units to the compared fields.
+- **Amendment 5.** Nothing above assumes one asset or one hazard. A set compares its samples' fields, the generator check covers every `hazard` step, and the three columns read every hazard source. Amendment 5 adds a multi-hazard sample's component names, units and hazard names to the compared fields.
 
 ### The metadata (§7)
 
-- `setup.scenarios` (new, null without scenarios): the reference, the labels, `mixed_products`, `design_on` and, per scenario, its source kind, `n_rows`, `pathway`, `horizon` and `product`. It records which scenarios share draws and the generator record they share. `EvaluationMetadata.merge` requires one `setup.scenarios` across folds.
+- `setup.scenarios` (new, null without scenarios): the reference, the labels, `mixed_products`, `design_on` and, per scenario, its source kind, `hazard`, `n_rows`, `pathway`, `horizon` and `product`. It records which scenarios share draws and the generator record they share. `EvaluationMetadata.merge` requires one `setup.scenarios` across folds.
 - Each entry of `setup.evaluations` gains `scenario` and `design_scenario`, so a block has one entry per design scenario. `method` gains `"other_scenario"` and `leakage_check` gains `"different_sources"`, which appears on `"other_scenario"` entries only, so plain comparisons read as before.
 - Each entry of `setup.samples` gains `pathway`, `horizon` and `product`. `columns` gains `premium_repriced`. A plan's `source_records` and `sources` hold one entry per dataset or per-year source, each with its scenario's label, and `licences` every input's terms.
 - `to_drift`'s table keeps the metadata and adds `drift`, with the reference used. A document without these keys reads as before, and `schema_version` stays `"1.0"`.
@@ -1568,7 +1589,7 @@ A scenario's *evaluation block* is the rows its out-of-sample metrics are taken 
 ### What the other sections now mean
 
 - **§2.** The outlines gain the entries above. The module layout gains `scenarios.py` (R-23b, R-23c: `ScenarioSet`, `AnnualScenario`, `CurveScenario`, `compare_scenarios`, `to_drift`). `errors.py` gains `ScenarioError`. `for_evaluation`'s refusal of several horizons or pathways moves as above.
-- **§4.2.** `sample_curve` gains `scenario="baseline"`.
+- **§4.2.** `sample_curve` gains `scenario="baseline"`. Every sample builder gains `hazard_name=None`, and `SampleProvenance` gains `hazard`.
 - **§4.4.** "Evaluating a design out of sample on a sample that shares a period with its design sample from the same source raises `LeakageError`" now also holds for two Monte Carlo samples that reuse one generator record, whatever the curve.
 - **§4.5.** "Phase 2 adds a `ScenarioSet`" is this amendment.
 - **§6.** "The premium used" gains the case above and the value `"reference"`. The table gains the columns above, and its key gains `design_scenario`.
@@ -1581,10 +1602,10 @@ R-23 is split as below (each about one PR). The other rows stand.
 
 | Issue | Covers | Files (§2) | Starts after |
 |---|---|---|---|
-| MAR-331 (R-23a) | `scenario=` on `sample_curve`, `sample_curves` and `from_table`; the columns `design_scenario`, `pathway`, `horizon`, `product` and `n_rows`, with the strict pathway check; `design_scenario` in the key; a table without them reads as null | `sources`, `sample`, `evaluate`, `metadata` | This amendment, MAR-295, MAR-303 |
-| MAR-332 (R-23b) | `ScenarioSet`, `ScenarioError`, the refusals of D-23.5, one test each, the shared-draws check; `reference` required | `scenarios` (new), `errors`, `__init__` | R-23a, MAR-296 |
+| MAR-331 (R-23a) | `scenario=` on `sample_curve`, `sample_curves` and `from_table`; `hazard_name=` on every sample builder and `SampleProvenance.hazard`; the columns `design_scenario`, `pathway`, `horizon`, `product` and `n_rows`, with the strict pathway check; `design_scenario` in the key; a table without them reads as null | `sources`, `sample`, `evaluate`, `metadata` | This amendment, MAR-295, MAR-303 |
+| MAR-332 (R-23b) | `ScenarioSet`, `ScenarioError`, the refusals of D-23.5 and the hazard check added to them, one test each, the shared-draws check; `reference` required | `scenarios` (new), `errors`, `__init__` | R-23a, MAR-296 |
 | MAR-333 (R-23c) | `compare_scenarios`, `to_drift`, `premium_repriced`; the premium basis `"reference"`; the split method `"other_scenario"` and `"different_sources"`; the generator-record rule of the leakage check; years beside draws; the setup text | `scenarios`, `sample`, `evaluate`, `metrics`, `metadata` | R-23b |
-| MAR-334 (R-23d) | `.scenarios`, `AnnualScenario`, `CurveScenario`, `design_on`, `.split(per_year=)`, `.scenario_samples`; the moved `for_evaluation` check; results equal the function route; the scenario section of `docs/parametric.md`, the method only, saying that β is the same in each scenario while the tail's loss level isn't | `plan`, `scenarios`; `docs/parametric.md` | R-23c, MAR-304 |
+| MAR-334 (R-23d) | `.scenarios`, `AnnualScenario`, `CurveScenario`, `for_annual_extremes(hazard_name=)`, `design_on`, `.split(per_year=)`, `.scenario_samples`; the moved `for_evaluation` check; results equal the function route; the scenario section of `docs/parametric.md`, the method only, saying that β is the same in each scenario while the tail's loss level isn't | `plan`, `scenarios`; `docs/parametric.md` | R-23c, MAR-304 |
 | MAR-335 (R-23e) | The notebook section in crc-docs: heavy rain in Toronto against ERA5, CRC Open `rx1day` at 2030, 2050 and 2080 (stating SSP5-8.5 only and no historical baseline), NEX pools of the same models for `historical` and two SSPs. Every number out of sample next to `setup_text`, and each drift a measurement of that setup | crc-docs fork | R-23d, MAR-299 |
 
 `scenario=` on `sample_curves`, and the shared-draws check of a multi-asset curve set, land with the later of MAR-302 and the issue above that owns them.
@@ -1616,6 +1637,11 @@ The six decisions don't determine these. The text above settles each as the agen
 21. A selected (pathway, horizon) the dataset doesn't hold raises, where `asset_curves()` returns no row and no error.
 22. `ScenarioError` is a `SampleError`.
 23. `.samples()` holds the reference's samples, and `.scenario_samples()` all of them.
+24. An addition to D-23.5: a set compares the hazard each scenario reads, by exact name, with no crosswalk.
+25. A source that states no hazard name needs `hazard_name=`, and the plan's hazard is not a default.
+26. A stated `hazard_name=` must agree with the source's, and never overrides it.
+27. `CurveScenario` takes no `hazard_name=`: it reads the plan's selected hazard, and `.scenarios(...)` requires exactly one.
+28. The name compared is that of the series the loss reads, not a separate index series or a cover's `index.hazard_name`.
 
 ### Not verified
 
@@ -1629,5 +1655,6 @@ The six decisions don't determine these. The text above settles each as the agen
 - No CRC Open catalogue, NEX or CMIP6 table or ERA5 data was read. So whether the cyclone files declare themselves time-invariant is unknown, hence the refusal on equal curves. How many NEX models share `historical` and each SSP at a site is unknown, and that decides how often the refusal on a pool's models fires.
 - What pathway ERA5's canonical rows hold was not read; its code records `scenario="historical"`. So whether a set can hold both ERA5 forms depends on the rule against one pathway, horizon and product.
 - A curve's calibration data was not checked, so whether CRC Open's bias correction used ERA5 is unknown.
-- The module can't check that a per-year source measures the same thing as a curve beyond its unit: a per-year sample records no hazard name to compare.
+- The sources of a hazard name were checked at `parametric` `68f551c`, by reading the code and running builders and `explain()` on synthetic tables, without reading data: ERA5's canonicalization plan states `recipe`, NEX-GDDP-CMIP6's table carries a `recipe` column and its plan has no `explain()`, NOAA water levels state neither, and a bare distribution holds no row. How many of CRC Open's 59 indices share their spelling with the ERA5, CMIP6 and NEX recipes was not checked; `rx1day` does in their docs.
+- A name can only say what a source calls its hazard. A statement for a silent source is taken as given.
 - The cost of `design_on="each"` on a large set was not measured.
