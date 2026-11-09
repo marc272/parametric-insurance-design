@@ -20,13 +20,17 @@ hide it (``GitInvocation.denied``). It refuses:
   refspec whose source or destination starts with ``v``, and ``git send-pack``
   and ``http-push``; a bare name is judged by its text, because only the name
   of a ``v*`` tag can start the release;
-- configuration that makes a plain push carry tags or adds a git command:
-  ``push.followTags``, ``remote.<name>.push``, ``remote.<name>.mirror`` and
-  ``alias.<name>``, set with ``-c``, ``--config-env`` or ``git config``, and
-  ``git remote add --mirror``;
-- a subcommand, configuration key, ``git update-ref`` ref or ``git push``
-  operand that the shell expands. The prescribed ``git -C <worktree> push -u
-  origin <branch>`` passes, also with ``-C "$WT"``.
+- ``git push`` with ``--all``, ``--branches`` or ``--prune`` (abbreviated too)
+  or the matching refspec (``:``, ``+:``), MAR-343: the first three kinds push
+  a local ``main`` and ``parametric``, and ``--prune`` deletes remote branches;
+- configuration that makes a plain push carry tags or every matching branch,
+  or adds a git command: ``push.followTags``, ``push.default``,
+  ``remote.<name>.push``, ``remote.<name>.mirror`` and ``alias.<name>``, set
+  with ``-c``, ``--config-env`` or ``git config``, and ``git remote add
+  --mirror``;
+- a subcommand, configuration key, ``git update-ref`` ref, or ``git push``
+  operand or flag name that the shell expands. The prescribed ``git -C
+  <worktree> push -u origin <branch>`` passes, also with ``-C "$WT"``.
 
 **Denied gh commands, in every spelling, wherever they run** (MAR-263). The
 hook parses each ``gh`` command, so ``-R``/``--repo`` before or after the
@@ -288,12 +292,19 @@ GIT_PUSH_VALUE_FLAGS = frozenset(
 # git push's flags that send tags, each with the shortest abbreviation git
 # accepts for it (parse-options takes any unique prefix).
 GIT_PUSH_TAG_FLAGS = (("--mirror", 3), ("--tags", 4), ("--follow-tags", 5))
+# git push's flags that reach every branch, abbreviated the same way (MAR-343):
+# --all and --branches push a local main and parametric too, and --prune
+# deletes the remote's branches that have no local counterpart.
+GIT_PUSH_EVERY_BRANCH_FLAGS = (("--all", 4), ("--branches", 3), ("--prune", 5))
 # The plumbing under git push: it takes refspecs and --mirror of its own.
 GIT_PUSH_PLUMBING = frozenset({"send-pack", "http-push"})
 # Commands that add operands the hook can't see to the command they run.
 ARGUMENT_FEEDERS = frozenset({"xargs", "parallel"})
-# Configuration that makes a plain git push carry tags, or adds a git command.
-GIT_TAG_CONFIG = re.compile(r"push\.followtags|remote\..+\.(?:push|mirror)|alias\..+")
+# Configuration that makes a plain git push carry tags or every matching branch
+# (push.default=matching, MAR-343), or adds a git command.
+GIT_TAG_CONFIG = re.compile(
+    r"push\.followtags|push\.default|remote\..+\.(?:push|mirror)|alias\..+"
+)
 # git config forms that only read.
 GIT_CONFIG_READ_FLAGS = frozenset(
     {"--get", "--get-all", "--get-regexp", "--get-urlmatch", "-l", "--list"}
@@ -456,6 +467,7 @@ _GIT_DENIED = re.compile(
     r"tag\b"
     r"|update-ref\b[^;&|\n]*(?:refs/tags|--stdin)"
     r"|push\b[^;&|\n]*(?:--tags?\b|--follow-tags\b|--mirror\b|refs/tags"
+    r"|--all\b|--branches\b|--prune\b"
     r"|\stag\s|[\s:+\"']v[^\s:]*)"
     r")",
     re.IGNORECASE,
@@ -1276,12 +1288,14 @@ class GitInvocation:
         -------
         str or None
             ``"git-expansion"`` if the subcommand, a configuration key, the
-            ref of ``git update-ref`` or an operand of ``git push`` is a word
-            the shell expands, or ``xargs`` or ``parallel`` supplies operands
-            to either of those; ``"git-config"`` for configuration that adds a
+            ref of ``git update-ref``, or an operand or flag name of ``git
+            push`` is a word the shell expands, or ``xargs`` or ``parallel``
+            supplies operands to either of those; ``"git-config"`` for
+            configuration that adds a
             command or carries tags; ``"git-tag"`` for a command that makes a
-            tag; ``"git-push"`` for one that pushes tags or everything; else
-            ``None``. Local tags alone do nothing, so other plumbing that
+            tag; ``"git-push"`` for one that pushes tags or everything;
+            ``"git-push-all"`` for one that reaches every branch (MAR-343);
+            else ``None``. Local tags alone do nothing, so other plumbing that
             writes a ref isn't checked: a tag has to be pushed.
         """
         for key in self.config:
@@ -1330,8 +1344,10 @@ def _push_problem(args: list[str]) -> str | None:
     -------
     str or None
         ``"git-push"`` for a flag that sends tags (abbreviated too) or a
-        refspec that names one, ``"git-expansion"`` for an operand the shell
-        expands, as the hook can't tell what it would push, else ``None``.
+        refspec that names one, ``"git-push-all"`` for a flag that reaches
+        every branch or the matching refspec (``:`` or ``+:``),
+        ``"git-expansion"`` for an operand or a flag name the shell expands,
+        as the hook can't tell what it would push, else ``None``.
     """
     operands: list[str] = []
     k = 0
@@ -1345,17 +1361,27 @@ def _push_problem(args: list[str]) -> str | None:
             continue
         if arg.startswith("--"):
             name = arg.split("=", 1)[0]
-            if any(
-                len(name) >= shortest and flag.startswith(name)
-                for flag, shortest in GIT_PUSH_TAG_FLAGS
-            ):
+            if _EXPANSION.search(name):
+                return "git-expansion"  # --$X could be any of these flags
+            if _abbreviates(name, GIT_PUSH_TAG_FLAGS):
                 return "git-push"
+            if _abbreviates(name, GIT_PUSH_EVERY_BRANCH_FLAGS):
+                return "git-push-all"
         elif not arg.startswith("-"):
             operands.append(arg)
         k += 1
     if any(_EXPANSION.search(operand) for operand in operands):
         return "git-expansion"
+    if any(operand.lstrip("+") == ":" for operand in operands[1:]):
+        return "git-push-all"  # the matching refspec: every branch both sides have
     return "git-push" if any(map(_names_tag, operands[1:])) else None
+
+
+def _abbreviates(name: str, flags: tuple[tuple[str, int], ...]) -> bool:
+    """Whether a long flag is one of ``flags``, abbreviated as git allows."""
+    return any(
+        len(name) >= shortest and flag.startswith(name) for flag, shortest in flags
+    )
 
 
 def _names_tag(refspec: str) -> bool:
@@ -1900,16 +1926,23 @@ _DENIALS = {
         "quotes or not; a remote added with --mirror; and git send-pack and",
         "http-push. In crc-sdk, a pushed v* tag runs the Package release.",
     ),
+    "git-push-all": (
+        "git push --all, its alias --branches and --prune (abbreviated too), and",
+        "the matching refspec (: or +:). --all, --branches and : push every local",
+        "branch, a local main and parametric included; --prune deletes the",
+        "remote's branches that have no local counterpart.",
+    ),
     "git-config": (
-        "git config and git -c on push.followTags, remote.<name>.push,",
-        "remote.<name>.mirror and alias.<name>. Each makes a plain git push carry",
-        "tags, or adds a git command that the deny rules and this hook can't see",
-        "through.",
+        "git config and git -c on push.followTags, push.default,",
+        "remote.<name>.push, remote.<name>.mirror and alias.<name>. Each makes a",
+        "plain git push carry tags or every matching branch, or adds a git",
+        "command that the deny rules and this hook can't see through.",
     ),
     "git-expansion": (
-        "a git command whose subcommand, configuration key, git update-ref ref or",
-        "git push operand is a word the shell expands ($var, $(...), backticks, a",
-        "glob or braces), and git push or update-ref run by xargs or parallel.",
+        "a git command whose subcommand, configuration key, git update-ref ref,",
+        "git push operand or flag name is a word the shell expands ($var, $(...),",
+        "backticks, a glob or braces), and git push or update-ref run by xargs or",
+        "parallel.",
         "Neither the deny rules nor this hook can tell what it would do, or which",
         "refs it would push.",
     ),
@@ -1974,7 +2007,8 @@ def _when_in_doubt(command: str, starts: list[str], problem: str) -> str | None:
                 "gh copilot, gh gist create/new, gh agent-task create, gh config set",
                 "editor/pager/browser, gh auth token, a rerun in a fork, gh followed",
                 "by an expansion, a gh command that names a RiskThinking repository,",
-                "git tag, git update-ref on refs/tags, or a git push of tags.",
+                "git tag, git update-ref on refs/tags, or a git push of tags or of",
+                "every branch (--all, --branches, --prune).",
                 'Those are Marc\'s (docs/ORCHESTRATION.md, "One-time setup",',
                 "step 4). If it is none of them, split it into simpler commands.",
             ]
