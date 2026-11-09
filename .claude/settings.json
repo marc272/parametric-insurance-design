@@ -54,6 +54,22 @@
       "Bash(git -C * push origin v*)",
       "Bash(git tag *)",
       "Bash(git -C * tag *)",
+      "Bash(git update-ref *refs/tags/*)",
+      "Bash(git update-ref *--stdin*)",
+      "Bash(git -C * update-ref *refs/tags/*)",
+      "Bash(git -C * update-ref *--stdin*)",
+      "Bash(git push --mirror*)",
+      "Bash(git push * --mirror*)",
+      "Bash(git -C * push --mirror*)",
+      "Bash(git -C * push * --mirror*)",
+      "Bash(git push * v*)",
+      "Bash(git push * 'v*)",
+      "Bash(git push * \"v*)",
+      "Bash(git push *:v*)",
+      "Bash(git -C * push * v*)",
+      "Bash(git -C * push * 'v*)",
+      "Bash(git -C * push * \"v*)",
+      "Bash(git -C * push *:v*)",
       "Bash(gh release create*)",
       "Bash(gh release edit*)",
       "Bash(gh release upload*)",
@@ -86,6 +102,8 @@
       "Bash(gh run -*crc-docs* rerun*)",
       "Bash(gh api *crc-sdk/actions/*/rerun*)",
       "Bash(gh api *crc-docs/actions/*/rerun*)",
+      "Bash(gh api *PUT*crc-docs/actions/permissions*)",
+      "Bash(gh api *crc-docs/actions/permissions*PUT*)",
       "Bash(gh api *dispatches*)",
       "Bash(gh api *git/refs*)",
       "Bash(gh api *git/tags*)",
@@ -125,6 +143,33 @@
       "Bash(gh repo archive*)",
       "Bash(gh repo unarchive*)",
       "Bash(gh repo rename*)",
+      "Bash(gh repo deploy-key add*)",
+      "Bash(gh repo deploy-key delete*)",
+      "Bash(gh repo deploy-key -* add*)",
+      "Bash(gh repo deploy-key -* delete*)",
+      "Bash(gh repo autolink create*)",
+      "Bash(gh repo autolink new*)",
+      "Bash(gh repo autolink delete*)",
+      "Bash(gh repo autolink -* create*)",
+      "Bash(gh repo autolink -* new*)",
+      "Bash(gh repo autolink -* delete*)",
+      "Bash(gh api *repos/*/keys*)",
+      "Bash(gh api *repos/*/autolinks*)",
+      "Bash(gh gist create*)",
+      "Bash(gh gist new*)",
+      "Bash(gh agent-task create*)",
+      "Bash(gh agent-tasks create*)",
+      "Bash(gh agents create*)",
+      "Bash(gh agent create*)",
+      "Bash(gh config set editor*)",
+      "Bash(gh config set pager*)",
+      "Bash(gh config set browser*)",
+      "Bash(gh config set -* editor*)",
+      "Bash(gh config set -* pager*)",
+      "Bash(gh config set -* browser*)",
+      "Bash(gh auth token*)",
+      "Bash(gh auth status*--show-token*)",
+      "Bash(gh auth status -t*)",
       "Bash(gh alias set*)",
       "Bash(gh alias import*)",
       "Bash(gh extension install*)",
@@ -146,7 +191,12 @@
       "mcp__ccd_directory__change_directory",
       "mcp__computer-use__*",
       "mcp__remote-devices__Claude_Browser__preview_start",
-      "mcp__remote-devices__computer_*"
+      "mcp__remote-devices__computer_*",
+      "mcp__*__set_auto_merge",
+      "mcp__*__merge_diff",
+      "mcp__*__submit_diff_review",
+      "mcp__claude-in-chrome__*",
+      "mcp__plugin_engineering_github__*"
     ]
   },
   "hooks": {
@@ -157,6 +207,16 @@
           {
             "type": "command",
             "command": "python3 -I \"$CLAUDE_PROJECT_DIR/.claude/hooks/fork_gh_guard.py\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__ccd_session__start_session",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"$CLAUDE_PROJECT_DIR/.claude/hooks/session_guard.py\"",
             "timeout": 10
           }
         ]
