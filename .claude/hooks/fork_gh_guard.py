@@ -28,6 +28,11 @@ hide it (``GitInvocation.denied``). It refuses:
   ``remote.<name>.push``, ``remote.<name>.mirror`` and ``alias.<name>``, set
   with ``-c``, ``--config-env`` or ``git config``, and ``git remote add
   --mirror``;
+- configuration from the environment (MAR-343): a command's leading
+  assignment to, or ``env`` or ``export`` of, ``GIT_CONFIG_COUNT``,
+  ``GIT_CONFIG_KEY_<n>``, ``GIT_CONFIG_VALUE_<n>``, ``GIT_CONFIG_PARAMETERS``,
+  ``GIT_CONFIG_GLOBAL``, ``GIT_CONFIG_SYSTEM`` or ``GIT_CONFIG``, and ``git
+  submodule foreach``, which runs a shell string the hook doesn't read;
 - a subcommand, configuration key, ``git update-ref`` ref, or ``git push``
   operand or flag name that the shell expands. The prescribed ``git -C
   <worktree> push -u origin <branch>`` passes, also with ``-C "$WT"``.
@@ -46,8 +51,10 @@ group (``gh -R <repo> release create``, ``gh release -R <repo> create``),
   ``gh extension install``; ``gh skill install`` (alias ``add``), ``update``
   and ``publish`` (``DENIED_COMMANDS``, MAR-282 for the last four groups);
   ``gh gist create`` (alias ``new``), ``gh agent-task create`` and ``gh auth
-  token`` (MAR-289), ``gh auth status`` showing the token, and ``gh copilot``
-  (``DENIED_GROUPS``);
+  token`` (MAR-289); ``gh gist edit``, ``rename`` and ``delete``, and ``gh
+  auth login``, ``logout``, ``refresh``, ``switch``, ``setup-git`` and
+  ``git-credential`` (MAR-343); ``gh auth status`` showing the token, and
+  ``gh copilot`` (``DENIED_GROUPS``);
 - ``gh repo deploy-key add`` and ``delete``, ``gh repo autolink create``
   (alias ``new``) and ``delete``, and ``gh config set editor``, ``pager`` and
   ``browser`` (``DENIED_ACTIONS``, MAR-289);
@@ -67,11 +74,13 @@ group (``gh -R <repo> release create``, ``gh release -R <repo> create``),
 - ``gh run rerun`` of a run in a fork (a repo flag that names ``crc-sdk`` or
   ``crc-docs`` or isn't literal, or none in a fork path), and a ``gh api``
   rerun endpoint there (MAR-282): a rerun of crc-sdk's release run publishes;
-- a ``gh api`` write to ``actions/permissions`` of crc-docs (MAR-306): Actions
-  stay off there. Reading it passes.
+- a ``gh api`` write to ``actions/permissions`` of crc-docs (MAR-306), where
+  Actions stay off, or of crc-sdk (MAR-343), where they are the merge gate.
+  Reading it passes.
 
-The other ``gh api`` deny rules (``dispatches``, ``git/refs`` and the like)
-are left to the text rules: ``gh api`` takes no ``-R``.
+The other ``gh api`` deny rules (``dispatches``, ``git/refs``, ``gists``,
+workflow ``enable`` and ``disable`` and the like) are left to the text rules:
+``gh api`` takes no ``-R``.
 
 **Repo-scoped gh commands in a fork path.** In a clone of the forks
 ``marc272/crc-sdk`` and ``marc272/crc-docs``, ``gh`` without ``--repo`` can
@@ -88,7 +97,10 @@ says how to fix it, if it runs:
   (``REPO_FLAG_COMMANDS``, MAR-282: ``gh agent-task create`` and ``view``,
   ``gh project link`` and ``unlink``, ``gh repo autolink``, ``deploy-key``,
   ``read-dir`` and ``read-file``), without naming a ``marc272/`` repository
-  with ``--repo`` or ``-R``, written literally;
+  with ``--repo`` or ``-R``, written literally; ``gh`` from a variable counts
+  when it stands where a program does (``$GH pr list``, MAR-343), but ``run``
+  and ``cache`` only with one of gh's own commands after them, as ``$UV run
+  pytest`` is no gh command;
 - ``gh repo view`` without a literal ``marc272/`` repository as its argument
   (it has no ``-R``);
 - ``gh api`` with ``{owner}``, ``{repo}``, ``:owner`` or ``:repo`` in its
@@ -223,9 +235,19 @@ DENIED_COMMANDS = {
     "alias": frozenset({"set", "import"}),
     "extension": frozenset({"install"}),
     "skill": frozenset({"install", "add", "update", "publish"}),
-    "gist": frozenset({"create", "new"}),
+    "gist": frozenset({"create", "new", "edit", "rename", "delete"}),
     "agent-task": frozenset({"create"}),
-    "auth": frozenset({"token"}),
+    "auth": frozenset(
+        {
+            "token",
+            "login",
+            "logout",
+            "refresh",
+            "switch",
+            "setup-git",
+            "git-credential",  # hidden: what setup-git wires in; prints the token
+        }
+    ),
 }
 # gh groups denied as a whole (MAR-282): gh copilot runs the Copilot CLI.
 DENIED_GROUPS = frozenset({"copilot"})
@@ -261,6 +283,15 @@ PR_MERGE_VALUE_FLAGS = frozenset(
         "--subject",
     }
 )
+# Groups of gh that other programs have too (uv run, uv cache, pip cache):
+# after a variable, only gh's own commands count (MAR-343), so that $UV run
+# pytest doesn't look like gh run.
+AMBIGUOUS_GROUP_COMMANDS = {
+    "run": frozenset(
+        {"cancel", "delete", "download", "list", "ls", "rerun", "view", "watch"}
+    ),
+    "cache": frozenset({"delete", "list", "ls"}),
+}
 # What a word after an expansion must name to count as gh run from a variable
 # (MAR-289), so that $PY tools/x.py RiskThinking/crc-sdk doesn't.
 GH_GROUPS = frozenset(
@@ -324,6 +355,15 @@ _KEYWORDS = frozenset(
     {"if", "then", "else", "elif", "do", "while", "until", "!", "{", "time"}
 )
 _PRECOMMANDS = frozenset({"builtin", "command", "nocorrect", "noglob"})
+# Commands that put a variable in the environment of what runs next (MAR-343).
+_ENVIRONMENT_SETTERS = frozenset(
+    {"env", "export", "declare", "typeset", "readonly", "local"}
+)
+# Commands that run the words after them, and a timeout's duration (MAR-343).
+_WRAPPERS = frozenset(
+    {*ARGUMENT_FEEDERS, "env", "exec", "nice", "nohup", "stdbuf", "timeout"}
+)
+_DURATION = re.compile(r"[0-9.]+[smhd]?")
 _SEPARATORS = ("&&", "||", ";;", ";&", "|&", ";", "|", "&")
 _REDIRECTS = ("&>>", "<<<", "<<-", "&>", ">>", ">&", "<&", ">|", "<>", "<<", ">", "<")
 _ANSI_C = {
@@ -353,7 +393,8 @@ _OWNER_REPO = re.compile(
 _API_PLACEHOLDER = re.compile(r"\{(?:owner|repo)\}|:(?:owner|repo)\b")
 # The REST endpoints that rerun a workflow run or job (MAR-282).
 _API_RERUN = re.compile(r"actions/(?:runs|jobs)/[^/\s]+/rerun", re.IGNORECASE)
-# The REST endpoints that turn a repository's Actions on or off (MAR-306).
+# The REST endpoints that turn a repository's Actions on or off (MAR-306,
+# MAR-343).
 _API_ACTIONS_PERMISSIONS = re.compile(r"actions/permissions", re.IGNORECASE)
 # gh api sends POST when one of these is given and -X isn't (gh api --help).
 _API_BODY_FLAGS = frozenset({"-f", "--raw-field", "-F", "--field", "--input"})
@@ -459,17 +500,25 @@ _GH_DENIED = re.compile(
     + r"|\bgh\s+[\"']?[$`]",
     re.IGNORECASE,
 )
-# The same, for the git commands that make or push tags (MAR-289): git and
-# its options, then the subcommand, so that a commit message saying "tag"
-# doesn't count. Only for a command the hook can't parse, or when it fails.
+# Variables that set git's configuration or pick its files, past the -c and
+# git config checks (MAR-343). GIT_CONFIG_NOSYSTEM only turns a file off.
+_GIT_CONFIG_VARIABLE = re.compile(
+    r"GIT_CONFIG(?:_(?:COUNT|PARAMETERS|GLOBAL|SYSTEM|KEY_[0-9]+|VALUE_[0-9]+))?"
+)
+# The same, for the git commands that make or push tags (MAR-289) or reach
+# every branch, and those variables (MAR-343): git and its options, then the
+# subcommand, so that a commit message saying "tag" doesn't count. Only for a
+# command the hook can't parse, or when it fails.
 _GIT_DENIED = re.compile(
     r"\bgit\b(?:\s+-[^\s;&|]+(?:\s+[^-\s;&|][^\s;&|]*)?)*?\s+[\"']?(?:"
     r"tag\b"
     r"|update-ref\b[^;&|\n]*(?:refs/tags|--stdin)"
+    r"|submodule\b[^;&|\n]*foreach\b"
     r"|push\b[^;&|\n]*(?:--tags?\b|--follow-tags\b|--mirror\b|refs/tags"
     r"|--all\b|--branches\b|--prune\b"
     r"|\stag\s|[\s:+\"']v[^\s:]*)"
-    r")",
+    r")"
+    r"|\b" + _GIT_CONFIG_VARIABLE.pattern + "=",
     re.IGNORECASE,
 )
 _FORKISH = re.compile(
@@ -921,6 +970,16 @@ class GhInvocation:
         return self.subcommand == "repo" and self.command == "view"
 
     @property
+    def names_gh_command(self) -> bool:
+        """Whether these words, after a variable, can only be a gh command.
+
+        Other programs also have ``run`` and ``cache``, so those two need one
+        of gh's own commands after them (MAR-343).
+        """
+        commands = AMBIGUOUS_GROUP_COMMANDS.get(self.subcommand)
+        return self.checked if commands is None else self.command in commands
+
+    @property
     def names_owner_repo(self) -> bool:
         """Whether it has a repo flag and every one names a marc272 repository."""
         return bool(self.repos) and all(
@@ -999,13 +1058,13 @@ class GhInvocation:
         return None
 
     def writes_actions_permissions(self, fork_path: bool) -> bool:
-        """Whether it changes crc-docs' Actions permissions (MAR-306).
+        """Whether it changes a fork's Actions permissions (MAR-306, MAR-343).
 
         Actions stay off on ``marc272/crc-docs``: with them on, upstream's
-        ``live`` job would reach RiskThinking's data. It is true for a ``gh
-        api`` call that isn't a read and whose repository part, before
-        ``actions/permissions``, names crc-docs, isn't literal, or has
-        placeholders in a fork path.
+        ``live`` job would reach RiskThinking's data. On ``marc272/crc-sdk``
+        they are the merge gate. It is true for a ``gh api`` call that isn't a
+        read and whose repository part, before ``actions/permissions``, names
+        a fork, isn't literal, or has placeholders in a fork path.
 
         Parameters
         ----------
@@ -1025,7 +1084,7 @@ class GhInvocation:
                 continue
             repo = arg[: match.start()]
             if (
-                "crc-docs" in repo.casefold()
+                FORK_REPOS.search(repo)
                 or _SHELL_VALUE.search(repo)
                 or (fork_path and _API_PLACEHOLDER.search(repo))
             ):
@@ -1273,6 +1332,9 @@ class GitInvocation:
     from_stdin
         Whether ``xargs`` or ``parallel`` runs it, and so may add operands
         that the hook can't see.
+    from_environment
+        Whether ``words`` set git's configuration through the environment
+        (MAR-343), rather than being a git command.
     """
 
     words: list[str]
@@ -1280,6 +1342,7 @@ class GitInvocation:
     args: list[str]
     config: list[str]
     from_stdin: bool = False
+    from_environment: bool = False
 
     def denied(self) -> str | None:
         """Return why the hook refuses this command, or ``None``.
@@ -1294,10 +1357,14 @@ class GitInvocation:
             configuration that adds a
             command or carries tags; ``"git-tag"`` for a command that makes a
             tag; ``"git-push"`` for one that pushes tags or everything;
-            ``"git-push-all"`` for one that reaches every branch (MAR-343);
-            else ``None``. Local tags alone do nothing, so other plumbing that
-            writes a ref isn't checked: a tag has to be pushed.
+            ``"git-push-all"`` for one that reaches every branch,
+            ``"git-environment"`` for configuration set through the
+            environment and ``"git-submodule"`` for ``git submodule foreach``
+            (MAR-343); else ``None``. Local tags alone do nothing, so other
+            plumbing that writes a ref isn't checked: a tag has to be pushed.
         """
+        if self.from_environment:
+            return "git-environment"
         for key in self.config:
             if _EXPANSION.search(key):
                 return "git-expansion"
@@ -1317,6 +1384,8 @@ class GitInvocation:
             return "git-push"
         if self.subcommand == "config":
             return _config_problem(self.args)
+        if self.subcommand == "submodule":
+            return _submodule_problem(self.args)
         if self.subcommand == "remote" and self.args[:1] == ["add"]:
             mirror = any(arg.startswith("--mirror") for arg in self.args)
             return "git-push" if mirror else None
@@ -1408,6 +1477,82 @@ def _config_problem(args: list[str]) -> str | None:
         "git-config"
         if any(GIT_TAG_CONFIG.fullmatch(arg.casefold()) for arg in args)
         else None
+    )
+
+
+def _submodule_problem(args: list[str]) -> str | None:
+    """Return why ``git submodule`` with these arguments is refused, if it is.
+
+    ``foreach`` runs a shell string in each submodule, which the hook doesn't
+    read. A command from an expansion could be ``foreach``.
+    """
+    command = _first_operand(args, frozenset())
+    if command == "foreach":
+        return "git-submodule"
+    return "git-expansion" if _EXPANSION.search(command) else None
+
+
+def _git_config_assignment(words: list[str]) -> str | None:
+    """Return the word that sets git's configuration in the environment, if any.
+
+    A word counts when it assigns a variable of ``_GIT_CONFIG_VARIABLE`` and
+    stands where the shell or ``env`` takes it as one: among a command's
+    leading assignments, or after ``env``, ``export`` and the like. So
+    ``grep GIT_CONFIG_COUNT=1 notes.md`` doesn't count.
+
+    Parameters
+    ----------
+    words
+        The words of one simple command.
+
+    Returns
+    -------
+    str or None
+        The assignment, or ``None``.
+    """
+    for k, word in enumerate(words):
+        assignment = _ASSIGNMENT.fullmatch(word)
+        if assignment is None:
+            continue
+        if not _GIT_CONFIG_VARIABLE.fullmatch(assignment.group(1)):
+            continue
+        before = words[:k]
+        if all(w in _KEYWORDS or _ASSIGNMENT.fullmatch(w) for w in before) or any(
+            _basename(w) in _ENVIRONMENT_SETTERS for w in before
+        ):
+            return word
+    return None
+
+
+def _at_program_position(words: list[str], k: int) -> bool:
+    """Whether ``words[k]`` stands where a program does (MAR-343).
+
+    Only keywords, assignments, wrappers, their flags and a duration may come
+    before it, so that ``grep "$X" pr list`` doesn't count, and it isn't an
+    assignment itself (``X="$Y" pr list`` runs ``pr``).
+
+    Parameters
+    ----------
+    words
+        The words of one simple command.
+    k
+        The index of the word.
+
+    Returns
+    -------
+    bool
+        Whether the word is in the program's position.
+    """
+    if _ASSIGNMENT.fullmatch(words[k]):
+        return False
+    return all(
+        word in _KEYWORDS
+        or word in _PRECOMMANDS
+        or _ASSIGNMENT.fullmatch(word)
+        or _basename(word) in _WRAPPERS
+        or word.startswith("-")
+        or _DURATION.fullmatch(word)
+        for word in words[:k]
     )
 
 
@@ -1628,6 +1773,10 @@ class _Context:
 
     def inspect(self, words: list[str]) -> None:
         """Record the fork signals and the gh invocation of one command."""
+        if _git_config_assignment(words) is not None:
+            self.git_invocations.append(
+                GitInvocation(words, "", [], [], from_environment=True)
+            )
         gh_at = next(
             (k for k, w in enumerate(words) if _basename(w) == "gh"), len(words)
         )
@@ -1660,12 +1809,15 @@ class _Context:
             self._program_from_expansion(words)
 
     def _program_from_expansion(self, words: list[str]) -> None:
-        """Record a denied gh or git command run from a variable (MAR-289).
+        """Record a gh or git command run from a variable (MAR-289, MAR-343).
 
         Neither ``gh`` nor ``git`` is a word of ``words``. If the words after
         an expansion would be a denied command (``$GH release create v1``),
-        the expansion counts as the program; other commands from a variable
-        (``$PY -m pytest``, ``$UV run pytest``) pass.
+        the expansion counts as the program. It also counts when it stands
+        where a program does and the words after it can only be gh's
+        (``GhInvocation.names_gh_command``), so that the fork-path check runs
+        on ``$GH pr list``. Other commands from a variable (``$PY -m pytest``,
+        ``$UV run pytest``) pass.
         """
         for k, word in enumerate(words):
             if not _SHELL_VALUE.search(word):
@@ -1683,6 +1835,15 @@ class _Context:
             if git is not None and git.denied() not in (None, "git-expansion"):
                 git.words[0] = word
                 self.git_invocations.append(git)
+                return
+            if (
+                gh is not None
+                and gh.denied() is None
+                and gh.names_gh_command
+                and _at_program_position(words, k)
+            ):
+                gh.words[0] = word
+                self.invocations.append(gh)
                 return
 
 
@@ -1894,8 +2055,9 @@ _DENIALS = {
         "settings, which are Marc's.",
     ),
     "gist": (
-        "gh gist create (or new). A gist publishes outside the program's",
-        "repositories, which AGENTS.md forbids.",
+        "gh gist create (or new), edit, rename and delete. A gist publishes",
+        "outside the program's repositories, which AGENTS.md forbids, and an",
+        "existing gist is Marc's.",
     ),
     "agent-task": (
         "gh agent-task create (also gh agent, agents, agent-tasks). It starts a",
@@ -1906,13 +2068,16 @@ _DENIALS = {
         "runs later, outside the deny rules and this hook.",
     ),
     "auth": (
-        "gh auth token and gh auth status --show-token (-t). Both print a",
-        "credential, and agents never use or store credentials.",
+        "gh auth login, logout, refresh, switch, setup-git and git-credential,",
+        "gh auth token and gh auth status --show-token (-t). They sign in, change",
+        "which account or credential gh and git use, or print a credential, and",
+        "agents never sign in, use or store credentials (AGENTS.md).",
     ),
     "actions-permissions": (
-        "a gh api write to actions/permissions of marc272/crc-docs (reading it is",
-        "fine). Actions stay off there: with them on, upstream's live job would",
-        "reach RiskThinking's data (runbook, Fork PRs). Turning them on is Marc's.",
+        "a gh api write to actions/permissions of marc272/crc-docs or",
+        "marc272/crc-sdk (reading it is fine). Actions stay off on crc-docs: with",
+        "them on, upstream's live job would reach RiskThinking's data (runbook,",
+        "Fork PRs). On crc-sdk they are the merge gate. Changing either is Marc's.",
     ),
     "git-tag": (
         "git tag, and git update-ref on refs/tags or with --stdin. Tags are",
@@ -1931,6 +2096,17 @@ _DENIALS = {
         "the matching refspec (: or +:). --all, --branches and : push every local",
         "branch, a local main and parametric included; --prune deletes the",
         "remote's branches that have no local counterpart.",
+    ),
+    "git-environment": (
+        "a variable that sets git's configuration or picks its files:",
+        "GIT_CONFIG_COUNT, GIT_CONFIG_KEY_<n>, GIT_CONFIG_VALUE_<n>,",
+        "GIT_CONFIG_PARAMETERS, GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM and",
+        "GIT_CONFIG. They can make a plain git push carry tags, or add a git",
+        "command, past the git -c and git config checks.",
+    ),
+    "git-submodule": (
+        "git submodule foreach. It runs a shell string in each submodule, which",
+        "neither the deny rules nor this hook read.",
     ),
     "git-config": (
         "git config and git -c on push.followTags, push.default,",
@@ -2004,11 +2180,14 @@ def _when_in_doubt(command: str, starts: list[str], problem: str) -> str | None:
                 "unarchive/rename, gh repo deploy-key add/delete, gh repo autolink",
                 "create/new/delete, gh pr merge --admin, gh alias set/import,",
                 "gh extension install, gh skill install/add/update/publish,",
-                "gh copilot, gh gist create/new, gh agent-task create, gh config set",
-                "editor/pager/browser, gh auth token, a rerun in a fork, gh followed",
-                "by an expansion, a gh command that names a RiskThinking repository,",
+                "gh copilot, gh gist create/new/edit/rename/delete, gh agent-task",
+                "create, gh config set editor/pager/browser, gh auth token/login/",
+                "logout/refresh/switch/setup-git/git-credential, a rerun in a fork,",
+                "gh followed by an expansion, a gh command that names a RiskThinking",
+                "repository,",
                 "git tag, git update-ref on refs/tags, or a git push of tags or of",
-                "every branch (--all, --branches, --prune).",
+                "every branch (--all, --branches, --prune), git submodule foreach,",
+                "or a variable that sets git's configuration (GIT_CONFIG_*).",
                 'Those are Marc\'s (docs/ORCHESTRATION.md, "One-time setup",',
                 "step 4). If it is none of them, split it into simpler commands.",
             ]
@@ -2132,7 +2311,8 @@ def fail_closed_for_gh(text: str, problem: str) -> int:
         f"fork_gh_guard failed internally ({problem});",
         f"refusing this repo-scoped or denied gh command (gh {_CHECKED_LIST},",
         "or a gh write that .claude/settings.json denies), or a git command that",
-        "makes or pushes a tag. Other commands pass.",
+        "makes or pushes a tag, pushes every branch, or changes git's settings",
+        "through the environment. Other commands pass.",
         "Fix: report the error to the orchestrator, so that the hook is fixed and",
         "a case added to scripts/check_fork_gh_guard.py. Meanwhile a simpler form",
         f"may get through: one gh command per Bash call, with --repo {OWNER}/<repo>.",
