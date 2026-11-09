@@ -8,7 +8,7 @@
   - crc-framework 0.6.0: [`838c295`][fw] (tag `v0.6.0`; the later head changes only the release workflow);
   - crc-docs: [`7691f5f`][docs] (2026-11-04).
 - Revised on 2026-11-05, before the owner's decision, to match the golden fixtures of MAR-245 (PR #183). The end of "Decisions for the owner" lists what changed.
-- Amendments, at the end: 1 (2026-11-06, MAR-275), which records the owner's decision D11, curves first; 2 (2026-11-08, MAR-291), which records the owner's decisions D-25.1 to D-25.5, the per-year route; 3 (2026-11-08, MAR-292), which records the owner's decisions D-21.1 to D-21.6, the portfolio approach; and 4 (2026-11-08, MAR-329), which records the owner's decisions D-23.1 to D-23.6, scenario analysis.
+- Amendments, at the end: 1 (2026-11-06, MAR-275), which records the owner's decision D11, curves first; 2 (2026-11-08, MAR-291), which records the owner's decisions D-25.1 to D-25.5, the per-year route; 3 (2026-11-08, MAR-292), which records the owner's decisions D-21.1 to D-21.6, the portfolio approach; 4 (2026-11-08, MAR-329), which records the owner's decisions D-23.1 to D-23.6, scenario analysis; and 5 (2026-11-08, MAR-330), which records the owner's decisions D-22.1 to D-22.8, multi-hazard covers.
 
 The section "Decisions for the owner" lists what Marc decides. Every other choice below is the agent's recommendation, with the alternatives named where a choice is open.
 
@@ -114,6 +114,8 @@ To sample from curves the plan needs each asset's curve, and the join that finds
 Amendment 2 (the per-year route) adds to both outlines below: `trend=`, `scenario=`, `pool=`, `cell=`, `.index(...)` and `sample_annual_pool`.
 
 Amendment 4 (scenario analysis) adds `ScenarioSet`, `compare_scenarios`, `to_drift`, `.scenarios(...)` and `scenario=` on `sample_curve`.
+
+Amendment 5 (multi-hazard covers) adds to both outlines below: `CompositeIndex`, `IndexComponent`, `.component()`, `SumOf`, `MaxOf`, `StepGrid`, `CappedSum`, `CompoundDamage`, `sample_annual_hazards`, `sample_curve_hazards`, `GaussianCopula`, `CoverPackage`, `split_budget`, `payout_breakdown`, `.hazard`, `.combine` and `.package`.
 
 **Layer 1 in outline** (names and signatures for R-14 to R-17; types abbreviated):
 
@@ -275,6 +277,8 @@ LinearConstraints(a_ub, b_ub, lower, upper)          # over the amount vector; d
 - Built-in families and `IndexDefinition` are frozen pydantic models, following crc-sdk's `StrictFrozenModel` pattern (unknown fields rejected). A user family can be any class that meets the protocol.
 - **User-defined payouts** implement `PayoutFunction`, and `LinearInAmounts` too if they want the LP and QP routes. `register_payout` adds the class to the registry under its `kind`. `Cover.from_json` resolves `kind` through the registry and raises `UnknownPayoutKindError` for an unknown kind. A bare callable is not a payout: every cover has a document and a hash.
 
+Amendment 5 (D-22.1, D-22.4, D-22.6, D-22.8) corrects the next paragraph: a maximum of payouts can't stay an LP or QP with free amounts, and `Limit` on a `SumOf` bounds the year's total.
+
 **Multi-dimensional index (Phase 2).** A payout with several `index_names` takes `evaluate(index)` of shape (n, k), with columns in `index_names` order. The sample supplies the components (§4.5). `basis` keeps the shape (n, n_amounts), so the LP and QP routes need no change. Phase 2 adds combinators (`MaxOf`, `SumOf`) and a two-dimensional step grid as new families. In Phase 1, `Cover` requires `index_names == ("index",)`.
 
 **The cover document and its hash.**
@@ -321,6 +325,8 @@ class OutcomeSample:
 
 Amendment 3 (the portfolio approach) lifts the one-asset rule of this section: a sample holds one asset or more, and `OutcomeSample.asset()` and `OutcomeSample.join()` are added.
 
+Amendment 5 (D-22.1) adds `index_components` and `OutcomeSample.component()`: a sample may hold several named hazards at one asset.
+
 - **One draw is one year.** A cover pays once per draw, on that draw's index, against that draw's loss. This is the core's annual basis with one row per year. Several events within a year are out of scope for Phase 1 (§9).
 - **One asset per sample in Phase 1** (MAR-43). The asset axis exists, so arrays are (n, 1); a second asset raises `SampleError` until Phase 2. The plan handles several assets as one sample each. So Phase 1 imposes no dependence between assets: it computes no cross-asset sum.
 - Arrays are read-only (`setflags(write=False)`). A sample written to Parquet uses the long table above and the metadata key `crc.parametric.sample`.
@@ -334,6 +340,8 @@ Amendment 1 (D11) sets the order of release: Monte Carlo from a fitted curve fir
 Amendment 2 (the per-year route) adds a stated trend option, pooled model-years and a `scenario` label to the per-year source, and says what of the route goes in the Phase 1 upstream PR.
 
 Amendment 4 (scenario analysis) adds `scenario=` to `sample_curve`.
+
+Amendment 5 adds `sample_annual_hazards`, `sample_curve_hazards` and a user table with several index columns.
 
 | Source | Function | One draw is | Probability | Semantics required |
 |---|---|---|---|---|
@@ -363,6 +371,8 @@ Amendment 4 (scenario analysis) adds `scenario=` to `sample_curve`.
 **A user table.** Required columns: period, asset id, index, loss. Optional: probability, hazard. Every (period, asset) pair appears exactly once; missing or duplicate pairs raise.
 
 #### 4.3 Loss model
+
+Amendment 5 (D-22.3) adds a stated rule for the combined loss of several impacts.
 
 `LossModel(impact, *, value_column=None, value=None, value_unit="1", context=None, name=None)` (erratum 11, 2026-11-08, MAR-288: this line first ended `context=None)`):
 
@@ -398,6 +408,8 @@ Amendment 2 (D-25.5) lets a per-year sample state its `scenario` label.
 
 Amendment 4 (scenario analysis) adds `scenario=` on curves and the `ScenarioSet` this section reserves.
 
+Amendment 5 (D-22.1) fills the hazards item below: each component has a name, a unit and a tail.
+
 - **Assets.** The asset axis exists (`asset_ids`, axis 1 of `index` and `loss`). Phase 2 lifts the one-asset rule and adds dependence models for Monte Carlo samples (§9).
 - **Hazards.** Phase 2 adds a field `index_components: Mapping[str, NDArray] | None = None` (named (n, n_assets) arrays) and a `CompositeIndex` definition. `index` stays the primary component. A new field with a default doesn't break callers.
 - **Scenarios.** Every sample has a `scenario` label (`"baseline"`), and the comparison table has a `scenario` column from Phase 1 on. Phase 2 adds a `ScenarioSet`.
@@ -418,6 +430,8 @@ On the design sample, with draw probabilities p_d, loss L_d, payout π_d and unc
 
 #### 5.2 Pricing and constraints
 
+Amendment 5 says what `Limit` means on a `SumOf`: a bound on the year's total.
+
 - `PurePremium()`: `P = E[π]`.
 - `CostOfCapitalLoad(rate, q)`: `P = (1 − r) · E[π] + r · CVaR_q(π)`, with r ∈ [0, 1] and q ∈ (0, 1). It is convex in the payout, so the problem stays an LP or QP.
 - `Budget(ratio=κ)` means P ≤ κ·E[L]; `Budget(amount=B)` means P ≤ B, in payout units. Exactly one of the two. Premium and E[L] are taken on the design sample.
@@ -426,6 +440,8 @@ On the design sample, with draw probabilities p_d, loss L_d, payout π_d and unc
 - E[U] and weighted CVaR need a budget or bounded amounts; without either, any payout at least as large as the loss is optimal, and `design` raises `DesignError` before solving. MSE needs neither.
 
 #### 5.3 Solver route
+
+Amendment 5 (D-22.5, D-22.6) adds the routes of `SumOf`, `MaxOf` and `StepGrid`.
 
 | Payout | Free shape parameters | Objective | Pricing | Route |
 |---|---|---|---|---|
@@ -533,6 +549,8 @@ Amendment 3 (D-21.3) changes this table: it adds the `scope` column and the leve
 
 Amendment 4 (D-23.2 to D-23.4) adds the columns `design_scenario`, `pathway`, `horizon`, `product`, `n_rows` and `premium_repriced`, and the premium basis `"reference"`.
 
+Amendment 5 adds the level `"package"`, the columns `components` and `design_budget`, and D-22.7's separate table, `payout_breakdown`.
+
 | Column | Type | Meaning |
 |---|---|---|
 | `cover_label` | string | The user's label, or the first 12 hex digits of the hash |
@@ -557,6 +575,8 @@ Amendment 4 (D-23.2 to D-23.4) adds the columns `design_scenario`, `pathway`, `h
 Amendment 2 (the per-year route) describes the per-year source records as merged, and adds the records of the trend, the pool and the index series.
 
 Amendment 4 (scenario analysis) adds `setup.scenarios`, the split method `"other_scenario"` and the leakage result `"different_sources"`.
+
+Amendment 5 adds `hazard_dependence`, `combine` and `components` to a sample's provenance, and a package's entry to `covers`.
 
 **Hashes.**
 
@@ -697,7 +717,7 @@ Phase 1 exports only what it implements. Each name below is added to `__all__` w
   - A joint payout needs a stated allocation rule (`"value"` or `"loss"`, as in the core's `docs/methodology/payout-allocation.md`) for per-asset rows. The table's `level` column gains `"joint"` and `"cluster"`.
   - Multi-asset Monte Carlo samples need a dependence model: `Comonotonic()`, `Independent()` or `GaussianCopula(correlation)`, always stated and never defaulted. Per-year samples carry their own. Better dependence data is Q4.
   - External text presents joint calibration as a method only (publication rule).
-- **Multi-hazard covers (R-22, MAR-250).** `CompositeIndex` (named `IndexDefinition`s), payouts with several `index_names`, `OutcomeSample.index_components`, and the combinator families of §3. Two hazards at one site need a joint distribution; for per-year samples it is the data's own.
+- **Multi-hazard covers (R-22, MAR-250).** Amendment 5 (D-22.1 to D-22.8) settles this item. `CompositeIndex` (named `IndexDefinition`s), payouts with several `index_names`, `OutcomeSample.index_components`, and the combinator families of §3. Two hazards at one site need a joint distribution; for per-year samples it is the data's own.
 - **Scenarios (R-23, MAR-44).** A `ScenarioSet` maps scenario labels to samples with the same assets. `compare` fills the `scenario` column. Robust design (min–max over scenarios, as SPEC §6.5 R1) becomes an objective wrapper, `Robust(objective)`, over a `ScenarioSet`.
   - Amendment 4 (D-23.1 to D-23.6) settles this item: a `ScenarioSet` holds one sample per scenario, `compare_scenarios` fills the `scenario` and `design_scenario` columns, and `Robust(objective)` stays for later.
 - **Also reserved:** the semantics value `"event"` (several events per year); a local refinement after the grid; block-bootstrap intervals and pooled k-fold metrics; a second solver backend in `_solver.py`.
@@ -709,6 +729,8 @@ The split into R-14 to R-18 holds, with four adjustments (marked "adjusted"). Am
 Amendment 3 (the portfolio approach) adds the rows of R-21: MAR-298 and MAR-301 to MAR-305, with R-21g deferred.
 
 Amendment 4 (scenario analysis) adds the rows of R-23: MAR-331 to MAR-335.
+
+Amendment 5 (multi-hazard covers) adds the rows of R-22: MAR-336 to MAR-342.
 
 | Issue | Covers | Files (§2) | Starts after |
 |---|---|---|---|
@@ -1658,3 +1680,492 @@ The six decisions don't determine these. The text above settles each as the agen
 - The sources of a hazard name were checked at `parametric` `68f551c`, by reading the code and running builders and `explain()` on synthetic tables, without reading data: ERA5's canonicalization plan states `recipe`, NEX-GDDP-CMIP6's table carries a `recipe` column and its plan has no `explain()`, NOAA water levels state neither, and a bare distribution holds no row. How many of CRC Open's 59 indices share their spelling with the ERA5, CMIP6 and NEX recipes was not checked; `rx1day` does in their docs.
 - A name can only say what a source calls its hazard. A statement for a silent source is taken as given.
 - The cost of `design_on="each"` on a large set was not measured.
+
+## Amendment 5 (2026-11-08, MAR-330): multi-hazard covers
+
+On 2026-11-08 the owner, Marc Prinzing, decided D-22.1 to D-22.8 (in chat; recorded on MAR-250 and MAR-330). They fix the public API of covers and samples over several hazards (R-22, MAR-250), so this amendment comes before any R-22 issue starts, and the owner approves it before it merges. It builds on Amendments 2 and 3 and on errata 11 and 12, and it follows Amendment 4 (scenario analysis, MAR-329), which is recorded separately. "With Amendments 2, 3 and 4" below says where they meet.
+
+The rest of the ADR stands. §2, §3, §4.1, §4.2, §4.3, §4.5, §5.2, §5.3, §6, §7, §9 and §10 keep their text and each carries a one-sentence pointer here, and this amendment says what they now mean, as Amendment 1 did. Every addition has a default, so a one-index cover, a one-hazard sample, their documents, their tables and their hashes don't change, and a plan without `.hazard(...)` gives the same rows, with the new columns beside them. The publication rule applies: this amendment presents the options and what each one records, and nothing here says that a payout family, a dependence model or a cover form does better than another.
+
+### The eight decisions
+
+All eight are option (A) of the refinement on MAR-250. The owner took every recommendation and added the design principle below.
+
+| | Decision |
+|---|---|
+| D-22.1 | Several hazards are another axis, as §4.5 reserves: named `index_components`, with a unit and a tail each, and one asset per multi-hazard sample for now |
+| D-22.2 | On the curve route, Amendment 3's `Independent()`, `Comonotonic()` and `EmpiricalCopula(reference)`, applied across hazards by the same reorder, plus `GaussianCopula(correlation)`; always stated, never defaulted |
+| D-22.3 | A required `combine=` whenever two or more impacts read the sample, with no default: `CappedSum(cap)`, `CompoundDamage()` or a user rule. A component with no impact needs no rule |
+| D-22.4 | A 2-D step table of (m+1)×(q+1) cells, where only the cell below both first thresholds pays nothing |
+| D-22.5 | Free thresholds on a grid: a stated grid per breakpoint and an LP or QP at each point of the product, under `max_grid_points` |
+| D-22.6 | A maximum of payouts takes existing paths: one free common scale over fixed components stays LP or QP; otherwise the numpy grid over the free amounts |
+| D-22.7 | A separate `payout_breakdown` table that adds up to E[π]: each component's payout for `SumOf`, an attribution for `MaxOf`, rows by region for a 2-D grid |
+| D-22.8 | The user protocol is open for vectors: the built-ins pass the same gate |
+
+The alternatives of the refinement:
+
+| | Not chosen | Evidence |
+|---|---|---|
+| D-22.1 | (B) another axis, with several assets and a dependence model over both axes now. (C) the same axis, hazards as pseudo-assets | (C) reuses `join`, but its `"total"` rows would add hazards up. (B) needs a dependence model over two axes that no decision states |
+| D-22.2 | (B) Amendment 3's three only. (C) those and a t copula | `EmpiricalCopula` needs per-year data for both hazards, so cyclone or flood would otherwise have only the two extremes |
+| D-22.3 | (B) a default `CappedSum(1.0)`, with a warning. (C) user tables only | A default would be an unstated assumption |
+| D-22.4 | (B) m×q levels, paying only when both indices are past their first thresholds | Under (A) a year can pay on one hazard alone, and sums and maxima of steps are special cases |
+| D-22.5 | (B) fixed breakpoints only, as D-21.6. (C) one axis at a time | (C) finds a local optimum. (A) needs no new code; two free breakpoints per axis at 8 points are 4,096 candidates |
+| D-22.6 | (B) a new integer route in HiGHS. (C) evaluation only | (B) is exact, but it grows with the draws and has none of §5.4's ranges. (A) fits two to four free amounts |
+| D-22.7 | (B) a Shapley split for every payout. (C) `SumOf` only | (B) needs a stated no-event value per hazard |
+| D-22.8 | (B) built-ins only for now | Under (A) the built-ins pass the same gate, so it adds a test and a paragraph of docs |
+
+**What the code says** (the fork's `parametric` at `68f551c`, read and not changed). One index sits at a few gates: `Cover` requires `index_names == ("index",)` and one `tail`, `design` and `evaluate` read one column of `sample.index`, and `OutcomeSample` has one `index` and one `index_unit`. The solve and the metrics generalise: `design._programme` takes any basis, `_order_edges` any partial order, and `metric_values` reads only loss, payout and probability. `LossModel` holds one impact, and `for_evaluation` raises on several `hazard_names`. Per-year sources offer temperature, precipitation and water levels and no wind, so wind and rain need curves under a copula or a user's table. The core has no multi-hazard code, so no golden fixtures are possible: closed forms and reductions to existing parity cases are the test.
+
+### The design principle
+
+The owner's steer: the module is generic in principle, so that users can run their own analysis. **Every piece below is a public, composable building block, so a user can run an analysis the module doesn't name.** The plan composes the same functions, and its rows equal the function route's.
+
+| Piece | Built in | What a user brings | What is recorded |
+|---|---|---|---|
+| A payout over several indices | `SumOf`, `MaxOf`, `StepGrid` | A class with several `index_names`, through `register_payout` (D-22.8) | Its document, in the cover's hash |
+| The rule for a combined loss | `CappedSum`, `CompoundDamage` | A `CombineRule` (D-22.3) | Its document and sentence, as `combine` |
+| The dependence between curve columns | `Independent`, `Comonotonic`, `EmpiricalCopula`, `GaussianCopula` | A `DependenceModel` | Its document and sentence, as `hazard_dependence` |
+| A multi-hazard sample | `sample_annual_hazards`, `sample_curve_hazards` | A table with several index columns, through `OutcomeSample.from_table` | The table's source and content hash |
+| One hazard's view of a sample | `sample.component(name)` | Nothing: it is a view | `selection` records the step |
+| Separate contracts as one row | `CoverPackage`, `split_budget` | Their covers and shares | The covers' records and the sum of the budgets |
+| What a design minimises, and basis risk | §5.1, §4.4 | `UserObjective`, `BasisRisk`, as today | As today |
+
+A holistic cover against separate covers is the worked example ("Holistic and separate covers"). The same blocks give analyses this amendment doesn't name: a one-index cover designed on the combined loss, `design(template, sample)`; three hazards under one `SumOf`; or a package beside a one-contract `SumOf` of the same terms.
+
+### Several hazards in one sample (D-22.1, §4.1, §4.5)
+
+```text
+# components (R-22a)
+IndexComponent(values, *, unit, tail, hazard=None, own_loss=None)
+OutcomeSample(..., scenario="baseline", index_components=None)
+    .component(name, *, loss="own") -> OutcomeSample
+OutcomeSample.from_table(table, *, period, asset_id, index, loss, probability=None, hazard=None, own_loss=None,
+                         semantics, index_unit, loss_unit, tails=None, source=None) -> OutcomeSample
+    # index: a column, or a mapping from component name to column (two or more)
+    # with a mapping: index_unit is a mapping by name too, tails is required, and hazard and own_loss are mappings,
+    # as is Amendment 4's hazard_name=
+```
+
+- **The field.** `index_components` maps each component's name to an `IndexComponent`, two or more, in order, read-only. It is `None` on every other sample. §4.5 reserved bare arrays. It holds objects instead, because D-22.1 gives each component a unit and a tail and `component()` needs each hazard's own loss. `values`, `hazard` and `own_loss` are (n, 1). `values` are finite. `tail` is `"upper"` or `"lower"`.
+  - `hazard` is the value the loss model read, kept when it differs from the index, as on the sample (§4.1).
+  - `own_loss` is the loss of this hazard alone, in the sample's loss unit. It is `None` for a component with no impact.
+- **The primary.** The first component. `index`, `index_unit` and `hazard` hold its values, as §4.5 says, so code that reads one index reads it. `loss` is the combined loss (D-22.3). `OutcomeSample` raises `SampleError` if `index` differs from the first component's values.
+- **One asset.** A sample with components holds exactly one asset, or `SampleError` says why. `join` refuses one and `asset()` returns it, as on any one-asset sample. Several assets with several hazards need a dependence model over both axes and come later.
+- **Names.** Non-empty, with no surrounding whitespace and no `.`, `+`, `[` or `]`, because parameter names and table columns are built from them. A one-index cover finds its component by name (below), so a name is usually the hazard's.
+- **Splits.** `select`, `holdout` and `year_block_kfold` act on every array and keep the lineage. `holdout` and `year_block_kfold` raise on an `EmpiricalCopula` sample as Amendment 3 says, whichever axis the model is on.
+- **Hashes and tables.** A one-hazard sample's `content_hash` and `to_table` don't change. With components, the hash document adds `components` (each one's name, unit, tail, values, hazard and own loss), and `to_table` adds the columns `index[<name>]`, `hazard[<name>]` and `own_loss[<name>]`, with the units and tails in `crc.parametric.sample`. Both write `schema_version` `"1.1"`, so a reader that knows only `"1.0"` refuses the table, as `from_written_table` does today, and doesn't drop the components.
+- **A user's table.** With a mapping as `index`, `from_table` builds a multi-hazard sample of one asset. Its `loss` column is the combined loss as the caller states it, and `combine` records `{"kind": "table"}`. `hazard_dependence` records `{"kind": "data"}`, as Amendment 3 records a multi-asset table: its rows are what the caller states.
+
+**`component(name, *, loss="own")`** returns that hazard's one-hazard sample, with the same periods and probabilities. Its `index`, `index_unit` and `hazard` are the component's. On a one-hazard sample it raises `SampleError`.
+
+- `loss="own"` holds `own_loss`, so a separate cover can be designed on its own hazard's loss. A component with no impact has none, so the default raises `SampleError`, naming `loss="combined"`.
+- `loss="combined"` keeps the sample's combined loss, for a cover on this index designed against what the owner loses in total.
+- The provenance is the component's own, from `components`, and `selection` records `{"kind": "component", "name": name, "loss": loss}`, so the setup text can say what a design read. The lineage is the sample's, so §4.4's leakage check still sees the source.
+- Under `Independent()` a component holds `sample_curve`'s rows, with `sample_curve`'s `content_hash` for the same generator (R-22e tests it).
+
+**What a cover reads.**
+
+| Cover | On a sample with components | On a one-hazard sample |
+|---|---|---|
+| One `IndexDefinition` | The component named its `hazard_name`. If there is none, `SampleError` lists the names and names `component(name, loss="combined")` | `index`, as today |
+| A `CompositeIndex` | The components of its names, in its order; every name must be in the sample, and each unit and tail must equal the component's | `SampleError` |
+
+A sample may hold components a cover doesn't read. `design` takes the loss of the sample it is given and nothing else: `design(template, sample)` designs on the combined loss, and `design(template, sample.component(name))` on that hazard's own loss. `evaluate` and `compare` read `sample.loss` on a multi-hazard block, so every row of one comparison is on the combined loss.
+
+### Covers over several components (D-22.1, D-22.8, §3)
+
+```text
+# covers (R-22a)
+CompositeIndex(components)      # a mapping from component name to IndexDefinition, two or more, in order
+Cover(index, payout, *, payout_unit, asset_id=None, label=None)     # index: an IndexDefinition or a CompositeIndex
+Cover.payout_values(index_values)     # with a CompositeIndex: (n, k), columns in index_names order; returns (n,)
+```
+
+- **The document.** A one-index cover's document, its `schema_version` `"1.0"` and its `definition_hash` don't change. A cover with a `CompositeIndex` writes the same six keys with `schema_version` `"1.1"`, so a reader that knows only `"1.0"` refuses it by name, and:
+
+  ```text
+  "index": {"components": [{"index": {<an IndexDefinition document>}, "name": "rx1day"},
+                           {"index": {<an IndexDefinition document>}, "name": "txx"}],
+            "kind": "composite"}
+  ```
+
+  It is a list, because canonical JSON sorts keys and the order of `index_names` is part of the terms. `semantics_version` stays `crc-parametric-cover/1`: one row still pays once.
+- **The gate.** `Cover` takes a `CompositeIndex` when `payout.index_names` equals its names and `payout.tail` its tails, in order. It raises `CoverDefinitionError` otherwise. The check for a one-index cover is unchanged.
+- **The protocol (D-22.8).** §3's `PayoutFunction` holds for vectors. `index_names` lists the components. On a payout with several `index_names`, `tail` is a tuple of one `Tail` per name, `evaluate(index)` takes (n, k) and returns (n,), and `basis(index)`, if it has one, returns (n, n_amounts). `register_payout` adds it to the registry as any other. Built-in and user families pass one gate, and a registered test family designs on the LP and QP routes (R-22a).
+
+### Payouts over several indices (D-22.4, D-22.6, §3)
+
+```text
+# payouts (R-22b, R-22c)
+SumOf(components)                   # a mapping from component name to a one-index payout, two or more
+MaxOf(components, *, scale=1.0)     # the same mapping; scale is a float or Free
+StepGrid(breakpoints, levels, *, tail=("upper", "upper"), monotone=True)
+    # breakpoints: a mapping from exactly two component names to thresholds, in increasing severity
+    # levels: an (m+1) x (q+1) table of floats and Free, rows along the first name; levels[0][0] is 0.0
+```
+
+| Family | Payout | Linear in |
+|---|---|---|
+| `SumOf` | Σ_k π_k(s_k) | Every amount, when every component is `LinearInAmounts` |
+| `MaxOf` | A · max_k π_k(s_k) | A, when every component amount is fixed |
+| `StepGrid` | θ_{i,j}, with i and j the bins of s_1 and s_2: bin 0 below the first threshold, bin k for b_{k−1} ≤ s < b_k, the last bin from the last threshold up. θ_{0,0} = 0 | Every level |
+
+- **Registry keys:** `"sum_of"`, `"max_of"` and `"step_grid"`. Component payouts are read through the registry, so a user family can be a component.
+- **Names.** A component's parameter is `<name>.<its name>`: `rx1day.levels[2]`, `txx.attachment`. `MaxOf`'s scale is `scale`. A grid's are `<name>.breakpoints[k]` and `levels[i,j]`, with no `levels[0,0]`.
+- **The grid (D-22.4).** Only the cell below both first thresholds pays nothing, which carries §3's "nothing below the attachment" to two axes, and a year can pay on one hazard alone, in the cells (i, 0) and (0, j). `levels[0][0]` must be 0.0, and `Free` there raises `CoverDefinitionError`. An (m+1)×(q+1) table has (m+1)(q+1) − 1 amounts. `monotone=True`, the default, adds θ_{i,j} ≤ θ_{i+1,j} and θ_{i,j} ≤ θ_{i,j+1}, which is m(q+1) + q(m+1) − 2 rows. Each axis works on its own severity, so mixed tails need nothing more. `monotone=False` is allowed and recorded.
+- **Special cases.** A resolved `SumOf` of two steps equals the grid with levels θ_i + φ_j, and a `MaxOf` the grid with max(θ_i, φ_j), with θ_0 = φ_0 = 0. A grid over three hazards comes later.
+- **`MaxOf`'s scale.** Free over fixed components, it is the one amount of the LP or QP (below). Free beside a free component amount, it raises `CoverDefinitionError`: the scale would multiply amounts that are free already, so it is not identified.
+
+**The correction to §3.** §3 says that `basis` keeps the shape (n, n_amounts), "so the LP and QP routes need no change". That holds for `SumOf` and `StepGrid`. It is wrong for `MaxOf` with free amounts. With one year of loss 1 and two unit payouts, the amounts (1, 0) and (0, 1) leave nothing uncovered and their midpoint leaves 0.5, so the objective isn't convex in the amounts and no LP represents it.
+
+**`Limit` (§3, §5.2).** §3's "every amount ≤ ℓ" holds for a family whose `basis` rows sum to at most 1: the four built-ins and `StepGrid`. A `SumOf`'s rows can sum to its number of components, so on a `SumOf` **`Limit(ℓ)` bounds the year's total**.
+
+- For every choice of one amount per component, the chosen amounts sum to at most ℓ. Each component pays at most its largest amount and any component can reach it, so that is the worst year. With every component monotone it is one row, the last amounts; otherwise it is Π_k n_k rows, in `a_ub`. The rows of each component's `basis` must not sum above 1 on a design sample, and `design` raises `DesignError` if they do, because the limit rows then don't bound the year.
+- On a `MaxOf` with a free scale, with G the largest amount of any component, `Limit(ℓ)` is A ≤ ℓ / G.
+- `Limit` stays a constraint on the amounts. It isn't a clip, so nothing caps a payout at evaluation, and no new term enters the cover's document.
+- The numpy grid route checks a `LinearInAmounts` candidate against `constraints.upper` only. A total limit sits in `a_ub`, so R-22b makes that check read `a_ub`. Today such a candidate is not dropped, and the design ends in `DesignError`.
+
+### Design (D-22.5, D-22.6, §5.3)
+
+§5.3's table reads as before, and these rows join it:
+
+| Payout | Free shape parameters | Objective | Pricing | Route |
+|---|---|---|---|---|
+| `SumOf` of `LinearInAmounts` components | none | any built-in | any | one LP or QP on the block basis [B_1 \| … \| B_K] |
+| `StepGrid` | none | any built-in | any | one LP or QP, on the one-hot basis of the cells |
+| `SumOf` or `StepGrid` | some | any built-in | any | §5.3's grid over the shape candidates, with the LP or QP above at each point, under `max_grid_points` (D-22.5) |
+| `MaxOf` with `scale=Free(...)` and fixed component amounts | none, or on a grid | any built-in | any | one LP or QP in one amount, with basis max_k π_k(s_k), at each shape candidate |
+| `MaxOf` with a fixed scale, a `SumOf` with a component that isn't `LinearInAmounts`, a user vector payout without `LinearInAmounts`, or a `UserObjective` | any | any | any | §5.3's numpy grid over every free parameter, under `max_grid_points` |
+
+- **The gate.** §5.3's first rows now read "`LinearInAmounts` with at least one amount". `MaxOf` and `SumOf` answer `amount_names()` with `()` when their amounts aren't linear in the sense above, and `design` then takes the numpy grid. So each family keeps one public name, and a user family with no amounts takes the same route.
+- **A free breakpoint** needs a grid (§3). Candidates are the product over every free threshold of every axis, restricted to ordered thresholds. Two free breakpoints per axis at 8 points are 4,096 points, of which 784 are ordered when each axis's two breakpoints share one grid.
+- **The numpy grid** fits two to four free amounts: four at 10 points each is 10,000 candidates, the default cap, and at 11 points `design` raises.
+- **§5.4 applies.** A grid cell that no design year reaches is `unidentified`, and `fill` runs on the two-axis order. A `SumOf`'s amounts may not be identified when two components' columns are linearly dependent, and `unique` says so.
+- **`DesignResult`** names parameters as above. Nothing else changes. `design_joint` raises on a composite template, because D-22.1 keeps one asset per multi-hazard sample.
+
+### The combined loss (D-22.3, §4.3)
+
+```text
+# the loss of several hazards (R-22d); frozen, numpy only
+CappedSum(cap)      # min(sum of the impacts, cap); cap > 0, in the impacts' unit
+CompoundDamage()    # 1 - product of (1 - impact); every impact in [0, 1]
+class CombineRule(Protocol):
+    def to_document(self) -> dict[str, Any]                       # plain JSON, with a "kind"
+    def statement(self) -> str                                    # one sentence for the setup text
+    def combine(self, impacts: Mapping[str, NDArray]) -> NDArray  # (n,), finite, >= 0
+```
+
+- **The order.** Each component's impact comes from its `LossModel`, on its hazard, after the basis-risk model (§4.4). `own_loss` is that impact times the value. The rule takes the impacts, and the combined loss is the rule's result times the value. So `CappedSum(1.0)` of 0.7 and 0.6 is 1.0, and `CompoundDamage()` is 1 − 0.3 · 0.4 = 0.88.
+- **Required, with no default (D-22.3).** Two or more impacts without `combine=` raise `SampleError`, naming the rules. `combine=` with fewer than two impacts raises too, rather than being ignored. A component with no impact is left out of `loss_models` and needs no rule. A sample with no impact at all raises: it has no loss.
+- **One value.** The loss models must have one value, one `value_unit` and one `value_column`, or `SampleError` says which.
+- **A user rule** passes the same gate: the document is plain JSON with a `kind` other than a built-in's, `statement()` is a non-empty string, and the result has shape (n,), finite and non-negative. A bare callable raises `TypeError`, because every rule has a document.
+- `CompoundDamage()` raises `SampleError` if an impact lies outside [0, 1]. `ImpactNoise` without `upper=1` can put one there.
+- A rule that caps or compounds makes the combined loss smaller than the sum of the own losses. "Holistic and separate covers" says what that does to a budget.
+
+### Samples across hazards (D-22.2, §4.2)
+
+```text
+# per-year (R-22d)
+sample_annual_hazards(series, *, tails, loss_models, combine=None, basis_risk, asset_id, rng=None,
+                      missing="raise", trend=AsRecorded(), scenario="baseline", hazard_names=None) -> OutcomeSample
+    # series, tails, loss_models: mappings by component name; the order of series sets the components
+    # hazard_names: Amendment 4's hazard_name=, a mapping by component name
+
+# curves (R-22e)
+sample_curve_hazards(curves, *, dependence, metadata, n_draws, rngs, loss_models, combine=None, basis_risk,
+                     asset_id, assume_semantics=None, outside_support="raise", details=None,
+                     scenario="baseline", hazard_names=None) -> OutcomeSample
+    # curves, metadata, rngs, loss_models: mappings by component name; the order of curves sets the components
+    # dependence: required, no default. Tails come from each dataset's return_period_tail
+```
+
+**Per-year values** carry the real dependence: `hazard_dependence` is `{"kind": "data"}`, written "the data's own". The series must hold the same years, or `SampleError` lists each one's years. Under `missing="drop_year"` a year missing from any series is dropped from all of them and listed. The setup text states that two annual maxima of one year may come from different events: the rows are the same years, not the same events. `trend=` is one option for every series, with one fit per series on the same fit years and the same reference year, as Amendment 2 says of an index series. One basis-risk model serves every component and draws in component order from `rng`, and `NoBasisRisk()` warns as for one hazard. `index=` is not offered here: a user's table can state an index that differs from the hazard.
+
+**Fitted curves** carry no dependence. `sample_curve_hazards` mirrors `sample_curves`: each component is what `sample_curve` makes with that component's generator (uniforms first, then the basis-risk model), and the dependence model then puts each component's rows in another order. A row's hazard, index and own loss stay together and no value changes. The combined loss is computed after the reorder. `period` is the draw number. The lineage leaves the model out, as in `sample_curves`.
+
+### Dependence across hazards (D-22.2)
+
+```text
+# dependence (R-22e); numpy and the standard library
+GaussianCopula(correlation)     # a number in [-1, 1] for two columns, or a positive definite matrix in column order
+class DependenceModel(Protocol):
+    def to_document(self) -> dict[str, Any]                                      # plain JSON, with a "kind"
+    def record(self, n_draws: int, columns: Sequence[str]) -> dict[str, Any]     # what the sample records
+    def statement(self, n_draws: int, between: str) -> str                       # the sentence next to a number
+    def reorder(self, uniforms: NDArray, columns: Sequence[str]) -> NDArray[int64]   # (n, d): each row's draw per column
+```
+
+- **The same reorder.** `Independent()`, `Comonotonic()` and `EmpiricalCopula(reference)` already name their columns, so they serve hazards by the same call, with the component names as `columns`. A model is stated on `sample_curve_hazards` and never defaulted.
+- **`EmpiricalCopula(reference)`** takes a multi-hazard `OutcomeSample` of per-year rows holding exactly the sample's components, ranked on each component's `hazard`, or on its values when it has none. Amendment 3's rank blocks, n = k·m, and its ties apply unchanged. It needs per-year data for both hazards, which is why D-22.2 adds `GaussianCopula`.
+- **`GaussianCopula(correlation)`** keeps Amendment 3's rule that every model only reorders. With z_j = Φ⁻¹(u_j), the normal scores of each column's own uniforms, and y = z Lᵀ with L the Cholesky factor of the correlation matrix, column j's draw of rank r goes to the row where y_j has rank r. For two columns, y_1 = z_1 and y_2 = ρ z_1 + √(1 − ρ²) z_2. Φ⁻¹ is the standard library's `statistics.NormalDist().inv_cdf`, on uniforms clipped to the open interval. It uses no random numbers beyond the draws. It is a function of the uniforms, so Amendment 4's shared uniforms give one reorder. ρ = 0 equals `Independent()` and ρ = 1 equals `Comonotonic()` row for row, which R-22e tests. `correlation` is the copula's parameter, and the rows' Spearman rank correlation is about 6/π · arcsin(ρ/2).
+
+  | Where the normals come from | Random numbers | ρ = 0 | Assessment |
+  |---|---|---|---|
+  | **Normal scores of the columns' own uniforms** (recommended) | None | `Independent()`, row for row | Needs Φ⁻¹, which the standard library has. Keeps Amendment 3's rule |
+  | A generator the model holds, `seed=` | One stated stream | A random reorder | Needs no Φ⁻¹, but a design and its fresh draws share one rank pattern unless each block has its own seed |
+  | Each column's generator, after its draws | More draws from each | A random reorder | Moves the generators, which §4.4's draw order and Amendment 4's shared-draws check would need to take in |
+  | A generator seeded from a hash of the uniforms | None moved | A random reorder | A function of the uniforms too, but it loses the exact reductions, which are the plainest test |
+
+- **Mixed tails.** Every model reorders by the values of the draws, not their severity. With one `"upper"` and one `"lower"` component, `Comonotonic()` pairs the most severe of one with the least severe of the other, and the setup text says so.
+- **The user protocol.** `DependenceModel` is what the built-ins already do. `sample_curves` and `sample_curve_hazards` take anything that passes one gate, run before the sample is returned, which raises `SampleError` unless:
+  - `to_document()` is plain JSON and its `kind` isn't a built-in's, so nothing else can be recorded as `"independent"`;
+  - `statement(...)` is a non-empty string, which for a user's model the module writes after its own opening, "The dependence between the hazards is an assumption:", so no model can leave that word out (the built-ins' sentences already open so);
+  - `reorder` returns integers of shape (n, d), each column a permutation of 0 to n − 1, so no draw is dropped, repeated or changed;
+  - two calls on the same uniforms agree: a model may hold its parameters, but no generator its document doesn't describe.
+
+  A bare callable raises `TypeError`, as for a payout.
+- **`GaussianCopula`** is Amendment 3's "comes later": one class, so `sample_curves` takes it too. The union `Dependence` stays exported and gains it.
+- **The record.** The sample's `hazard_dependence` holds `model.record(n_draws, components)`, and the setup text prints the model's sentence, so the dependence is always called an assumption.
+
+### Holistic and separate covers (the owner's steer)
+
+**A holistic cover against separate covers is a supported analysis.** One comparison holds, on the same draws and the same combined loss: the 2-D cover designed on the combined loss, each single-hazard cover, and the package of the separate covers as one row.
+
+```text
+# separate contracts (R-22b)
+CoverPackage(covers, *, label=None)
+    # covers: a mapping from component name to a resolved one-index Cover or a design; all covers or all designs
+    .covers -> Mapping[str, Cover]
+    .payout -> SumOf            # the SumOf built from the covers as designed: every amount fixed
+    .as_cover() -> Cover        # the same payout as one contract
+    .package_hash -> str        # covers_hash of .covers
+split_budget(budget, sample, *, shares) -> Mapping[str, Budget]
+    # shares: "own_loss", or a mapping from component name to a share, the shares summing to 1
+
+# the comparison, in full
+train, test = holdout(sample)                         # or a second sample of fresh draws, under the same dependence
+budgets = split_budget(Budget(amount=B), train, shares="own_loss")
+holistic = design(grid, train, objective, pricing=pricing, budget=Budget(amount=B))
+rain = design(rain_template, train.component("rx1day"), objective, pricing=pricing, budget=budgets["rx1day"])
+heat = design(heat_template, train.component("txx"), objective, pricing=pricing, budget=budgets["txx"])
+table = compare([holistic, CoverPackage({"rx1day": rain, "txx": heat}, label="separate")], test, split="out_of_sample")
+```
+
+| Row | `level` | `components` | Designed on | `premium` |
+|---|---|---|---|---|
+| The grid | `"asset"` | `rx1day+txx` | The combined loss | Its design premium |
+| Rain's cover | `"asset"` | `rx1day` | Rain's own loss | Its design premium |
+| Heat's cover | `"asset"` | `txx` | Heat's own loss | Its design premium |
+| `separate` | `"package"` | `rx1day+txx` | Each cover on its own | The sum of the two |
+
+Every row has one `sample_hash`, and its metrics are on the combined loss.
+
+**What a package is.** A `CoverPackage` holds separately designed contracts. Its `.payout` is the owner's "`SumOf` built from covers already designed", with every amount fixed. `compare` and `evaluate` treat it as Amendment 3 treats a set of covers: one row per cover and one row for the sum.
+
+| Option | What it is | Assessment |
+|---|---|---|
+| **`CoverPackage`** (recommended) | A small frozen type, with the covers or designs by component name | Priced as separate contracts, keeps each design's record, has a label and its own hash, and can't be read as one contract. One new public name |
+| A `SumOf` cover built from the designs | One resolved `Cover` | One document and one premium: under a cost-of-capital load that is the load on the sum, not the sum of two loaded premiums, so it needs `premium=` by hand, and the designs' records are lost. It stays available, as `.as_cover()`, for what one contract with these terms would be |
+| Amendment 3's mapping, keyed by component name | No new type | No label and no hash of its own, and one form would mean assets on one sample and hazards on another, which breaks once a sample holds both |
+| A `contracts=` term on `SumOf` | A flag in the cover's document | Puts a pricing statement in the contract's terms and hash, and `compare` still needs each contract's premium |
+
+- **The covers.** Two or more. Each key is the component the cover reads, so it needn't equal the cover's `hazard_name`. Each is one-index, and all share one `payout_unit` and one `asset_id` (or none). A mix of covers and designs raises `EvaluationError`, as in Amendment 3, and Amendment 3's mapping on a multi-hazard sample raises, naming `CoverPackage`. A package of composite covers is a later, additive option.
+- **The rows.** One `"asset"` row per cover, with its own `cover_hash` and `design_id`, and one `"package"` row:
+
+  | Column | The `"package"` row |
+  |---|---|
+  | `level` | `"package"`: the sum of one asset's separate contracts. `asset_id` stays the asset |
+  | `scope` | `"individual"` |
+  | `cover_hash` | `package_hash`, so it can't collide with the `definition_hash` of a one-contract `SumOf` of the same terms |
+  | `cover_label` | `label`, or the first 12 hex digits of the hash |
+  | `design_id`, `unique`, `ties`, `degenerate_tail` | Null, as on a `"total"` row of a set of covers: they describe single designs, which the cover rows carry |
+  | `premium`, `premium_basis` | The sum of the cover rows' premiums, and their basis. `evaluate`'s `premium=` states the total instead (`"stated"`) |
+  | `design_budget` | The sum of the covers' budget bounds; null if any has none |
+  | The metrics | §6 on the combined L_d and π_d = Σ_k π_{d,k} |
+
+  A package's covers listed again as entries of the same `compare` repeat a key, and `compare` raises.
+- **The premium** is the sum of the two contracts', each on its own terms:
+
+  | Pricing | The package's premium | The same payout as one contract |
+  |---|---|---|
+  | `PurePremium()` | Σ_k E[π_k] | The same |
+  | `CostOfCapitalLoad(r, q)` | Σ_k ((1 − r) E[π_k] + r CVaR_q(π_k)) | (1 − r) E[π] + r CVaR_q(π), which is at most the sum |
+
+  A loading isn't additive across contracts, because CVaR is subadditive, so the setup text says which contracts a premium prices. Each premium is the one §6 gives that contract: a design's, on its design sample; a cover's as given, priced on the block, or on the reference under Amendment 4.
+- **Each cover keeps its own limit.** A `Limit` or `Free(upper=...)` stated at a cover's design is that contract's term, in its amounts. A package has no limit of its own: its largest year is at most the sum of its covers' limits. `Limit(ℓ)` on a `SumOf` template is a different thing, one contract's bound on the year's total, and on a `StepGrid` a bound on every cell. So limits of ℓ_1 and ℓ_2 on separate contracts match a holistic limit of ℓ_1 + ℓ_2 at the largest year only, and the setup text states each.
+- **The budget.** A budget is a design's (§5.2), so each row has its own, and `design_budget` shows it. For a like-for-like statement the bounds of the separate contracts sum to the holistic one, under one pricing:
+
+  | Holistic | Separate contracts | The sum of the budgets |
+  |---|---|---|
+  | `Budget(amount=B)` | `split_budget(Budget(amount=B), train, shares=...)` | B |
+  | `Budget(ratio=κ)` | `split_budget(Budget(ratio=κ), train, shares=...)` | κ·E[L] on the combined loss |
+  | `Budget(ratio=κ)` | `Budget(ratio=κ)` on each own loss | κ·Σ_k E[L_k], which exceeds κ·E[L] when the rule caps or compounds in some year |
+
+  `split_budget` returns `Budget(amount=...)`, the bound on `sample` times each share. `shares` has no default, because how to split a budget between two hazards is an assumption. `"own_loss"` takes each component's share of the summed expected own losses and raises if a component has no own loss. A mapping states the shares. The third row is a legitimate statement of a different budget: `compare` neither refuses nor adjusts it, and the setup text gives the numbers. Under a cost-of-capital load, equal premiums don't mean equal expected payouts.
+- **The same draws and the same combined loss.** There is one multi-hazard sample and one split. `component()` views a block, with the block's periods and lineage, so each separate cover is designed on the rows the holistic cover is designed on, with its own hazard's loss. `compare` evaluates every entry on the held-out block's `loss`, the combined loss. §4.4's check holds for each pair: as Amendment 3 does for a set, `compare` checks the design sample of each contract and of each one-index design against the same component view of the block, and compares a stated `design_sample=` with that view of it.
+
+### `payout_breakdown` (D-22.7, §6)
+
+```text
+payout_breakdown(covers, sample, *, split, fold=0, options=MetricOptions(), design_sample=None) -> pyarrow.Table
+    # covers: what compare takes; a one-asset sample
+```
+
+One row per entry and part, a separate table, with the identity columns of `compare` and `part`, `part_kind`, `expected_payout`, `share` (of E[π], null when E[π] = 0) and `payout_frequency`, P(the part pays more than `options.payout_threshold`).
+
+| Entry | `part` | `part_kind` | What a row holds |
+|---|---|---|---|
+| A one-index cover | The component's name | `"component"` | The cover's payout |
+| `SumOf`, `CoverPackage` | Each component | `"component"` | That component's payout |
+| `MaxOf` | Each component | `"attribution"` | Each year's payout, to the component paying most; equal shares when several tie. It is labelled an attribution: one contract pays one amount |
+| `StepGrid` | `only:<first>`, `only:<second>`, `both` | `"region"` | The payout of the years where one index is past its first threshold and the other isn't, and of those where both are. A grid has no payout per hazard |
+| A user vector payout with `breakdown(index) -> Mapping[str, NDArray]` | Its keys | `"user"` | Its columns, which must add up to the payout |
+| A user vector payout without one | `whole` | `"whole"` | The payout |
+
+The rows of one entry add up to its E[π], within the metrics' tolerance, and `payout_breakdown` checks it. The table holds §7's metadata under the same key, and `write_comparison` writes it.
+
+### The plan (§2, Layer 2)
+
+```text
+ParametricPlan
+    .hazard(name, source=None, *, impact=None, unit=None, tail=None, provenance=None, location=None,
+            year_column="year", hazard_column="value", hazard_name=None)       # R-22f
+    .combine(rule)                                           # required when two or more impacts read the hazards
+    .package(covers, *, label, shares=None)                  # covers: component name to a cover_label in .covers(...)
+    .payout_breakdown() -> pyarrow.Table                     # execution
+```
+
+- **`.hazard(...)`** adds a component. On a plan on curves, `source` is a second `PortfolioEvaluation` for the same assets, selecting one hazard, horizon and pathway, and its `.impact(...)`, if stated, is that component's impact. The plan's own request is the first component, named by its selected hazard. On a per-year plan `source` takes what `for_annual_extremes` takes, and `.hazard(name, tail=...)` with no `source` names the plan's own hazard as a component and comes first. Amendment 4's `hazard_name=` stays what names a hazard in the record. `for_evaluation` keeps refusing several hazards in one request.
+- **`.dependence(model)`** is required on a plan on curves with `.hazard(...)`, and states the dependence across the hazards. On a per-year plan it raises, as today.
+- **Refusals** (`ValueError`, at `explain()` and every execution point): `Joint()`, `pool=` and `.index(...)` on a plan with `.hazard(...)`.
+- **What is designed on what.** A composite template is designed on the combined loss. A one-index template is designed on its own hazard's loss, `component(name)`; on a component with no impact it raises, naming the function route.
+- **`.package(...)`** names one-index templates or covers by label. With a budget on `.objective(...)`, `shares` is required: the budget is the holistic one, and each template named in a package takes `split_budget(budget, block, shares=shares)[name]` on each design block. A template named in no package takes the budget as stated. Without a budget, `shares` raises. With several objectives, each gives one package.
+- **Generators.** An asset's child generator (§2) draws the first component, and each other component a generator spawned from that child, in component order. So the first component draws what the one-hazard plan draws.
+- `explain()` lists the hazards, the rule, the dependence and the packages, without I/O. `.samples()` returns one multi-hazard sample per asset.
+
+### With Amendments 2, 3 and 4
+
+- **Amendment 2.** `trend=` and `scenario=` apply as above. `pool=` and `.index(...)` raise on a plan with `.hazard(...)`: a pool across hazards would need the same (year, model, member) rows for every hazard, which no decision states, and an index read elsewhere has no per-component form yet.
+- **Amendment 3.** A multi-hazard sample has one asset, so `level` takes `"asset"` or `"package"`, `scope` is `"individual"`, and no `"total"` row appears on one. `join` and `design_joint` refuse one. `.dependence(...)` doesn't mean both axes: a plan with `.hazard(...)` can't hold `Joint()`.
+- **Amendment 4: scenarios compose, and no concrete blocker was found.** A multi-hazard sample goes through `ScenarioSet` and `compare_scenarios` like any other, and a `CoverPackage` is an entry like any other. On top of Amendment 4's fields, `ScenarioSet` compares:
+
+  | Field | What is compared | Between |
+  |---|---|---|
+  | The components | Their names, in order | All |
+  | Units and tails | Each component's, exactly | All |
+  | Hazard names | Each component's name in its `hazard` record, exactly (Amendment 4's check, per component) | All |
+  | Loss models | Each component's `loss_model` document in `components` | All |
+  | The rule | The `combine` document | All |
+  | Hazard dependence | The `hazard_dependence` document | Curve scenarios |
+  | Shared draws | `period`, and the generator record of every `hazard` step of every component | Curve scenarios |
+  | Equal curves | The curve documents of any one component | Curve scenarios |
+  | A bound cover | Each component's location, against Amendment 4's table | Each cover and scenario |
+
+  - **Hazard names.** Amendment 4's check of the hazard a scenario reads applies per component. A component's record is in `components`, stated through `hazard_names=` under Amendment 4's rule where its source is silent, and `SampleProvenance.hazard` is null on a multi-hazard sample, which has several. A component's name isn't taken for a hazard name. A component with no impact reads no loss, so, like a separate index series, it needs no name.
+  - **`pathway` and `horizon`** must agree across a sample's components, or `ScenarioError` says which. **`product`** is the one Amendment 4 left open, and it is relaxed: a multi-hazard sample may read several products, and the column holds the distinct providers, sorted, joined by `+`. The two-products check compares those strings.
+  - **Premiums.** A package's `premium`, `premium_repriced` and basis are the sum of its cover rows', as for the `"total"` row of Amendment 4's table.
+  - **Years beside draws.** Amendment 4's setup statement 11 also covers `hazard_dependence`: the data's own on one side and the stated model on the other.
+  - **The plan.** `AnnualScenario` and `CurveScenario` each describe one source, so on a plan with `.hazard(...)` their `source` or `dataset`, and the per-source keywords, take a mapping by component name. Every selected (pathway, horizon) must exist for every hazard. `design_on` applies per design block, and a package is built from the designs on that block.
+
+### The publication rule
+
+- **D-21.4 is read as not covering this comparison.** D-21.4 says no table or figure sets individual against joint until the owner revisits the RQ2 rule (MAR-152 item 4). It concerns joint calibration across one owner's assets. A holistic cover is one contract on one asset's hazards. So this amendment reads D-21.4 as not covering the comparison of a holistic cover with separate covers, and the owner's approval of this amendment confirms or corrects that reading.
+- **The module's docs and the notebook** give that comparison as a measurement of a stated setup, out of sample, with no claim that either form is better. `compare` has no rank and no best flag. The same holds for payout families and dependence models.
+- Tail statements stay conditional on a stated setup (the RQ1 rule).
+
+### The metadata (§7)
+
+- **`SampleProvenance`** gains `hazard_dependence`, `combine` and `components`, each with a default and null on a one-hazard sample. `hazard_dependence` says where the dependence between the hazards comes from, and a sample with components must state it, as a multi-asset sample must state `dependence`. `combine` holds the rule's document and sentence, or `{"kind": "table"}`. `components` holds each component's own provenance document, by name. The `rng` and `sources` entries name their component.
+- **`setup.samples`.** Each entry gains `components` (names, units, tails, whether each has an own loss), `combine` and `hazard_dependence`.
+- **`covers`** holds composite documents. A package's entry is `{"kind": "package", "covers": {<name>: <cover hash>}}` under `package_hash`, beside the covers' own entries.
+- **`setup.evaluations`.** `level` may hold `"package"`.
+- **The comparison table** gains `level="package"` and two columns beside the identity columns, which `to_long` keeps: `components` (string, nullable: what the row's cover reads, joined by `+`; null on a one-hazard sample) and `design_budget` (float64, nullable: the design's budget bound in payout units, the sum on a package; null for a cover given as is). The key of §6 doesn't change. A table without them reads as null, a document without these keys reads as before, and `schema_version` stays `"1.0"`.
+- **`setup_text`** states, next to the numbers:
+
+  1. Every component: its name, hazard, unit, tail, where it is read, and its source.
+  2. The rule for the combined loss, or that a table states the loss.
+  3. `hazard_dependence`: the data's own, with the sentence on annual maxima, or the model's sentence, calling it an assumption. With mixed tails, that dependence is between values, not severities.
+  4. For every row: which components its cover reads, what loss it was designed on (the combined loss, or its own), its budget and its pricing.
+  5. That every row's metrics are on the combined loss, so a single-hazard cover's row sets its own payout against both hazards' loss.
+  6. For a package row: each contract's budget and premium, their sums, that each cover keeps its own limit, and that a loading isn't additive across contracts.
+  7. For a `MaxOf` breakdown, that the rows are an attribution.
+
+### What the other sections now mean
+
+- **§2.** The outlines gain the entries above. The module layout gains `combine.py` (R-22d: `CappedSum`, `CompoundDamage`, `CombineRule`). `index.py` gains `CompositeIndex`, `sample.py` `IndexComponent`, `payouts.py` `SumOf`, `MaxOf` and `StepGrid`, `sources.py` `sample_annual_hazards` and `sample_curve_hazards`, `dependence.py` `GaussianCopula` and `DependenceModel`, and `evaluate.py` `CoverPackage`, `split_budget` and `payout_breakdown`.
+- **§3.** `Cover` takes a `CompositeIndex` beside an `IndexDefinition`. The `index_names` comment of the protocol and "In Phase 1, `Cover` requires `index_names == ("index",)`" hold for a one-index cover. "So the LP and QP routes need no change" is replaced by "The correction to §3" and §5.3's rows above. "Every amount ≤ ℓ" holds as "`Limit`" above says.
+- **§4.1.** `OutcomeSample` gains `index_components` and `component()`. `SampleProvenance` gains the three fields above.
+- **§4.2.** The table gains `sample_annual_hazards`, `sample_curve_hazards` and a table with several index columns.
+- **§4.3.** `LossModel` keeps one impact. Several go through `loss_models=` and `combine=`.
+- **§4.4.** One basis-risk model serves every component. The index at a reference point for Monte Carlo samples stays out of this amendment.
+- **§4.5.** "`index_components: Mapping[str, NDArray]`" now reads as `IndexComponent`s. "`index` stays the primary component" stands.
+- **§5.2.** `Limit` on a `SumOf` bounds the year's total.
+- **§5.3.** The table gains the rows above, and its first rows read "with at least one amount".
+- **§6.** The table gains the level, the columns and the separate table above.
+- **§7.** As "The metadata".
+- **§9, multi-hazard.** This amendment settles the item. A trigger on one hazard scaled by another, which MAR-250 names, is not in this split. It can be an additive family later, and under D-22.8 a user can register it.
+- **Amendment 3.** "`GaussianCopula(correlation)` comes later" is this amendment. "Every model only reorders" holds for it, and `sample_curves` takes it and any `DependenceModel`.
+- **Amendment 4.** "Amendment 5 may relax this for `product`" is the relaxation above.
+- **"Not verified" in the first part of this ADR.** "How fast a vectorised standard normal is without scipy": measured, below.
+
+### The issue map (§10)
+
+R-22 is split as below (each about one PR). The other rows stand.
+
+| Issue | Covers | Files (§2) | Starts after |
+|---|---|---|---|
+| MAR-336 (R-22a) | `IndexComponent`, `index_components`, `component()`, `CompositeIndex`, covers with several `index_names`; the documents and hashes of both kinds; a user table with several index columns; `design`, `evaluate` and `compare` read components; §5.3's gate; a registered test family on the LP and QP routes | `index`, `cover`, `payouts`, `sample`, `design`, `evaluate`, `metadata` | This amendment, MAR-298, MAR-303 |
+| MAR-337 (R-22b) | `SumOf`, `MaxOf`, the limit rows and the grid route's check of `a_ub`; `CoverPackage` and `split_budget`; `level="package"`, `components` and `design_budget`; `payout_breakdown`. Tests: a `SumOf` whose second component never pays reproduces 1-D parity cases, one per objective, and `MaxOf` with one scale, MSE and no budget gives A* = Σ p L g / Σ p g² | `payouts`, `design`, `evaluate`, `metrics`, `metadata`, `__init__` | R-22a |
+| MAR-338 (R-22c) | `StepGrid`; free breakpoints on the grid route; unreached cells in `unidentified`; the region rows of `payout_breakdown`. Tests: under MSE with no budget and `monotone=False`, each reached level is its cell's mean loss, and with every year below the second axis's first threshold it equals `StepPayout` on a 1-D parity case | `payouts`, `evaluate` | R-22b |
+| MAR-339 (R-22d) | `CappedSum`, `CompoundDamage`, `CombineRule`; `sample_annual_hazards`; `own_loss`; `hazard_dependence` `{"kind": "data"}`; the setup text on the rule and on annual maxima | `combine` (new), `sources`, `sample`, `metadata` | R-22a, MAR-295 |
+| MAR-340 (R-22e) | `sample_curve_hazards`; `GaussianCopula`; `DependenceModel` and its gate; `EmpiricalCopula` on components; the setup text on the assumption | `dependence`, `sources`, `sample`, `metadata` | R-22d, MAR-302 |
+| MAR-341 (R-22f) | `.hazard`, `.combine`, `.package`, `.payout_breakdown`; results equal the function route; the refusals; the scenario fields above; the method section of `docs/parametric.md` | `plan`, `scenarios`; `docs/parametric.md` | R-22c, R-22e, MAR-304, MAR-334 |
+| MAR-342 (R-22g) | The notebook section in crc-docs: heavy rain and heat at the primer's Toronto site. ERA5 `rx1day` and `txx` carry the real dependence; CRC Open curves of the same two use an `EmpiricalCopula` from those years, printed as an assumption; the `txx` impact is labelled illustrative. Every number out of sample next to `setup_text`, and the comparison of the holistic cover with the separate covers a measurement of that setup, with no claim that a cover, payout family or copula is better | crc-docs fork | R-22f, MAR-299, and the owner's permission to download CRC Open for this section |
+
+Later, not in this split: several assets with several hazards, grids over three hazards, and a trigger on one hazard scaled by another.
+
+### Beyond the eight decisions
+
+The eight decisions don't determine these. The text above settles each as the agent recommends, and the owner's approval of this amendment covers them. The PR lists the alternatives of each.
+
+1. `index_components` holds `IndexComponent`s, not §4.5's bare arrays.
+2. The first component is the primary, and `loss` is the combined loss.
+3. Component names exclude `.`, `+`, `[` and `]`.
+4. A one-index cover finds its component by `hazard_name`, and a package by its key.
+5. `component(name, *, loss="own")` has `loss="combined"`, and raises by default on a component with no impact.
+6. `design` uses the loss of the sample it is given, with no multi-hazard rule of its own.
+7. Composite cover documents and multi-hazard written samples write `schema_version` `"1.1"`.
+8. A vector payout's `tail` is a tuple, in `index_names` order.
+9. §5.3's gate is "`LinearInAmounts` with at least one amount", so `MaxOf` and `SumOf` keep one public name each.
+10. A free scale beside a free component amount raises.
+11. `Limit` on a `SumOf` is combination rows in `a_ub`. `basis` rows are checked per component, and the grid route learns to read `a_ub`.
+12. `StepGrid` takes the whole table with `levels[0][0]` equal to 0.0, and its parameters are `levels[i,j]`.
+13. `GaussianCopula` reads normal scores of the columns' own uniforms, through the standard library. The table above has the options.
+14. `correlation` is a number for two columns and a positive definite matrix otherwise.
+15. `DependenceModel` and its gate, and the opening sentence the module writes.
+16. `sample_curves` takes `GaussianCopula` and any `DependenceModel`.
+17. A rule acts on impacts, before the value, and needs one value.
+18. `combine=` with fewer than two impacts raises, and a sample with no impact raises.
+19. `sample_annual_hazards` and `sample_curve_hazards`, with one generator per component on curves.
+20. `basis_risk` is one model per sample, and `index=` isn't offered on the multi-hazard sources.
+21. `CoverPackage`, not a `SumOf` cover or a mapping. The table above has the options.
+22. A package entry also gives one row per cover.
+23. `level="package"`, with `asset_id` kept.
+24. The columns `components` and `design_budget`.
+25. `split_budget`, with no default for `shares`.
+26. `payout_breakdown`'s columns, equal shares on a `MaxOf` tie, and an optional `breakdown` on a user payout.
+27. `.hazard(name, source=None, ...)`, with `source=None` naming a per-year plan's own hazard.
+28. On a plan a one-index template is designed on its own hazard's loss.
+29. `.package(...)` splits the plan's budget by `shares`.
+30. The first component draws the asset's own child stream, and the others spawn from it.
+31. `product` joins a multi-hazard sample's providers with `+`.
+32. A curve scenario's equal-curves refusal reads any one component.
+33. Amendment 4's `hazard_name=` is a mapping by component on a multi-hazard sample, and a component's name isn't taken for a hazard name.
+
+### Not verified
+
+- No R-22 code exists, so every name is a proposal. Amendment 4's names are those of its open PR (MAR-329, at `f982d62`). A throwaway check (2026-11-08, not committed; script and output in the PR) ran the fork's `parametric` at `68f551c` and numpy on synthetic numbers, without any CRC, ERA5 or NEX data:
+  - **The module's real LP and QP routes**, on stand-in families registered with one encoded index, because `Cover` still refuses several `index_names`. A 2-D table under MSE, no budget and `monotone=False` gave every reached level within 6e-11 of its cell's mean loss, with the unreached cell in `unidentified`. Under E[U] and weighted CVaR, with pure and cost-of-capital pricing, the levels were monotone on both axes, and `fill` ran on the two-axis order under both rules.
+  - **A `SumOf` basis.** With a second axis that never pays, the objective equalled `StepPayout`'s under MSE, E[U] and weighted CVaR, to eight digits. A total limit bound at 8.0, also when its row touched an unidentified amount.
+  - **`MaxOf`.** One scale under MSE gave the closed form A*. The numpy grid took 1.1 s on 549 rows and 2.9 s on 5,490 at 10,000 candidates, on one macOS arm64 machine. At 11 points each the design raises (14,641 points).
+  - **The grid route with a total limit in `a_ub`** picks an over-limit candidate and raises at the end, the reason for that item of R-22b.
+  - **The Gaussian reorder.** ρ = 0 and ρ = 1 equal the fork's `Independent()` and `Comonotonic()` row for row, the columns are permutations and no generator moved. Spearman was within 0.0024 of 6/π · arcsin(ρ/2) for ρ from −0.7 to 0.9 at 100,000 draws, and within 0.0043 on three columns. `statistics.NormalDist().inv_cdf` took 0.066 s per million draws.
+  - **Premiums**, on the `"total"` row Amendment 3 already builds. The sum of two contracts was 23.12 under `CostOfCapitalLoad(0.1, 0.9)`, against 20.70 for one contract on the sum, and the two were equal, 15.50, under `PurePremium()`.
+  - **Budgets.** `Budget(ratio=0.8)` on each own loss summed to 256,990, against 236,395 on the combined loss, under `CompoundDamage()`.
+  - The arithmetic of the examples: 1.0 and 0.88 for the rules, the `MaxOf` counterexample, the grid's special cases and the region rows adding up.
+- `_order_edges`, `_propagate` and `_fill` ran on a two-axis order, on those stand-ins, not on a real vector payout.
+- How many cells of a grid a few decades of per-year rows reach is not known, so neither is how much of a 2-D table is `unidentified` on real records.
+- The cost of Π_k n_k limit rows, of a large `StepGrid`, and of a grid search over free breakpoints on a large sample was not measured.
+- Whether CRC Open holds `txx` at Toronto is unknown, because no catalogue was read. If it doesn't, R-22g's curve half needs another pair.
+- No CRC Open, ERA5 or NEX data was read for this amendment.

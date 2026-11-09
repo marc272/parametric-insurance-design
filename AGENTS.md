@@ -183,6 +183,7 @@ Stop and report to the orchestrator, with a concrete question and the options yo
 - Use, request or store credentials, or sign in to services.
 - Publish, post, submit or send anything outside this repository and the two forks (`marc272/crc-sdk`, `marc272/crc-docs`): discussions, issues or PRs on other repos (RiskThinking's included), arXiv, blogs, LinkedIn, emails.
 - Contact RiskThinking, or push to a fork's `upstream` remote.
+- Start a session anywhere but here (`start_session` only without `cwd`, `host`, `preset`, `environment` or `repository`, and with no `target` other than `"local"`), or create, change or run scheduled tasks or cloud routines.
 - Archive, delete or rewrite the history of any repository, or delete data.
 - Change Linear projects, milestones, labels or other issues. Edit decisions in the spec.
 - Work on issues labelled **Human**, beyond the "Agent may prepare" part you were explicitly given.

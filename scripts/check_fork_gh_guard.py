@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Test the fork gh guard hook, ``.claude/hooks/fork_gh_guard.py`` (MAR-253).
+"""Test the guard hooks in ``.claude/hooks/`` (MAR-253, MAR-289).
 
-The hook refuses a repo-scoped ``gh`` command (``gh pr``, ``issue``,
-``release``, ``workflow`` and the other groups of its
+The fork gh guard, ``fork_gh_guard.py``, refuses a repo-scoped ``gh`` command
+(``gh pr``, ``issue``, ``release``, ``workflow`` and the other groups of its
 ``REPO_FLAG_SUBCOMMANDS``) that may run in a CRC fork path without
 ``--repo marc272/<fork>``, and a ``gh api`` call there that uses the
 ``{owner}``/``{repo}`` placeholders (MAR-261). Wherever it runs, it refuses
-the gh commands that the deny rules deny, in every spelling (MAR-263). This
-script runs it the way Claude Code does, one process per case with the
+the gh commands that the deny rules deny, in every spelling (MAR-263), and
+git commands that make or push tags (MAR-289). The session guard,
+``session_guard.py``, refuses a ``start_session`` that would run somewhere
+else, and fails closed on bad input (``SESSION_CASES``, MAR-289). This
+script runs them the way Claude Code does, one process per case with the
 ``PreToolUse`` JSON on stdin, and checks the exit status: 0 allows with no
 output, 2 refuses with a message on stderr that says what to do. It also
 checks that:
@@ -27,8 +30,9 @@ checks that:
   matcher names Bash, Monitor and the terminal tool, by running its command
   string through ``sh -c`` with ``CLAUDE_PROJECT_DIR`` set, as Claude Code
   does; that it keeps its deny rules; and that it denies the terminal tool;
-- the hook parses with Python 3.9's grammar, the oldest ``python3`` it may get
-  (macOS's ``/usr/bin/python3``);
+  and the same for the session guard, on the one tool ``start_session``;
+- the hooks parse with Python 3.9's grammar, the oldest ``python3`` they may
+  get (macOS's ``/usr/bin/python3``);
 - Monitor and terminal-tool calls are checked like Bash calls, a Monitor
   WebSocket watch and other tools pass, and bad input (not JSON, no command)
   is refused when it mentions a checked gh command.
@@ -60,6 +64,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 HOOK = ROOT / ".claude" / "hooks" / "fork_gh_guard.py"
+SESSION_HOOK = ROOT / ".claude" / "hooks" / "session_guard.py"
+SESSION_TOOL = "mcp__ccd_session__start_session"
 SETTINGS = ROOT / ".claude" / "settings.json"
 
 # The keys that the published settings schema allows in a command hook and in
@@ -103,24 +109,41 @@ APP_TOOL_DENY_RULES = (
     "mcp__ccd_directory__change_directory",
     "mcp__computer-use__*",
 )
+# The routes to a GitHub merge or approval that start no process, denied by
+# Marc's decision on MAR-282 (MAR-289).
+MERGE_ROUTE_DENY_RULES = (
+    "mcp__*__set_auto_merge",
+    "mcp__*__merge_diff",
+    "mcp__*__submit_diff_review",
+    "mcp__claude-in-chrome__*",
+    "mcp__plugin_engineering_github__*",
+)
+# The Linear connector in this session's tool list; its server name is the
+# connector's id, which is why the rules above use a glob.
+LINEAR = "mcp__ccb629fc-2d2f-483b-990d-6d59dd8fda30"
 # The hook says this of a denied gh command (MAR-263), and only of one.
 DENIED_MARK = "is denied in every spelling"
+# The session guard's own marks (MAR-289).
+SESSION_REFUSED = "Refused by the session guard"
+SESSION_WOULD_MOVE = "would run somewhere else"
+SESSION_MALFORMED = "couldn't check this start_session call"
 # The hooks reference, "Matcher patterns": a matcher of only these characters
 # is an exact tool name, or a list of them separated by | or ,; any other
 # character makes it an unanchored JavaScript regular expression.
 EXACT_MATCHER = re.compile(r"[A-Za-z0-9_\-, |]*")
 
-# Loads the hook as a module, makes evaluate() raise, and runs main(), so
-# that main's handling of an internal error runs in a real hook process.
+# Loads a hook as a module, makes its analysis raise (evaluate() in the fork gh
+# guard, check() in the session guard), and runs main(), so that main's
+# handling of an internal error runs in a real hook process.
 FORCE_INTERNAL_ERROR = """\
 import importlib.util, sys
-spec = importlib.util.spec_from_file_location("fork_gh_guard", sys.argv[1])
+spec = importlib.util.spec_from_file_location("guard_under_test", sys.argv[1])
 hook = importlib.util.module_from_spec(spec)
-sys.modules["fork_gh_guard"] = hook
+sys.modules["guard_under_test"] = hook
 spec.loader.exec_module(hook)
 def broken(*args, **kwargs):
     raise RuntimeError("forced by check_fork_gh_guard")
-hook.evaluate = broken
+hook.evaluate = hook.check = broken
 sys.exit(hook.main())
 """
 
@@ -516,13 +539,15 @@ CASES: list[tuple[str, str, str]] = [
     ("deny", REPO, "bash -c 'gh repo archive marc272/crc-sdk -y'"),
     # MAR-282 item 3: commands with their own -R that take the clone's
     # repository without it, and gh repo view without a repository argument.
-    ("refuse", SDK, 'gh agent-task create "make the tests pass"'),
-    ("refuse", WT, "gh agent-task create -F task.md --base parametric"),
-    ("refuse", SDK, "gh agents create x"),
+    # MAR-289: gh agent-task create, autolink create and deploy-key add are
+    # denied everywhere now (refused in fork paths until then).
+    ("deny", SDK, 'gh agent-task create "make the tests pass"'),
+    ("deny", WT, "gh agent-task create -F task.md --base parametric"),
+    ("deny", SDK, "gh agents create x"),
     ("refuse", DOCS, "gh agent-task view 3"),
     ("refuse", SDK, "gh repo autolink list"),
-    ("refuse", SDK, "gh repo autolink create JIRA- https://example.com/<num>"),
-    ("refuse", DOCS, "gh repo deploy-key add key.pub --allow-write"),
+    ("deny", SDK, "gh repo autolink create JIRA- https://example.com/<num>"),
+    ("deny", DOCS, "gh repo deploy-key add key.pub --allow-write"),
     ("refuse", SDK, "gh repo deploy-key list"),
     ("refuse", SDK, "gh repo read-file README.md"),
     ("refuse", SDK, "gh repo read-dir src --ref parametric"),
@@ -536,7 +561,7 @@ CASES: list[tuple[str, str, str]] = [
     ("refuse", REPO, f"cd {SDK} && gh repo view"),
     ("refuse", SDK, "gh rs list"),
     ("refuse", SDK, "gh repo autolink list 'unterminated"),
-    ("allow", SDK, 'gh agent-task create "x" -R marc272/crc-sdk'),
+    ("deny", SDK, 'gh agent-task create "x" -R marc272/crc-sdk'),  # MAR-289
     ("allow", SDK, "gh agent-task list"),
     ("allow", SDK, "gh repo autolink list -R marc272/crc-sdk"),
     ("allow", SDK, "gh repo autolink -R marc272/crc-sdk list"),
@@ -627,6 +652,250 @@ CASES: list[tuple[str, str, str]] = [
     ),
     ("allow", REPO, "gh browse $N -n"),
     ("allow", REPO, "gh api graphql -f query='{viewer{login}}'"),
+    # MAR-289 item 1: the issue's four forms of a tag reaching crc-sdk.
+    ("deny", SDK, "git update-ref refs/tags/v1.0.0 HEAD"),
+    ("deny", REPO, "git push origin 'v1.0.0'"),
+    ("deny", REPO, "git push https://github.com/marc272/crc-sdk.git v1.0.0"),
+    ("deny", SDK, "git push --mirror origin"),
+    # The same, through -C, -c, a path, quotes, sh -c and the like.
+    ("deny", REPO, f"git -C {SDK} update-ref refs/tags/v1.0.0 HEAD"),
+    ("deny", REPO, f'git -C {SDK} push origin "v1.0.0"'),
+    ("deny", REPO, f"git -C {WT} push git@github.com:marc272/crc-sdk.git v1.0.0"),
+    ("deny", REPO, f"git -C {SDK} push origin --mirror"),
+    ("deny", REPO, "/usr/bin/git push origin v1.0.0"),
+    ("deny", REPO, '"git" push origin v1.0.0'),
+    ("deny", REPO, "g\\it push origin v1.0.0"),
+    ("deny", REPO, "git -c http.proxy=x push origin v1.0.0"),
+    ("deny", REPO, "git --no-pager push origin v1.0.0"),
+    ("deny", REPO, "bash -c 'git push origin v1.0.0'"),
+    ("deny", REPO, "timeout 60 git push origin v1.0.0"),
+    ("deny", REPO, 'echo "$(git push origin v1.0.0)"'),
+    # git tag and update-ref in every spelling; --stdin can hold any ref.
+    ("deny", REPO, "git tag v1.0.0"),
+    ("deny", SDK, "git tag -a v1.0.0 -m release"),
+    ("deny", REPO, "git -c user.name=x tag v1.0.0"),
+    ("deny", REPO, "git update-ref -d refs/tags/v1.0.0"),
+    ("deny", REPO, "git update-ref refs/TAGS/v1.0.0 HEAD"),
+    ("deny", REPO, "git update-ref --stdin < refs.txt"),
+    ("deny", REPO, 'git update-ref "$REF" HEAD'),
+    # Flags that send tags or everything, abbreviated as git accepts them.
+    ("deny", REPO, "git push --tags"),
+    ("deny", REPO, "git push origin --tag"),
+    ("deny", REPO, "git push --follow-tags origin marcprinzing/x"),
+    ("deny", REPO, "git push --fol origin marcprinzing/x"),
+    ("deny", REPO, "git push --mirr origin"),
+    ("deny", REPO, "git push --m origin"),
+    # Refspecs that name a tag, however they are written.
+    ("deny", REPO, "git push origin refs/tags/v1.0.0"),
+    ("deny", REPO, "git push origin HEAD:refs/tags/v1.0.0"),
+    ("deny", REPO, "git push origin tags/v1.0.0"),
+    ("deny", REPO, "git push origin tag v1.0.0"),
+    ("deny", REPO, "git push origin tag some-name"),
+    ("deny", REPO, "git push origin +v1.0.0"),
+    ("deny", REPO, "git push origin HEAD:v1.0.0"),
+    ("deny", REPO, "git push origin my-tag:v1.0.0"),
+    ("deny", REPO, "git push origin :v1.0.0"),
+    ("deny", REPO, "git push -u origin -- v1.0.0"),
+    ("deny", REPO, "git push origin 'refs/*:refs/*'"),
+    # Expansions: the hook can't tell what they would push.
+    ("deny", REPO, 'git push origin "$TAG"'),
+    ("deny", REPO, "git push origin $(git describe --tags)"),
+    ("deny", REPO, "git push $ARGS"),
+    ("deny", REPO, "git $c origin v1.0.0"),
+    ("deny", REPO, 'git -c "$K=true" push origin marcprinzing/x'),
+    # Configuration that makes a plain push carry tags, or adds a command.
+    ("deny", REPO, "git -c push.followTags=true push origin marcprinzing/x"),
+    ("deny", REPO, "git -c remote.origin.push=refs/tags/* push origin"),
+    ("deny", REPO, "git -c remote.origin.mirror=true push origin"),
+    ("deny", REPO, "git -c alias.p='push origin v1.0.0' p"),
+    ("deny", REPO, "git --config-env=push.followTags=X push origin marcprinzing/x"),
+    ("deny", REPO, "git config push.followTags true"),
+    ("deny", REPO, "git config --global push.followtags true"),
+    ("deny", REPO, "git config set alias.p push"),
+    ("deny", REPO, "git config --add remote.origin.push 'refs/tags/*'"),
+    ("deny", REPO, "git config alias.get get"),
+    ("deny", REPO, "git remote add --mirror=push x https://github.com/marc272/crc-sdk"),
+    # The plumbing under push.
+    ("deny", REPO, "git send-pack --mirror https://github.com/marc272/crc-sdk.git"),
+    ("deny", REPO, "git http-push https://github.com/marc272/crc-sdk.git v1.0.0"),
+    # Operands the hook can't see, and what xargs may still run.
+    ("deny", REPO, "echo v1.0.0 | xargs git push origin"),
+    ("deny", REPO, "xargs git update-ref < refs.txt"),
+    ("allow", REPO, "git ls-files -z '*.md' | xargs -0 git add"),
+    # Commands the hook can't parse.
+    ("deny", REPO, "git push origin v1.0.0 'unterminated"),
+    ("deny", REPO, "git update-ref refs/tags/v1 HEAD 'unterminated"),
+    ("deny", REPO, "git tag v1 'unterminated"),
+    ("deny", REPO, f"git -C {SDK} push --mirror origin 'unterminated"),
+    ("allow", REPO, "git push -u origin marcprinzing/x 'unterminated"),
+    ("allow", REPO, "git commit -m 'unterminated tag v1"),
+    # The prescribed pushes, and everything else git does with tags, pass.
+    ("allow", WT, "git push -u origin marcprinzing/mar-260-step-payout"),
+    ("allow", REPO, f"git -C {WT} push -u origin marcprinzing/mar-260-step-payout"),
+    ("allow", REPO, f"git -C {WT} push -u origin sync/upstream-main-2026-11-05"),
+    ("allow", REPO, 'git -C "$WT" push -u origin marcprinzing/mar-260-step-payout'),
+    ("allow", AGENT_WT, "git push -u origin HEAD"),
+    ("allow", AGENT_WT, "git push"),
+    ("allow", REPO, "git push origin"),
+    ("allow", REPO, "git push --dry-run -v origin HEAD"),
+    ("allow", REPO, "git push origin HEAD:refs/heads/marcprinzing/mar-1-x"),
+    ("allow", REPO, "git push origin HEAD:refs/heads/v1-branch"),
+    ("allow", REPO, "git push origin --delete marcprinzing/mar-1-x"),
+    ("allow", REPO, "git push -o ci.skip -u origin marcprinzing/mar-1-x"),
+    ("allow", SDK, "git for-each-ref refs/tags && git ls-remote --tags origin"),
+    ("allow", SDK, "git fetch upstream --tags"),
+    ("allow", REPO, "git describe --tags --abbrev=0 && git log --tags -3"),
+    ("allow", REPO, 'git commit -m "tag v1.0.0 with git push origin v1.0.0"'),
+    ("allow", REPO, "git update-ref refs/heads/marcprinzing/x HEAD"),
+    ("allow", REPO, 'git update-ref -m "$MSG" refs/heads/marcprinzing/x HEAD'),
+    ("allow", REPO, "git config --get push.followTags && git config --list"),
+    ("allow", REPO, "git config get alias.p"),
+    ("allow", REPO, 'git config user.name "$NAME"'),
+    ("allow", REPO, 'git -c user.name="$NAME" commit -m x'),
+    ("allow", REPO, "git remote add mine https://github.com/marc272/crc-docs.git"),
+    ("allow", REPO, "git help tag && git --version"),
+    # MAR-289 item 5: deploy keys, autolinks and gists, denied everywhere.
+    ("deny", REPO, "gh repo deploy-key add key.pub --allow-write -R marc272/crc-sdk"),
+    ("deny", REPO, "gh repo deploy-key add key.pub -w"),
+    ("deny", REPO, "gh repo deploy-key -R marc272/crc-sdk add key.pub"),
+    ("deny", DOCS, "gh repo deploy-key delete 123"),
+    ("deny", REPO, "gh repo deploy-key delete 123 --repo marc272/crc-docs --yes"),
+    ("deny", REPO, "gh repo autolink create JIRA- https://example.com/x"),
+    ("deny", REPO, "gh repo autolink new JIRA- https://example.com/x"),
+    ("deny", REPO, "gh repo autolink -R marc272/crc-sdk delete 5 --yes"),
+    ("deny", REPO, 'gh repo deploy-key "$a" key.pub'),
+    ("deny", REPO, "gh repo autolink $c JIRA- x"),
+    ("deny", REPO, "gh repo deploy-key add key.pub 'unterminated"),
+    ("deny", REPO, "gh gist create notes.md --public"),
+    ("deny", REPO, "gh gist new notes.md"),
+    ("deny", REPO, "echo hi | gh gist create -"),
+    ("deny", REPO, "gh gist $c notes.md"),
+    ("deny", REPO, "gh gist create notes.md 'unterminated"),
+    ("allow", REPO, "gh repo deploy-key list --repo marc272/crc-sdk"),
+    ("allow", REPO, "gh repo autolink view 5 -R marc272/crc-sdk"),
+    ("allow", REPO, "gh repo deploy-key list && gh repo autolink list"),
+    ("allow", REPO, "gh gist list && gh gist view abc123"),
+    # MAR-289 item 6: agent tasks, gh's program settings and the token.
+    ("deny", REPO, "gh agent-task create x"),
+    ("deny", REPO, "gh agents create x"),
+    ("deny", REPO, "gh agent create x"),
+    ("deny", REPO, "gh agent-tasks create -F task.md"),
+    ("deny", REPO, "gh agent-task create x 'unterminated"),
+    ("deny", REPO, "gh config set editor vim"),
+    ("deny", REPO, "gh config set pager 'less -R'"),
+    ("deny", REPO, "gh config set browser x --host github.com"),
+    ("deny", REPO, "gh config set -h github.com editor vim"),
+    ("deny", REPO, "gh config set --host github.com pager cat"),
+    ("deny", REPO, 'gh config set "$k" vim'),
+    ("deny", REPO, "gh config $c editor vim"),
+    ("deny", REPO, "gh config set editor 'unterminated"),
+    ("deny", REPO, "gh auth token"),
+    ("deny", REPO, "gh auth token --hostname github.com"),
+    ("deny", REPO, "gh auth status --show-token"),
+    ("deny", REPO, "gh auth status -t"),
+    ("deny", REPO, "gh auth status -at"),
+    ("deny", REPO, "gh auth token 'unterminated"),
+    ("deny", REPO, "gh auth status --show-token 'unterminated"),
+    ("allow", REPO, "gh agent-task list"),
+    ("allow", REPO, "gh config get editor && gh config list"),
+    ("allow", REPO, "gh config set prompt disabled"),
+    ("allow", REPO, "gh config set git_protocol https --host github.com"),
+    ("allow", REPO, "gh auth status"),
+    ("allow", REPO, "gh auth status --active -h github.com"),
+    ("allow", REPO, "gh auth status --json hosts"),
+    # MAR-289 item 6: gh and git from a variable, flags from a variable.
+    ("deny", REPO, "$GH release create v1"),
+    ("deny", REPO, '"$GH" -R marc272/crc-sdk workflow run release.yaml'),
+    ("deny", REPO, "${GH} pr merge 3 --admin"),
+    ("deny", REPO, "$(which gh) release create v1"),
+    ("deny", REPO, "`which gh` repo delete marc272/crc-docs --yes"),
+    ("deny", REPO, "timeout 60 $GH workflow run release.yaml"),
+    ("deny", REPO, "$GH gist create notes.md"),
+    ("deny", REPO, "$GH -R RiskThinking/crc-sdk pr list"),
+    ("deny", REPO, "$GIT push origin v1.0.0"),
+    ("deny", SDK, '"$GIT" tag v1.0.0'),
+    ("deny", REPO, "gh pr merge 3 $X"),
+    ("deny", REPO, 'gh pr merge 3 --squash "$X"'),
+    ("deny", REPO, 'gh pr merge "$N" --squash "$@"'),
+    ("deny", REPO, "gh pr merge 3 --$X"),
+    ("deny", REPO, "gh -R marc272/crc-sdk pr merge 3 $X"),
+    (
+        "allow",
+        REPO,
+        'gh pr merge "$N" --repo marc272/crc-sdk --squash --subject "$S" --body "$B"',
+    ),
+    ("allow", REPO, 'gh pr merge 3 --squash --subject="$S" -b "$B"'),
+    ("allow", REPO, 'gh pr merge 3 --squash -t"$S" -F "$BODY_FILE"'),
+    ("allow", REPO, 'gh pr merge -- "$N" "$X"'),
+    ("allow", REPO, "$PY -m pytest -q"),
+    ("allow", WT, "$UV run pytest -q"),
+    ("allow", REPO, '"$EDITOR" notes.md'),
+    ("allow", REPO, "$X $Y"),
+    ("allow", REPO, "$PY tools/x.py RiskThinking/crc-sdk"),
+    ("allow", REPO, '$DOCKER push "$IMAGE"'),
+    # MAR-306: Actions stay off on crc-docs; reading the setting passes.
+    (
+        "deny",
+        REPO,
+        "gh api -X PUT repos/marc272/crc-docs/actions/permissions -F enabled=true",
+    ),
+    (
+        "deny",
+        REPO,
+        "gh api --method PUT repos/marc272/crc-docs/actions/permissions"
+        " -F enabled=true -f allowed_actions=all",
+    ),
+    (
+        "deny",
+        REPO,
+        "gh api --method=PUT repos/marc272/crc-docs/actions/permissions/workflow"
+        " -f default_workflow_permissions=read",
+    ),
+    (
+        "deny",
+        REPO,
+        "gh api -XPUT repos/marc272/crc-docs/actions/permissions -F enabled=true",
+    ),
+    ("deny", REPO, "gh api repos/marc272/crc-docs/actions/permissions -F enabled=true"),
+    (
+        "deny",
+        REPO,
+        "gh api repos/marc272/crc-docs/actions/permissions --input body.json",
+    ),
+    ("deny", REPO, 'gh api -X "$M" repos/marc272/crc-docs/actions/permissions'),
+    (
+        "deny",
+        REPO,
+        'gh api -X PUT "repos/marc272/$R/actions/permissions" -F enabled=true',
+    ),
+    (
+        "deny",
+        DOCS,
+        "gh api -X PUT repos/{owner}/{repo}/actions/permissions -F enabled=true",
+    ),
+    ("allow", REPO, "gh api repos/marc272/crc-docs/actions/permissions --jq .enabled"),
+    ("allow", REPO, "gh api -X GET repos/marc272/crc-docs/actions/permissions"),
+    ("allow", REPO, "gh api repos/marc272/crc-sdk/actions/permissions --jq .enabled"),
+    # MAR-306: the form the runbook prescribes for a sync PR on a MAR branch.
+    (
+        "allow",
+        REPO,
+        "gh pr merge 2 --repo marc272/crc-docs --merge"
+        ' --subject "chore: merge upstream main into parametric (#2)"'
+        ' --body "Refs: MAR-300"',
+    ),
+    # MAR-289: the boundaries of the new checks. A remote is no refspec, a flag's
+    # value is no refspec, git after gh is gh's argument, an unknown program
+    # with an expansion after it passes, and only crc-docs' Actions are guarded.
+    ("allow", REPO, "git push vfork marcprinzing/x"),
+    ("allow", REPO, "git push origin -o v1 marcprinzing/x"),
+    ("allow", REPO, "gh pr comment 3 --body-file notes.md git tag"),
+    ("allow", WT, '$UV run "$SCRIPT"'),
+    (
+        "allow",
+        REPO,
+        "gh api -X PUT repos/marc272/crc-sdk/actions/permissions -F enabled=true",
+    ),
 ]
 
 # --- The deny rules (MAR-263) ----------------------------------------------
@@ -969,8 +1238,8 @@ RULE_CASES: list[tuple[str, str, str]] = [
     ("deny", "deny", "gh repo delete marc272/crc-docs --yes"),
     ("deny", "refuse", "GH_REPO=RiskThinking/crc-sdk gh pr list"),
     ("deny", "allow", "gh api -X DELETE repos/marc272/crc-sdk/actions/caches/1"),
-    ("deny", "allow", "git tag v1.0.0"),
-    ("deny", "allow", "git push origin v1.0.0"),
+    ("deny", "deny", "git tag v1.0.0"),  # MAR-289: the hook too
+    ("deny", "deny", "git push origin v1.0.0"),  # MAR-289: the hook too
     ("deny", "allow", f"git -C {WT} push --force origin x"),
     # Through wrappers, assignments, compound commands and substitutions.
     ("deny", "deny", f"cd {SDK} && gh -R marc272/crc-sdk release create v1"),
@@ -1132,6 +1401,134 @@ RULE_CASES: list[tuple[str, str, str]] = [
     ("pass", "allow", "gh repo view marc272/crc-sdk --json name"),
     ("pass", "allow", "gh repo list marc272"),
     ("pass", "allow", "gh alias list && gh extension list && gh skill list"),
+    # MAR-289 item 1: the issue's four forms, which passed the rules until now.
+    ("deny", "deny", "git update-ref refs/tags/v1.0.0 HEAD"),
+    ("deny", "deny", "git push origin 'v1.0.0'"),
+    ("deny", "deny", "git push https://github.com/marc272/crc-sdk.git v1.0.0"),
+    ("deny", "deny", "git push --mirror origin"),
+    # Their other usual forms, -C included.
+    ("deny", "deny", f"git -C {SDK} update-ref refs/tags/v1.0.0 HEAD"),
+    ("deny", "deny", "git update-ref --stdin < refs.txt"),
+    ("deny", "deny", f"git -C {SDK} update-ref --stdin < refs.txt"),
+    ("deny", "deny", 'git push origin "v1.0.0"'),
+    ("deny", "deny", f"git -C {SDK} push origin 'v1.0.0'"),
+    ("deny", "deny", f'git -C {SDK} push origin "v1.0.0"'),
+    (
+        "deny",
+        "deny",
+        f"git -C {SDK} push https://github.com/marc272/crc-sdk.git v1.0.0",
+    ),
+    ("deny", "deny", "git push -u origin v1.0.0"),
+    ("deny", "deny", "git push origin HEAD:v1.0.0"),
+    ("deny", "deny", f"git -C {SDK} push origin HEAD:v1.0.0"),
+    ("deny", "deny", "git push origin --mirror"),
+    ("deny", "deny", f"git -C {SDK} push --mirror origin"),
+    ("deny", "deny", f"git -C {SDK} push origin --mirror"),
+    ("deny", "deny", "git push origin refs/tags/v1.0.0"),
+    # What only the hook sees: the rules match the text as written.
+    ("pass", "deny", "/usr/bin/git push origin v1.0.0"),
+    ("pass", "deny", "bash -c 'git push origin v1.0.0'"),
+    ("pass", "deny", '"git" tag v1.0.0'),
+    ("pass", "deny", "git -c user.name=x tag v1.0.0"),
+    ("pass", "deny", "git -c push.followTags=true push origin marcprinzing/x"),
+    ("pass", "deny", "git config alias.p 'push origin v1.0.0'"),
+    ("pass", "deny", "git push --mirr origin"),
+    ("pass", "deny", 'git push origin "$TAG"'),
+    ("pass", "deny", "git send-pack --mirror https://github.com/marc272/crc-sdk.git"),
+    # The prescribed pushes pass both layers.
+    ("pass", "allow", f"git -C {WT} push -u origin sync/upstream-main-2026-11-05"),
+    (
+        "pass",
+        "allow",
+        "git push -u origin marcprinzing/mar-289-r-11i-guard-follow-ups-after-mar-282",
+    ),
+    ("pass", "allow", "git push -u origin HEAD"),
+    ("pass", "allow", "git push --dry-run -v origin HEAD"),
+    ("pass", "allow", "git push"),
+    ("pass", "allow", "git update-ref refs/heads/marcprinzing/x HEAD"),
+    # MAR-289 item 5: deploy keys, autolinks and gists.
+    ("deny", "deny", "gh repo deploy-key add key.pub --allow-write"),
+    ("deny", "deny", "gh repo deploy-key delete 123"),
+    ("deny", "deny", "gh repo deploy-key -R marc272/crc-sdk add key.pub"),
+    ("deny", "deny", "gh repo deploy-key -R marc272/crc-sdk delete 123"),
+    ("deny", "deny", "gh repo autolink create JIRA- https://example.com/x"),
+    ("deny", "deny", "gh repo autolink new JIRA- https://example.com/x"),
+    ("deny", "deny", "gh repo autolink delete 5 --yes"),
+    ("deny", "deny", "gh repo autolink -R marc272/crc-sdk create JIRA- x"),
+    ("deny", "deny", "gh repo autolink -R marc272/crc-sdk new JIRA- x"),
+    ("deny", "deny", "gh repo autolink -R marc272/crc-sdk delete 5"),
+    ("deny", "deny", "gh gist create notes.md --public"),
+    ("deny", "deny", "gh gist new notes.md"),
+    ("deny", "allow", "gh api -X POST repos/marc272/crc-sdk/keys -f key=x"),
+    ("deny", "allow", "gh api -X POST repos/marc272/crc-sdk/autolinks -f key_prefix=x"),
+    ("pass", "allow", "gh repo deploy-key list --repo marc272/crc-sdk"),
+    ("pass", "allow", "gh repo autolink list -R marc272/crc-sdk"),
+    ("pass", "allow", "gh gist list"),
+    # MAR-289 item 6: agent tasks, gh's program settings and the token.
+    ("deny", "deny", "gh agent-task create x"),
+    ("deny", "deny", "gh agent-tasks create x"),
+    ("deny", "deny", "gh agents create x"),
+    ("deny", "deny", "gh agent create x"),
+    ("deny", "deny", "gh config set editor vim"),
+    ("deny", "deny", "gh config set pager less"),
+    ("deny", "deny", "gh config set browser x"),
+    ("deny", "deny", "gh config set -h github.com editor vim"),
+    ("deny", "deny", "gh config set --host github.com pager cat"),
+    ("deny", "deny", "gh config set -h github.com browser x"),
+    ("deny", "deny", "gh auth token"),
+    ("deny", "deny", "gh auth status --show-token"),
+    ("deny", "deny", "gh auth status -a --show-token"),
+    ("deny", "deny", "gh auth status -t"),
+    ("pass", "deny", "gh auth status -at"),
+    ("pass", "allow", "gh agent-task list"),
+    ("pass", "allow", "gh config get editor"),
+    ("pass", "allow", "gh config set prompt disabled"),
+    ("pass", "allow", "gh auth status"),
+    # MAR-289 item 6: from a variable, only the hook can tell.
+    ("pass", "deny", "$GH release create v1"),
+    ("pass", "deny", "$GIT push origin v1.0.0"),
+    ("pass", "deny", "gh pr merge 3 $X"),
+    # MAR-306: Actions stay off on crc-docs.
+    (
+        "deny",
+        "deny",
+        "gh api -X PUT repos/marc272/crc-docs/actions/permissions -F enabled=true",
+    ),
+    (
+        "deny",
+        "deny",
+        "gh api --method PUT repos/marc272/crc-docs/actions/permissions"
+        " -F enabled=true",
+    ),
+    (
+        "deny",
+        "deny",
+        "gh api --method=PUT repos/marc272/crc-docs/actions/permissions/workflow"
+        " -f default_workflow_permissions=read",
+    ),
+    (
+        "deny",
+        "deny",
+        "gh api repos/marc272/crc-docs/actions/permissions -X PUT -F enabled=true",
+    ),
+    (
+        "pass",
+        "allow",
+        "gh api repos/marc272/crc-docs/actions/permissions --jq .enabled",
+    ),
+    # The orchestrator's prescribed merges, MAR-306's --merge form included.
+    (
+        "pass",
+        "allow",
+        "gh pr merge 2 --repo marc272/crc-docs --merge"
+        ' --subject "chore: merge upstream main into parametric (#2)"'
+        ' --body "Refs: MAR-300"',
+    ),
+    (
+        "pass",
+        "allow",
+        'gh pr merge "$N" --repo marc272/crc-sdk --squash --subject "$S" --body "$B"',
+    ),
 ]
 
 # --- The deny rules on other tools (MAR-282) ----------------------------------
@@ -1244,11 +1641,99 @@ TOOL_RULE_CASES: list[tuple[str, str]] = [
     ("pass", "mcp__ccd_directory__request_directory"),
     ("pass", "mcp__ccd_session__start_session"),
     ("pass", "mcp__scheduled-tasks__create_scheduled_task"),
-    ("pass", "mcp__ccd_pr__set_auto_merge"),
-    ("pass", "mcp__claude-in-chrome__navigate"),
+    ("deny", "mcp__ccd_pr__set_auto_merge"),  # MAR-289: Marc's decision
+    ("deny", "mcp__claude-in-chrome__navigate"),  # MAR-289: Marc's decision
     ("pass", "mcp__terminal__open_terminal_tab"),
     ("pass", "Bash"),
     ("pass", "Agent"),
+    # MAR-289 item 2, Marc's decisions on MAR-282: the routes to a GitHub merge
+    # or approval that start no process. The globs cover a renamed server. The
+    # GitHub plugin isn't authenticated here, so its tool name is an example.
+    ("deny", f"{LINEAR}__merge_diff"),
+    ("deny", f"{LINEAR}__submit_diff_review"),
+    ("deny", "mcp__plugin_engineering_linear__merge_diff"),
+    ("deny", "mcp__plugin_engineering_linear__submit_diff_review"),
+    ("deny", "mcp__claude-in-chrome__computer"),
+    ("deny", "mcp__claude-in-chrome__javascript_tool"),
+    ("deny", "mcp__plugin_engineering_github__create_pull_request"),
+    # Kept: the orchestrator's own Linear use (issues, comments, status
+    # updates), the rest of the diff tools and of ccd_pr, and start_session.
+    ("pass", f"{LINEAR}__get_issue"),
+    ("pass", f"{LINEAR}__list_issues"),
+    ("pass", f"{LINEAR}__save_issue"),
+    ("pass", f"{LINEAR}__list_comments"),
+    ("pass", f"{LINEAR}__save_comment"),
+    ("pass", f"{LINEAR}__get_project"),
+    ("pass", f"{LINEAR}__get_status_updates"),
+    ("pass", f"{LINEAR}__save_status_update"),
+    ("pass", f"{LINEAR}__get_diff"),
+    ("pass", f"{LINEAR}__list_diffs"),
+    ("pass", f"{LINEAR}__update_diff"),
+    ("pass", "mcp__plugin_engineering_linear__save_issue"),
+    ("pass", "mcp__ccd_pr__get_status"),
+    ("pass", "mcp__ccd_pr__bind_pr"),
+    ("pass", "mcp__ccd_pr__set_monitor"),
+]
+
+# --- The session guard (MAR-289) ----------------------------------------------
+#
+# (expected, label, tool_input). "allow" passes, "refuse" names a parameter
+# that would run the session somewhere else.
+_FRESH: dict[str, object] = {
+    "initiation": "user_asked",
+    "title": "MAR-1: a piece of work",
+    "prompt": "Do the piece.",
+    "background": "x" * 80,
+}
+SESSION_CASES: list[tuple[str, str, dict[str, object]]] = [
+    # What "Delegating to subagents" passes.
+    ("allow", "fresh, no place fields", _FRESH),
+    ("allow", "fork context", {**_FRESH, "context": "fork"}),
+    ("allow", "own worktree", {**_FRESH, "use_worktree": True, "branch_name": "x"}),
+    ("allow", "model, effort", {**_FRESH, "model": "m", "effort": "low"}),
+    ("allow", "permission mode", {**_FRESH, "permission_mode": "auto"}),
+    ("allow", "proposal_id only", {"proposal_id": "task_ab12cd34"}),
+    ("allow", "an offer: title only", {"initiation": "offer", "title": "x"}),
+    ("allow", 'target "local"', {**_FRESH, "target": "local"}),
+    # Present but empty: not set, as the issue says.
+    ("allow", 'cwd ""', {**_FRESH, "cwd": ""}),
+    ("allow", "cwd null", {**_FRESH, "cwd": None}),
+    ("allow", 'host ""', {**_FRESH, "host": ""}),
+    ("allow", "host null", {**_FRESH, "host": None}),
+    ("allow", 'preset ""', {**_FRESH, "preset": ""}),
+    ("allow", 'environment ""', {**_FRESH, "environment": ""}),
+    ("allow", "environment {}", {**_FRESH, "environment": {}}),
+    ("allow", 'repository ""', {**_FRESH, "repository": ""}),
+    ("allow", "repository []", {**_FRESH, "repository": []}),
+    ("allow", 'target ""', {**_FRESH, "target": ""}),
+    ("allow", "target null", {**_FRESH, "target": None}),
+    # Each field that puts a session elsewhere.
+    ("refuse", "cwd", {**_FRESH, "cwd": "/Users/marcprinzing/elsewhere"}),
+    ("refuse", "cwd in the forks", {**_FRESH, "cwd": FORKS}),
+    ("refuse", 'cwd "~"', {**_FRESH, "cwd": "~"}),
+    ("refuse", "host", {**_FRESH, "host": "box"}),
+    ("refuse", "preset", {**_FRESH, "preset": "saved"}),
+    ("refuse", "environment", {**_FRESH, "environment": "env"}),
+    ("refuse", "repository", {**_FRESH, "repository": "marc272/crc-sdk"}),
+    ("refuse", 'target "cloud"', {**_FRESH, "target": "cloud"}),
+    ("refuse", 'target "ssh"', {**_FRESH, "target": "ssh"}),
+    # What the tool's schema pairs together.
+    ("refuse", "ssh with host", {**_FRESH, "target": "ssh", "host": "box"}),
+    (
+        "refuse",
+        "cloud with repository",
+        {**_FRESH, "target": "cloud", "repository": "marc272/crc-sdk"},
+    ),
+    ("refuse", 'target "local" with cwd', {**_FRESH, "target": "local", "cwd": "/x"}),
+    # Only "local" is local, and a set field of the wrong type still counts.
+    ("refuse", 'target "LOCAL"', {**_FRESH, "target": "LOCAL"}),
+    ("refuse", "target a number", {**_FRESH, "target": 3}),
+    ("refuse", "target true", {**_FRESH, "target": True}),
+    ("refuse", "cwd only spaces", {**_FRESH, "cwd": "  "}),
+    ("refuse", "cwd 0", {**_FRESH, "cwd": 0}),
+    ("refuse", "cwd false", {**_FRESH, "cwd": False}),
+    ("refuse", "environment an object", {**_FRESH, "environment": {"name": "x"}}),
+    ("refuse", "repository a list", {**_FRESH, "repository": ["marc272/crc-sdk"]}),
 ]
 
 
@@ -1258,8 +1743,9 @@ def run_hook(
     env: dict[str, str],
     raw: str | None = None,
     force_error: bool = False,
+    hook: Path = HOOK,
 ) -> subprocess.CompletedProcess[str]:
-    """Run the hook once, as Claude Code does, and return the finished process.
+    """Run a hook once, as Claude Code does, and return the finished process.
 
     Parameters
     ----------
@@ -1273,15 +1759,17 @@ def run_hook(
         Text to send on stdin instead of ``payload``.
     force_error
         Make the hook's analysis raise, through ``FORCE_INTERNAL_ERROR``.
+    hook
+        The hook to run: the fork gh guard, or ``SESSION_HOOK``.
 
     Returns
     -------
     subprocess.CompletedProcess
         The finished process, with its stdout and stderr.
     """
-    argv = [python, "-I", str(HOOK)]
+    argv = [python, "-I", str(hook)]
     if force_error:
-        argv = [python, "-I", "-c", FORCE_INTERNAL_ERROR, str(HOOK)]
+        argv = [python, "-I", "-c", FORCE_INTERNAL_ERROR, str(hook)]
     return subprocess.run(
         argv,
         input=json.dumps(payload) if raw is None else raw,
@@ -1454,6 +1942,196 @@ def check_cases(
             lines.append(f"FAIL {line}\n     got: {got}")
             failures.append(line)
     return lines, failures, results
+
+
+def session_verdict(proc: subprocess.CompletedProcess[str]) -> str:
+    """Classify a run of the session guard.
+
+    Parameters
+    ----------
+    proc
+        A finished hook process.
+
+    Returns
+    -------
+    str
+        ``allow`` for exit 0 with no output; for exit 2 with nothing on
+        stdout, ``refuse`` if the message names a parameter that moves the
+        session and ``malformed`` if the hook couldn't check the call;
+        otherwise a description of what went wrong.
+    """
+    if proc.returncode == 0 and not proc.stdout and not proc.stderr:
+        return "allow"
+    if proc.returncode == 2 and not proc.stdout and SESSION_REFUSED in proc.stderr:
+        if SESSION_WOULD_MOVE in proc.stderr:
+            return "refuse"
+        if SESSION_MALFORMED in proc.stderr:
+            return "malformed"
+    return f"exit {proc.returncode}, stdout {proc.stdout!r}, stderr {proc.stderr!r}"
+
+
+def session_input(tool_input: object) -> dict[str, object]:
+    """Return a ``PreToolUse`` hook input for ``start_session``.
+
+    Parameters
+    ----------
+    tool_input
+        The tool's input.
+
+    Returns
+    -------
+    dict
+        The hook input.
+    """
+    return hook_input(REPO, SESSION_TOOL, tool_input)
+
+
+def malformed_session_inputs() -> list[tuple[str, object, str | None, bool]]:
+    """Return the session guard's fail-closed cases.
+
+    Returns
+    -------
+    list of tuple
+        ``(label, payload, raw stdin or None, force an internal error)``.
+        Every one must be refused as ``malformed``.
+    """
+    no_tool_input = session_input({})
+    del no_tool_input["tool_input"]
+    no_tool_name = session_input(_FRESH)
+    del no_tool_name["tool_name"]
+    return [
+        ("stdin that isn't JSON", None, "not json", False),
+        ("empty stdin", None, "", False),
+        ("truncated JSON", None, '{"tool_name": "mcp__ccd_ses', False),
+        ("a JSON array", [], None, False),
+        ("a JSON string", "start_session", None, False),
+        ("JSON null", None, "null", False),
+        ("no tool_input", no_tool_input, None, False),
+        ("tool_input null", session_input(None), None, False),
+        ("tool_input a list", session_input(["cwd"]), None, False),
+        ("tool_input a string", session_input("cwd=/x"), None, False),
+        ("no tool_name", no_tool_name, None, False),
+        ("another tool", hook_input(REPO, "Bash", {"command": "ls"}), None, False),
+        (
+            "another session tool",
+            hook_input(REPO, "mcp__ccd_session__move_to_cloud", _FRESH),
+            None,
+            False,
+        ),
+        ("internal error, a clean call", session_input(_FRESH), None, True),
+    ]
+
+
+def check_session_cases(
+    python: str, env: dict[str, str]
+) -> tuple[list[str], list[str], list[str]]:
+    """Run the session guard's cases; return the report, failures and results.
+
+    Parameters
+    ----------
+    python
+        The interpreter to run the hook with.
+    env
+        The environment of the hook process.
+
+    Returns
+    -------
+    tuple of list of str
+        One report line per case, the lines of the failed cases, and the
+        result of each case, ``SESSION_CASES`` first.
+    """
+    lines, failures, results = [], [], []
+    runs: list[tuple[str, str, subprocess.CompletedProcess[str]]] = [
+        (
+            want,
+            label,
+            run_hook(python, session_input(given), env, hook=SESSION_HOOK),
+        )
+        for want, label, given in SESSION_CASES
+    ]
+    runs += [
+        (
+            "malformed",
+            label,
+            run_hook(
+                python, payload, env, raw=raw, force_error=force, hook=SESSION_HOOK
+            ),
+        )
+        for label, payload, raw, force in malformed_session_inputs()
+    ]
+    for n, (want, label, proc) in enumerate(runs, 1):
+        got = session_verdict(proc)
+        results.append(got)
+        line = f"S{n:<3d}[{want}] start_session: {label}"
+        if got == want:
+            lines.append(f"ok   {line}")
+        else:
+            lines.append(f"FAIL {line}\n     got: {got}")
+            failures.append(line)
+    return lines, failures, results
+
+
+def check_session_wiring(settings: dict[str, object], env: dict[str, str]) -> list[str]:
+    """Check the session guard's wiring in a settings object; return failures.
+
+    It must be one ``PreToolUse`` hook whose matcher is exactly
+    ``SESSION_TOOL``, and its command string, run through ``sh -c`` with
+    ``CLAUDE_PROJECT_DIR`` set, must allow a clean call and refuse a moved one
+    and a malformed one.
+
+    Parameters
+    ----------
+    settings
+        A parsed settings file.
+    env
+        The environment of the hook process.
+
+    Returns
+    -------
+    list of str
+        A description of each check that failed.
+    """
+    hooks = settings.get("hooks", {})
+    groups = hooks.get("PreToolUse", []) if isinstance(hooks, dict) else []
+    found = [
+        (str(group.get("matcher", "")), hook)
+        for group in groups
+        for hook in group.get("hooks", [])
+        if "session_guard.py" in str(hook.get("command", ""))
+    ]
+    if len(found) != 1:
+        return [f"want 1 PreToolUse hook on the session guard: {len(found)}"]
+    failures = []
+    matcher, hook = found[0]
+    if matcher_names(matcher) != {SESSION_TOOL}:
+        failures.append(f"the session guard's matcher is {matcher!r}")
+    command = str(hook.get("command", ""))
+    if hook.get("type") != "command" or "args" in hook:
+        failures.append("the session guard must be a shell-form command hook")
+    if not command.startswith("python3 -I ") or "$CLAUDE_PROJECT_DIR" not in command:
+        failures.append(f"unexpected session guard command: {command}")
+    if not isinstance(hook.get("timeout"), (int, float)):
+        failures.append("the session guard must set a timeout")
+    sh_env = {**env, "CLAUDE_PROJECT_DIR": str(ROOT)}
+    for expected, given in (
+        ("allow", json.dumps(session_input(_FRESH))),
+        ("refuse", json.dumps(session_input({**_FRESH, "cwd": "/x"}))),
+        ("malformed", "not json"),
+    ):
+        proc = subprocess.run(
+            ["sh", "-c", command],
+            input=given,
+            capture_output=True,
+            text=True,
+            env=sh_env,
+            cwd=ROOT,
+            timeout=30,
+            check=False,
+        )
+        got = session_verdict(proc)
+        if got != expected:
+            failures.append(f"session guard command: want {expected}, {got}")
+    return failures
 
 
 def check_doc_examples() -> list[str]:
@@ -1891,6 +2569,77 @@ def input_cases() -> list[tuple[str, str, object, str | None, bool]]:
             None,
             False,
         ),
+        # MAR-289: the git checks on the other tools, and when the hook fails.
+        (
+            "deny",
+            "Monitor, this repo: git push origin v1.0.0",
+            monitor_input(REPO, "git push origin v1.0.0"),
+            None,
+            False,
+        ),
+        (
+            "deny",
+            "terminal tool, cwd forks/crc-sdk: git tag v1.0.0",
+            terminal_input(REPO, "git tag v1.0.0", SDK),
+            None,
+            False,
+        ),
+        (
+            "refuse",
+            "internal error: git tag v1.0.0, this repo",
+            bash_input(REPO, "git tag v1.0.0"),
+            None,
+            True,
+        ),
+        (
+            "refuse",
+            "internal error: git push origin v1.0.0, this repo",
+            bash_input(REPO, "git push origin v1.0.0"),
+            None,
+            True,
+        ),
+        (
+            "refuse",
+            "internal error: git push --mirror origin, this repo",
+            bash_input(REPO, "git push --mirror origin"),
+            None,
+            True,
+        ),
+        (
+            "refuse",
+            "internal error: git update-ref refs/tags/v1 HEAD, this repo",
+            bash_input(REPO, "git update-ref refs/tags/v1 HEAD"),
+            None,
+            True,
+        ),
+        (
+            "allow",
+            "internal error: git push -u origin marcprinzing/x, this repo",
+            bash_input(REPO, "git push -u origin marcprinzing/x"),
+            None,
+            True,
+        ),
+        (
+            "allow",
+            'internal error: git commit -m "tag v1", this repo',
+            bash_input(REPO, 'git commit -m "tag v1"'),
+            None,
+            True,
+        ),
+        (
+            "refuse",
+            "internal error: gh gist create notes.md, this repo",
+            bash_input(REPO, "gh gist create notes.md"),
+            None,
+            True,
+        ),
+        (
+            "refuse",
+            "internal error: gh repo deploy-key add key.pub, this repo",
+            bash_input(REPO, "gh repo deploy-key add key.pub"),
+            None,
+            True,
+        ),
     ]
 
 
@@ -2043,10 +2792,16 @@ def check_settings(env: dict[str, str]) -> list[str]:
     deny = settings.get("permissions", {}).get("deny") or []
     if not deny:
         failures.append("settings.json lost its permissions.deny rules")
-    for rule in (*GH_REPO_DENY_RULES, TERMINAL_TOOL, *APP_TOOL_DENY_RULES):
+    for rule in (
+        *GH_REPO_DENY_RULES,
+        TERMINAL_TOOL,
+        *APP_TOOL_DENY_RULES,
+        *MERGE_ROUTE_DENY_RULES,
+    ):
         if rule not in deny:
             failures.append(f"settings.json lacks the deny rule {rule}")
     failures += tool_rule_problems(deny)
+    failures += check_session_wiring(settings, env)
     probes: list[object] = ["mcp__ccd_session__start_session(cwd:*)", "Fetch"]
     if len(tool_rule_problems(probes)) != len(probes):
         failures.append("the tool-rule check doesn't fire on its probes")
@@ -2100,18 +2855,20 @@ def check_settings(env: dict[str, str]) -> list[str]:
 
 
 def check_grammar() -> list[str]:
-    """Check that the hook parses with Python 3.9's grammar; return failures.
+    """Check that the hooks parse with Python 3.9's grammar; return failures.
 
     Returns
     -------
     list of str
-        The syntax error, if any.
+        The syntax errors, if any.
     """
-    try:
-        ast.parse(HOOK.read_text(encoding="utf-8"), feature_version=(3, 9))
-    except SyntaxError as exc:
-        return [f"the hook needs a Python newer than 3.9: {exc}"]
-    return []
+    failures = []
+    for hook in (HOOK, SESSION_HOOK):
+        try:
+            ast.parse(hook.read_text(encoding="utf-8"), feature_version=(3, 9))
+        except SyntaxError as exc:
+            failures.append(f"{hook.name} needs a Python newer than 3.9: {exc}")
+    return failures
 
 
 def markdown_table(results: list[str]) -> str:
@@ -2222,6 +2979,29 @@ def markdown_input_table(results: list[str]) -> str:
     return "\n".join(rows)
 
 
+def markdown_session_table(results: list[str]) -> str:
+    """Return the session guard's cases and their results as a table.
+
+    Parameters
+    ----------
+    results
+        The result of each case, ``SESSION_CASES`` first, then
+        ``malformed_session_inputs()``.
+
+    Returns
+    -------
+    str
+        A table with the number, case, expectation and result of each case.
+    """
+    rows = ["| # | Call | Expected | Result |", "|---|---|---|---|"]
+    expected = [(want, label) for want, label, _ in SESSION_CASES]
+    expected += [("malformed", case[0]) for case in malformed_session_inputs()]
+    for n, ((want, label), got) in enumerate(zip(expected, results, strict=True), 1):
+        result = f"**{got}**" if got == want else f"FAIL: {got}"
+        rows.append(f"| S{n} | {label} | {want} | {result} |")
+    return "\n".join(rows)
+
+
 def main() -> int:
     """Run all checks and print a report.
 
@@ -2257,6 +3037,11 @@ def main() -> int:
     tool_lines, tool_failures, tool_results = check_tool_rule_cases()
     print("\n".join(tool_lines))
     failures += tool_failures
+    session_lines, session_failures, session_results = check_session_cases(
+        args.python, env
+    )
+    print("\n".join(session_lines))
+    failures += session_failures
     for problem in check_settings(env) + check_grammar() + check_doc_examples():
         print(f"FAIL {problem}")
         failures.append(problem)
@@ -2269,6 +3054,8 @@ def main() -> int:
         print(markdown_rule_table(rule_results))
         print()
         print(markdown_tool_rule_table(tool_results))
+        print()
+        print(markdown_session_table(session_results))
     version = subprocess.run(
         [args.python, "--version"], capture_output=True, text=True, check=False
     ).stdout.strip()
@@ -2277,7 +3064,8 @@ def main() -> int:
         f"check_fork_gh_guard: {len(CASES)} cases on {version},"
         f" {per_case:.0f} ms per hook call; {len(RULE_CASES)} deny-rule cases"
         f" and {len(DOC_RULE_EXAMPLES)} docs examples; {len(TOOL_RULE_CASES)}"
-        f" tool-rule cases and {len(TOOL_RULE_DOC_EXAMPLES)} docs examples"
+        f" tool-rule cases and {len(TOOL_RULE_DOC_EXAMPLES)} docs examples;"
+        f" {len(session_results)} session-guard cases"
     )
     if failures:
         print(f"check_fork_gh_guard: FAILED, {len(failures)} problem(s) (see above)")
