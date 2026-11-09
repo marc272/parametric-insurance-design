@@ -137,7 +137,7 @@ Naming rules:
 
 ### 2. API shape, module layout and errors
 
-**Shape.** Classes with `from_*` constructors and module functions, eager and in memory. There is no lazy plan: `ADR 0005` needs one because CRC's sources are remote and lazy, while a CLIMADA user already holds a `Hazard` and an `Impact`. Every function fits `max-args=7`.
+**Shape.** Classes with `from_*` constructors and module functions, eager and in memory. There is no lazy plan: ADR 0005 needs one because CRC's sources are remote and lazy, while a CLIMADA user already holds a `Hazard` and an `Impact`. Every function fits `max-args=7`.
 
 A full run, in outline. The names are this ADR's, and nothing here is implemented yet.
 
@@ -802,7 +802,7 @@ A maintainer's answer that changes a decision becomes an amendment to this ADR.
 
 ## Decisions for the owner (D12)
 
-Each decision lists the options, then one recommendation and why. Numbers cited are K-12's, with its setups; the two spot checks are under "Not verified".
+Each decision lists the options, then one recommendation and why. Numbers cited are K-12's, with its setups, unless marked as a spot check; the spot checks are under "Not verified".
 
 #### D1. Does the build wait for the maintainers?
 
@@ -938,7 +938,7 @@ For the LPs, scipy's HiGHS through the public `linprog` stands (decision 2 of 20
 - (b) Florida's 67 counties (D2), as K-04 says today, on IRIS.
 - (c) Florida from the Data API's USA files.
 
-**Recommendation: (a).** `cat_bonds`' reviewers asked for Data API data and probabilistic sets, and the IRIS set behind the Florida portfolio isn't on the Data API. Jamaica has `random_walk` present, four future scenarios at several horizons, and STORM, all CC BY 4.0 and small (K-12 Q2); LitPop is on the Data API for it (1.1 MB, CC BY 4.0). Jamaica's flood file holds almost no depth (at most 1.2e-7 m), so the second hazard must be another. Windstorm in Luxembourg (`storm_europe_150arcsec_LUX`, 14.1 MB, CC BY 4.0, LitPop 1.08 MB) is a different hazard with an ensemble structure, on which the catalogue route doesn't run as labelled, so it shows `YearSets` with a reason. The short-record section uses Jamaica's observed set (§5.4).
+**Recommendation: (a).** `cat_bonds`' reviewers asked for Data API data and probabilistic sets, and the IRIS set behind the Florida portfolio isn't on the Data API. Jamaica has `random_walk` present, four future scenarios at several horizons, and STORM, all CC BY 4.0 and small (K-12 Q2 and the Data API's listing); LitPop is on the Data API for it (1.1 MB, CC BY 4.0). Jamaica's flood file holds almost no depth (at most 1.2e-7 m), so the second hazard must be another. Windstorm in Luxembourg (`storm_europe_150arcsec_LUX`, 14.1 MB, CC BY 4.0, LitPop 1.08 MB) is a different hazard with an ensemble structure, on which the catalogue route doesn't run as labelled, so it shows `YearSets` with a reason. The short-record section uses Jamaica's observed set (§5.4).
 
 #### D16. The issue map
 
