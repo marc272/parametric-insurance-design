@@ -1087,6 +1087,10 @@ CASES: list[tuple[str, str, str]] = [
     ("allow", SDK, 'X="$Y" pr list'),
     ("allow", SDK, "$X $Y pr list"),
     ("allow", SDK, '"$CMD"'),
+    # MAR-343 item 1: ambiguous abbreviations, which git itself refuses (--a is
+    # --all or --atomic, --pr is --prune or --progress).
+    ("allow", REPO, "git push --a origin"),
+    ("allow", REPO, "git push --pr origin"),
 ]
 
 # --- The deny rules (MAR-263) ----------------------------------------------
