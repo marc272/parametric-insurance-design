@@ -432,3 +432,189 @@ K-12 Q3 and Q4 show why: with ensemble labels 85.7 % of the test events with win
 #### 5.4 Short records
 
 A short record leaves the upper amounts unidentified: a step that no event reaches changes nothing on the sample, whatever its level. In CLIMADA this is ordinary: the observed Jamaica file has 13 events with wind in 41 years, and wildfire has 20 years (K-12 Q2). The design reports it (`unidentified`, §6.5), and an evaluation reports how much of a sample lands there (`unidentified_share`, §7). The tutorial shows it (§14, K-04).
+
+### 6. Calibration
+
+`calibrate(template, sample, objective, *, scope, pricing, budget, options)` chooses the free parameters of a template on a design sample.
+
+#### 6.1 The calibration scope
+
+The scope says which units share a design problem. It is a required argument, next to the objective.
+
+- **`scope="individual"`.** One design problem per unit, with its own objective on its own loss and payout, and its own budget, `P_j ≤ κ·E[L_j]`.
+- **`scope="joint"`.** One design problem for one risk owner. Each unit keeps its own index and its own payout function, and pays by its own terms. The objective is on the owner's total per event, L_e = Σ_j L_{e,j} and π_e = Σ_j π_{e,j}, under one budget on the total premium. Within an event, an over-payment at one unit can offset a shortfall at another.
+- **The combination** is the weighted-CVaR objective with `scope="joint"`, a tail objective on the owner's total uncovered loss. It is first-class (Marc, 2026-11-01). Nothing in the API treats it as a special case.
+
+These are methods. What each optimises is stated in the docs. Nothing in the module says which scope gives better cover. Event sets keep the dependence between units, so joint calibration needs no dependence model here, which is why it belongs in Phase 1 (D12).
+
+The joint LP and QP are the individual ones with the block basis B = [B_1 | … | B_m]. Thresholds are fixed in a joint design (D9). A `Budget(ratio=κ)` means P ≤ κ·E[L] per problem, so at equal κ and under the pure premium both scopes spend the same total. In the individual scope, `Budget(amount=B)` takes a mapping by unit.
+
+Cluster scope is K-31, and `scope` can take a richer value then without a break.
+
+#### 6.2 Objectives
+
+With outcome weights p_o, and U_o and R_o from §5.1:
+
+- `MSE()`: `Σ_o p_o R_o²`.
+- `ExpectedUncovered()`: `E[U] = Σ_o p_o U_o`.
+- `WeightedCVaR(alpha, beta)`: `α · CVaR_β(U) + (1 − α) · E[U]`, in the Rockafellar–Uryasev form. Here α weights the CVaR term, β is the tail level, and this mixture is not a CVaR with weights on the outcomes. On the event basis, §5.1 says what β means.
+- `UserObjective(function, *, name, parameters=None)`: `function(loss, payout, weight) -> float` on outcome arrays. It is evaluated, not compiled, so it takes the grid route.
+
+#### 6.3 Pricing and constraints
+
+- `PurePremium()`: `P = E[π]`. `CostOfCapitalLoad(rate, q)`: `P = (1 − r)·E[π] + r·CVaR_q(π)`.
+- `Budget(ratio=κ)`: P ≤ κ·E[L]. `Budget(amount=B)`: P ≤ B. Exactly one of the two, on the design sample.
+- The limit is a term of the cover (§3). A family's own constraints are amounts ≥ 0 and monotone levels if `monotone=True`.
+
+#### 6.4 Solver routes
+
+| Payout | Free shape parameters | Objective | Pricing | Route |
+|---|---|---|---|---|
+| `LinearInAmounts` | none | E[U], weighted CVaR | any | One LP: `scipy.optimize.linprog` |
+| `LinearInAmounts` | none | MSE | pure | One QP on the amounts, solved with `SLSQP` |
+| `LinearInAmounts` | none | MSE | cost of capital | The same, with the premium held by cutting planes |
+| `LinearInAmounts` | some | any built-in | any | A grid over the shape candidates, with the LP or QP above at each point. Individual scope only |
+| Any other payout, or a `UserObjective` | any | any | any | A grid over every free parameter, evaluated in numpy. Individual scope only. Labelled `route="grid"` |
+
+**The LP method.** `CalibrationOptions(lp_method="auto")` uses `highs` for a problem with one unit and `highs-ipm` for a problem with several. `"highs"` and `"highs-ipm"` can be stated (D17). The method used is recorded. `time_limit` passes through to HiGHS, and reaching it raises `CalibrationLimitError`, so a stalled solve ends with a typed error.
+
+**MSE without a new package.** The problem is `min Σ_o p_o (L_o − B_o θ)²` over the amounts, under bounds, monotonicity and the budget. It has as many variables as amounts, so `SLSQP` works on it directly, with analytic derivatives.
+
+- `SLSQP` matches cvxpy to about 1e-11 on 5 and 335 amounts (K-12 Q6), and to 5e-10 on 1,000 (spot check, below). Its cost grows about with the cube of the amounts: about 1 s at 335 (K-12), 222 s at 1,000 (spot check), not done in 600 s at 5,000 (K-12). So `max_slsqp_amounts=1_000` is a stated limit. Above it, `CalibrationLimitError` names the option. Individual designs are far below it.
+- Under a cost-of-capital load the premium is the largest of finitely many linear functions of the amounts. Each round solves the QP with the cuts so far and adds the linear piece at the solution, until the premium is within 1e-10 of the budget. No auxiliaries, so the QP stays small.
+- Spot check (below): the route matched cvxpy to the tolerances the parity contract uses, on the sizes that K-12 ran for the loaded premium.
+
+If the maintainers accept one new package, `highspy` can replace `SLSQP` behind `solvers.py`, with no change in the API: it matched cvxpy on every pure-premium size (K-12 Q6).
+
+**Grid.** Candidates are the Cartesian product of the shape parameters' grids, restricted to ordered thresholds, capped by `max_grid_points` (above it, `CalibrationLimitError`). The best candidate wins; ties within the tolerance go to the first in lexicographic order and are counted. The objective at every candidate is kept (`profile`).
+
+**Size.** Losses are held sparse. Loss-free events get no shortfall variable, as in the prototype: an event without loss has no shortfall for any payout. Losses and payouts are divided by the largest event loss of the problem before solving, and results are in loss units.
+
+**No silent failures.** After a solve, numpy recomputes the objective, the premium, the budget and every constraint from the returned parameters, with relative tolerance 1e-7. A violation, or a solver status other than optimal, raises. There is no fallback to other thresholds, as `cat_bonds` has after a failed fit (`_fallback_thresholds`).
+
+#### 6.5 Non-uniqueness and degenerate tails
+
+The module reports non-uniqueness, as ADR 0005 §5.4 defines it.
+
+- **Unidentified amounts.** An amount that no calibration outcome reaches changes nothing on the sample. `CalibrationResult.unidentified` lists them, and a stated rule sets them: `fill="lowest"`, the default, or `fill="highest"`.
+- **Ranges on the LP route** (`ranges=True`): four LPs per amount, the two-tolerance test of ADR 0005 §5.4, `unique` and `ranges`.
+- **MSE route:** `unique` comes from the smallest eigenvalue of the Hessian restricted to the identified amounts.
+- **Joint designs.** The joint objective sees only each event's total payout, so other splits across the units are often optimal too. A joint design holds the one split the solver returned, unless `unique` is true. Tables mark this (§7).
+- **Degenerate tails.** `degenerate_tail = "expected_uncovered"` when the tail covers all the loss: β ≤ P(L = 0) on an annual route, 1 − β ≥ Σ_{L_e > 0} f_e on the event basis. `"single_outcome"` when (1 − β) is at most the smallest outcome weight. Recorded, not raised.
+
+#### 6.6 The result, and the budget frontier
+
+`CalibrationResult` holds: the resolved `cover`; the template's hash; the objective's document and value; `premium`, `expected_loss`, the budget's use; `scope`; one `CoverProblem` per design problem with its `route`, solver name, version, status, method and time; `unidentified`, `fill`, `unique`, `ties`, `ranges`, `degenerate_tail`, `profile`; the basis and route; and the design sample's size. `summary()` and `parameters_frame()` return it as tables. The prototype's `levels_frame()` becomes `parameters_frame()`, which also holds non-step parameters.
+
+**`calibrate_frontier(template, sample, objective, *, budgets, scope, ...)`** runs one calibration per budget and returns one table, one design per budget. It is a measurement: "what does another unit of premium buy in tail protection?" The table has no "best" point. It carries the same columns as a `CalibrationResult.summary()`, and per budget the cover's parameters.
+
+### 7. Evaluation and comparison
+
+`evaluate` and `compare` take any cover, designed or given, on any sample. They return pandas tables: one row per entry, level and split, with the metrics as columns. They use ADR 0005 §6's definitions, with the event-level detail of §5.1.
+
+**The premium used.** It is `premium=` if given; for a design, the design premium, which is the contract price; otherwise the premium on the evaluation sample. The row says which (`premium_basis`). `premium_repriced` sits beside it, the same pricing applied on the evaluation sample, so a row under another scenario shows both.
+
+**VaR and CVaR.** `VaR_β(X)` is the smallest x with cumulative weight at least β, allowing 1e-10 for rounding, so a β on a step gives the lower atom on every platform. On the event basis, §5.1 gives the same in frequency terms.
+
+| Column | Definition | On the event basis |
+|---|---|---|
+| `expected_loss`, `expected_payout`, `expected_uncovered`, `premium`, `premium_repriced` | E[L], E[π], E[U], P | Per year: `expected_loss` is `aai_agg` on the units |
+| `coverage_ratio` | `E[min(π, L)] / E[L] = 1 − E[U] / E[L]` | The same |
+| `payout_to_loss_ratio` | `E[π] / E[L]` | The same |
+| `tail_coverage_b<β>` | `Σ w^β (L − U) / Σ w^β L`, on the worst 1 − β of the loss | Worst 1 − β of frequency |
+| `cvar_uncovered_to_loss_b<β>` | `CVaR_β(U) / CVaR_β(L)` | §5.1 |
+| `payout_frequency` | `P(π > ε)` | Paying events per year, Σ f_e 1[π_e > ε] |
+| `unidentified_share` | The weight of outcomes where the design's amounts were set by the fill rule: on an annual route, the probability of a year with at least one event on a filled amount | Such events per year. Null for a cover given as is |
+| `false_negative_rate_l<ℓ>` | `P(π ≤ ε, L > ℓ) / P(L > ℓ)` | Ratio of frequencies |
+| `false_positive_rate_l<ℓ>` | `P(π > ε, L ≤ ℓ) / P(L ≤ ℓ)` | Ratio of frequencies. Its denominator holds the loss-free events the file keeps, so the docstring warns that it depends on them |
+| `rmse` | `sqrt(E[R²])` | Per event |
+| `correlation` | Weighted Pearson of L and π | The same |
+| `var_uncovered_b<β>`, `cvar_uncovered_b<β>` | VaR_β(U), CVaR_β(U) | §5.1 |
+| `var_net_loss_b<β>`, `cvar_net_loss_b<β>` | Of N = L − π + P, the owner's cost of the outcome | Null: the premium is annual, an event isn't |
+| `var_loss_b<β>`, `cvar_loss_b<β>` | Of L | §5.1 |
+| `loss_rp<T>`, `payout_rp<T>`, `uncovered_rp<T>`, `net_loss_rp<T>` | The value exceeded with probability 1/T | With frequency 1/T; `net_loss_rp` null |
+
+Thresholds are always stated in `MetricOptions`. Labels follow ADR 0005: `cvar_uncovered_b0_99`, `loss_rp100`, `false_negative_rate_l0`.
+
+**In and out of sample.** Every row says `split` and `fold`. External numbers come from out-of-sample rows on the annual basis (publication rule). In-sample rows exist for the overfitting gap.
+
+**Rows and levels.**
+
+| Column | Meaning |
+|---|---|
+| `cover_label`, `cover_hash` | The user's label, and §3's hash |
+| `scope` | `"individual"` or `"joint"`, or null for a cover given as is |
+| `level`, `unit_id` | `"unit"`, or `"total"` with null `unit_id`; `"unit_by_value"`, `"unit_by_loss"` (below) |
+| `scenario` | `"baseline"` unless stated |
+| `basis`, `route`, `n_years` | `"event"` or `"annual"`; `"frequency"`, `"catalogue"` or `"yearsets"`; the years, null on the event basis |
+| `index_definition` | One line: source, statistic, unit |
+| `pricing`, `premium_basis` | The pricing's name and parameters; `"stated"`, `"design"` or `"evaluation"` |
+| `split`, `fold` | `"in_sample"` or `"out_of_sample"`; the fold |
+| `unique`, `ties`, `degenerate_tail` | From the design; null for a cover given as is |
+| `comonotone_index` | §8 |
+| one column per metric | Null where the table above says |
+
+Setup is in columns, not in `DataFrame.attrs`, so it survives a `concat` or a filter. `setup_text(table)` renders it as the sentence a notebook prints next to a number.
+
+**Joint designs.** A joint design has one `"total"` row. It has per-unit rows only under a stated evaluation-time allocation, `MetricOptions(allocation="value")` or `"loss"`: `"unit_by_value"` or `"unit_by_loss"`, with no premium and no net-loss columns. The rule is in `level`, so no row can be read as the solver's split (the rule of ADR 0005, Amendment 3). A set of individual covers has one `"unit"` row per unit and one `"total"` row, whose premium is the sum of the contract premiums. The `scope` column keeps the two apart and makes no statement about them.
+
+**CLIMADA objects.**
+
+- `payout_impact(cover, sample)` returns the payouts as an `Impact`, on the exposure points of the loss `Impact` (§4), with its events, frequencies and dates.
+- `uncovered_impact(cover, sample)` returns `(L_e − π_e)^+` per event and point, the same way. At group level, the shortfall of a unit maps back by value share.
+- `calc_freq_curve`, `eai_exp`, `local_exceedance_impact` and `write_hdf5` work on both, unchanged. Both are non-negative, which is what those tools expect (C6).
+- A signed net loss is not offered as an `Impact`: `local_exceedance_impact` would drop its negative part, and the premium is annual, so it has no place in an event. The net-loss metrics are in the table.
+- On an annual route, the same `sampling_vect` gives a payout's annual totals through CLIMADA's own functions.
+
+Plots follow `plot_*`, return axes and never call `plt.show()`.
+
+### 8. Basis risk
+
+With a centroid index, one exposure point and one impact function, CLIMADA's loss is an exact function of the index, and a design can replicate it. That would mislead a reader of the numbers. In K-12 Q7, on one synthetic site near Miami (one unit, individual scope, annual basis, the last 900 of 3,000 simulated years out of sample, pure premium, budget 1.0, objective E[U], step payout uniform on 25 to 85 m/s, K steps), `E[U] / E[L]` is:
+
+| Setup | Spearman(index, loss) | K = 5 | K = 20 | K = 80 |
+|---|---|---|---|---|
+| One point, centroid wind, one impact function | 1.000 | 14.1 % | 5.0 % | 1.2 % |
+| 25 points on a 0.1° grid, wind at the centre | 0.999 | 13.6 % | 4.3 % | 1.8 % |
+| 25 points on a 0.5° grid, mean wind of the points | 0.956 | 6.0 % | 3.7 % | 3.3 % |
+| One point, `v_half` drawn per event | 0.921 | 29.3 % | 25.6 % | 25.7 % |
+| Cat-in-a-circle at 50 km, wind within it | 0.637 | 46.3 % | 46.3 % | 46.3 % |
+
+A share that falls with K is what no basis risk looks like. Three things follow.
+
+**Structural sources lead.** CLIMADA's natural basis risk is that the index and the loss are different things: an index from another hazard set or resolution, a statistic over a group, a track-based trigger, a user's station table. §4's builders are where that is stated, and `IndexDefinition` records it in every row of every table. The docs lead with these.
+
+**The unit's size doesn't settle it.** A 0.1° group behaves like one point in the table above. So the module measures the relation between index and loss, and doesn't infer it from the setup.
+
+`index_diagnostics(sample, threshold=0.99)` returns, per unit, the frequency-weighted Spearman correlation of index and loss over the events with a loss or a non-zero index, the flag `comonotone_index`, and the share of E[L] on events with a zero index (41 % for the cat-in-a-circle rows above). `calibrate` and `evaluate` run it. A flagged unit logs a warning and sets the `comonotone_index` column, so a reader of a table sees it. The threshold is a stated default from one synthetic site: 0.999 behaved like one point, 0.956 did not.
+
+**Impact-function draws come second, with their limit stated.** Several `Impact`s, one per draw of the `ImpactFuncSet`, go in on the draws dimension of §5.3, in calibration and in evaluation. They widen the uncovered loss, as the `v_half` row shows. But noise on the impact can't change whether an event pays, and it can't change whether a loss occurs unless the draws move the impact function's threshold. So where the index equals the hazard, the false-negative and false-positive rates at ℓ = 0 don't move (the design review, MAR-344, measured this on the CRC module). The docs say so next to the helper. `unsequa` is Phase 2 (K-33).
+
+**No required model.** ADR 0005 requires a stated basis-risk model because a CRC sample has no second source of information. Here the index builder is the statement. A required argument would add a word with no information in it, and the degenerate case is caught by measurement rather than by a promise.
+
+A synthetic noise layer on the index is not in Phase 1. The CRC module needs one, because it reads one hexagon. A CLIMADA user can build the index from another hazard, resolution or unit, or bring a table. If the maintainers or Marc want it, it is a small addition to `basis_risk.py`.
+
+### 9. Scenarios
+
+In CLIMADA a scenario is another `Hazard` and possibly other `Exposures`. So a fixed cover is portable by construction (§3), and this belongs in Phase 1.
+
+- **`ParametricIndex.from_definition(definition, hazard, units, tracks=None)`** rebuilds a cover's index on another hazard set. Nothing in a cover depends on event ids.
+- **`ScenarioSet`** maps labels to samples. `evaluate_scenarios` evaluates a fixed cover on each, and fills the `scenario` column. `calibrate_per_scenario` runs K-19 on each.
+- **The route must be the same across a comparison,** or it raises. `apply_climate_scenario_knu` changes frequencies only, so it needs the event basis or `YearSets` (§5.2). Other `Exposures` change the units' values, so a value-weighted index and the value shares follow the exposures given; `units` records them. Freezing the weights at inception, as a contract would, is an open point for K-21.
+
+**One horizon of one product can be noisy** (the design review, MAR-344, found this on the CRC module's curves). On CLIMADA's objects:
+
+- **Several samples under one label form one scenario**, an equal-weight mixture. `ScenarioSet({"rcp45, 2040 to 2080": [s_2040, s_2060, s_2080]})`. On the event basis each member's frequencies are divided by m; on an annual route each member's years get weight 1/(m·N_i). It adds no concept beyond a sequence in place of a sample. The members must have the same units.
+- **The docs and the tutorial lead with windows or members**, not with one file. The Data API offers them: `random_walk` for Jamaica at `ref_year` 2040, 2060 and 2080 (rcp 2.6, 4.5, 6.0; 2040 and 2060 at rcp 8.5), and STORM rcp 8.5 per GCM, four of them (listing read on 2026-11-09).
+- **A frequency-scaled set keeps the events,** so its difference from the baseline holds no sampling noise on the event basis.
+- **The `yearsets` route adds its own noise.** In K-12 Q4 (synthetic, non-uniform frequencies, 200 replicates, with replacement) the error of the annual CVaR at 99 % has an RMSE of about 16 % at 1,000 sampled years and 6 % at 10,000. So the docs ask for at least 10,000 sampled years on that route, and every scenario row records `n_years`. Robust design and CLIMADA's `trajectory` module are Phase 2 (K-32).
+
+### 10. Working with `cat_bonds`
+
+The two are complementary (accepted 2026-10-31). `cat_bonds` designs bonds for a sovereign: one linear payout per subarea, squared error, COBYLA, pooling and bond pricing. This module designs covers for one risk owner, for any payout family and goal.
+
+- **`InsuredUnits.from_subareas(subareas, exposures)`** (K-22) makes units from `Subareas`, through a spatial join, since `Subareas` holds no point-to-subarea column. Its own coverage check doesn't fire (C10), so the module checks coverage itself. `subarea_letter` is used as a label only, and stays unique past 26 subareas.
+- **A check that the two agree:** `LinearPayout` equals `calc_payout` for the same triggers and maximum payout, on float input (K-12 Q8).
+- **A check on design:** an MSE design with `LinearPayout` on a subarea, on a stated grid of triggers, reaches `cat_bonds`' COBYLA objective on the same data within a stated tolerance, or improves on it (K-22).
+- **Terms.** A short section of the docs puts the two vocabularies side by side (§1).
+- **Nothing inside `climada_petals/engine/cat_bonds/` is edited.** What we noticed there is a note for the maintainers (§15). The bridge to bond simulation is K-35.
