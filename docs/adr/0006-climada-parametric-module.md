@@ -618,3 +618,180 @@ The two are complementary (accepted 2026-10-31). `cat_bonds` designs bonds for a
 - **A check on design:** an MSE design with `LinearPayout` on a subarea, on a stated grid of triggers, reaches `cat_bonds`' COBYLA objective on the same data within a stated tolerance, or improves on it (K-22).
 - **Terms.** A short section of the docs puts the two vocabularies side by side (§1).
 - **Nothing inside `climada_petals/engine/cat_bonds/` is edited.** What we noticed there is a note for the maintainers (§15). The bridge to bond simulation is K-35.
+
+### 11. Porting map from the prototype
+
+K-14 moves the prototype with its behaviour unchanged. The table says what later issues then do to it.
+
+| Prototype | In the module | Fate | Issue |
+|---|---|---|---|
+| `ParametricCover` (levels, problems, years) | `ParametricCover` (terms) and `CalibrationResult` (record) | **Split** | K-15, K-19 |
+| `CoverProblem`, `summary()` | `CoverProblem`, `summary()`, with the route and the method added | Kept | K-19 |
+| `levels_frame()` | `parameters_frame()` | Renamed, for any family | K-19 |
+| `ParametricCover.payout_matrix` | The same | Kept | K-15 |
+| `ParametricCover.payout_impact(index, impact)` | `payout_impact(cover, sample)` | A function now, in K-18's file | K-18 |
+| `ParametricIndex` with `event_year`, `years`, `frequency`, `date` | `ParametricIndex` without any of them | **Years move out** to `CatalogueYears` | K-16, K-17 |
+| `from_hazard(hazard, exposures, ...)` | `from_hazard(hazard, units, index_stat=..., weight=...)` | Generalised | K-16 |
+| `from_cat_in_circle`, `SAFFIR_SIMPSON_KN`, the track geometry | The same, in `index_tracks.py` | Kept, moved | K-14, K-16 |
+| `event_year="date"` as the default route | `CatalogueYears.from_dates`, which raises on a collapse | **Default retired** | K-17 |
+| `split_years` | `holdout`, `year_block_kfold` | Renamed, generalised | K-17 |
+| `OutcomeMeasure(outcome_of_event, probability, n_years)` | `OutcomeMeasure(G, weights)` | Generalised | K-17 |
+| `basis="annual"` or `"event"` | `CatalogueYears`, `YearSets`, `EventBasis` | Replaced by objects | K-17 |
+| The event basis's Σf ≤ 1 | Frequencies as weights | **Check retired** | K-17 |
+| `StepPayout(attachment, limit, n_steps, breakpoints, below_attachment)` | `StepPayout(breakpoints, levels, ...)` and `StepPayout.uniform(...)` | Reshaped | K-15 |
+| `below_attachment="first_bin"` | None | **Retired** at K-15 | K-15 |
+| `MeanSquaredError` | `MSE` | Renamed | K-19 |
+| `ExpectedUncovered`, `WeightedCVaR` | The same | Kept | K-19 |
+| `PurePremium`, `CostOfCapitalLoad` | The same | Kept | K-18 |
+| `budget=κ` | `Budget(ratio=κ)` or `Budget(amount=B)` | Reshaped | K-19 |
+| The implicit cap at the largest loss | `Limit.largest_loss()`, stated | Made explicit | K-15, K-19 |
+| `scope="portfolio"` | `scope="joint"` | **Renamed** (§1) | K-19 |
+| `solve_design`, `_LinearProgram`, the LP assembly | The same, on `LinearInAmounts` | Generalised | K-19 |
+| `_solve_qp` (cvxpy and Clarabel) | `SLSQP` and cuts | **Retired** | K-19 |
+| `MissingDependencyError` | Kept for later optional routes | Kept | K-14 |
+| `calibrate(index, impact, payout=, objective=, basis=, scope=, pricing=, budget=, years=)` | `calibrate(template, sample, objective, *, scope, pricing, budget, options)` | Reshaped to `max-args=7` | K-19 |
+| `basis_risk(index, impact, cover, ...)` | `evaluate`, `compare` | Replaced | K-18 |
+| `rmse_residual` | `rmse` | Renamed, as in ADR 0005 | K-18 |
+| `var_cvar`, `_checks` | The same | Kept | K-14, K-18 |
+| `errors.py` | The table of §2 | Extended | K-14 onward |
+| `README.md` | The seed of the tutorial and the API page | Absorbed | K-04, K-23 |
+| `ruff.toml` | None; it is this repository's isolation rule | Not moved | K-14 |
+| `test/` | `unittest` classes, adapted | Kept | K-14 onward |
+
+The prototype in this repository is frozen after K-14. Its isolation rule stays.
+
+### 12. Test strategy and the parity contract
+
+**Layers.**
+
+| Layer | What it holds | Where | Issue |
+|---|---|---|---|
+| Unit | Every module; `unittest` classes, offline, at most 2 s each. Each statistic and error path by hand; shuffled events | `engine/parametric/test/` | K-14 to K-22 |
+| Golden | K-13's cases against the thesis-faithful core | `engine/parametric/test/data/` (copied), tests in the owners' files | K-13, K-18, K-19 |
+| Closed form | What the core lacks: linear, piecewise linear and binary payouts; the event basis with Σf above 1; `yearsets` against a hand-worked `sampling_vect` | The same | K-13, K-17, K-19 |
+| Properties | Loss-free events below the attachment change nothing, on both bases. A uniform-frequency catalogue and the same set as a `sampling_vect` give identical outcomes. Numpy's global random state doesn't move. At equal total budget the joint optimum on the total is at most the individual designs' objective on the total, because the individual designs are feasible for it: this tests the solver, and says nothing about other years | The same | K-17, K-19 |
+| CLIMADA round trip | An `Impact` from a cover passes `calc_freq_curve` and a `write_hdf5` round trip | The same | K-18 |
+| Cross-module | `LinearPayout` against `calc_payout`, on floats; an MSE design against COBYLA | The same | K-22 |
+| Integration | `Hazard`, `Exposures`, `ImpactCalc`, `calibrate`, `evaluate`, `compare` end to end, for two hazard types, on small synthetic objects | `climada_petals/test/` | K-23 |
+| Merge gate | black, isort, pylint under petals' `.pylintrc`, 100 % line coverage of new code | K-11's commands | every issue |
+
+**The parity contract (K-13).** The fork's tests never import the core. The fixtures live in this repository under `parity/climada/`, and K-18 and K-19 copy them into the fork's test data.
+
+```text
+parity/climada/
+  README.md                  # format, licence, how to compare
+  samples/<name>.json        # event_id, frequency, year (or null), parent (or null), unit_id,
+                             # index [n_events × n_units], loss [n_events × n_units], index_unit, loss_unit
+  cases/<case_id>.json       # one case each; names a sample by file
+```
+
+A sample is shared between cases, which is how the set stays small. One case:
+
+```text
+{"case_id": "step-wcvar-b0_99-pure-annual-joint-s1",
+ "kind": "design",                       # or "evaluate"
+ "source": "core",                       # or "closed_form"
+ "sample": "samples/s1.json",
+ "basis": {"kind": "annual", "route": "catalogue", "n_years": 30},    # or {"kind": "event"}
+ "scope": "joint",                       # or "individual"
+ "cover": <the cover document of §3>,    # a template, or a resolved cover if "evaluate"
+ "objective": {"kind": "weighted_cvar", "alpha": 0.9, "beta": 0.99},
+ "pricing": {"kind": "pure"},            # or {"kind": "cost_of_capital", "rate": 0.06, "q": 0.99}
+ "budget": {"ratio": 0.8},
+ "limit": {"rule": "largest_loss"},
+ "expected": {"objective_value": ..., "premium": ...,
+              "parameters": {"u1": {"levels[0]": ..., ...}, ...},
+              "unidentified": {"u1": [...], ...},
+              "unique": true,
+              "metrics": {"expected_uncovered": ..., "var_uncovered_b0_9": {"either": [lower, upper]}, ...}},
+ "compare_parameters": "exact",          # or "within_ranges" or "none"
+ "tolerances": {"objective_value": 1e-6, "premium": 1e-6, "metrics": 1e-6, "parameters": 1e-6},
+ "generator": {"script": "parity/scripts/export_climada_fixtures.py", "core_version": "...", "commit": "..."}}
+```
+
+- **Cases.** From the core: a step payout × {MSE, E[U], weighted CVaR} × {event basis, annual basis} × {individual, joint} × {pure premium, cost-of-capital load}, at `below_attachment="zero"`. The core's event basis needs frequencies that sum to at most 1, so those cases' samples do. Closed form: the three other families, and the event basis with Σf above 1.
+- **Size.** At most 200 KB for the whole set, enforced by a test. Petals accepts only small test files, and the CRC fixtures are about 1 MB.
+- **Licence.** Synthetic samples only, CC0-1.0, so the copies in a GPL v3 repository carry no attribution duty. Recorded in `parity/README.md` and `docs/data-sources.md`.
+- **Tolerances, once.** Objective values, premiums and metrics agree within `1e-6` relative. A quantile on a step is written `{"either": [lower, upper]}`, and CVaR is a single value. Parameters agree within `1e-6` of the scale, absolute.
+- **How a design case compares.** As ADR 0005 §8: the objective value always; then the parameters as `compare_parameters` says, leaving out unidentified amounts; premium and metrics on the module's design where `unique` is true, otherwise on the template resolved with `expected.parameters`.
+- **Prototype.** A one-off run of `packages/climada/tests/test_petals_parametric_parity.py` against the port at K-14, at unchanged tolerances, and a last parity run at K-23.
+
+The generator uses `parametric_insurance_design` alone. It may reuse the MAR-245 generator, which is our own BSD code, and nothing from crc-sdk.
+
+### 13. Phase 2 extension points
+
+Phase 1 exports only what it implements. Adding a name isn't breaking.
+
+| Issue | What it adds | Where it plugs in |
+|---|---|---|
+| K-30, multi-hazard | Composite indices and payouts over several indices (a sum or maximum of single-index payouts; a two-dimensional step grid) | `IndexDefinition` gains named components, and `PayoutFunction` has `index_names` from the start (Phase 1 requires one name). Two hazard sets share no events, so the alignment is a stated rule: a date window, the year level through `YearSets` on a concatenated event list, or one event set with several hazards. `OutcomeMeasure` already takes it |
+| K-31, cluster scope | A joint problem per cluster, if the maintainers want it | A richer value of `scope`. A cluster is a given grouping of units. Same report as §6.5 |
+| K-32, robust design and trajectories | A min–max over a `ScenarioSet`, as a wrapper over objectives; cover metrics along CLIMADA's `trajectory` | `Robust(objective)`; a metric step in `RiskTrajectory`, to be assessed |
+| K-33, `unsequa` | Uncertainty and sensitivity of cover metrics, in the style of `CalcImpact` | `evaluate` as the output function. The API states whether a cover is fixed or redesigned per sample |
+| K-34, cost-benefit | A cover as an adaptation option: the premium as a periodic cost and payouts reducing the net impact | Needs the maintainers (C8, Q6), since their measure design is changing |
+| K-35, bridge to cat bonds | Bond simulation and pricing on a cover designed here | An export to `pay_vs_dam` (`pay`, `damage`, `year`, `month`), respecting `CatalogueYears` |
+
+Also reserved, with no issue yet: an annual aggregate limit or reinstatements, which truncate a year's payout and so aren't linear in the amounts; block-bootstrap intervals and pooled k-fold metrics (the design review's finding on short blocks applies to short records here too); a synthetic noise layer on the index (§8); an export of a step cover to an `ImpactFuncSet`, Steinmann et al.'s form (D5); a local refinement after the grid; a second solver backend behind `solvers.py`.
+
+### 14. The issue map
+
+K-14 to K-23 hold, with these adjustments. Each is marked "adjusted"; the ADR wins over the issue texts, and the orchestrator updates them once Marc has decided.
+
+| Issue | Covers | Files (§2) | Starts after |
+|---|---|---|---|
+| K-13 (MAR-312) | §12's fixtures. **Adjusted:** shared samples; synthetic data only; the event basis from the core only where Σf ≤ 1, plus closed forms; `below_attachment="zero"` only; `scope` is `"joint"` | `parity/climada/` in this repository | This ADR |
+| K-14 (MAR-313) | The port, behaviour unchanged. Confirmed: `first_bin` and `"portfolio"` stay until K-15 and K-19 change them | all of the prototype's | K-10, K-11 |
+| K-15 (MAR-314) | Covers and families. **Adjusted:** `first_bin` is retired instead of kept; `IndexDefinition` and `Limit` live in `cover.py`; `LinearPayout.from_triggers` | `parameters`, `payout`, `cover` | K-14, this ADR |
+| K-16 (MAR-315) | Units and index. **Adjusted:** years leave the index; `index_stat` as in `cat_bonds`; `from_definition`; starts **after K-15**, not in parallel, because it imports `IndexDefinition` | `units`, `index`, `index_tracks` | K-15 |
+| K-17 (MAR-316) | Outcomes. **Adjusted:** the event basis as a frequency measure (§5.1); `OutcomeSample` and `sample.py` are its files; `block` as the general split key | `measure`, `sample` | K-16 |
+| K-18 (MAR-317) | Evaluation. **Adjusted:** `uncovered_impact` replaces a net-loss `Impact`; adds `payout_frequency`, `unidentified_share`, `premium_repriced` and `setup_text`; `allocation` per Amendment 3's rule | `riskmeasures`, `pricing`, `metrics`, `evaluate`, `plots` | K-15, K-17, K-13 |
+| K-19 (MAR-318) | Calibration. **Adjusted:** `constraints.py`, the `lp_method` rule (D17), the `SLSQP` route with cuts (D10), fixed thresholds in joint designs (D9), the fill rule and ranges, `calibrate_frontier`; cvxpy leaves | `objectives`, `constraints`, `solvers`, `calibrate` | K-18, K-13 |
+| K-20 (MAR-319) | Basis risk. **Adjusted:** structural sources and `index_diagnostics` lead, draws second, with their limit stated (D11). Its title changes to match | `basis_risk`; `from_impact_draws` in `sample` | K-19 |
+| K-21 (MAR-320) | Scenarios. **Adjusted:** a label may hold several samples, an equal-weight mixture; the docs lead with windows or members | `scenarios` | K-19 |
+| K-22 (MAR-321) | `cat_bonds`. Confirmed. `from_subareas` is a sequenced edit of `units.py` | `units`; tests | K-16, K-19 |
+| K-23 (MAR-322) | Review readiness. Confirmed | docs, integration tests, `CHANGELOG.md`, `AUTHORS.md` | K-20, K-21, K-22 |
+| K-04 (MAR-50) | The tutorial. **Adjusted:** the case of D15; a section on short records: calibrate on the 41 observed years of Jamaica and evaluate on STORM, which shares no event with them, showing `unidentified` and `unidentified_share`; the budget frontier; the scenario section on windows or members; scope sections each on their own rows (§15, below "Beyond the eighteen decisions") | `doc/tutorial/` | K-23 |
+
+`CHANGELOG.md` has a Dependency Changes entry only if D10's answer changes.
+
+### 15. Questions for the maintainers, and the feedback record
+
+These feed K-01 (MAR-47). Posting stays on hold until Marc lifts it. Nothing has been posted or sent, and agents never contact the maintainers. Q1 to Q5 are the five questions of the K-01 draft, sharpened.
+
+- **Q1. Location.** Is a new `climada_petals.engine.parametric`, next to `cat_bonds`, the right place?
+- **Q2. Solver.** The LPs use scipy's HiGHS through `linprog`. For MSE we use `SLSQP` on the amounts, with no new package, up to a stated size. Would you accept one optional package for larger problems? `highspy` is the small one. Petals has no optional extras today, so how would you want that declared?
+- **Q3. Representation.** Payouts and uncovered losses as `Impact`, the index in a table aligned on `event_id`, metrics as pandas. Or Steinmann et al.'s index as a `Hazard` and payout as an `ImpactFuncSet`?
+- **Q4. Simulation years.** Is there a recommended way to get each event's simulation year on probabilistic sets? We state the route: catalogue years or `yearsets`. Is `yearsets` with replacement the route you would use for non-uniform frequencies?
+- **Q5. Tutorial data.** Data API tropical cyclones and LitPop for Jamaica, and windstorm for Luxembourg?
+- **Q6. Insurance in the measures.** How should a cover relate to `Impact.calc_risk_transfer` and the new `MeasureConfig`?
+- **Q7. Review.** One PR for the module, the API docs and the tutorial, or several? What would make the review shorter?
+- **Q8. `cat_bonds`.** Is a unit source from `Subareas` and a linear payout that matches `calc_payout` the right amount of overlap?
+- **Q9. Versions.** Should the module target `develop` as it is? When do you expect conda-forge's petals to accept climada 6.2?
+- **Q10. Test files.** What size of small test files is acceptable in the repository?
+
+Notes for the maintainers, which are not requests. K-12 and K-22 noticed:
+
+- `sample_events`'s default distorts non-uniform frequencies, and a `sampling_vect` holds positions, although its docstring says event ids. `sample_from_poisson` sets numpy's global seed.
+- `TropCyclone.from_tracks` returns a column index of −1 if a `Centroids` holds the same coordinates twice.
+- `Subareas.from_geodataframe`'s coverage check never fires, and `subarea_letter` stops being a letter after 26.
+- `calc_payout` truncates an integer-typed index, and an unconstrained COBYLA can return `min_trig > max_trig`.
+- conda-forge's climada 6.2.0 needs Python 3.11.
+
+**Feedback record** (absorbs `docs/adr/climada-module.md` from PR #39's branch; K-01 fills it, Marc holds the conversation).
+
+- Where posted (URL):
+- Posted on (date):
+- Posted by:
+- Other channels (developers' call, email), with dates:
+
+For each question, who answered, the date, a link to the comment and the answer in a sentence or two:
+
+- Q1. Location:
+- Q2. Solver dependency:
+- Q3. Representation (index and payout objects):
+- Q4. Simulation years for annual metrics:
+- Q5. Tutorial data:
+- Q6 to Q10:
+- Other feedback:
+
+A maintainer's answer that changes a decision becomes an amendment to this ADR.
