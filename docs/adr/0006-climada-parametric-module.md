@@ -209,6 +209,7 @@ ParametricIndex(values, event_id, unit_id, definition)     # (n_events, n_units)
 ParametricIndex.from_hazard(hazard, units, *, index_stat="at_centroid", weight=None, absent_value=None)
 ParametricIndex.from_cat_in_circle(tracks, units, *, hazard, radius_km)
 ParametricIndex.from_table(table, units, *, definition, event_id="event_id", unit_id="unit_id", value="value")
+ParametricIndex.from_definition(definition, hazard, units, *, tracks=None)   # a cover's index, on another hazard set
     .matched_to(impact, *, on="event_id") -> ParametricIndex
 
 # outcomes (K-17)
@@ -485,7 +486,7 @@ With outcome weights p_o, and U_o and R_o from §5.1:
 
 **MSE without a new package.** The problem is `min Σ_o p_o (L_o − B_o θ)²` over the amounts, under bounds, monotonicity and the budget. It has as many variables as amounts, so `SLSQP` works on it directly, with analytic derivatives.
 
-- `SLSQP` matches cvxpy to about 1e-11 on 5 and 335 amounts (K-12 Q6), and to 5e-10 on 1,000 (spot check, below). Its cost grows about with the cube of the amounts: about 1 s at 335 (K-12), 222 s at 1,000 (spot check), not done in 600 s at 5,000 (K-12). So `max_slsqp_amounts=1_000` is a stated limit. Above it, `CalibrationLimitError` names the option. Individual designs are far below it.
+- `SLSQP` matches cvxpy to about 1e-11 on 5 and 335 amounts (K-12 Q6), and to 5e-10 on 1,000 (spot check). Its cost grows about with the cube of the amounts: about 1 s at 335 (K-12), 222 s at 1,000 (spot check), not done in 600 s at 5,000 (K-12). So `max_slsqp_amounts=1_000` is a stated limit. Above it, `CalibrationLimitError` names the option. Individual designs are far below it.
 - Under a cost-of-capital load the premium is the largest of finitely many linear functions of the amounts. Each round solves the QP with the cuts so far and adds the linear piece at the solution, until the premium meets the budget within `feasibility_tolerance`. It needs no auxiliaries, so the QP stays small. `max_cut_rounds=100` is a stated limit, and reaching it raises `CalibrationLimitError`. In the spot check it matched cvxpy to about 1e-10 at 5 and at 70 amounts, in under a second. At 335 amounts it hadn't met the tolerance after 100 rounds and 449 s, so a loaded MSE on a large joint design raises.
 
 If the maintainers accept one new package, `highspy` or cvxpy can go behind `solvers.py`, with no change in the API (D10, Q2).
