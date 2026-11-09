@@ -23,7 +23,7 @@ This is a design record. It presents the method and the options. It makes no sta
 | [7](#d7-insured-units) | Units | A point, a group or the whole set. A group's payout maps back by value share | Same |
 | [8](#d8-payout-families) | Payout families | Step, linear, piecewise linear, binary and a user protocol. Nothing paid below the attachment | Same, and `first_bin` is retired |
 | [9](#d9-free-shape-parameters) | Free shape parameters | A stated grid with an exact solve at each point. Joint designs take fixed thresholds | Same, with a rule for joint designs |
-| [10](#d10-solver-and-dependencies) | Solver and dependencies | scipy's public HiGHS for the LPs. For MSE, `SLSQP` on the levels, with cutting planes under a loaded premium. No new package | The MSE route is now chosen |
+| [10](#d10-solver-and-dependencies) | Solver and dependencies | scipy's public HiGHS for the LPs. For MSE, `SLSQP` on the amounts, with cutting planes under a loaded premium. No new package, and stated size limits | The MSE route is now chosen |
 | [11](#d11-basis-risk) | Basis risk | Structural sources lead, measured and flagged. Impact-function draws come second. No required model | **Changed** (MAR-344) |
 | [12](#d12-phase-1-scope) | Phase 1 scope | Several exposures, joint calibration and scenarios are all in Phase 1 | Same |
 | [13](#d13-metric-definitions-and-names) | Metric definitions | ADR 0005's where the concepts coincide, plus `payout_frequency`, `unidentified_share` and a budget frontier | Extended (MAR-344) |
@@ -149,23 +149,28 @@ impact = ImpactCalc(exposures, impfset, hazard).impact(save_mat=True)
 
 units = pm.InsuredUnits.from_column(exposures, "parish")
 index = pm.ParametricIndex.from_hazard(hazard, units, index_stat="mean", weight="value")
-basis = pm.YearSets.from_frequencies(impact, n_years=20_000, rng=np.random.default_rng(311))
+basis = pm.YearSets.from_frequencies(
+    impact, n_years=20_000, rng=np.random.default_rng(311)
+)
 sample = pm.OutcomeSample.from_impact(index, impact, units=units, basis=basis)
 train, test = pm.holdout(sample, train_fraction=0.7, rng=np.random.default_rng(312))
 
 template = pm.ParametricCover(
     index.definition,
-    pm.StepPayout.uniform(attachment=33.0, limit=80.0, n_steps=5),
+    pm.StepPayout.uniform(attachment=33.0, exhaustion=80.0, n_steps=5),
     unit_id=units.unit_id,
     payout_unit=impact.unit,
     limit=pm.Limit.largest_loss(),
 )
 result = pm.calibrate(
-    template, train, pm.WeightedCVaR(alpha=0.9, beta=0.99),
-    scope="joint", budget=pm.Budget(ratio=1.0),
+    template,
+    train,
+    pm.WeightedCVaR(alpha=0.9, beta=0.99),
+    scope="joint",
+    budget=pm.Budget(ratio=1.0),
 )
 table = pm.evaluate(result, test, split="out_of_sample")
-payouts = pm.payout_impact(result.cover, test)         # a climada Impact
+payouts = pm.payout_impact(result.cover, test)  # a climada Impact
 ```
 
 **Signatures in outline** (types abbreviated; the owner issue in brackets):
@@ -174,7 +179,7 @@ payouts = pm.payout_impact(result.cover, test)         # a climada Impact
 # covers (K-15)
 Free(lower=0.0, upper=None, *, grid=None)
 StepPayout(breakpoints, levels, *, tail="upper", monotone=True)
-StepPayout.uniform(attachment, limit, n_steps, *, levels=None, tail="upper", monotone=True)
+StepPayout.uniform(attachment, exhaustion, n_steps, *, levels=None, tail="upper", monotone=True)
 LinearPayout(attachment, exhaustion, limit, *, tail="upper")
 LinearPayout.from_triggers(min_trig, max_trig, max_pay, *, tail="upper")
 PiecewiseLinearPayout(knots, levels, *, tail="upper", monotone=True)
@@ -232,7 +237,7 @@ setup_text(table) -> str
 MSE(); ExpectedUncovered(); WeightedCVaR(alpha, beta); UserObjective(function, *, name, parameters=None)
 PurePremium(); CostOfCapitalLoad(rate, q)
 Budget(*, ratio=None, amount=None)
-CalibrationOptions(fill="lowest", ranges=False, lp_method="auto", max_slsqp_amounts=1_000,
+CalibrationOptions(fill="lowest", ranges=False, lp_method="auto", max_slsqp_amounts=1_000, max_cut_rounds=100,
                    max_grid_points=10_000, feasibility_tolerance=1e-7, time_limit=None)
 calibrate(template, sample, objective, *, scope, pricing=PurePremium(), budget=None,
           options=CalibrationOptions()) -> CalibrationResult
@@ -318,7 +323,7 @@ There are no custom warning classes. Warnings go through the module's `LOGGER`, 
 - **Nothing is paid below the first threshold**, in every family. `below_attachment="first_bin"` is retired at K-15 (D8). So an event below the attachment at every unit adds nothing to any outcome.
 - A value equal to a threshold belongs to the more severe side. Non-finite values raise. Index values are always converted to float first: `cat_bonds`' `calc_payout` truncates on an integer-typed index (K-12 Q8), and this one doesn't.
 - `LinearPayout` equals `calc_payout` where the parameters coincide and the index is float (K-22 tests it).
-- `StepPayout.uniform(attachment, limit, n_steps)` is the prototype's construction, and its `limit` is the last breakpoint's right edge. It writes the breakpoints out and leaves the levels `Free` unless given.
+- `StepPayout.uniform(attachment, exhaustion, n_steps)` is the prototype's construction, in which `limit` was the top step's right edge. It writes the breakpoints out and leaves the levels `Free` unless given. The word `limit` is kept for an amount (`Limit`, `LinearPayout`).
 
 **The protocol.** `PayoutFunction` is vectorised over numpy arrays. `LinearInAmounts` is its opt-in extension for the exact routes: `amount_names()`, `basis(index) -> (n, n_amounts)`, and `amount_constraints(limit)`. A user family implements the first, and the second if it wants the LP and QP routes. `register_payout` lets `from_json` find it. A bare callable isn't a payout, because a cover needs a document.
 
@@ -386,11 +391,11 @@ One outcome per simulated year. The weight of a year is 1/N. There is no default
 
 **`CatalogueYears`.** It raises `YearRouteError` when:
 
-- the labels and the frequencies disagree: `frequency × N` differs from 1 within 1e-6 on an event the sample keeps. Windstorm raises here (74 seasons in the dates, 73 from the frequency, K-12 Q3), and any `apply_climate_scenario_knu` set does too;
-- `from_dates` gets dates that don't carry the years: the number of distinct years is not the N that the frequency implies. This is the prototype's silent collapse, now an error (STORM, flood);
+- the labels and the frequencies disagree: `frequency × N` differs from 1 by more than 1e-6 on an event the sample keeps. Windstorm raises here (74 seasons in the dates, 73 from the frequency, K-12 Q3), and any `apply_climate_scenario_knu` set does too;
+- `from_dates` gets dates that don't carry the years: the span of the hazard's dates, in years, is not the N that the frequency implies. This is the prototype's silent collapse, now an error (STORM's span is 1 year, flood's 20, against N of 10,000 and 920). `n_years=` states N where a catalogue's span is known to differ, as with a season that crosses New Year;
 - `from_event_names` meets a name that doesn't match its `pattern`.
 
-"An event the sample keeps" is an event with a loss or a non-zero index at some unit. The `random_walk` files have other frequencies only on events that never reach the country (K-12 Q3), so a check on the whole file would refuse them for no reason. Events left out are counted and recorded, not dropped silently.
+"An event the sample keeps" is an event with a loss or a non-zero index at some unit, so the check runs when the sample is built. The `random_walk` files have other frequencies only on events that never reach the country (K-12 Q3), so a check on the whole file would refuse them for no reason. Events left out are counted and recorded, not dropped silently.
 
 STORM's labels and ensembles use `from_labels`, or `from_event_names` with a pattern. The tutorial shows the recipes; they are not hazard-specific code in the module.
 
@@ -481,10 +486,9 @@ With outcome weights p_o, and U_o and R_o from §5.1:
 **MSE without a new package.** The problem is `min Σ_o p_o (L_o − B_o θ)²` over the amounts, under bounds, monotonicity and the budget. It has as many variables as amounts, so `SLSQP` works on it directly, with analytic derivatives.
 
 - `SLSQP` matches cvxpy to about 1e-11 on 5 and 335 amounts (K-12 Q6), and to 5e-10 on 1,000 (spot check, below). Its cost grows about with the cube of the amounts: about 1 s at 335 (K-12), 222 s at 1,000 (spot check), not done in 600 s at 5,000 (K-12). So `max_slsqp_amounts=1_000` is a stated limit. Above it, `CalibrationLimitError` names the option. Individual designs are far below it.
-- Under a cost-of-capital load the premium is the largest of finitely many linear functions of the amounts. Each round solves the QP with the cuts so far and adds the linear piece at the solution, until the premium is within 1e-10 of the budget. No auxiliaries, so the QP stays small.
-- Spot check (below): the route matched cvxpy to the tolerances the parity contract uses, on the sizes that K-12 ran for the loaded premium.
+- Under a cost-of-capital load the premium is the largest of finitely many linear functions of the amounts. Each round solves the QP with the cuts so far and adds the linear piece at the solution, until the premium meets the budget within `feasibility_tolerance`. It needs no auxiliaries, so the QP stays small. `max_cut_rounds=100` is a stated limit, and reaching it raises `CalibrationLimitError`. In the spot check it matched cvxpy to about 1e-10 at 5 and at 70 amounts, in under a second. At 335 amounts it hadn't met the tolerance after 100 rounds and 449 s, so a loaded MSE on a large joint design raises.
 
-If the maintainers accept one new package, `highspy` can replace `SLSQP` behind `solvers.py`, with no change in the API: it matched cvxpy on every pure-premium size (K-12 Q6).
+If the maintainers accept one new package, `highspy` or cvxpy can go behind `solvers.py`, with no change in the API (D10, Q2).
 
 **Grid.** Candidates are the Cartesian product of the shape parameters' grids, restricted to ordered thresholds, capped by `max_grid_points` (above it, `CalibrationLimitError`). The best candidate wins; ties within the tolerance go to the first in lexicographic order and are counted. The objective at every candidate is kept (`profile`).
 
@@ -669,7 +673,7 @@ The prototype in this repository is frozen after K-14. Its isolation rule stays.
 | Unit | Every module; `unittest` classes, offline, at most 2 s each. Each statistic and error path by hand; shuffled events | `engine/parametric/test/` | K-14 to K-22 |
 | Golden | K-13's cases against the thesis-faithful core | `engine/parametric/test/data/` (copied), tests in the owners' files | K-13, K-18, K-19 |
 | Closed form | What the core lacks: linear, piecewise linear and binary payouts; the event basis with Σf above 1; `yearsets` against a hand-worked `sampling_vect` | The same | K-13, K-17, K-19 |
-| Properties | Loss-free events below the attachment change nothing, on both bases. A uniform-frequency catalogue and the same set as a `sampling_vect` give identical outcomes. Numpy's global random state doesn't move. At equal total budget the joint optimum on the total is at most the individual designs' objective on the total, because the individual designs are feasible for it: this tests the solver, and says nothing about other years | The same | K-17, K-19 |
+| Properties | Loss-free events below the attachment change nothing, on both bases. A uniform-frequency catalogue and the same set as a `sampling_vect` give identical outcomes. Numpy's global random state doesn't move. K-19's feasibility property of the solver: the individual designs, taken together, are a feasible point of the joint problem. It checks the solver and says nothing about cover quality | The same | K-17, K-19 |
 | CLIMADA round trip | An `Impact` from a cover passes `calc_freq_curve` and a `write_hdf5` round trip | The same | K-18 |
 | Cross-module | `LinearPayout` against `calc_payout`, on floats; an MSE design against COBYLA | The same | K-22 |
 | Integration | `Hazard`, `Exposures`, `ImpactCalc`, `calibrate`, `evaluate`, `compare` end to end, for two hazard types, on small synthetic objects | `climada_petals/test/` | K-23 |
@@ -750,7 +754,7 @@ K-14 to K-23 hold, with these adjustments. Each is marked "adjusted"; the ADR wi
 | K-21 (MAR-320) | Scenarios. **Adjusted:** a label may hold several samples, an equal-weight mixture; the docs lead with windows or members | `scenarios` | K-19 |
 | K-22 (MAR-321) | `cat_bonds`. Confirmed. `from_subareas` is a sequenced edit of `units.py` | `units`; tests | K-16, K-19 |
 | K-23 (MAR-322) | Review readiness. Confirmed | docs, integration tests, `CHANGELOG.md`, `AUTHORS.md` | K-20, K-21, K-22 |
-| K-04 (MAR-50) | The tutorial. **Adjusted:** the case of D15; a section on short records: calibrate on the 41 observed years of Jamaica and evaluate on STORM, which shares no event with them, showing `unidentified` and `unidentified_share`; the budget frontier; the scenario section on windows or members; scope sections each on their own rows (§15, below "Beyond the eighteen decisions") | `doc/tutorial/` | K-23 |
+| K-04 (MAR-50) | The tutorial. **Adjusted:** the case of D15; a section on short records: calibrate on the 41 observed years of Jamaica and evaluate on STORM, which shares no event with them, showing `unidentified` and `unidentified_share`; the budget frontier; the scenario section on windows or members; scope sections each on their own rows ("Beyond the eighteen decisions", item 1) | `doc/tutorial/` | K-23 |
 
 `CHANGELOG.md` has a Dependency Changes entry only if D10's answer changes.
 
@@ -795,3 +799,239 @@ For each question, who answered, the date, a link to the comment and the answer 
 - Other feedback:
 
 A maintainer's answer that changes a decision becomes an amendment to this ADR.
+
+## Decisions for the owner (D12)
+
+Each decision lists the options, then one recommendation and why. Numbers cited are K-12's, with its setups; the two spot checks are under "Not verified".
+
+#### D1. Does the build wait for the maintainers?
+
+- (a) No. K-01 gates only the upstream PR (K-05), and their feedback becomes amendments.
+- (b) Wait for an answer on location and shape before anything beyond the port (K-14).
+- (c) Wait before any fork work.
+
+**Recommendation: (a).** `cat_bonds`' Discussion got no written reply, and its PR review took about seven months, so waiting could cost months for feedback that may arrive only at review anyway. The hard questions here are about CLIMADA's objects, and K-12 answered those by measurement. The risk is rework if the maintainers want another location or shape. A move of location is mechanical, and the module's parts most exposed to taste (names, result objects) are small. CLIMADA's guide asks contributors to discuss a new module with the admins first, so the post should go out well before K-05, as soon as Marc lifts the hold.
+
+#### D2. Location
+
+- (a) `climada_petals.engine.parametric`, next to `cat_bonds` (accepted 2026-10-31).
+- (b) Extend `engine.cat_bonds`.
+- (c) `climada.engine`, in the core repository.
+- (d) A separate package.
+
+**Recommendation: (a).** It is decided and nothing has changed it. (b) mixes two products with different calibration methods. (c) needs a higher bar and core changes. (d) is the fallback if they decline.
+
+#### D3. API shape
+
+- (a) Classes with `from_*` constructors and module functions (`calibrate`, `evaluate`, `compare`), eager, with no plan object.
+- (b) A calculator class like `ImpactCalc`: `ParametricCalc(index, impact, ...).calibrate(...)`.
+- (c) Two layers and a lazy plan, as in ADR 0005.
+
+**Recommendation: (a).** It is CLIMADA's idiom, and it fits `max-args=7` (§2). `ImpactCalc` has one job on three inputs; this module has several verbs on the same inputs, so a calculator would only hold arguments. ADR 0005 needs a plan because CRC's sources are lazy and remote. A CLIMADA user holds a `Hazard` and an `Impact` in memory.
+
+#### D4. Cover and result apart
+
+- (a) `ParametricCover` holds the terms; `CalibrationResult` holds the record.
+- (b) One object, as in the prototype.
+
+**Recommendation: (a).** A cover can then be written down, compared and applied to another hazard set. In (b) it carries the sample it was fitted on, which makes K-21 impossible.
+
+#### D5. Result objects
+
+- (a) Payouts and uncovered losses as `Impact`; metrics as pandas tables.
+- (b) The index as a `Hazard` and the payout as an `ImpactFuncSet`, as in Steinmann et al.
+- (c) The module's own result classes only.
+
+The issue's starting recommendation said "net losses as `Impact`". That doesn't hold, for two reasons: ADR 0005's net loss includes the premium, which is annual and has no place in one event; and a signed event residual is negative wherever a payout exceeds the loss, while `local_exceedance_impact` drops values at or below zero (C6). The non-negative event quantity is the uncovered loss.
+
+**Recommendation: (a), with uncovered losses in place of net losses.** CLIMADA's tools then work unchanged (§7). (b) is elegant for a step payout on one point, but an `ImpactFunc` interpolates between tabulated points, so a step needs doubled points; a group needs a pseudo-exposure; and neither scope nor premium has a place. An export of a step cover to that form is reserved (§13) and asked as Q3.
+
+#### D6. Annual basis
+
+- (a) The event basis always works. The annual basis takes a stated route, `CatalogueYears` or `YearSets`, with no default.
+- (b) Catalogue years by default where the dates fit, as in the prototype.
+- (c) `yearsets` by default.
+
+**Recommendation: (a).** No route fits every hazard (K-12 Q3): catalogue years fail on windstorm as labelled, and `yearsets` gives flood and wildfire 36.9 % empty years against none. Tail numbers move with the route. A default is how the prototype collapsed STORM into 2 outcomes of 10,000. For the claim that the event basis always works, this ADR defines it: frequencies are the weights, and 1 − β is a frequency per year (§5.1). The prototype's form raises on Σf above 1, which is the case for windstorm and the earthquake file. Guidance per hazard goes in the docs (§5.2).
+
+#### D7. Insured units
+
+- (a) A point, a group or the whole set. A group's payout maps back to its points by value share.
+- (b) The same, mapping back by loss share per event.
+- (c) One exposure point per unit, as in the prototype.
+
+**Recommendation: (a).** LitPop has thousands of points, so a unit per point is rarely the contract anyone wants. Value share is fixed and needs no event's loss, so it works on a payout under another hazard set. Loss share is an accounting statement that needs the loss; it stays available as an evaluation-time `allocation` for joint designs (§7).
+
+#### D8. Payout families
+
+- (a) Step, linear, piecewise linear, binary and a user protocol. Nothing paid below the attachment, with `first_bin` retired at K-15.
+- (b) The same, with `first_bin` kept for comparisons, as K-15 says today.
+- (c) Step only.
+
+**Recommendation: (a).** The owner's rule of 2026-11-01 says new designs pay nothing below the attachment. A mode that pays on every event the hazard set holds depends on which events were kept, and K-13's cases don't need it. It stays through K-14, so that the port's one-off parity run passes unchanged.
+
+#### D9. Free shape parameters
+
+- (a) A stated grid with an exact solve at each point. In joint designs, thresholds are fixed, and users compare thresholds by running the design several times.
+- (b) A derivative-free optimiser, like `cat_bonds`' COBYLA.
+- (c) A grid followed by local refinement.
+
+**Recommendation: (a).** On a finite event set the objective is piecewise constant in step and binary thresholds and piecewise smooth in linear ones, so gradients mislead. A grid is reproducible and shows how flat the optimum is. COBYLA is unconstrained, and K-12 Q8 found that a fit can land on `min_trig > max_trig`. The joint rule is ADR 0005's D-21.6: per-unit grids multiply across units, and the same word should mean the same restriction in both modules. K-19's "any scope" for free shapes narrows to the individual scope. (c) is reserved (§13).
+
+#### D10. Solver and dependencies
+
+For the LPs, scipy's HiGHS through the public `linprog` stands (decision 2 of 2026-10-31). The open question is the MSE route, which is a QP. K-12 Q6 and the spot checks give, on K-12's synthetic generator (5 steps, annual basis, one joint problem, pure premium unless stated):
+
+| Route | New package | Public interface | Objective gap to cvxpy | 335 amounts | 1,000 amounts | 5,000 amounts | With a cost-of-capital load |
+|---|---|---|---|---|---|---|---|
+| `SLSQP` on the amounts | none | yes | 1e-11 to 5e-10 | 1 to 1.4 s | 222 s | not in 600 s | Cutting planes: 70 amounts in 0.8 s; 335 not within tolerance after 100 rounds |
+| `trust-constr` | none | yes | 1e-5 to 1e-3 | 0.3 s | | 53 s | not tried |
+| `lsq_linear`, with a search on the multiplier | none | yes | 7e-10 to 4e-9 | 51 to 157 s | | not in 600 s | no |
+| scipy's private HiGHS bindings | none | **no** | 1e-11 | 0.04 s | | 42 s | not run |
+| `highspy` | `highspy` | yes | 1e-11 | 0.05 s | | 38 s | 5 amounts in 0.15 s; 335 not in 600 s |
+| cvxpy with Clarabel, the prototype's | cvxpy and its solvers | yes | the reference | 0.6 to 1.3 s | 5.8 s | 14 s | 335 in 1.9 s |
+
+- (a) `SLSQP` on the amounts, with cutting planes under a load. No new package. Stated limits, and a typed error above them.
+- (b) (a), plus cvxpy as a lazily imported route above the limits, as in the prototype. Not declared in petals' dependencies.
+- (c) `highspy` as a new required package.
+- (d) scipy's private bindings.
+- (e) `trust-constr`.
+- (f) Leave MSE out, or leave it to a user objective.
+
+**Recommendation: (a).** It adds no package, uses only public interfaces, and passes the parity tolerance of `1e-6`, which (e) doesn't reliably. Individual designs and small joint designs are well inside its limits: a unit has a few amounts, and the tutorial's 14 parishes × 5 steps are 70. What it gives up is real: MSE on a joint design of more than 1,000 amounts raises, and MSE under a cost-of-capital load raises on joint designs of a few hundred amounts, which cvxpy solved in seconds. A smarter cutting-plane scheme may extend that, and K-19 can try one. (d) would break with any scipy release. (f) would drop the objective closest to what `cat_bonds` uses. Q2 asks the maintainers whether they'd accept a package. If they do, `highspy` or cvxpy goes behind `solvers.py` with no change to the API. So (b) can follow (a) on their answer, and it shouldn't come before it: an undeclared import is itself a dependency decision.
+
+#### D11. Basis risk
+
+- (a) Structural sources lead: the index's source, statistic and unit are stated in `IndexDefinition`, and the relation of index to loss is measured and flagged in every table. Impact-function draws come second, with their limit stated. No required model.
+- (b) Impact-function draws and a warning, as K-20 says today.
+- (c) A required basis-risk model, as in ADR 0005.
+
+**Recommendation: (a).** This changes the starting recommendation, as the design review (MAR-344) asked. Impact-function draws widen the uncovered loss, but they can't change whether an event pays. CLIMADA's own basis risk is structural: an index that isn't the loss's hazard, a group, a track-based trigger. K-12 Q7 shows that a small group doesn't remove the effect, so the module measures the relation and doesn't infer it from the setup (§8). (c) adds a word with no information: the index builder already states the source. A required model suits CRC, where a sample has no second source.
+
+#### D12. Phase 1 scope
+
+- (a) Several exposures, joint calibration and evaluation under scenarios are all in Phase 1.
+- (b) One unit per design in Phase 1, the rest in Phase 2, as the CRC module.
+- (c) Joint in Phase 1, scenarios in Phase 2.
+
+**Recommendation: (a).** Each event is one joint footprint, so joint calibration needs no dependence model. A scenario is another `Hazard`, and a cover is portable by construction. So these are cheap here, where they weren't in CRC. Scope is Marc's first-class element.
+
+#### D13. Metric definitions and names
+
+- (a) ADR 0005's definitions where the concepts coincide: coverage ratio `E[min(π, L)] / E[L]`, the design premium out of sample, the VaR tolerance. Adds `payout_frequency`, `unidentified_share` and `calibrate_frontier`. Names follow `cat_bonds`' vocabulary where it applies: `index_stat`, `from_triggers`.
+- (b) The prototype's metrics only.
+- (c) `cat_bonds`' definitions, with "basis risk" as the event-level squared error.
+
+**Recommendation: (a),** so the two modules speak the same language (§1, §7). The three additions are the design review's (MAR-344). The frontier is a measurement, one design per budget in one table, with no "best" point.
+
+#### D14. Relation to `cat_bonds`
+
+- (a) Complementary (accepted 2026-10-31). `Subareas` is a unit source, and nothing inside it is edited.
+- (b) A shared base, with a refactor of `cat_bonds`.
+- (c) No connection.
+
+**Recommendation: (a).** A shared base is the maintainers' call and is asked as Q8. What is worth changing there goes to them as a note (§15).
+
+#### D15. The tutorial's case
+
+- (a) A small country from the Data API, with sub-national units: Jamaica for tropical cyclones, and Luxembourg for the second hazard, European windstorm. Florida stays with the paper.
+- (b) Florida's 67 counties (D2), as K-04 says today, on IRIS.
+- (c) Florida from the Data API's USA files.
+
+**Recommendation: (a).** `cat_bonds`' reviewers asked for Data API data and probabilistic sets, and the IRIS set behind the Florida portfolio isn't on the Data API. Jamaica has `random_walk` present, four future scenarios at several horizons, and STORM, all CC BY 4.0 and small (K-12 Q2); LitPop is on the Data API for it (1.1 MB, CC BY 4.0). Jamaica's flood file holds almost no depth (at most 1.2e-7 m), so the second hazard must be another. Windstorm in Luxembourg (`storm_europe_150arcsec_LUX`, 14.1 MB, CC BY 4.0, LitPop 1.08 MB) is a different hazard with an ensemble structure, on which the catalogue route doesn't run as labelled, so it shows `YearSets` with a reason. The short-record section uses Jamaica's observed set (§5.4).
+
+#### D16. The issue map
+
+- (a) K-14 to K-23 and K-04 as adjusted in §14.
+- (b) As they stand.
+
+**Recommendation: (a).** The adjustments follow from D5, D8, D9, D10, D11 and D13, and from one dependency: K-16 imports K-15's `IndexDefinition`, so they run one after the other.
+
+#### D17. The LP method
+
+K-12 says the list lacks this one. `highs` didn't solve 1,000 units × 10,000 events in 2,400 s, and `highs-ipm` took 59 s.
+
+| Units × events | `highs` | `highs-ipm` | Source |
+|---|---|---|---|
+| 1 × 10,000 | 0.25 s | 1.1 s | Spot check |
+| 1 × 50,000 | 5.8 s | 10.5 s | Spot check |
+| 67 × 10,000 | 4.8 s | 1.6 s | Spot check |
+| 67 × 50,000 | 127 s | 21 s (36 s in K-12) | K-12 Q5; spot check |
+| 1,000 × 10,000 | not in 2,400 s | 59 s | K-12 Q5 |
+
+The objective values agree to every printed digit wherever both ran.
+
+- (a) A stated option with a rule as the default: `highs` for one unit, `highs-ipm` for several. The method used is recorded.
+- (b) Always `highs`, as in the prototype.
+- (c) Always `highs-ipm`.
+- (d) No default.
+
+**Recommendation: (a).** It follows the table, and it costs one line. The rule is an optimisation of time alone: both methods give the same objective, and which member of an optimal set they return is what §6.5 reports.
+
+#### D18. Which CLIMADA the module targets
+
+K-12 says the list lacks this one too: conda-forge can't install climada 6.2.0 and petals together today.
+
+- (a) `develop` of both repositories, built from source over their `requirements/env_climada.yml`, declaring `climada>=6.1` as petals `develop` does. The upstream PR goes to `develop`.
+- (b) The newest pair conda-forge can install: climada 6.1 with petals 6.2.0, and so scipy 1.15.2.
+- (c) Wait for a conda-forge petals that accepts climada 6.2.
+
+**Recommendation: (a).** The prototype passes on it (743 passed, 1 skipped, K-12 Q1), and it is what the PR lands on. Phase 1 uses nothing that is new in 6.2, so `>=6.1` holds, and K-23 checks it. (b) builds against an old scipy: of the versions K-12 tried, 1.15.2 alone spends minutes after HiGHS returns on large LPs (Q5). On 6.1 the module still works, and only those LPs are slower. K-11 fixes the recipe. `trajectory`, which is new in 6.2, is Phase 2.
+
+### Beyond the eighteen decisions
+
+The decisions don't determine these. The text above settles each as the agent recommends, and accepting this ADR covers them. Marc may want to look at the first.
+
+1. **The tutorial doesn't set individual against joint.** K-04's step 8 and Marc's note of 2026-10-31 ask for individual and joint calibration "at the same total budget". D-21.4, decided later for the CRC module, says that no table or figure sets individual against joint until the RQ2 rule is revisited (MAR-152 item 4). The publication rule binds both. So the tutorial shows each scope with its own rows and explains what it optimises, and states the budget each uses, with no side-by-side table or figure. If Marc wants the comparison there, this is the line to change.
+2. `scope="joint"` replaces `"portfolio"` (§1), and `scope` has no default.
+3. `Limit` is a term of the cover, and the prototype's hidden cap becomes `Limit.largest_loss()`, stated (§3).
+4. cvxpy leaves the module at K-19. The port keeps it until then.
+5. The module has no design id and no metadata layer; the setup is in columns (§3, §7).
+6. Warnings go through `LOGGER`, and those that change how a number reads are also columns (§2).
+7. Exposure-dependent weights follow the exposures given; freezing them at inception is open for K-21 (§9).
+
+## Consequences
+
+- K-13 can start once this ADR is accepted, in this repository. K-14 needs K-10 and K-11; K-15 and everything after it need this ADR too.
+- The module carries its own implementation of the formulas. A change in the core or the module needs a fixture update, or the parity tests fail.
+- Petals gains no package, if D10 stands. In return, MSE has stated size limits, and they are lower under a cost-of-capital load.
+- Every number can state its setup from the table's own columns, as the publication rule asks.
+- Several prototype names change (§11), so the K-01 draft's API sketch (PR #39) needs a refresh before it is posted.
+- The event basis here extends the core's: where frequencies sum to more than 1, the core raises and this module doesn't. Parity is checked where both are defined.
+- Joint designs have fixed thresholds, as in the CRC module.
+- The build goes ahead without the maintainers (D1), so an answer to §15 can change a section after it is built.
+
+## Alternatives considered
+
+Beyond the options under each decision:
+
+- **Dividing event frequencies by their sum.** Rejected: β would depend on which loss-free events a file holds (§5.1).
+- **Years on the index, as in the prototype.** Rejected: it ties every index to the catalogue route, and a cover to a year structure.
+- **Reading the year structure from the hazard automatically.** Rejected: K-12 Q3 shows no reading that works for every hazard.
+- **A subclass of `Impact` for payouts.** Rejected: a plain `Impact` is what CLIMADA's tools expect.
+- **Reusing `climada.util.calibrate`.** Rejected: it fits impact functions through a generic optimiser, and these problems have an exact solve.
+- **A year-level payout cap in Phase 1.** Rejected: truncating a year's total isn't linear in the amounts. Reserved in §13.
+- **A second, independent solver for checking every solve in the module.** Rejected: numpy's recomputation of the objective and constraints (§6.4) and the golden cases already catch wrong answers.
+
+## Not verified
+
+- **No module code exists.** The signatures are an outline, and K-14 onward may correct them through errata.
+- K-12's limits apply: `linux-64` was not tested; each hazard was read for one country; timings come from one shared machine; Q7 uses synthetic storms and one site, with one objective.
+- **Spot checks by the agent on 2026-11-09**, on one shared Apple M4 machine, scipy 1.17.1. Not committed; the PR description has the output.
+  - *The event basis* (§5.1). 400 synthetic events on one unit, a step payout with 5 steps, weighted CVaR at α = 0.9 and β = 0.99, budget 0.8, frequencies summing to 12 per year. The LP's objective equals the value computed directly from the payout, the mean of the worst 1 − β of frequency. Adding 2,000 loss-free events below the attachment left the objective unchanged and moved the levels by at most 5e-13. With frequencies summing to 0.5, the objective equals the prototype's `event` measure to 1e-16 relative.
+  - *The LP method* (D17). K-12's generator and script, with `--method highs-ipm` and `highs` at the sizes in the table.
+  - *The MSE routes* (§6.4, D10). K-12's generator, budget 0.8, 5 steps, annual basis, one joint problem. `SLSQP` at 200 units × 10,000 events (1,000 amounts): 222 s and 178 iterations, the objective 5e-10 below cvxpy's, which took 5.8 s. Cutting planes under a cost-of-capital load (rate 0.3, q 0.99): at 1 unit × 10,000, 13 rounds and 0.01 s; at 14 units × 10,000, 61 rounds and 0.8 s; both about 1e-10 from cvxpy, with the premium on the budget to about 1e-13. At 67 units × 10,000 it was stopped at 100 rounds after 449 s, with the premium still 3.5e-6 above the budget.
+- That a Natural Earth admin-1 join gives Jamaica's 14 parishes and Luxembourg's cantons on LitPop points: K-04 checks. The Data API's LitPop listings were read as metadata on 2026-11-09, and no data was downloaded.
+- CLIMADA's and petals' code was read, not run, for this ADR, apart from what K-12 ran. That `calc_freq_curve` and `write_hdf5` take a payout `Impact` unchanged is K-18's test.
+- That pylint's `max-args=7` counts keyword-only arguments is assumed. The signatures in §2 stay within 7 if it does.
+- The threshold of `comonotone_index`, 0.99, rests on one synthetic site.
+- Whether the maintainers accept any of §15.
+
+## Sources
+
+- This repository: [`docs/climada/k12-design-facts.md`](../climada/k12-design-facts.md), the prototype under `packages/climada/src/petals_parametric`, `packages/climada/scripts/k12_*.py`, [ADR 0002](0002-core-interfaces.md), [ADR 0005](0005-crc-parametric-module.md) (read for concepts and metric definitions), `packages/core/src/parametric_insurance_design/basis.py`, and `docs/adr/climada-module.md` on PR #39's branch.
+- Linear (private): MAR-48, MAR-47, MAR-50, MAR-311 to MAR-322, MAR-323 to MAR-328, MAR-344, the CLIMADA Contribution project.
+- CLIMADA 6.2.0 (<https://github.com/CLIMADA-project/climada_python/tree/v6.2.0>): `climada/engine/impact.py`, `climada/util/yearsets.py`, `climada/util/interpolation.py`, `climada/util/calibrate/`.
+- petals 6.2.0 (<https://github.com/CLIMADA-project/climada_petals/tree/v6.2.0>): `climada_petals/engine/cat_bonds/subarea_calculations.py` and K-12's reading of the rest.
+- CLIMADA Data API (<https://climada.ethz.ch/data-api/>): the listings for LitPop, tropical cyclones and windstorm, read as metadata on 2026-11-09.
+- Rockafellar and Uryasev (2000), for the CVaR's form. Steinmann et al. (2023), *Environment Systems and Decisions*, <https://doi.org/10.1007/s10669-023-09934-x>, for cat-in-a-circle and the index-as-`Hazard` form.
