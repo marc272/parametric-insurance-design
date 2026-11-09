@@ -1827,3 +1827,364 @@ The eight decisions don't determine these. The text above settles each as the ag
 - The cost of Π_k n_k limit rows, of a large `StepGrid`, and of a grid search over free breakpoints on a large sample was not measured.
 - Whether CRC Open holds `txx` at Toronto is unknown, because no catalogue was read. If it doesn't, R-22g's curve half needs another pair.
 - No CRC Open, ERA5 or NEX data was read for this amendment.
+
+## Amendment 6 (2026-11-09, MAR-346): additions from the design review
+
+On 2026-11-09 the owner, Marc Prinzing, accepted the findings of that day's design review (in chat; recorded on MAR-344). E1 and F1 change Amendment 4 and are on MAR-329. This amendment fixes the public API of F2 to F6 and F8, so that the issues that build them (MAR-347 to MAR-351) have one text to follow, and the owner approves it before it merges. It builds on Amendments 2, 3 and 5, and on Amendment 4 as he revised it that day (MAR-329).
+
+The rest of the ADR stands. §2, §4.4, §5.4, §6, §7, §9 and §10 keep their text and each carries a one-sentence pointer here, and this amendment says what they now mean, as Amendment 1 did. Every addition has a default or is a new name. A call written before this amendment gives the same rows, with the same `content_hash`, `definition_hash` and `design_id`, and its table gains the new columns of F4 and F6 beside them. The publication rule applies: this amendment presents each method and what it records, and nothing here says that a basis-risk model, a budget or a design is better than another.
+
+### What the review accepted
+
+| | Accepted on 2026-11-09 | Section |
+|---|---|---|
+| F2 | A built-in model of basis risk on the hazard side. `ImpactNoise` stays and says what it can't change, and the docs lead with the new model | "A basis-risk model on the hazard side" |
+| F3 | Pooled k-fold metrics and block-bootstrap intervals, moved up from MAR-254 | "Pooled folds and intervals" |
+| F4 | `payout_frequency` and `unidentified_share` in §6's comparison table | "Two columns" |
+| F5 | A budget frontier: a Layer 1 function over a list of budgets, with no "best" point | "A budget frontier" |
+| F6 | A resolution flag for rank blocks | "A resolution flag for rank blocks" |
+| F7 | Phase 2's Layer 1 is built now, and new plan builders wait for RiskThinking's API guideline | No new plan builder appears here. The one change to `plan.py` is F2's seed rule |
+| F8 | One sentence in the setup text on what fresh draws test | "The metadata" |
+
+The evidence is on MAR-344. Its numbers are internal (one site, one hazard, one hypothetical cover, or synthetic), so this amendment argues in words, and the only numbers in it are synthetic ones of its own ("Not verified").
+
+**What the code says** (the fork's `parametric` at `f3327e5`, read and not changed). `sample_curve` and `sample_annual` compute the impact and then call `BasisRisk.apply(index, hazard, impact, rng)`, so a built-in model can only change an impact the index has already fixed, and the primer had to write `LocalRainFactor`, which holds the damage function itself. §1 already separates "hazard" from "index", and `OutcomeSample.hazard` already holds the value the loss read when it differs from the index. `year_block_kfold` gives one pair of blocks per fold, and `metric_values` works on arrays, so pooling needs no new kernel. `DesignResult.unidentified` lists the amounts the fill rule set, and `to_record()` carries them. `EmpiricalCopula.record` already holds m and k.
+
+### A basis-risk model on the hazard side (F2, §4.4)
+
+```text
+# basis-risk models (R-28); frozen; numpy only
+HazardNoise(sigma)                                 # sigma finite and >= 0
+class HazardBasisRisk(BasisRisk, Protocol):        # opt-in, as LinearInAmounts is for PayoutFunction
+    def apply_hazard(self, index, hazard, rng) -> tuple[NDArray, NDArray]     # (index, hazard at the asset)
+```
+
+**The model.** In year d the hazard at the asset is the index times a mean-one lognormal factor, h_d = x_d · exp(σ Z_d − σ²/2), with one draw per year and asset. The index doesn't change, so the cover pays on x_d and the loss model reads h_d. For one cover, a year can then pay with no loss and a loss can occur with no payout, and §6's `false_negative_rate_l<ℓ>` and `false_positive_rate_l<ℓ>` respond to σ. §4.1's `hazard` holds h_d.
+
+**How it reaches the impact.** The impact function stays on the `LossModel`, and the samplers call the model before they compute the impact:
+
+| Step | What | Draws |
+|---|---|---|
+| 1 | The hazard: a curve's uniforms and quantiles, or a series' years with its trend | §4.4's first |
+| 2 | `apply_hazard(index, hazard, rng)`, if the model has it, gives the index and the hazard at the asset | The model's |
+| 3 | `loss_model.impact_values(hazard at the asset)` | None |
+| 4 | `apply(index, hazard, impact, rng)` gives the index and the impact | The model's |
+| 5 | loss = impact × value (§4.3) | None |
+
+- **§4.4's draw order holds**: the hazard first, then the basis-risk model, and the impact draws nothing. One `basis_risk` generator record is taken at entry to step 2.
+- **Existing models don't change.** A model without `apply_hazard` skips step 2, and step 3 draws nothing, so `NoBasisRisk()`, `ImpactNoise` and a user's `BasisRisk`, the primer's included, give today's rows.
+- **`HazardNoise` is a `BasisRisk`.** Its `apply` returns its inputs, so everything that takes a model takes it, `.basis_risk(model)` included. A user's model may have both methods, and `apply_hazard` runs first.
+- **The gate** on `apply_hazard` is the one on `apply`: a tuple of two arrays of the input's shape, finite, or `SampleError`.
+
+| How the model reaches the impact | Assessment |
+|---|---|
+| **An opt-in `apply_hazard`, before the impact is computed** (recommended) | The model never holds the damage function, so it can't differ from the `LossModel`, and context columns and the plan's impact work unchanged. `BasisRisk` doesn't change. One new protocol, in the pattern of `LinearInAmounts` |
+| The model holds the damage function (the primer's form) | The impact is stated twice and can differ. A plan takes its impact from the `PortfolioEvaluation`, so the caller has none to pass, and a registry impact's context would be stated twice too |
+| `apply` gains an argument, a callable or the `LossModel` | Breaks every model written to today's signature, the primer's included. `BasisRisk` is in `__all__` |
+| A factor on the `LossModel` | `basis_risk=` would read `NoBasisRisk()` on a sample with basis risk, against §4.4's rule that every sample states its model |
+
+**The draws.** One call, `rng.normal(-σ²/2, σ, size=n)`, as in `ImpactNoise`. It draws n normals at every σ, σ = 0 included, so a sweep over σ from one generator state reads one set of Z_d.
+
+**σ = 0** is allowed, unlike in `ImpactNoise`. The factor is exactly 1, so `index`, `loss` and `content_hash` equal `NoBasisRisk()`'s and `hazard` is `None`, and it warns with `ComonotoneIndexWarning` as `NoBasisRisk()` does.
+
+**What it refuses**, with `SampleError`:
+
+- A negative hazard, because a factor would move it the wrong way. A zero stays zero. The model suits a hazard on a ratio scale, where zero means none (rain, wind, depth), and the docs say so. The module can't tell that a temperature in °C isn't one.
+- A separate index series (`index=` or `.index(...)`), where the index and the hazard already differ. The hazard at the asset is then data, so a factor on the index would contradict it, and a factor on the hazard would be another model. A refusal can be lifted later without breaking a call.
+- A negative or non-finite σ, and, as for `ImpactNoise`, a missing generator. On a per-year plan without a seed, `.basis_risk(HazardNoise(...))` raises `ValueError` at every σ.
+
+**The mean is on the hazard, not on the loss.** With a damage function that is convex or has a threshold, E[L] moves with σ, and that is part of what the model states. `details.basis_risk` records `hazard_mean_ratio` and `impact_mean_ratio`, the mean impact with the factor over the mean impact without it, and the setup text gives both. σ is an assumption the caller states, and the module doesn't estimate it. The σ of `HazardNoise` and the σ of `ImpactNoise` are not the same physical quantity, and the docs don't set them side by side as if they were.
+
+**`ImpactNoise` stays**, with the same draws and rows. Its docstring gains: "The factor multiplies an impact the index has already fixed, and a year with zero impact keeps zero impact. So it can't change whether a year pays or whether a loss occurs, and `false_negative_rate_l0` and `false_positive_rate_l0` don't move with sigma. With a loss threshold above zero they can, because the factor can carry a loss across the threshold."
+
+**The docs lead with the new model.** `docs/parametric.md` presents `HazardNoise` first, then `ImpactNoise`, `NoBasisRisk()` and a second series as the index, and says what each can and can't change. It doesn't say that any of them is more realistic for a given asset.
+
+| Name | Assessment |
+|---|---|
+| **`HazardNoise`** (recommended) | Reads beside `ImpactNoise`, and says where the factor enters |
+| `LocalHazardFactor`, the primer's name made general | "Local" claims a physical reading that the module doesn't estimate |
+| `SpatialBasisRisk` | Claims that the spread is spatial, while a caller may state it for another reason |
+
+### Pooled folds and intervals (F3, §6)
+
+```text
+# pooled k-fold metrics and block-bootstrap intervals (R-29); numpy only; no I/O
+compare_pooled(entries, folds, *, pricing=PurePremium(), options=MetricOptions(),
+               allocation=None, values=None) -> pyarrow.Table
+bootstrap_intervals(entries, on, *, rng, n_bootstrap=1000, ci_level=0.9, split=None, fold=0, pricing=PurePremium(),
+                    premiums=None, options=MetricOptions(), design_sample=None,
+                    allocation=None, values=None) -> pyarrow.Table
+    # on: one block, read as compare reads it, or folds, read as compare_pooled reads them
+    # split= (required) and design_sample= are for one block; with folds they raise EvaluationError
+
+# in full
+folds = year_block_kfold(sample, 5)
+designs = [design(template, train, objective, budget=budget) for train, _ in folds]
+table = compare_pooled([designs], folds)
+intervals = bootstrap_intervals([designs], folds, rng=numpy.random.default_rng(7))
+```
+
+**How folds are pooled.** The held-out blocks of a k-fold split partition the years, so every year is evaluated once, by the design made without it. A pooled row is §6's metrics on all those rows together, each row's payout from its own fold's design, with probability 1/N on each of the N rows. It is not the mean of the folds' numbers: a tail metric from 1/k of the years is noisier than one from all of them, and the mean of k CVaRs is the CVaR of no distribution. This is the rule of the core's `experiment/kfold.py`.
+
+- **`folds`** is what `year_block_kfold` returns, in fold order. Under `LinearTrend` each fold's pair comes from that fold's own fit (Amendment 2), and a year's loss is the one its own fold states.
+- **`entries`** holds, per entry, either a sequence of k of what `compare` takes (designs, `JointDesignResult`s, mappings or packages) in fold order, or one resolved `Cover` or mapping of covers, which applies on every fold. The rows have the levels `compare` gives them.
+- **What it refuses**, with `EvaluationError`: pairs that aren't the k folds of one split in fold order (read from each block's `selection` step); held-out blocks that repeat or miss a year; a design whose design sample isn't its fold's design block; a block with unequal probabilities, which only a stated `probability` column can give; blocks of different `scenario` labels. A holdout and fresh draws have one block, so they have nothing to pool.
+
+| Column | On a pooled row |
+|---|---|
+| `split` | `"out_of_sample"` |
+| `fold` | Null. The column is nullable in a pooled table only, and null exactly on pooled rows, so it stays non-null in `compare`'s schema |
+| `cover_hash` | The `sha256:` hash of the canonical JSON of the per-fold cover hashes, in fold order (the folds' hash). For one resolved cover, its own hash |
+| `cover_label` | The covers' label if they share one, else the first 12 hex digits of the hash, as in Amendment 3 |
+| `design_id` | The folds' hash of the design ids. Null for a cover given as is, and on a `"total"` row of a set of covers (Amendment 3) |
+| `sample_hash` | The folds' hash of the held-out blocks' `content_hash` |
+| `premium`, `premium_basis` | The probability-weighted mean of each row's premium, below. `"design"` for designs, `"evaluation"` for a resolved cover |
+| The net-loss columns | N_d = L_d − π_d + P_d, with P_d the premium of row d's own fold |
+| `unique` | True if every fold's is true, false if any fold's is false, otherwise null |
+| `ties`, `degenerate_tail` | The sum of the folds'. The folds' flag if they all agree, else `"mixed"` |
+| `unidentified_share` | Each row by its own fold's design |
+| Amendment 4's and 5's columns | `n_rows` the sum, `design_budget` the mean over the rows of each fold's bound (null if any has none), and the others the blocks' one value |
+
+**The premium of a pooled row.** Each year pays the contract in force for it, that fold's design premium. So §6's rule, that out-of-sample rows use the price agreed at design, holds year by year. `premium` is their mean. `metric_values` takes a per-draw `premium` for this. A resolved cover has one contract, priced once on the pooled rows.
+
+| A pooled row's premium | Assessment |
+|---|---|
+| **Each year pays its own fold's design premium** (recommended) | Follows §6's rule, and the net loss of a year is what that year's contract costs |
+| `pricing` once on the pooled payout, as the core does | A price no contract was sold at, set on the held-out years |
+| The unweighted mean of the k design premiums | Stands for no year, and differs from the above when blocks differ in size |
+
+**Intervals.** F3's questions, answered:
+
+| | Decision |
+|---|---|
+| Resampling unit | A year, with every row of that year, as the splits define it: one row of a series or a curve sample, and every run's row of one calendar year in a pool. Rows of several assets or hazards in a year stay together. An `EmpiricalCopula` block is resampled by row: its reference is part of the stated model, so the reference's years are not resampled |
+| Replicates | `n_bootstrap` draws of the block's Y years with replacement, by one call `rng.integers(0, Y, size=(n_bootstrap, Y))`. A replicate reweights the rows by how often their year was drawn, which gives the metrics of the concatenated years, as in the core's `bootstrap.py`. The designs are held fixed, and nothing is solved |
+| The seed | `rng`, a required keyword, as everywhere in Layer 1 (§4.4), and never a global seed. Its state at entry goes into `rng` (§7), so the table can be rebuilt |
+| Pairing | One set of replicates serves every entry and every metric of a call |
+| Which metrics | Every metric column of the wide table. A design's premium is a fixed price, so on one block its interval is the value itself. A cover priced on the block is priced again on each replicate |
+| Interval | The percentile interval: the (1 − `ci_level`)/2 and (1 + `ci_level`)/2 quantiles of the replicates (`numpy.quantile`, linear interpolation). `n_bootstrap=1000` and `ci_level=0.9`, the core's and SPEC's defaults |
+| An undefined replicate | A metric undefined in some replicate (no expected loss, no variance) gets null bounds, counted in `n_undefined`. `ci_level` and `n_bootstrap` are on every row, so a null bound means "resampled, undefined" |
+
+**The table.** One row per wide row and metric column, in a separate table with `to_long`'s columns and these. `value` is the wide table's number: resampling never changes a point estimate. It holds §7's metadata under the same key, and `write_comparison` writes it.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `ci_low`, `ci_high` | float64, nullable | The bounds. Null when the metric is undefined in a replicate, or null in the wide table |
+| `ci_level` | float64 | As stated |
+| `n_bootstrap` | int32 | As stated |
+| `n_undefined` | int32 | The replicates in which the metric is undefined |
+| `short_block` | bool, nullable | True when the column's level reaches the block's worst row: (1 − β)·n ≤ 1 for a β column, and T > n for a return-period column, with n the rows the metric reads. This is Amendment 4's "Short blocks". Null for a column with no level |
+
+The bounds of a `short_block` row are computed like any other. They can't reach beyond the block's largest rows, so they understate how far the number could move, and the setup text names those columns.
+
+| Where intervals go | Assessment |
+|---|---|
+| **A separate long table** (recommended) | The wide table and its schema don't change, and the form is `to_long`'s, which analysis already reads. A second table to keep beside the first |
+| Two columns per metric in the wide table | Triples the width of a table of more than 60 metric columns, and changes every reader of a written table |
+| A keyword on `compare` | A call would return one table or two, or wide columns again |
+
+**The wording** (`docs/parametric.md` and `setup_text`, method only). `compare_pooled` evaluates every held-out year with the design made without it, and computes each metric once over all those years. `bootstrap_intervals` redraws the evaluated years with replacement and recomputes each metric with the designs held fixed. An interval is the middle `ci_level` of those values. It describes how much a number moves with the years drawn. It leaves out uncertainty in the hazard data, the impact function and the design, and on a curve block it is the Monte Carlo error of the draws and says nothing about the curve. Two rows' intervals are not a test of a difference between them.
+
+**No plan builder (F7).** A plan's `KFold` keeps writing rows per fold. A builder for pooled rows and intervals comes after RiskThinking's guideline.
+
+### Two columns (F4, §5.4, §6)
+
+| Column | Definition | Null when |
+|---|---|---|
+| `payout_frequency` | `P(π > ε)`, with ε = `MetricOptions.payout_threshold`: the probability that the cover pays. `payout_breakdown` has the same definition per part | Never |
+| `unidentified_share` | `Σ_d p_d · 1{B_j(x_d) ≠ 0 for some j in A}`, with B the basis of the resolved cover on this block's index and A the amounts the fill rule set (§5.4): the block's probability whose payout reads an amount that no design year reached | See the table below |
+
+Both are metric columns, after `payout_to_loss_ratio`, with entries in `columns` in unit `"1"`, in every table with metric columns, and `to_long` and `to_drift` carry them.
+
+| The row's design | A | `unidentified_share` |
+|---|---|---|
+| LP or QP route | `unidentified` | The formula; 0.0 when `unidentified` is empty |
+| A grid over the shapes, with an LP or QP inside (§5.3) | `unidentified` at the chosen candidate | The formula |
+| The numpy grid, which searches every free parameter (§5.3; `amounts` is `"grid"` in the record) | None, because no fill rule ran. An amount no year reaches is a tie there, in `ties` | Null |
+| A cover given as is | No design | Null |
+| A `JointDesignResult`: `"total"` and allocated rows | The union over the assets | A year counts if any asset's payout reads a filled amount |
+| A set of designs | Each asset's own on its `"asset"` row; the union on the `"total"` row | The formula |
+| A package (Amendment 5) | Each contract's own on its row; the union on the `"package"` row | The formula |
+
+- **On the design block it is 0 by construction**, because an unidentified amount's column is zero in every design year. It is above 0 only out of sample, on a block that reaches where the design had no year.
+- **What counts.** Any non-zero basis entry, in full, including a year on a piecewise segment that only partly reads a filled knot. A filled amount may equal its neighbour, and the year still counts: the column says where the amount came from, not what it is. Fixed amounts are never in A. Non-uniqueness among identified amounts is what `unique` reports, and it doesn't count here.
+- **How it is read.** A comes from `to_record()`, so `DesignedCover` doesn't change, and a record without the key reads null. `metric_values` gains `unidentified=None`, a boolean per draw.
+- **Existing tables.** A table written earlier reads as null, and no hash changes. **The golden fixtures don't change.** The fork's parity test asserts that a closed-form case holds exactly the metric columns, so MAR-349 makes that check leave these two columns out. The cases are byte-for-byte copies with about 2 kB of room left (Amendment 3), and hand-made tests cover the two columns.
+
+### A budget frontier (F5)
+
+```text
+# a budget frontier (R-31); needs the solver extra, as design does
+design_frontier(template, sample, objective, *, budgets, evaluate_on, split, fold=0, pricing=PurePremium(), limit=None,
+                design_options=DesignOptions(), metric_options=MetricOptions()) -> pyarrow.Table
+    # sample: the design sample. budgets: a sequence of Budget. evaluate_on: the block the rows are read on
+
+# in full
+train, test = holdout(sample)
+frontier = design_frontier(template, train, objective, budgets=[Budget(ratio=r) for r in (0.5, 1.0, 1.5)],
+                           evaluate_on=test, split="out_of_sample")
+```
+
+**One row per budget, in the order given.** Each row is exactly `design(template, sample, objective, pricing=pricing, budget=b, limit=limit, options=design_options)`, read by `compare([result], evaluate_on, split=split, fold=fold, options=metric_options)`. It has `compare`'s columns and these, beside the identity columns, which `to_long` keeps:
+
+| Column | Type | Meaning |
+|---|---|---|
+| `budget_ratio`, `budget_amount` | float64, nullable | The budget as stated: exactly one is non-null |
+| `design_budget` | float64 | Amendment 5's column: the bound in payout units on the design sample |
+| `budget_use` | float64, nullable | The design premium's share of the bound |
+| `objective_value` | float64 | The design's objective on the design sample, in payout units |
+
+- **No best point.** There is no rank, no best flag, no knee, no marginal column and no ordering by a metric. A reader takes differences between rows for what another unit of premium buys, on a stated block.
+- **The name is `design_frontier`,** F5's. It takes one template and one objective. Several go through several calls and `EvaluationMetadata.merge`.
+- **`split` has no default,** as in `compare`. So a frontier states whether its rows are in or out of sample, and external numbers come from out-of-sample rows.
+- **Failures.** An empty list raises `EvaluationError`, and so does a repeated budget, because two rows would repeat a key. A budget the template can't meet raises `design`'s error, naming that budget, so no row is dropped quietly. A multi-asset sample raises `SampleError`, as `design` does. A joint frontier over `design_joint` is a later, additive option.
+
+**Non-uniqueness along the frontier** is reported row by row: each row carries `unique`, `ties`, `degenerate_tail` and `unidentified_share`, as every design's row does. `DesignOptions(ranges=True)` applies to every row, at four LPs per amount per budget, and without it `unique` is null on the LP route and the setup text says "not checked".
+
+| How non-uniqueness is reported | Assessment |
+|---|---|
+| **Per row; each row solved on its own** (recommended) | A row equals `design` at that budget and doesn't depend on the list's order. Amounts may jump between neighbouring budgets where a row isn't unique, and `unique` says so |
+| Warm-start each row from the previous one | The rows depend on the order of the list, and a row is no longer `design` at that budget |
+| Choose, among optimal designs, the one closest to the previous row | Smooth amounts, at one more LP per budget, and the smoothness is the module's choice, not the problem's |
+| Leave out non-unique rows | Drops rows quietly |
+
+On the design sample the objective doesn't rise with the bound, because the feasible sets are nested, and R-31 tests that. Out of sample nothing guarantees it, and the docs say so. **A plan builder comes later:** F7 keeps new builders waiting for RiskThinking's guideline, and this amendment names none.
+
+### A resolution flag for rank blocks (F6)
+
+Inside one reference year's block, `EmpiricalCopula` treats the columns as independent. When (1 − β)·m ≤ 1, the tail at β holds at most one reference year's block, so a sum's tail metric lies inside that assumption. Each row records m and flags those β, as `degenerate_tail` flags a design's tail.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `copula_reference_years` | int32, nullable | m, the reference's rows (`dependence.m` in the record) |
+| `copula_block_tail_b<β>` | bool, nullable | One per β of `MetricOptions.betas`: true when (1 − β)·m ≤ 1, with the tolerance of `degenerate_tail` (1e-9), else false |
+
+Both sit beside the identity columns, which `to_long` keeps. They are not metrics.
+
+| A row | The columns |
+|---|---|
+| `"total"`, `"asset_by_value"` or `"asset_by_loss"` on a multi-asset sample under `EmpiricalCopula` | Filled: the row reads a sum over the reordered columns |
+| An `"asset"` row on such a sample | Null: one asset's draws are the same under every model |
+| Any row on a multi-hazard sample under `EmpiricalCopula` | Filled: every row reads the combined loss (Amendment 5) |
+| Other dependence models, per-year samples, and one-asset one-hazard samples | Null |
+
+- `degenerate_tail` doesn't change, so no existing column changes value, and a table written earlier reads as null. A tolerance is needed, since (1 − 0.95)·20 is 1.0000000000000009 in floating point. A `component(name)` view has one hazard's provenance, so it reads null.
+- The flag says where a number lies inside an assumption. It doesn't say the number is wrong, and the setup text says neither.
+
+| How the flag is stored | Assessment |
+|---|---|
+| **One boolean column per β** (recommended) | Names follow §6's label rule, filters are direct, and null keeps apart "no rank blocks" and "resolved" |
+| One string column listing the flagged β | A fixed schema, but readers must parse it |
+| A third value of `degenerate_tail` | Changes an existing column's values, and it describes a design's one β, not the metric options' |
+| Only the number (1 − β)·m, per β | Leaves the flag to every reader |
+
+### With Amendments 2, 3, 4 and 5
+
+- **Amendment 2.** Step 1 holds the trend, so under `LinearTrend` the factor multiplies the adjusted hazard. `sample_annual_pool` takes `HazardNoise`, one factor per row. A pool is resampled by calendar year.
+- **Amendment 3.** `sample_curves` applies the model per asset, from that asset's generator, so the factors are independent between assets, and the setup text says so. A dependence model moves a row's index, hazard and loss together.
+- **Amendment 4.** `HazardNoise` draws after the uniforms, so row d holds one factor in every curve scenario, and "What is shared" holds. Its document is one more `basis_risk` document to compare. `compare_pooled` takes one scenario's folds, and a design from one scenario read on another's block isn't pooled here. For a scenario's block, `bootstrap_intervals` takes one call per block, with `premiums=` as in `compare_scenarios` for a given cover's price, and `premium_repriced` isn't among its rows. Intervals on `to_drift`'s differences need one resampling across two blocks and come later.
+- **Amendment 5.** One model serves every component (§4.4), with its own factors per component in Amendment 5's draw order. A component with no impact still draws its factors, so the others' draws don't depend on it. `own_loss` reads the component's hazard at the asset. `design_frontier` uses `design_budget`.
+
+### The publication rule
+
+- `compare_pooled`, `bootstrap_intervals` and `design_frontier` have no rank, no best flag and no ordering by a metric.
+- `docs/parametric.md` presents each as a method. It makes no claim that a basis-risk model is more realistic for an asset, that a budget or a design is better, or that one interval shows a difference from another.
+- Tail statements stay conditional on a stated setup (the RQ1 rule).
+- D-21.4 holds. Joint rows can be pooled and given intervals, and the module's docs and notebook run `Joint()` alone until the owner revisits the RQ2 rule (MAR-152 item 4).
+- The setup text states every σ, budget, split, k and number of resamples next to the numbers.
+
+### The metadata (§7)
+
+- **`SampleProvenance`.** `basis_risk` holds `{"kind": "hazard_noise", "sigma": σ}`, and `details.basis_risk` gains `hazard_mean_ratio` and `impact_mean_ratio` on a model with `apply_hazard`. `hazard` is part of `content_hash` as today, and the lineage doesn't change.
+- **`setup.evaluations`.** A pooled entry has `fold` null, `method` `"kfold_pooled"`, and `details` with k and the held-out blocks' hashes in fold order. `setup.samples` holds each block and one entry for the pooled rows.
+- **`setup.intervals`** (new, null otherwise): `{"method": "percentile", "unit": "year", "n_bootstrap": B, "ci_level": ℓ}`. `rng` gains a `bootstrap` step with the generator's state at entry.
+- **`setup.frontier`** (new, null otherwise): the template's hash, the objective and the list of budgets.
+- **`columns`** gains `payout_frequency` and `unidentified_share`.
+- **`designs`** holds one record per fold's or budget's design. A pooled row's `design_id` has an entry that lists the designs. `covers` likewise, as a package's does in Amendment 5.
+- A document without these keys reads as before, and `schema_version` stays `"1.0"`.
+- **`setup_text`** states, next to the numbers:
+  1. For `HazardNoise`: that the hazard at the asset is the index times a mean-one lognormal factor with that σ, one per year and asset, as an assumption the caller states, and the two mean ratios.
+  2. For a pooled row: k, the rows, and that each year is evaluated by the design made without it.
+  3. For intervals: the resamples, the level, the unit, and the wording above. The columns with `short_block` true.
+  4. For a frontier: one design per budget on the stated design block, each row read on the stated block, and that the table names no best budget.
+  5. For rank blocks: m, the β flagged among the metric options, and whether the weighted-CVaR β of a row's design is flagged too.
+  6. **F8.** On a row whose design block and evaluation block are draws from one curve (`fresh_draws`, or a holdout or k-fold of draws): "Out of sample here means new draws from the same curve, so these rows test the design's sampling error, not the curve."
+
+### What the other sections now mean
+
+- **§1.** The basis-risk row gains `HazardNoise` and `HazardBasisRisk`.
+- **§2.** The Layer 1 outline gains the entries above. The module layout gains `intervals.py` (R-29: `compare_pooled`, `bootstrap_intervals`) and `frontier.py` (R-31: `design_frontier`), and `basis_risk.py` gains `HazardNoise` and `HazardBasisRisk`. `plan.py` changes only in treating `HazardNoise` as it treats `ImpactNoise` for the seed rule.
+- **§4.4.** The table gains `HazardNoise`. "The hazard uniforms first, then the basis-risk model" stands. The samplers' order is the table above.
+- **§5.4.** `unidentified` also feeds `unidentified_share`.
+- **§6.** "Pooled k-fold metrics are a follow-up" is "Pooled folds and intervals" above. The metric table and the comparison table gain the columns above.
+- **§7.** As "The metadata".
+- **§8.** The fixtures keep their columns. "Every column of §6" in `parity/crc/README.md` now reads "every column but `payout_frequency` and `unidentified_share`".
+- **§9.** Block-bootstrap intervals and pooled k-fold metrics are this amendment. The local refinement after the grid and the second solver backend stay reserved (MAR-254).
+- **D10's point 8.** `NoBasisRisk()` stays a stated choice, and `basis_risk` stays required.
+
+### The issue map (§10)
+
+Each row is about one PR. The other rows stand.
+
+| Issue | Covers | Files (§2) | Starts after |
+|---|---|---|---|
+| MAR-347 (R-28) | `HazardNoise`, `HazardBasisRisk`, the samplers' order, the refusals, the seed rule, `details.basis_risk`, the setup text, `ImpactNoise`'s docstring; `docs/parametric.md` leads with the model. Tests: both failures occur for one cover; at σ = 0 the rows and `content_hash` equal `NoBasisRisk()`'s; §4.4's draw order; a model without `apply_hazard` gives today's rows; a stand-in that holds the damage function gives the same rows | `basis_risk`, `sources`, `metadata`, `plan` (the seed rule), `__init__`; `docs/parametric.md` | This amendment |
+| MAR-348 (R-29) | `compare_pooled`, `bootstrap_intervals`, a pooled row's columns, a per-draw premium in `metric_values`, the metadata and the setup text; the method in the docs. Tests: a pooled row equals `metric_values` on the concatenated rows; a closed form at k = 2; replicates against the core's `kpi_replicates` on the same year draws; one generator state gives one table; all-ones counts give the point estimate | `intervals` (new), `metrics`, `metadata`, `__init__`; `docs/parametric.md` | This amendment |
+| MAR-349 (R-30) | `payout_frequency`, `unidentified_share`, their `columns` entries, and F8's sentence. Tests on hand-made samples: a design with unidentified amounts read on a block that reaches them, and 0.0 on its design block; null on the numpy grid and for a cover given as is; a table without them reads as null. The fork's parity test leaves the two columns out of its check | `metrics`, `evaluate`, `metadata`; the fork's parity test | This amendment |
+| MAR-350 (R-31) | `design_frontier`, its columns, `setup.frontier` and the setup text; the method in the docs. Tests: each row equals `design` and `compare` by hand at that budget; the objective doesn't rise with the bound on the design sample; non-uniqueness and degenerate tails per row; no rank, best flag or ordering | `frontier` (new), `metadata`, `__init__`; `docs/parametric.md` | This amendment, MAR-337 (`design_budget`), MAR-349 |
+| MAR-351 (R-32) | `copula_reference_years`, `copula_block_tail_b<β>`, `to_long` keeping them, and the setup text. Tests at (1 − β)·m = 1 and on either side of it; null on the other models and on per-year samples; existing tables and hashes don't change | `evaluate`, `metadata` | This amendment |
+
+### Beyond the six items
+
+The items don't determine these. The text above settles each as the agent recommends, and the owner's approval of this amendment covers them. The PR lists the alternatives of each.
+
+1. `HazardBasisRisk` is opt-in and extends `BasisRisk`, and `HazardNoise.apply` returns its inputs.
+2. A user's model may have both methods, and `apply_hazard` runs first.
+3. `HazardNoise` allows σ = 0, unlike `ImpactNoise`, and warns then as `NoBasisRisk()` does.
+4. It draws at every σ, so a sweep over σ shares its draws.
+5. The factor is lognormal with mean one on the hazard, as `ImpactNoise`'s is on the impact.
+6. A negative hazard raises.
+7. A separate index series raises.
+8. One σ serves every asset and component of a sample.
+9. `details.basis_risk` holds the two mean ratios.
+10. `compare_pooled` is a function of its own, and `fold` is null on its rows.
+11. `compare_pooled` requires equal probabilities in each block.
+12. A pooled row's hashes are hashes of the per-fold hashes, in fold order.
+13. `unique`, `ties` and `degenerate_tail` aggregate over the folds, with the value `"mixed"`.
+14. A resolved cover is priced once on the pooled rows.
+15. `rng` is a required keyword, not a `seed=`.
+16. `n_bootstrap=1000` and `ci_level=0.9`, and a percentile interval.
+17. A pool is resampled by calendar year, and an `EmpiricalCopula` block by row.
+18. Every metric column gets an interval, with no `metrics=` option.
+19. A `short_block` row keeps its bounds and is flagged.
+20. `bootstrap_intervals` takes `premiums=`, and `to_drift`'s differences get no interval yet.
+21. The two new columns sit after `payout_to_loss_ratio`.
+22. `unidentified_share` counts any non-zero basis entry in full.
+23. On a `"total"` or `"package"` row it is the union over the contracts.
+24. It is null on the numpy grid route.
+25. The fixtures don't change, and the fork's parity test leaves out the two columns.
+26. `design_frontier` takes `evaluate_on` and a required `split`.
+27. One template and one objective per call.
+28. The columns `budget_ratio`, `budget_amount`, `budget_use` and `objective_value`.
+29. A joint frontier is later.
+30. The columns `copula_reference_years` and `copula_block_tail_b<β>`.
+31. They are filled only on rows that read a sum over the reordered columns.
+32. They use `degenerate_tail`'s tolerance.
+33. F8's sentence also holds for a holdout or k-fold of draws from one curve.
+
+### Not verified
+
+- No R-28 to R-32 code exists, so every name is a proposal. Amendment 4's names are those of its open PR (MAR-329, at `85f5010`), and Amendment 5's `design_budget` is MAR-337's, in progress. A throwaway check (2026-11-09, not committed; script and output in the PR) ran a private copy of the fork's `parametric` at `f3327e5` with `HazardNoise` and step 2 patched in, on synthetic numbers, without any CRC, ERA5 or NEX data:
+  - **The two failures.** On 20,000 synthetic Gumbel years, with a ramp damage function from 80 to 200 and one fixed two-step cover at 90 and 120, `false_negative_rate_l0` and `false_positive_rate_l0` were 0.4543 and 0.0000 under `NoBasisRisk()`, and the same under `ImpactNoise(σ)` for σ = 0.1, 0.25, 0.5 and 1. Under `HazardNoise(σ)` they were (0.4969, 0.0053), (0.6347, 0.0349), (0.7422, 0.0698) and (0.8081, 0.1016), and E[L] moved from 30.21 to 33.92, 51.11, 91.55 and 131.25. The setup is arbitrary, and the numbers say nothing about which model suits an asset.
+  - **σ = 0, on both routes.** Rows, `content_hash` and lineage equal `NoBasisRisk()`'s, `hazard` is `None`, and the generator's state after the call is the same at σ = 0 and σ = 0.5.
+  - **The draw order, on curves.** At σ = 0.25 the index equals the one from the same uniforms under `NoBasisRisk()`, and the `hazard` generator record is the same.
+  - **Existing models.** The fork's 362 tests of basis risk, sources, pools and dependence passed on the patched copy. A stand-in that holds the damage function, as the primer's does, gave the same rows as `HazardNoise`.
+  - **The refusal** of a separate index series raises.
+  - **Pooling and resampling.** A pooled row on 63 synthetic years and five folds was computed by `metric_values` on the concatenated rows. Reweighting by counts and duplicating rows agreed to 7e-15. 1,000 resamples took 0.2 s for one wide row at 63 rows, and about 9 s at 20,000 rows, in a plain loop on one macOS arm64 machine.
+  - **`unidentified_share`.** A step design with two unreached levels read 0.0 on its design block, 0.0 on a held-out block that didn't reach them, and 0.368 on a block with larger index values, on synthetic numbers.
+  - **A frontier by hand.** Seven budgets on 700 synthetic rows took 0.05 s. The objective fell at every step, and `budget_use` was 1.0 at each.
+- Whether a percentile interval has its nominal coverage on a short block wasn't tested, which is why `short_block` exists. How large the bias of a tail metric inside a rank block is rests on MAR-344's synthetic check, which this agent read and didn't rerun.
+- The cost of `bootstrap_intervals` on a table of many covers and of `ranges=True` along a frontier was not measured.
+- How often a real design leaves amounts to the fill rule is not known here.
+- The patched path and every other piece were not run against Amendment 4's or Amendment 5's unbuilt parts.
+- No CRC Open, ERA5 or NEX data was read for this amendment.
