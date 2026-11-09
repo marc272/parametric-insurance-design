@@ -8,7 +8,7 @@
   - crc-framework 0.6.0: [`838c295`][fw] (tag `v0.6.0`; the later head changes only the release workflow);
   - crc-docs: [`7691f5f`][docs] (2026-11-04).
 - Revised on 2026-11-05, before the owner's decision, to match the golden fixtures of MAR-245 (PR #183). The end of "Decisions for the owner" lists what changed.
-- Amendments, at the end: 1 (2026-11-06, MAR-275), which records the owner's decision D11, curves first; 2 (2026-11-08, MAR-291), which records the owner's decisions D-25.1 to D-25.5, the per-year route; 3 (2026-11-08, MAR-292), which records the owner's decisions D-21.1 to D-21.6, the portfolio approach; and 5 (2026-11-08, MAR-330), which records the owner's decisions D-22.1 to D-22.8, multi-hazard covers.
+- Amendments, at the end: 1 (2026-11-06, MAR-275), which records the owner's decision D11, curves first; 2 (2026-11-08, MAR-291), which records the owner's decisions D-25.1 to D-25.5, the per-year route; 3 (2026-11-08, MAR-292), which records the owner's decisions D-21.1 to D-21.6, the portfolio approach; 5 (2026-11-08, MAR-330), which records the owner's decisions D-22.1 to D-22.8, multi-hazard covers; and 6 (2026-11-09, MAR-346), which fixes the public API of the additions the owner accepted in the design review of 2026-11-09 (MAR-344).
 
 The section "Decisions for the owner" lists what Marc decides. Every other choice below is the agent's recommendation, with the alternatives named where a choice is open.
 
@@ -114,6 +114,8 @@ To sample from curves the plan needs each asset's curve, and the join that finds
 Amendment 2 (the per-year route) adds to both outlines below: `trend=`, `scenario=`, `pool=`, `cell=`, `.index(...)` and `sample_annual_pool`.
 
 Amendment 5 (multi-hazard covers) adds to both outlines below: `CompositeIndex`, `IndexComponent`, `.component()`, `SumOf`, `MaxOf`, `StepGrid`, `CappedSum`, `CompoundDamage`, `sample_annual_hazards`, `sample_curve_hazards`, `GaussianCopula`, `CoverPackage`, `split_budget`, `payout_breakdown`, `.hazard`, `.combine` and `.package`.
+
+Amendment 6 (the additions from the design review) adds to the Layer 1 outline below: `HazardNoise`, `HazardBasisRisk`, `compare_pooled`, `bootstrap_intervals` and `design_frontier`.
 
 **Layer 1 in outline** (names and signatures for R-14 to R-17; types abbreviated):
 
@@ -389,6 +391,8 @@ Amendment 2 (D-25.4) brings the `index=` series of this table into the plan, as 
 | a second `AnnualSeries` as `index=` | the index is another cell, station or hazard than the loss reads (§4.2) | per-year |
 | user model | the `BasisRisk` protocol: `name`, `to_document()` and `apply(index, hazard, impact, rng) -> (index, impact)` | all |
 
+Amendment 6 (F2) adds `HazardNoise(sigma)` to this table, a model in which the hazard at the asset is the index times a stated random factor, and says what `ImpactNoise` can't change.
+
 - `basis_risk` is a required argument with no default: every sample states its model. `NoBasisRisk()` must be written out.
 - An index at a reference point for Monte Carlo samples needs a joint distribution of two curves, which CRC doesn't provide (U11). It waits for Phase 2's dependence models (§9).
 - Vulnerability draws from the uncertainty ranges of registry impacts become a model once RiskThinking says whether such ranges exist (Q7).
@@ -453,6 +457,8 @@ Amendment 5 (D-22.5, D-22.6) adds the routes of `SumOf`, `MaxOf` and `StepGrid`.
 #### 5.4 Non-unique optima
 
 The module reports non-uniqueness. It does not hide it behind one solver-dependent answer.
+
+Amendment 6 (F4, F5) adds `unidentified_share`, the probability of an evaluation block that falls where the fill rule set a design's amounts, and says how non-uniqueness is reported along a budget frontier.
 
 - **Unidentified amounts.** An amount whose basis column is zero in every design year (a step bin or a piecewise segment that no year reaches) changes nothing in the sample: not the objective, the premium or the budget, under every objective and pricing. `DesignResult.unidentified` lists them. A stated rule sets them: `DesignOptions(fill="lowest")`, the default, takes the smallest value the constraints allow (the previous identified level under `monotone`, else 0); `fill="highest"` takes the largest (the next identified level, or the limit or upper bound above the last one; with no bound above, `design` raises). Both keep the design exactly optimal. The rule is recorded.
 - **Ranges and uniqueness on the LP route** (`DesignOptions(ranges=True)`). Each identified amount is ranged twice: its smallest and largest value over the near-optimal set {feasible θ : objective(θ) ≤ optimum + ε · max(1, |optimum|)}, in scaled units, for a wide ε₁ = 1e-9 and a narrow ε₂ = 1e-11. That is four LPs per amount, solved with HiGHS at primal and dual feasibility tolerances of 1e-10 (its defaults are 1e-7).
@@ -541,6 +547,8 @@ Amendment 3 (D-21.3) changes this table: it adds the `scope` column and the leve
 
 Amendment 5 adds the level `"package"`, the columns `components` and `design_budget`, and D-22.7's separate table, `payout_breakdown`.
 
+Amendment 6 adds the metric columns `payout_frequency` and `unidentified_share`, the columns of the rank-block flag, the pooled rows of `compare_pooled` and the separate table of `bootstrap_intervals`.
+
 | Column | Type | Meaning |
 |---|---|---|
 | `cover_label` | string | The user's label, or the first 12 hex digits of the hash |
@@ -565,6 +573,8 @@ Amendment 5 adds the level `"package"`, the columns `components` and `design_bud
 Amendment 2 (the per-year route) describes the per-year source records as merged, and adds the records of the trend, the pool and the index series.
 
 Amendment 5 adds `hazard_dependence`, `combine` and `components` to a sample's provenance, and a package's entry to `covers`.
+
+Amendment 6 adds the record of `HazardNoise`, the pooled entries of `setup.evaluations`, `setup.intervals` and `setup.frontier`.
 
 **Hashes.**
 
@@ -708,6 +718,7 @@ Phase 1 exports only what it implements. Each name below is added to `__all__` w
 - **Multi-hazard covers (R-22, MAR-250).** Amendment 5 (D-22.1 to D-22.8) settles this item. `CompositeIndex` (named `IndexDefinition`s), payouts with several `index_names`, `OutcomeSample.index_components`, and the combinator families of §3. Two hazards at one site need a joint distribution; for per-year samples it is the data's own.
 - **Scenarios (R-23, MAR-44).** A `ScenarioSet` maps scenario labels to samples with the same assets. `compare` fills the `scenario` column. Robust design (min–max over scenarios, as SPEC §6.5 R1) becomes an objective wrapper, `Robust(objective)`, over a `ScenarioSet`.
 - **Also reserved:** the semantics value `"event"` (several events per year); a local refinement after the grid; block-bootstrap intervals and pooled k-fold metrics; a second solver backend in `_solver.py`.
+  - Amendment 6 (F3) settles the block-bootstrap intervals and the pooled k-fold metrics. The other items stay reserved.
 
 ### 10. The issue map
 
@@ -716,6 +727,8 @@ The split into R-14 to R-18 holds, with four adjustments (marked "adjusted"). Am
 Amendment 3 (the portfolio approach) adds the rows of R-21: MAR-298 and MAR-301 to MAR-305, with R-21g deferred.
 
 Amendment 5 (multi-hazard covers) adds the rows of R-22: MAR-336 to MAR-342.
+
+Amendment 6 (the additions from the design review) adds the rows of R-28 to R-32: MAR-347 to MAR-351.
 
 | Issue | Covers | Files (§2) | Starts after |
 |---|---|---|---|
@@ -1421,7 +1434,11 @@ A sample may hold components a cover doesn't read. `design` takes the loss of th
 CompositeIndex(components)      # a mapping from component name to IndexDefinition, two or more, in order
 Cover(index, payout, *, payout_unit, asset_id=None, label=None)     # index: an IndexDefinition or a CompositeIndex
 Cover.payout_values(index_values)     # with a CompositeIndex: (n, k), columns in index_names order; returns (n,)
+Cover.index_definition -> IndexDefinition | CompositeIndex     # what the cover pays on
+Cover.index -> IndexDefinition                                 # a cover on one index; a CompositeIndex raises CoverDefinitionError
 ```
+
+(Erratum 14, 2026-11-09, MAR-346: the `Cover.index_definition` and `Cover.index` lines of this outline are new, and this amendment first named neither. MAR-336 (R-22a) added them in marc272/crc-sdk#30. `Cover.index_definition` is a public property that returns what a cover pays on, an `IndexDefinition` or a `CompositeIndex`. `Cover.index` keeps its one-index meaning and raises `CoverDefinitionError` on a cover with a `CompositeIndex`, naming `index_definition`. No decision changes.)
 
 - **The document.** A one-index cover's document, its `schema_version` `"1.0"` and its `definition_hash` don't change. A cover with a `CompositeIndex` writes the same six keys with `schema_version` `"1.1"`, so a reader that knows only `"1.0"` refuses it by name, and:
 
