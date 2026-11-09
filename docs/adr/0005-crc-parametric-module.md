@@ -8,7 +8,7 @@
   - crc-framework 0.6.0: [`838c295`][fw] (tag `v0.6.0`; the later head changes only the release workflow);
   - crc-docs: [`7691f5f`][docs] (2026-11-04).
 - Revised on 2026-11-05, before the owner's decision, to match the golden fixtures of MAR-245 (PR #183). The end of "Decisions for the owner" lists what changed.
-- Amendments, at the end: 1 (2026-11-06, MAR-275), which records the owner's decision D11, curves first; 2 (2026-11-08, MAR-291), which records the owner's decisions D-25.1 to D-25.5, the per-year route; 3 (2026-11-08, MAR-292), which records the owner's decisions D-21.1 to D-21.6, the portfolio approach; 4 (2026-11-08, revised 2026-11-09, MAR-329), which records the owner's decisions D-23.1 to D-23.6, scenario analysis; and 5 (2026-11-08, MAR-330), which records the owner's decisions D-22.1 to D-22.8, multi-hazard covers.
+- Amendments, at the end: 1 (2026-11-06, MAR-275), which records the owner's decision D11, curves first; 2 (2026-11-08, MAR-291), which records the owner's decisions D-25.1 to D-25.5, the per-year route; 3 (2026-11-08, MAR-292), which records the owner's decisions D-21.1 to D-21.6, the portfolio approach; 4 (2026-11-08, MAR-329; revised 2026-11-09 on the owner's decisions after the design review MAR-344: ERA5 leaves scenario sets, and a scenario may be a window of horizons), which records the owner's decisions D-23.1 to D-23.6, scenario analysis; and 5 (2026-11-08, MAR-330), which records the owner's decisions D-22.1 to D-22.8, multi-hazard covers.
 
 The section "Decisions for the owner" lists what Marc decides. Every other choice below is the agent's recommendation, with the alternatives named where a choice is open.
 
