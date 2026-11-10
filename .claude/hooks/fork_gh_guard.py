@@ -37,9 +37,14 @@ hide it (``GitInvocation.denied``). It refuses:
   ``GIT_CONFIG_KEY_<n>``, ``GIT_CONFIG_VALUE_<n>``, ``GIT_CONFIG_PARAMETERS``,
   ``GIT_CONFIG_GLOBAL``, ``GIT_CONFIG_SYSTEM`` or ``GIT_CONFIG``, and ``git
   submodule foreach``, which runs a shell string the hook doesn't read;
-- a subcommand, configuration key, ``git update-ref`` ref, or ``git push``
-  operand or flag name that the shell expands. The prescribed ``git -C
-  <worktree> push -u origin <branch>`` passes, also with ``-C "$WT"``.
+- ``git credential`` and the ``git credential-<helper>`` commands (MAR-355),
+  which can print the token that ``gh auth token`` would;
+- ``git rebase --exec`` (``-x``, abbreviated or in a cluster too) and ``git
+  filter-branch`` (MAR-355), which run shell strings the hook doesn't read;
+- a subcommand, configuration key, ``git update-ref`` ref, ``git push``
+  operand or flag name, or ``git rebase`` flag name that the shell expands.
+  The prescribed ``git -C <worktree> push -u origin <branch>`` passes, also
+  with ``-C "$WT"``.
 
 **Denied gh commands, in every spelling, wherever they run** (MAR-263). The
 hook parses each ``gh`` command, so ``-R``/``--repo`` before or after the
@@ -334,6 +339,12 @@ GIT_PUSH_EVERY_BRANCH_FLAGS = (("--all", 4), ("--branches", 3), ("--prune", 5))
 # The branches that change only through merged PRs, as a git push destination
 # may name them (MAR-355): git takes heads/main for refs/heads/main.
 _SHARED_BRANCH = re.compile(r"(?:(?:refs/)?heads/)?(?:main|parametric)")
+# git rebase's flag that runs a shell string after each commit, abbreviated the
+# same way (MAR-355): --e is also --edit-todo and --empty.
+GIT_REBASE_EXEC_FLAGS = (("--exec", 4),)
+# -x in a cluster of short flags. Only flags that take no value may come before
+# it: -Xx is a strategy option, and -Sx, -sx, -Cx and -rx give those flags a value.
+_REBASE_SHORT_EXEC = re.compile(r"-[fikmnqv]*x")
 # The plumbing under git push: it takes refspecs and --mirror of its own.
 GIT_PUSH_PLUMBING = frozenset({"send-pack", "http-push"})
 # Commands that add operands the hook can't see to the command they run.
@@ -521,6 +532,9 @@ _GIT_DENIED = re.compile(
     r"tag\b"
     r"|update-ref\b[^;&|\n]*(?:refs/tags|--stdin)"
     r"|submodule\b[^;&|\n]*foreach\b"
+    r"|credential\b"
+    r"|filter-branch\b"
+    r"|rebase\b[^;&|\n]*(?:--ex|\s-[fikmnqv]*x)"
     r"|push\b[^;&|\n]*(?:--tags?\b|--follow-tags\b|--mirror\b|refs/tags"
     r"|--all\b|--branches\b|--prune\b"
     r"|\stag\s|[\s:+\"']v[^\s:]*"
@@ -1359,9 +1373,10 @@ class GitInvocation:
         -------
         str or None
             ``"git-expansion"`` if the subcommand, a configuration key, the
-            ref of ``git update-ref``, or an operand or flag name of ``git
-            push`` is a word the shell expands, or ``xargs`` or ``parallel``
-            supplies operands to either of those; ``"git-config"`` for
+            ref of ``git update-ref``, an operand or flag name of ``git
+            push``, or a flag name of ``git rebase`` is a word the shell
+            expands, or ``xargs`` or ``parallel`` supplies operands to ``git
+            push`` or ``update-ref``; ``"git-config"`` for
             configuration that adds a
             command or carries tags; ``"git-tag"`` for a command that makes a
             tag; ``"git-push"`` for one that pushes tags or everything;
@@ -1369,8 +1384,11 @@ class GitInvocation:
             ``"git-push-shared"`` for one whose destination is a shared branch
             (MAR-355), ``"git-environment"`` for configuration set through the
             environment and ``"git-submodule"`` for ``git submodule foreach``
-            (MAR-343); else ``None``. Local tags alone do nothing, so other
-            plumbing that writes a ref isn't checked: a tag has to be pushed.
+            (MAR-343), ``"git-credential"`` for ``git credential`` and its
+            helpers and ``"git-exec"`` for ``git rebase --exec`` and ``git
+            filter-branch`` (MAR-355); else ``None``. Local tags alone do
+            nothing, so other plumbing that writes a ref isn't checked: a tag
+            has to be pushed.
         """
         if self.from_environment:
             return "git-environment"
@@ -1395,6 +1413,12 @@ class GitInvocation:
             return _config_problem(self.args)
         if self.subcommand == "submodule":
             return _submodule_problem(self.args)
+        if self.subcommand == "credential" or self.subcommand.startswith("credential-"):
+            return "git-credential"
+        if self.subcommand == "filter-branch":
+            return "git-exec"
+        if self.subcommand == "rebase":
+            return _rebase_problem(self.args)
         if self.subcommand == "remote" and self.args[:1] == ["add"]:
             mirror = any(arg.startswith("--mirror") for arg in self.args)
             return "git-push" if mirror else None
@@ -1526,6 +1550,37 @@ def _submodule_problem(args: list[str]) -> str | None:
     if command == "foreach":
         return "git-submodule"
     return "git-expansion" if _EXPANSION.search(command) else None
+
+
+def _rebase_problem(args: list[str]) -> str | None:
+    """Return why ``git rebase`` with these arguments is refused, if it is.
+
+    ``--exec`` and ``-x`` run a shell string after each commit, which the hook
+    doesn't read. A flag name from an expansion could be either of them; a
+    commit from an expansion (``git rebase "$BASE"``) passes.
+
+    Parameters
+    ----------
+    args
+        The words after ``git rebase``.
+
+    Returns
+    -------
+    str or None
+        ``"git-exec"`` for the flag, in any spelling git accepts,
+        ``"git-expansion"`` for a flag name the shell expands, else ``None``.
+    """
+    for arg in args:
+        if arg == "--":
+            return None  # the rest are operands
+        if not arg.startswith("-"):
+            continue
+        name = arg.split("=", 1)[0]
+        if _EXPANSION.search(name):
+            return "git-expansion"
+        if _abbreviates(name, GIT_REBASE_EXEC_FLAGS) or _REBASE_SHORT_EXEC.match(arg):
+            return "git-exec"
+    return None
 
 
 def _git_config_assignment(words: list[str]) -> str | None:
@@ -2150,6 +2205,17 @@ _DENIALS = {
         "git submodule foreach. It runs a shell string in each submodule, which",
         "neither the deny rules nor this hook read.",
     ),
+    "git-credential": (
+        "git credential and the git credential-<helper> commands. git credential",
+        "fill can print the token that gh auth token would, and approve and",
+        "reject change what is stored; agents never use or store credentials",
+        "(AGENTS.md).",
+    ),
+    "git-exec": (
+        "git rebase --exec (-x, abbreviated or in a cluster such as -ix too) and",
+        "git filter-branch. Each runs a shell string that neither the deny rules",
+        "nor this hook read. git rebase without them passes.",
+    ),
     "git-config": (
         "git config and git -c on push.followTags, push.default,",
         "remote.<name>.push, remote.<name>.mirror and alias.<name>. Each makes a",
@@ -2158,9 +2224,9 @@ _DENIALS = {
     ),
     "git-expansion": (
         "a git command whose subcommand, configuration key, git update-ref ref,",
-        "git push operand or flag name is a word the shell expands ($var, $(...),",
-        "backticks, a glob or braces), and git push or update-ref run by xargs or",
-        "parallel.",
+        "git push operand or flag name, or git rebase flag name is a word the",
+        "shell expands ($var, $(...), backticks, a glob or braces), and git push",
+        "or update-ref run by xargs or parallel.",
         "Neither the deny rules nor this hook can tell what it would do, or which",
         "refs it would push.",
     ),
@@ -2229,8 +2295,9 @@ def _when_in_doubt(command: str, starts: list[str], problem: str) -> str | None:
                 "repository,",
                 "git tag, git update-ref on refs/tags, or a git push of tags, of",
                 "every branch (--all, --branches, --prune) or to main or parametric,",
-                "git submodule foreach,",
-                "or a variable that sets git's configuration (GIT_CONFIG_*).",
+                "git submodule foreach, git credential, git rebase --exec, git",
+                "filter-branch, or a variable that sets git's configuration",
+                "(GIT_CONFIG_*).",
                 'Those are Marc\'s (docs/ORCHESTRATION.md, "One-time setup",',
                 "step 4). If it is none of them, split it into simpler commands.",
             ]
@@ -2354,8 +2421,9 @@ def fail_closed_for_gh(text: str, problem: str) -> int:
         f"fork_gh_guard failed internally ({problem});",
         f"refusing this repo-scoped or denied gh command (gh {_CHECKED_LIST},",
         "or a gh write that .claude/settings.json denies), or a git command that",
-        "makes or pushes a tag, pushes every branch or a shared branch, or changes",
-        "git's settings through the environment. Other commands pass.",
+        "makes or pushes a tag, pushes every branch or a shared branch, reads a",
+        "credential, runs a shell string this hook can't read, or changes git's",
+        "settings through the environment. Other commands pass.",
         "Fix: report the error to the orchestrator, so that the hook is fixed and",
         "a case added to scripts/check_fork_gh_guard.py. Meanwhile a simpler form",
         f"may get through: one gh command per Bash call, with --repo {OWNER}/<repo>.",
