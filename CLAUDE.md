@@ -10,12 +10,12 @@ If you coordinate work rather than implementing a single issue, you are the orch
 - in `marc272/crc-sdk` and `marc272/crc-docs`, PRs into the `parametric` branch (2026-11-05): `gh pr merge <n> --repo marc272/<fork> --squash`;
 - in `marc272/climada_petals`, PRs into the `parametric` branch (2026-11-08): `gh pr merge <n> --repo marc272/climada_petals --squash`.
 
-In both cases, under the runbook's "Merge policy":
+In each case, under the runbook's "Merge policy":
 
 - the orchestrator has reviewed the PR;
-- all CI checks are green (in crc-docs, whose Actions are off, the fork's own checks re-run by the orchestrator: runbook "Merge policy");
+- all CI checks are green (in crc-docs and climada_petals, whose Actions are off, the fork's own checks re-run by the orchestrator: runbook "Merge policy");
 - the PR doesn't belong to a Human or Gate issue.
 
-The orchestrator also keeps `parametric` current by merging upstream `main` into it (Marc, 2026-11-05), never by a rebase (runbook "Keeping `parametric` current").
+The orchestrator also keeps `parametric` current by merging upstream `main` (in climada_petals, upstream `develop`) into it (Marc, 2026-11-05), never by a rebase (runbook "Keeping `parametric` current").
 
-Workers never merge. Nothing is ever merged upstream by an agent: the upstream PRs to RiskThinking's repositories are Marc's (MAR-249). Never use `--admin`, force-push, or push to any `main`, ours or a fork's.
+Workers never merge. Nothing is ever merged upstream by an agent: the upstream PRs to RiskThinking's repositories are Marc's (MAR-249). Never use `--admin`, force-push, or push to any `main`, or to `develop` in climada_petals, ours or a fork's.

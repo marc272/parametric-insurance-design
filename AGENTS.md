@@ -163,7 +163,7 @@ Petals has no `AGENTS.md`. Its rules are CLIMADA's developer guide (the `doc/dev
 
 - Commit subjects follow CLIMADA's guide: imperative, capitalised, at most 50 characters, no final period, and naming what they change, e.g. `Add StepPayout to engine.parametric`. Wrap the body at 72 characters and say what and why. No MAR IDs or Linear links in code, docs or commit subjects.
 - The Linear ID goes in the fork PR's title and body, and in a `Refs: MAR-<n>` trailer on each commit. The `Refs` line and any `Co-Authored-By` line go in the same final paragraph, with no blank line between them.
-- CLIMADA's `AI_POLICY.md` closes upstream PRs that list an LLM product as co-author. How the upstream PR meets that policy is Marc's (K-05). Until he decides, commits in the fork carry the same attribution lines as everywhere else.
+- CLIMADA's `AI_POLICY.md` closes upstream PRs that list an LLM product as co-author. Marc's decision (Marc, 2026-11-10, MAR-310): commits and PRs in the fork keep the usual attribution lines. The upstream PR (K-05) is Marc's: he opens it from a fresh branch with the work squashed, authored by him and with no LLM co-author tags, as `AI_POLICY.md` allows, once he can explain and defend every line. So the first upstream PR is kept to the core module.
 - PR title: `[MAR-<n>] <subject>`, with the subject in the commit style above.
 - Before each push, `git -C <worktree> diff origin/parametric... | grep -nE 'MAR-[0-9]+|linear\.app'` must print nothing.
 
@@ -172,7 +172,7 @@ Petals has no `AGENTS.md`. Its rules are CLIMADA's developer guide (the `doc/dev
 - The module never imports `parametric_insurance_design` or `parametric_insurance_design_climada`, statically or dynamically. Parity with the core goes through K-13's fixtures, `parity/climada/` in this repository, which K-18 and K-19 copy into the module's test data. The copies are CC0-1.0 (ADR 0001, amendment 4).
 - The stream stays CRC-free: no crc-sdk code or data is read, copied or ported. crc-sdk is AGPL, and petals is GPL v3. ADR 0005's text may be read for concepts and metric definitions only.
 - No new dependency beyond ADR 0006 (D10: scipy's HiGHS for the LPs and `SLSQP` for MSE, no new package). The port keeps cvxpy until K-19 removes it. Petals' `pyproject.toml` and `requirements/` stay as they are, unless your issue says otherwise.
-- No data committed beyond small test files: K-13's fixtures stay within 200 KB. Downloads from CLIMADA's public Data API, with no credentials, are allowed for K-12, for the tests below and for the tutorial (Marc, K-10, answer 3). Nothing downloaded is committed.
+- No data committed beyond small test files: K-13's fixtures stay within 200 KB. Downloads from CLIMADA's public Data API, with no credentials, are allowed for K-12 and the tutorial (Marc, K-10, answer 3) and for the tests of the merge gate below (Marc, 2026-11-10, MAR-310). Nothing downloaded is committed.
 
 **The merge gate**
 
