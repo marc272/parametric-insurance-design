@@ -7,7 +7,8 @@ If you coordinate work rather than implementing a single issue, you are the orch
 **Merge authorisation.** The owner, Marc Prinzing, authorised the orchestrator to squash-merge agent PRs without a human approval:
 
 - in `marc272/parametric-insurance-design` (2026-10-25, MAR-80): `gh pr merge <n> --squash`;
-- in `marc272/crc-sdk` and `marc272/crc-docs`, PRs into the `parametric` branch (2026-11-05): `gh pr merge <n> --repo marc272/<fork> --squash`.
+- in `marc272/crc-sdk` and `marc272/crc-docs`, PRs into the `parametric` branch (2026-11-05): `gh pr merge <n> --repo marc272/<fork> --squash`;
+- in `marc272/climada_petals`, PRs into the `parametric` branch (2026-11-08): `gh pr merge <n> --repo marc272/climada_petals --squash`.
 
 In both cases, under the runbook's "Merge policy":
 
