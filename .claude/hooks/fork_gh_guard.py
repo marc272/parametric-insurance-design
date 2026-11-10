@@ -23,6 +23,10 @@ hide it (``GitInvocation.denied``). It refuses:
 - ``git push`` with ``--all``, ``--branches`` or ``--prune`` (abbreviated too)
   or the matching refspec (``:``, ``+:``), MAR-343: the first three kinds push
   a local ``main`` and ``parametric``, and ``--prune`` deletes remote branches;
+- ``git push`` whose destination is ``main`` or ``parametric`` (MAR-355), named
+  as the bare branch, ``heads/<name>``, ``refs/heads/<name>``, ``<src>:<name>``
+  or ``<name>:``, a force or a delete included. ``git push`` alone and ``git
+  push origin HEAD`` name no branch and pass (``_names_shared_branch``);
 - configuration that makes a plain push carry tags or every matching branch,
   or adds a git command: ``push.followTags``, ``push.default``,
   ``remote.<name>.push``, ``remote.<name>.mirror`` and ``alias.<name>``, set
@@ -327,6 +331,9 @@ GIT_PUSH_TAG_FLAGS = (("--mirror", 3), ("--tags", 4), ("--follow-tags", 5))
 # --all and --branches push a local main and parametric too, and --prune
 # deletes the remote's branches that have no local counterpart.
 GIT_PUSH_EVERY_BRANCH_FLAGS = (("--all", 4), ("--branches", 3), ("--prune", 5))
+# The branches that change only through merged PRs, as a git push destination
+# may name them (MAR-355): git takes heads/main for refs/heads/main.
+_SHARED_BRANCH = re.compile(r"(?:(?:refs/)?heads/)?(?:main|parametric)")
 # The plumbing under git push: it takes refspecs and --mirror of its own.
 GIT_PUSH_PLUMBING = frozenset({"send-pack", "http-push"})
 # Commands that add operands the hook can't see to the command they run.
@@ -516,7 +523,8 @@ _GIT_DENIED = re.compile(
     r"|submodule\b[^;&|\n]*foreach\b"
     r"|push\b[^;&|\n]*(?:--tags?\b|--follow-tags\b|--mirror\b|refs/tags"
     r"|--all\b|--branches\b|--prune\b"
-    r"|\stag\s|[\s:+\"']v[^\s:]*)"
+    r"|\stag\s|[\s:+\"']v[^\s:]*"
+    r"|[\s:+\"'](?:(?:refs/)?heads/)?(?:main|parametric)(?:[\s\"']|$))"
     r")"
     r"|\b" + _GIT_CONFIG_VARIABLE.pattern + "=",
     re.IGNORECASE,
@@ -1358,7 +1366,8 @@ class GitInvocation:
             command or carries tags; ``"git-tag"`` for a command that makes a
             tag; ``"git-push"`` for one that pushes tags or everything;
             ``"git-push-all"`` for one that reaches every branch,
-            ``"git-environment"`` for configuration set through the
+            ``"git-push-shared"`` for one whose destination is a shared branch
+            (MAR-355), ``"git-environment"`` for configuration set through the
             environment and ``"git-submodule"`` for ``git submodule foreach``
             (MAR-343); else ``None``. Local tags alone do nothing, so other
             plumbing that writes a ref isn't checked: a tag has to be pushed.
@@ -1415,8 +1424,10 @@ def _push_problem(args: list[str]) -> str | None:
         ``"git-push"`` for a flag that sends tags (abbreviated too) or a
         refspec that names one, ``"git-push-all"`` for a flag that reaches
         every branch or the matching refspec (``:`` or ``+:``),
-        ``"git-expansion"`` for an operand or a flag name the shell expands,
-        as the hook can't tell what it would push, else ``None``.
+        ``"git-push-shared"`` for a refspec whose destination is ``main`` or
+        ``parametric``, ``"git-expansion"`` for an operand or a flag name the
+        shell expands, as the hook can't tell what it would push, else
+        ``None``.
     """
     operands: list[str] = []
     k = 0
@@ -1441,9 +1452,12 @@ def _push_problem(args: list[str]) -> str | None:
         k += 1
     if any(_EXPANSION.search(operand) for operand in operands):
         return "git-expansion"
-    if any(operand.lstrip("+") == ":" for operand in operands[1:]):
+    refspecs = operands[1:]  # the first operand is the remote
+    if any(refspec.lstrip("+") == ":" for refspec in refspecs):
         return "git-push-all"  # the matching refspec: every branch both sides have
-    return "git-push" if any(map(_names_tag, operands[1:])) else None
+    if any(map(_names_shared_branch, refspecs)):
+        return "git-push-shared"
+    return "git-push" if any(map(_names_tag, refspecs)) else None
 
 
 def _abbreviates(name: str, flags: tuple[tuple[str, int], ...]) -> bool:
@@ -1465,6 +1479,28 @@ def _names_tag(refspec: str) -> bool:
         side.startswith("v") or side.casefold().startswith("tags/")
         for side in refspec.lstrip("+").split(":")
     )
+
+
+def _names_shared_branch(refspec: str) -> bool:
+    """Whether a refspec of ``git push`` writes ``main`` or ``parametric``.
+
+    Only the destination counts (MAR-355): what follows the last colon, or the
+    source when that is empty or there is no colon. So ``git push origin
+    main:marcprinzing/x`` passes. ``HEAD`` names no branch: the hook reads the
+    command, not the checkout, so it can't tell what a push of ``HEAD`` writes.
+
+    Parameters
+    ----------
+    refspec
+        One refspec of ``git push``, with or without a leading ``+``.
+
+    Returns
+    -------
+    bool
+        Whether the destination is a shared branch.
+    """
+    source, _, destination = refspec.lstrip("+").rpartition(":")
+    return _SHARED_BRANCH.fullmatch(destination or source) is not None
 
 
 def _config_problem(args: list[str]) -> str | None:
@@ -2097,6 +2133,12 @@ _DENIALS = {
         "branch, a local main and parametric included; --prune deletes the",
         "remote's branches that have no local counterpart.",
     ),
+    "git-push-shared": (
+        "a git push whose destination is main or parametric, in any spelling: the",
+        "bare name, heads/<name>, refs/heads/<name>, <src>:<name> or <name>:, to",
+        "any remote, a force or a delete included. Those branches change only",
+        "through merged PRs (AGENTS.md).",
+    ),
     "git-environment": (
         "a variable that sets git's configuration or picks its files:",
         "GIT_CONFIG_COUNT, GIT_CONFIG_KEY_<n>, GIT_CONFIG_VALUE_<n>,",
@@ -2185,8 +2227,9 @@ def _when_in_doubt(command: str, starts: list[str], problem: str) -> str | None:
                 "logout/refresh/switch/setup-git/git-credential, a rerun in a fork,",
                 "gh followed by an expansion, a gh command that names a RiskThinking",
                 "repository,",
-                "git tag, git update-ref on refs/tags, or a git push of tags or of",
-                "every branch (--all, --branches, --prune), git submodule foreach,",
+                "git tag, git update-ref on refs/tags, or a git push of tags, of",
+                "every branch (--all, --branches, --prune) or to main or parametric,",
+                "git submodule foreach,",
                 "or a variable that sets git's configuration (GIT_CONFIG_*).",
                 'Those are Marc\'s (docs/ORCHESTRATION.md, "One-time setup",',
                 "step 4). If it is none of them, split it into simpler commands.",
@@ -2311,8 +2354,8 @@ def fail_closed_for_gh(text: str, problem: str) -> int:
         f"fork_gh_guard failed internally ({problem});",
         f"refusing this repo-scoped or denied gh command (gh {_CHECKED_LIST},",
         "or a gh write that .claude/settings.json denies), or a git command that",
-        "makes or pushes a tag, pushes every branch, or changes git's settings",
-        "through the environment. Other commands pass.",
+        "makes or pushes a tag, pushes every branch or a shared branch, or changes",
+        "git's settings through the environment. Other commands pass.",
         "Fix: report the error to the orchestrator, so that the hook is fixed and",
         "a case added to scripts/check_fork_gh_guard.py. Meanwhile a simpler form",
         f"may get through: one gh command per Bash call, with --repo {OWNER}/<repo>.",

@@ -7,9 +7,10 @@ The fork gh guard, ``fork_gh_guard.py``, refuses a repo-scoped ``gh`` command
 ``--repo marc272/<fork>``, and a ``gh api`` call there that uses the
 ``{owner}``/``{repo}`` placeholders (MAR-261). Wherever it runs, it refuses
 the gh commands that the deny rules deny, in every spelling (MAR-263), git
-commands that make or push tags (MAR-289), and git commands that reach every
-branch or change git's settings through the environment (MAR-343). The session guard,
-``session_guard.py``, refuses a ``start_session`` that would run somewhere
+commands that make or push tags (MAR-289), git commands that reach every
+branch or change git's settings through the environment (MAR-343), and git
+pushes to ``main`` or ``parametric`` in every spelling (MAR-355). The session
+guard, ``session_guard.py``, refuses a ``start_session`` that would run somewhere
 else, and fails closed on bad input (``SESSION_CASES``, MAR-289). This
 script runs them the way Claude Code does, one process per case with the
 ``PreToolUse`` JSON on stdin, and checks the exit status: 0 allows with no
@@ -1091,6 +1092,108 @@ CASES: list[tuple[str, str, str]] = [
     # --all or --atomic, --pr is --prune or --progress).
     ("allow", REPO, "git push --a origin"),
     ("allow", REPO, "git push --pr origin"),
+    # MAR-355 item 1: a push to a shared branch, in the issue's three spellings.
+    ("deny", REPO, "git push origin refs/heads/main"),
+    ("deny", REPO, "git push origin refs/heads/parametric"),
+    ("deny", REPO, "git -c k=v push origin main"),
+    ("deny", REPO, "git -c k=v push origin parametric"),
+    ("deny", REPO, "/usr/bin/git push origin main"),
+    ("deny", REPO, "/usr/bin/git push origin parametric"),
+    # The same push in the other spellings of the program and the place.
+    ("deny", REPO, "git push origin main"),
+    ("deny", SDK, "git push origin parametric"),
+    ("deny", REPO, f"git -C {SDK} push origin parametric"),
+    ("deny", REPO, f"git -C {WT} push -u origin refs/heads/parametric"),
+    ("deny", REPO, '"git" push origin main'),
+    ("deny", REPO, "git push origin 'main'"),
+    ("deny", REPO, "git push https://github.com/marc272/crc-sdk.git parametric"),
+    ("deny", REPO, "git push git@github.com:marc272/crc-sdk.git HEAD:main"),
+    ("deny", REPO, "bash -c 'git push origin main'"),
+    ("deny", REPO, "timeout 60 git push origin main"),
+    ("deny", REPO, "git status && git push origin main"),
+    ("deny", REPO, "$GIT push origin main"),
+    # Every way a refspec names the destination.
+    ("deny", REPO, "git push origin HEAD:main"),
+    ("deny", REPO, "git push origin HEAD:parametric"),
+    ("deny", REPO, "git push origin HEAD:refs/heads/main"),
+    ("deny", REPO, "git push origin marcprinzing/x:refs/heads/parametric"),
+    ("deny", REPO, "git push origin HEAD:heads/main"),
+    ("deny", REPO, "git push origin heads/main"),
+    ("deny", REPO, "git push origin heads/parametric"),
+    ("deny", REPO, "git push origin main:"),
+    ("deny", REPO, "git push origin +main"),
+    ("deny", REPO, "git push origin +HEAD:main"),
+    ("deny", REPO, "git push origin main:main"),
+    ("deny", REPO, "git push origin :main"),
+    ("deny", REPO, "git push --delete origin main"),
+    ("deny", REPO, "git push -d origin refs/heads/parametric"),
+    ("deny", REPO, "git push --dry-run origin main"),
+    ("deny", REPO, "git push -o ci.skip origin main"),
+    ("deny", REPO, "git push origin marcprinzing/x main"),
+    ("deny", REPO, "git push origin -- main"),
+    # When the hook can't parse the command.
+    ("deny", REPO, "git push origin main 'unterminated"),
+    ("deny", REPO, "git -c k=v push origin refs/heads/parametric 'unterminated"),
+    ("deny", REPO, "git push origin HEAD:main 'unterminated"),
+    # The pushes the program prescribes, and names that only look alike.
+    ("allow", WT, "git push -u origin marcprinzing/mar-260-step-payout"),
+    ("allow", REPO, f"git -C {WT} push -u origin marcprinzing/mar-260-step-payout"),
+    ("allow", REPO, 'git -C "$WT" push -u origin marcprinzing/mar-260-step-payout'),
+    ("allow", AGENT_WT, "git push origin HEAD"),
+    ("allow", REPO, f"git -C {AGENT_WT} push origin HEAD"),
+    ("allow", REPO, f"git -C {WT} push origin HEAD"),
+    ("allow", REPO, "git push"),
+    ("allow", REPO, f"git -C {SDK} push -u origin sync/upstream-main-2026-11-10"),
+    ("allow", REPO, "git push origin marcprinzing/mar-1-main"),
+    ("allow", REPO, "git push origin marcprinzing/main"),
+    ("allow", REPO, "git push origin main-fix"),
+    ("allow", REPO, "git push origin parametric-payout"),
+    ("allow", REPO, "git push origin refs/heads/mainline"),
+    ("allow", REPO, "git push origin main:marcprinzing/x"),
+    ("allow", REPO, "git push main marcprinzing/x"),
+    ("allow", REPO, "git push -o main origin marcprinzing/x"),
+    ("allow", REPO, "git push --repo main origin marcprinzing/x"),
+    ("allow", REPO, 'git commit -m "git push origin main"'),
+    ("allow", REPO, 'git log --grep "push origin main"'),
+    # git fetch in all its forms: only a push writes the remote.
+    ("allow", REPO, "git fetch"),
+    ("allow", REPO, "git fetch origin"),
+    ("allow", REPO, "git fetch origin main"),
+    ("allow", REPO, "git fetch origin refs/heads/main"),
+    ("allow", REPO, "git fetch origin main:refs/remotes/origin/main"),
+    ("allow", REPO, "git -c k=v fetch origin main"),
+    ("allow", REPO, "/usr/bin/git fetch origin main"),
+    ("allow", REPO, f"git -C {SDK} fetch origin parametric"),
+    ("allow", REPO, f"git -C {SDK} fetch upstream main"),
+    ("allow", REPO, f"git -C {SDK} fetch upstream"),
+    ("allow", SDK, "git fetch --all --prune --tags"),
+    # The fork commands of AGENTS.md and the runbook that name these branches.
+    ("allow", REPO, f"git -C {WT} merge --no-edit upstream/main"),
+    (
+        "allow",
+        REPO,
+        f"git -C {SDK} merge-base --is-ancestor upstream/main origin/parametric",
+    ),
+    (
+        "allow",
+        REPO,
+        f"git -C {SDK} worktree add --no-track -b sync/upstream-main-2026-11-10"
+        f" {WT} origin/parametric",
+    ),
+    (
+        "allow",
+        REPO,
+        f"git -C {WT} diff origin/parametric... | grep -nE 'MAR-[0-9]+|linear\\.app'",
+    ),
+    ("allow", REPO, f"git -C {SDK} remote get-url --push upstream"),
+    (
+        "allow",
+        WT,
+        "gh pr create --repo marc272/crc-sdk --base parametric"
+        " --head marcprinzing/x --draft --title t --body-file b.md",
+    ),
+    ("allow", WT, "gh pr merge 3 --repo marc272/crc-sdk --squash"),
+    ("allow", SDK, "gh pr merge 3 --repo marc272/crc-sdk --merge"),
 ]
 
 # --- The deny rules (MAR-263) ----------------------------------------------
@@ -1830,6 +1933,31 @@ RULE_CASES: list[tuple[str, str, str]] = [
     ("pass", "deny", "$GH run rerun 123 --repo marc272/crc-sdk"),
     ("pass", "allow", "$GH pr list"),
     ("pass", "allow", "$UV run --locked pytest -q"),
+    # MAR-355 item 1: the text rules cover refs/heads/<branch> as its own word;
+    # the program's other spellings are the hook's, as --all's were (MAR-343).
+    ("deny", "deny", "git push origin refs/heads/main"),
+    ("deny", "deny", "git push origin refs/heads/parametric"),
+    ("deny", "deny", "git push origin refs/heads/main --dry-run"),
+    ("deny", "deny", "git push origin refs/heads/parametric --dry-run"),
+    ("deny", "deny", f"git -C {SDK} push origin refs/heads/main"),
+    ("deny", "deny", f"git -C {SDK} push origin refs/heads/parametric"),
+    ("deny", "deny", f"git -C {SDK} push origin refs/heads/main --dry-run"),
+    ("deny", "deny", f"git -C {SDK} push origin refs/heads/parametric --dry-run"),
+    ("pass", "deny", "git -c k=v push origin main"),
+    ("pass", "deny", "/usr/bin/git push origin main"),
+    ("pass", "deny", "git push origin heads/main"),
+    ("pass", "deny", "git push origin main:"),
+    # The prescribed pushes and git fetch pass both layers.
+    ("pass", "allow", "git push origin HEAD"),
+    ("pass", "allow", f"git -C {WT} push origin HEAD"),
+    ("pass", "allow", f"git -C {WT} push -u origin marcprinzing/mar-260-step-payout"),
+    ("pass", "allow", "git push origin refs/heads/mainline"),
+    ("pass", "allow", "git push origin main:marcprinzing/x"),
+    ("pass", "allow", "git fetch origin main"),
+    ("pass", "allow", "git fetch origin refs/heads/main"),
+    ("pass", "allow", f"git -C {SDK} fetch upstream main"),
+    ("pass", "allow", f"git -C {SDK} fetch origin parametric"),
+    ("pass", "allow", f"git -C {SDK} fetch --all --prune"),
 ]
 
 # --- The deny rules on other tools (MAR-282) ----------------------------------
@@ -3001,6 +3129,34 @@ def input_cases() -> list[tuple[str, str, object, str | None, bool]]:
             "allow",
             'internal error: git commit -m "tag v1", this repo',
             bash_input(REPO, 'git commit -m "tag v1"'),
+            None,
+            True,
+        ),
+        (
+            "refuse",
+            "internal error: git push origin main, this repo",
+            bash_input(REPO, "git push origin main"),
+            None,
+            True,
+        ),
+        (
+            "refuse",
+            "internal error: git push origin refs/heads/parametric, this repo",
+            bash_input(REPO, "git push origin refs/heads/parametric"),
+            None,
+            True,
+        ),
+        (
+            "allow",
+            "internal error: git push origin HEAD, this repo",
+            bash_input(REPO, "git push origin HEAD"),
+            None,
+            True,
+        ),
+        (
+            "allow",
+            "internal error: git fetch origin main, this repo",
+            bash_input(REPO, "git fetch origin main"),
             None,
             True,
         ),
