@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import re
 import shutil
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta, timezone
@@ -828,7 +829,13 @@ def test_year_out_of_range(es: EventSet, year: int) -> None:
     # ADR 0002 §5: 0-based years, year in [0, n_years); n_years is 100 here.
     kwargs = parts(es)
     kwargs["events"].loc[0, "year"] = year
-    with pytest.raises(OutOfRangeError, match=r"year must lie in \[0, 100\)") as info:
+    with pytest.raises(
+        OutOfRangeError,
+        match=re.escape(
+            "year must lie in [0, 100) (years are 0-based; n_years from the "
+            "metadata); 1 rows are outside, e.g. "
+        ),
+    ) as info:
         EventSet.from_long(**kwargs)
     assert info.value.table == "events"
     assert "'ev0'" in str(info.value)

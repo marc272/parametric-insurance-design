@@ -1,6 +1,6 @@
 # parametric-insurance-design-climada
 
-Adapter from CLIMADA to the EventSet of [parametric-insurance-design](https://github.com/marc272/parametric-insurance-design): tracks → CLIMADA hazard and impact → EventSet.
+Adapter from CLIMADA to the EventSet of [parametric-insurance-design](https://github.com/marc272/parametric-insurance-design): tracks → CLIMADA hazard and impact → EventSet. The repository's [README](https://github.com/marc272/parametric-insurance-design#readme) has the project's status and a quickstart.
 
 ```python
 from parametric_insurance_design_climada.config import load_config
@@ -10,11 +10,16 @@ result = build_eventset(load_config("configs/thesis.yaml"))
 result.eventset.to_parquet("data/eventsets/thesis-iris")
 ```
 
-Status: the IRIS download (MAR-72) and the track → wind → impact pipeline (MAR-73) are in. Parity with the thesis event-loss table is verified under MAR-20; vulnerability draws (MAR-25) and cat-in-a-circle (MAR-26) plug into the pipeline's extension points.
+What it does today:
+
+- downloads the IRIS hurricane catalogue and builds EventSets from its tracks: track → CLIMADA wind field → impact. On the thesis portfolio, the build regenerates the thesis's event-loss table bit for bit (the adapter section of [`parity/REPORT.md`](https://github.com/marc272/parametric-insurance-design/blob/main/parity/REPORT.md));
+- offers a cat-in-a-circle index and vulnerability draws, optionally with the prior recentred on the base impact function (sections below).
+
+A prototype of a parametric insurance module for CLIMADA itself, carrying the core's two ideas, is in [`src/petals_parametric/`](src/petals_parametric/README.md). It is laid out to move into `climada_petals` and imports neither this adapter nor the core. Version 0.1.0.dev0, not released.
 
 ## Environment
 
-This package is **not a member of the uv workspace**. CLIMADA comes from conda-forge, and its pins would clash with the CRC adapter's pandas ≥ 3 requirement, so this package has its own **pixi** environment (`docs/SPEC.md` §4.1):
+This package is **not a member of the uv workspace**. CLIMADA comes from conda-forge, and its pins would clash with the pandas ≥ 3 of the CRC SDK, which the CRC adapter will import, so this package has its own **pixi** environment (`docs/SPEC.md` §4.1):
 
 - `pixi.toml` and the committed `pixi.lock` in this folder define it: CLIMADA 6.1.0 on Python 3.12 from conda-forge, the core installed editable from `../core`, and this package installed editable from `.`.
 - The core's dependencies come from conda-forge too, so no PyPI wheel shadows the conda numpy/scipy stack.
@@ -35,7 +40,7 @@ CI runs the test tasks and `typecheck` in the workflow `.github/workflows/climad
 
 ## IRIS data
 
-`pixi run iris` (module `parametric_insurance_design_climada.iris`, MAR-72) gets the IRIS event set (Sparks and Toumi, 2024) from figshare and builds the 10,000-year North Atlantic catalogue the thesis used:
+`pixi run iris` (module `parametric_insurance_design_climada.iris`) gets the IRIS event set (Sparks and Toumi, 2024) from figshare and builds the 10,000-year North Atlantic catalogue the thesis used:
 
 1. downloads `IRIS_event_set.zip` (about 260 MB) and its README, checking size, MD5 and SHA256;
 2. extracts the ten files `IRIS_NA_1000Y_n0.txt` … `n9.txt`, checking each SHA256;
@@ -47,9 +52,42 @@ Everything is written to the **git-ignored `data/iris/` at the repository root**
 pixi run iris --archive /path/to/IRIS_event_set.zip
 ```
 
-The pinned URLs, DOIs, version, citation and checksums are in `src/parametric_insurance_design_climada/iris_manifest.json`; the pipeline reads the release and the merged checksum from it. The IRIS licence record conflicts (CC0 on the figshare items, CC BY 4.0 on the collection record); the owner decides under MAR-94, and the EventSet's `licence` is written as the parity fixture does (`CC0-1.0`) until then. See `docs/data-sources.md`.
+The pinned URLs, DOIs, version, citation and checksums are in `src/parametric_insurance_design_climada/iris_manifest.json`; the pipeline reads the release and the merged checksum from it. The IRIS licence records differ (CC0 on the figshare items, CC BY 4.0 on the collection record). Both are listed in the manifest's `licence`; by the owner's decision of 2026-10-27, IRIS-derived data is treated as CC BY 4.0, the stricter of the two, so the pipeline's `licence` defaults to the manifest's `licence_applied`, `CC-BY-4.0`, as does the parity fixture. See `docs/data-sources.md`.
 
 **No Parquet copy of the catalogue.** pandas parses the 103 MB merged text file in about half a second, and the build itself takes about 30 s, so a typed Parquet copy would add a second artefact to keep in sync for no measurable gain. The reader checks the layout and types instead (`tracks.read_iris_catalogue`).
+
+## STORM loader (parked)
+
+The package can also read STORM present climate, version 4 (Bloemendaal et al. 2020; doi:10.4121/12706085, CC0 1.0): ten 1,000-year North Atlantic files, `STORM_DATA_IBTRACS_NA_1000_YEARS_0.txt` … `_9.txt`. It was written for a second hazard catalogue. The paper no longer uses one: STORM's host could not be reached, so SPEC §6.5 (i) is "none". The loader stays, tested on synthetic STORM files, but no config ships for it. A STORM build is `configs/florida_counties_no_draws.yaml` with a `tracks` block, the STORM directory as `catalogue`, and STORM's own `hazard_release`, `scenario_id`, `scenario_notes` and `output`:
+
+```yaml
+catalogue: ../../../data/storm/raw/STORM_v4    # the directory that holds the ten files
+tracks:
+  kind: storm                                  # default: {kind: iris}
+  basin: NA
+hazard_release: "STORM v4 (doi:10.4121/12706085)"
+licence: CC-BY-4.0                             # STORM is CC0 1.0; LitPop sets the stricter licence
+```
+
+The reader (`storm.read_storm_catalogue`):
+
+- rebuilds the simulation year as `1000 * k + year in file`, because STORM's year restarts at 0 in every file (CLIMADA's own `TCTracks.from_simulations_storm` puts every track in 1980 with frequency 1, so the adapter does not use it), and raises if a file index is missing or repeated, a year lies outside [0, 1000), or `n_years` is not 1,000 times the number of files;
+- divides the 10-minute wind by 0.88 to get the 1-minute wind (as CLIMADA does) and maps longitudes from 0–360° to (−180, 180];
+- raises on duplicate or non-consecutive time steps, rows of another basin and out-of-range values, where CLIMADA's reader drops duplicates silently.
+
+Each storm then goes through the IRIS path's track conversion, wind field and impact (same time axis, units and environmental pressure), so an IRIS and a STORM build of one portfolio differ only in the tracks. A STORM config must state `hazard_release` and `licence`. There is no download script or checksum manifest: the STORM host refused connections when the loader was written. `scripts/compare_hazard_return_levels.py` compares the per-location return levels of two EventSets, such as an IRIS and a STORM build.
+
+## Florida county locations (LitPop)
+
+`pixi run florida-locations` (module `parametric_insurance_design_climada.portfolio_litpop`) builds the paper portfolio's `locations` table (SPEC §6.6): Florida's 67 counties, each valued by the sum of its cells in the pinned CLIMADA data-API file `LitPop_150arcsec_USA` v3 and placed at the cells' value-weighted centroid.
+
+1. downloads the LitPop file (51 MB) and the U.S. Census Bureau TIGER/Line 2025 county boundaries (84 MB), checking size, MD5 and SHA256 against `src/parametric_insurance_design_climada/litpop_florida_manifest.json`;
+2. assigns every LitPop cell in the region (Florida's bounding box plus 0.5°) to the county polygon it intersects, using the national county file, so that cells across the state line count as "in another county";
+3. writes `locations.yaml` (the layout `locations: {yaml: ...}` reads), `cells.parquet` (every region cell with its county, for a per-cell loss) and `provenance.json` (sources, checksums, method, counts) to the git-ignored `data/litpop-florida/locations/`. `--overwrite` rebuilds; `--download-only` only fetches and verifies.
+
+No cell is dropped silently: the report counts cells in a Florida county, in another county, in no county and outside the region, with their values. A county without cells raises `EmptyUnitError`; one whose cells are all zero-valued raises `ZeroValueUnitError`. A copy of the 67-county table (13 KB, CC BY 4.0) and its provenance is committed in `research/data/d2-florida-litpop/`; the measured numbers are in `research/notes/d2-florida-litpop-locations.md`. If the LitPop file is ever withdrawn upstream, do not regenerate it: that needs a NASA login, which only the owner may use.
+
+`scripts/estimate_florida_grid.py` counts the IRIS storms within the pipeline's radius of a set of locations, to size the dense events × locations grid before a build.
 
 ## Building an EventSet
 
@@ -57,7 +95,7 @@ The pinned URLs, DOIs, version, citation and checksums are in `src/parametric_in
 
 1. reads the locations (an EventSet's `locations` table or a YAML list) and the IRIS catalogue;
 2. keeps the storms whose track passes within `proximity_km` (500) of any location, ordered by event ID as strings, as in the thesis;
-3. in batches of `batch_size` storms, converts each storm to a CLIMADA track (m/s → knots, km → nautical miles, `r18` as `radius_oci`, 3 h steps, 1013 hPa environment), runs `TropCyclone.from_tracks` at one centroid per location and `ImpactCalc` with the impact function (Emanuel 2011 USA by default);
+3. in batches of `batch_size` storms, converts each storm to a CLIMADA track (m/s → knots, km → nautical miles, `r18` as `radius_oci`, 3 h steps, 1013 hPa environment), runs `TropCyclone.from_tracks` at one centroid per location and `ImpactCalc` with the impact function (Emanuel 2011 USA by default). Each hazard event gets frequency 1 / `n_years` and is dated 1 January of calendar year *simulation year + 1* (a date has no year 0; `tracks.simulation_year_dates`), and its name is the event ID, which holds the year. So the hazard that the hooks get can be used on an annual basis as it is, for example by the petals prototype. No date holds a year after 9999: storms of IRIS year 9,999 get date 0, which readers of the date reject, and a warning; their year is in the name only. None of this changes the EventSet;
 4. writes the EventSet (schema v1): `index` = wind at the asset (m/s), `loss` = impact (USD), `rate` = 1 / `n_years`, `year` from IRIS, `draw_id` 0.
 
 `configs/thesis.yaml` is the thesis portfolio (the nine Miami assets, from the parity fixture's `locations`). Paths in a config are relative to the config file; `--catalogue` and `--output` override them, `--overwrite` replaces an existing EventSet. The output goes to the git-ignored `data/eventsets/`.
@@ -68,8 +106,116 @@ Deliberate differences from the thesis script: storms that cannot be modelled ar
 
 **Extension points** (`hooks.py`): `build_eventset(config, index_builder=..., vulnerability=..., rng=...)`.
 
-- `IndexBuilder`: turns a `HazardBatch` (tracks, hazard, locations, exposures, wind) into the index matrix. Default `CentroidWindIndex` (the thesis index). Cat-in-a-circle (MAR-26) is a second builder.
-- `VulnerabilityDraws`: turns a batch and its base losses into `n_draws` loss matrices. Default `NoDraws`. With draws (MAR-25), the pipeline repeats each event's row per draw (event-major), gives each draw `rate / n_draws` (SPEC §5) and appends the hook's `TransformRecord`.
+- `IndexBuilder`: turns a `HazardBatch` (tracks, hazard, locations, exposures, wind) into the index matrix. Default `CentroidWindIndex` (the thesis index). `CatInCircleIndex` is the cat-in-a-circle builder (see "Index builders" below). The config's `index` section selects the builder; a builder passed to `build_eventset` replaces it.
+- `VulnerabilityDraws`: turns a batch and its base losses into `n_draws` loss matrices. Default `NoDraws`. `vulnerability.EmanuelVHalfDraws` is the impact-function draws hook (see "Vulnerability draws" below). The config's `vulnerability` section selects it; a hook passed to `build_eventset` replaces the config's. With draws, the pipeline repeats each event's row per draw (event-major), gives each draw `rate / n_draws` (SPEC §5) and appends the hook's `TransformRecord`.
+
+## Index builders
+
+The config's `index` section chooses what goes into the EventSet's `index` column (SPEC §6.3). The loss column doesn't depend on it.
+
+| `kind` | Builder | Index | Unit |
+|---|---|---|---|
+| `centroid_wind` (default) | `hooks.CentroidWindIndex` | (a) The thesis index: CLIMADA's modelled maximum 1-minute sustained wind at the asset | m/s |
+| `cat_in_circle` | `cat_in_circle.CatInCircleIndex` | (b) Cat-in-a-circle: the highest Saffir–Simpson category the storm's **track** reaches within `radius_km` of the asset | Saffir-Simpson category (0–5), or m/s with `metric: max_wind` |
+
+Without an `index` section the build uses the thesis index (a), as it did before index builders existed. On the thesis portfolio its `index` and `loss` are bit-identical to the parity fixture.
+
+```yaml
+index:
+  kind: cat_in_circle
+  radius_km: 50                          # required; at most proximity_km / 2
+  metric: category                       # or max_wind (m/s)
+  breakpoints_kn: [64, 83, 96, 113, 137] # default: NHC Saffir-Simpson, categories 1-5
+  track_step_hours: 0.5                  # default; null uses the raw 3-hourly points
+```
+
+`configs/thesis_cat_in_circle.yaml` is the thesis build with this index at 50 km.
+
+How cat-in-a-circle is computed, for each storm and asset:
+
+1. Take the storm's track points: centre position and maximum sustained wind.
+2. Interpolate the track linearly in time to `track_step_hours`; the original points are kept. IRIS points are 3 hours apart, and a fast storm moves 50 km or more in that time, so without interpolation a small circle can miss a storm that crosses it.
+3. Keep the points within `radius_km` of the asset, by the haversine distance of the proximity filter (sphere of 6,371 km, inclusive).
+4. Take the highest wind among those points, or 0 if there are none.
+5. With `metric: category`, report the number of breakpoints that wind reaches. Category 0 covers tropical storms, depressions and storms that never enter the circle. With `metric: max_wind`, report the wind itself, in m/s.
+
+The index doesn't use CLIMADA's wind field, so it is decoupled from the loss driver (thesis issue M2).
+
+**Wind and breakpoints.** IRIS `vmax` is a 1-minute sustained wind in m/s: IRIS is calibrated on the US agencies' IBTrACS data, which report 1-minute averages (Sparks and Toumi 2024, doi:10.1038/s41597-024-03250-y). The Saffir–Simpson scale is defined on the same 1-minute wind, in knots, so no averaging-period conversion is applied. The defaults are the NHC lower bounds of categories 1–5 (<https://www.nhc.noaa.gov/aboutsshws.php>), equal to CLIMADA's `SAFFIR_SIM_CAT[1:6]`. The tracks carry the wind in knots (m/s × 1.9438…), and the breakpoints are compared in knots.
+
+**Radius limit.** The proximity filter only tests raw track points, so the config requires `radius_km <= proximity_km / 2`. This guarantees that no storm the filter removed could have a non-zero index after interpolation. The argument is in `config.check_circle_radius`.
+
+**Provenance.** `metadata.index.definition` starts with `cat_in_circle(r=<radius> km, metric=<metric>)` and then states the breakpoints, the wind, the distance and the interpolation. The build record's `parameters.index` holds the same settings as data: radius, metric, breakpoints and their source, track step, distance and wind.
+
+**Reference configuration.** Steinmann et al. (2023) build cat-in-a-circle products in CLIMADA, with radii of 10–50 km and step payouts on Saffir–Simpson categories. The index is industry practice, not a novelty claim (`research/lit/notes.md`, O3). The core needs no change for it: a step payout runs on the precomputed index through `PointIndex` (ADR 0002). With `metric: category`, `StepPayout(attachment=1, limit=6, n_bins=5, below_attachment="zero")` puts categories 1–5 in their own bins, and category 0 lies below the attachment and pays nothing (`below_attachment` in the core's `payout.py`).
+
+Index (c) of SPEC §6.3 (wind at the nearest grid node or at a reference point at distance d) is not implemented.
+
+## Vulnerability draws
+
+The config's `vulnerability` section makes the loss uncertain (SPEC §6.3). Each storm gets `n_draws` rows (`draw_id` 0 … n − 1), each with its loss recomputed using an Emanuel `v_half` drawn from a prior. The index is the same on every draw. The method, the prior's sources, the runtime and observations on the thesis portfolio are in [`docs/methodology/vulnerability.md`](../../docs/methodology/vulnerability.md).
+
+Without a `vulnerability` section, or with `kind: none`, the build is unchanged: one row per storm, `draw_id` 0, the same content hash as before.
+
+```yaml
+vulnerability:
+  kind: emanuel_v_half
+  n_draws: 10              # default 10
+  seed: 20261025           # required: numpy.random.default_rng(seed)
+  prior:
+    kind: eberenz2021_edr  # default: event-wise calibrated v_half, Eberenz et al. (2021)
+    region: NA2            # default: USA and Canada
+    wind_only: true        # default: drop events with surge/rain/flood/
+                           # slide/other damage; false keeps them (sensitivity)
+    basins: [NA]           # default: North Atlantic genesis basin only;
+                           # null keeps every basin (sensitivity)
+    recentre: {kind: excess, match: expected_loss}  # opt-in; default
+                           # null: the calibrated values
+  # or: prior: {kind: uniform, low: 60, high: 110, source: "..."}
+```
+
+With both defaults the NA2 prior has 17 events (`v_half` 58.6–232.4 m/s). `basins: null` gives the 19 wind-only events of all basins, including the East Pacific storms Iwa (1982, 25.8 m/s) and Iselle (2014, 37.0 m/s) that hit Hawaii. `wind_only: false` with `basins: null` gives all 43 events, the published distribution.
+
+`recentre: {kind: excess, match: expected_loss}` draws from `v_thresh + s × (v_half_i − v_thresh)`: one factor `s` rescales every value's excess over `v_thresh`, so the values keep their order and never reach `v_thresh`. `s` is solved at build time so that the expected annual loss of the draws equals that of the same config without draws, to a relative 1e-6. The pipeline therefore runs twice, first without draws (the base): on Florida the base pass adds about 9.5 minutes, and the root-find about 2 s. The draws record holds `s`, the matched median, the target and the tolerance. If no `s` in [0.01, 100] meets the target, the build fails with `RecentringError`. The matched median depends on the portfolio and the hazard: 84.85 m/s on the thesis portfolio, 86.29 m/s on Florida. The Florida and thesis draws configs set it; `thesis_vulnerability_all_events.yaml` does not. See the methodology page.
+
+The hook works as follows:
+
+- **One `v_half` per storm and draw**, shared by all locations of the storm. Storms and draws are independent.
+- **`v_thresh` and `scale` stay fixed**, at the values in `impact_function`. The Eberenz prior requires 25.7 m/s and 1, the values its calibration held fixed.
+- **The default prior is CLIMADA's own data**, `climada/data/system/tc_impf_cal_v01_EDR.csv` (SHA256 pinned), restricted to the wind-only events (the index and the loss are wind only) of the North Atlantic basin (NA2 is defined by the affected country and also holds East Pacific storms). Both restrictions are the owner's decisions. A draw at `u ~ U(0, 1)` is the quantile `u` of those events' `v_half`. With `wind_only: false` and `basins: null` it equals `ImpfSetTropCyclone.calibrated_regional_vhalf("EDR", q=u)["NA2"]`.
+- **The basin of each calibration event comes from a pinned lookup**, `src/parametric_insurance_design_climada/eberenz2021_edr_basins.csv` (SHA256 pinned in `vulnerability.EBERENZ_BASINS_SHA256`): the IBTrACS v04r01 genesis basin (`basin` at the first observation) of all 376 storm IDs in the calibration file. The calibration file has no basin column, and an IBTrACS ID encodes the genesis date and position, not the basin. Ten IDs from the older IBTrACS the calibration used are not in v04r01; they are matched by genesis date (± 3 days) and the nearest track (≤ 5°), and the match is recorded in the file. `scripts/build_eberenz_basins.py --ibtracs <IBTrACS.ALL.v04r01.nc>` rebuilds it; the file's header records the IBTrACS file's SHA256. A region event without a known basin raises `UnknownBasinError`; nothing is dropped silently.
+- **The loss is computed as `ImpactCalc` does:** on the base function's intensity grid with linear interpolation, `value · paa · mdd`. With the base `v_half` it reproduces the pipeline's loss.
+- **The draws don't depend on `batch_size`.** The generator is consumed event-major.
+- **A second transform record, `vulnerability_draws`, describes the draws:** the prior (source, DOI, data file and checksum, every value), `n_draws`, the sampling rule and the seed. The seed is `null` when the caller passes its own `rng` to `build_eventset`.
+
+Example configs:
+
+- `configs/thesis_vulnerability.yaml`: the thesis index (wind at the asset) with 10 draws;
+- `configs/thesis_cat_in_circle_vulnerability.yaml`: cat-in-a-circle at 50 km with 10 draws, i.e. SPEC §6.3's index (b) plus vulnerability uncertainty;
+- `configs/thesis_vulnerability_all_events.yaml`: the sensitivity run of the first, with all 43 NA2 events (`wind_only: false`, `basins: null`).
+
+`scripts/plot_vulnerability_spread.py` draws the loss spread per asset from the centroid-wind build: `docs/methodology/figures/vulnerability_loss_spread.png`.
+
+## Loss per cell
+
+For a location that aggregates gridded cells, such as a Florida county made of LitPop cells, the loss can be the sum of the impacts on its cells instead of the impact at its centroid:
+
+```yaml
+loss:
+  kind: cells                     # default: {kind: centroid}, the thesis loss
+  cells: ../../../data/litpop-florida/locations/cells.parquet
+  unit: USD (LitPop reference_year 2018)   # written to metadata loss.unit (default "USD")
+scenario_notes:                   # optional sentences appended to the scenario text
+  - "Value unit: ..."
+```
+
+- **The index is unchanged:** wind at the location's `lat`/`lon` (index a) or the cat-in-a-circle around it (index b).
+- **Wind is computed at every cell centre** and the loss of a location is the sum of its cells' impacts. The cells file needs `lat`, `lon`, `value` and `location_id`; rows with a null `location_id` belong to no location and are counted in the build record. Every other `location_id` must be a location, every location needs a cell, and each location's cells must sum to its `value`.
+- **Vulnerability draws apply to the cells**, with one `v_half` per (storm, draw) shared by every cell of every location, and the same generator stream as the centroid loss.
+- **The proximity filter still tests the locations.** The build refuses a config where `wind.max_dist_eye_km` plus the farthest cell from its location exceeds `proximity_km`, because a removed storm could then have wind at a cell.
+- **Centroid builds are unchanged**, content hash included; the build record gains a `loss` object, and `source_checksums` the cells file, only in cells mode.
+
+Configs: `configs/florida_counties.yaml` (index a) and `configs/florida_counties_cat_in_circle.yaml` (index b, 75 km), the paper's main EventSets. Their scenario notes state Monroe County's exposure gap: LitPop has no cell west of 81.604° W in the Keys, so Key West and the Lower Keys carry no value (the county stays in the portfolio). `scripts/florida_exposure_summary.py` draws the exposure summary (map, Monroe County cells, value distribution, tail dependence of annual county losses) with its figure data; outputs and checksums are in `research/data/d2-florida-eventset/`.
 
 ## Rules
 

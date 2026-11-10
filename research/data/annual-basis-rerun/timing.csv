@@ -1,0 +1,17 @@
+draws,rows,basis,outcomes,scope,seconds,solver,attempts,objective_value
+1,6057,event_conditional,6057,individual A1,0.3,CLARABEL,CLARABEL:optimal,496549
+1,6057,event_conditional,6057,portfolio,0.66,CLARABEL,CLARABEL:optimal,576476
+1,6057,annual,4576,individual A1,0.3,CLARABEL,CLARABEL:optimal,362769
+1,6057,annual,4576,portfolio,0.71,CLARABEL,CLARABEL:optimal,446295
+10,60570,event_conditional,60570,individual A1,6.67,CLARABEL,CLARABEL:optimal,480514
+10,60570,event_conditional,60570,portfolio,10.44,CLARABEL,CLARABEL:optimal,601098
+10,60570,annual,45751,individual A1,4.33,CLARABEL,CLARABEL:optimal,350977
+10,60570,annual,45751,portfolio,9.3,CLARABEL,CLARABEL:optimal,464201
+20,121140,event_conditional,121140,individual A1,19.19,CLARABEL,CLARABEL:optimal,468055
+20,121140,event_conditional,121140,portfolio,27.01,CLARABEL,CLARABEL:optimal,621903
+20,121140,annual,91501,individual A1,11.99,CLARABEL,CLARABEL:optimal,345019
+20,121140,annual,91501,portfolio,18.11,CLARABEL,CLARABEL:optimal,477334
+50,302850,event_conditional,302850,individual A1,66.32,CLARABEL,CLARABEL:optimal_inaccurate,454073
+50,302850,event_conditional,302850,portfolio,102.97,CLARABEL,CLARABEL:optimal,604720
+50,302850,annual,228751,individual A1,63.87,CLARABEL,CLARABEL:optimal_inaccurate,336536
+50,302850,annual,228751,portfolio,81.91,CLARABEL,CLARABEL:optimal,462513

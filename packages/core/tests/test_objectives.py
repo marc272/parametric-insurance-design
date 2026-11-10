@@ -1,9 +1,9 @@
 """Objectives on tiny hand-computed problems (MAR-13, SPEC §6, §6.7).
 
-The payout structures and the grouped measure below are test doubles: the
-real ``StepPayout`` (MAR-11) and the annual measure (MAR-24) are built
-elsewhere. The context is assembled the way ``problem.build_context`` does it
-(ADR 0002), with ``scale = 1`` so that the hand numbers are the scaled ones.
+The payout structures, the grouped measure and the context builder are shared
+with the pricing and budget tests in ``_doubles.py`` (MAR-87): the context is
+built by the real ``problem.build_context`` with ``scale = 1``, so that the
+hand numbers are the scaled ones.
 
 Reference data (event-conditional, one row per outcome)::
 
@@ -19,23 +19,19 @@ Reference data (event-conditional, one row per outcome)::
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
-from typing import ClassVar, cast
+from typing import cast
 
 import cvxpy as cp
 import numpy as np
 import pytest
 from numpy.typing import ArrayLike, NDArray
 
-from parametric_insurance_design.basis import Basis, OutcomeMeasure
+from parametric_insurance_design.basis import Basis
 from parametric_insurance_design.errors import ComponentConfigError, InputMismatchError
 from parametric_insurance_design.interfaces import (
-    DesignProblem,
-    Entity,
     ObjectiveTerm,
     PayoutStructure,
     ProblemContext,
-    ProblemSpec,
 )
 from parametric_insurance_design.objectives import (
     MSE,
@@ -45,10 +41,15 @@ from parametric_insurance_design.objectives import (
     rockafellar_uryasev,
 )
 
-LOSS = np.array([0.0, 2.0, 4.0, 10.0])
-PROB = np.array([0.4, 0.3, 0.2, 0.1])
-INDEX = np.array([5.0, 15.0, 25.0, 35.0])
-EXPECTED_LOSS = 2.4
+from ._doubles import (
+    EXPECTED_LOSS,
+    LOSS,
+    PROB,
+    FreePayout,
+    Step,
+    grouped_measure,
+    make_context,
+)
 
 # A fixed payout and its hand-computed objective values.
 FIXED_PAYOUT = np.array([1.0, 1.0, 1.0, 4.0])
@@ -64,119 +65,8 @@ FIXED_CVAR = {
 }
 
 # --------------------------------------------------------------------------
-# Test doubles and the builder recipe
+# The builder recipe
 # --------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class FreePayout(PayoutStructure):
-    """One parameter per row: every row's payout is free in ``[0, cap]``."""
-
-    name: ClassVar[str] = "free"
-    n: int
-
-    @property
-    def n_params(self) -> int:
-        return self.n
-
-    def parameter_bounds(self) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-        edges = np.arange(self.n + 1, dtype=np.float64)
-        return edges[:-1], edges[1:]
-
-    def basis_matrix(self, index: ArrayLike) -> NDArray[np.float64]:
-        assert np.shape(index) == (self.n,)
-        return np.eye(self.n)
-
-    def constraints(
-        self, theta: cp.Variable, cap: NDArray[np.float64]
-    ) -> tuple[cp.Constraint, ...]:
-        return (theta >= 0, theta <= np.repeat(cap[:, None], self.n, axis=1))
-
-    def evaluate(self, index: ArrayLike, theta: ArrayLike) -> NDArray[np.float64]:
-        return np.asarray(theta, dtype=np.float64).T.copy()
-
-
-@dataclass(frozen=True)
-class Step(PayoutStructure):
-    """Monotone, capped step payout on fixed edges (stands in for MAR-11)."""
-
-    name: ClassVar[str] = "step"
-    edges: tuple[float, ...] = (0.0, 20.0, 40.0)
-
-    @property
-    def n_params(self) -> int:
-        return len(self.edges) - 1
-
-    def parameter_bounds(self) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-        e = np.asarray(self.edges)
-        return e[:-1], e[1:]
-
-    def basis_matrix(self, index: ArrayLike) -> NDArray[np.float64]:
-        x = np.asarray(index, dtype=np.float64)
-        e = np.asarray(self.edges)
-        k = np.searchsorted(e, np.clip(x, e[0], e[-1] - 1e-12), side="right") - 1
-        m = np.zeros((x.shape[0], self.n_params))
-        m[np.arange(x.shape[0]), k] = 1.0
-        return m
-
-    def constraints(
-        self, theta: cp.Variable, cap: NDArray[np.float64]
-    ) -> tuple[cp.Constraint, ...]:
-        return (
-            theta >= 0,
-            cp.diff(theta, axis=1) >= 0,
-            theta <= np.repeat(cap[:, None], self.n_params, axis=1),
-        )
-
-    def evaluate(self, index: ArrayLike, theta: ArrayLike) -> NDArray[np.float64]:
-        xi = np.asarray(index, dtype=np.float64)
-        th = np.asarray(theta, dtype=np.float64)
-        return np.column_stack(
-            [self.basis_matrix(xi[:, j]) @ th[j] for j in range(xi.shape[1])]
-        )
-
-
-@dataclass(frozen=True, eq=False)
-class GroupedMeasure(OutcomeMeasure):
-    """Rows summed into outcomes with a 0/1 matrix (stands in for MAR-24)."""
-
-    def aggregate_expression(self, expression: cp.Expression) -> cp.Expression:
-        assert tuple(expression.shape) == (self.n_rows,)
-        groups = np.zeros((self.n_outcomes, self.n_rows))
-        groups[self.outcome_of_row, np.arange(self.n_rows)] = 1.0
-        return groups @ expression
-
-
-def make_context(
-    payout_structure: PayoutStructure,
-    *,
-    loss: ArrayLike = LOSS,
-    index: ArrayLike = INDEX,
-    measure: OutcomeMeasure | None = None,
-) -> ProblemContext:
-    """One entity; scale 1; cap = max loss (the builder's thesis default)."""
-    loss_arr = np.asarray(loss, dtype=np.float64)
-    index_arr = np.asarray(index, dtype=np.float64)
-    n_rows = loss_arr.shape[0]
-    if measure is None:
-        measure = OutcomeMeasure.per_row(Basis.EVENT_CONDITIONAL, PROB)
-    spec = ProblemSpec("A", (Entity("A", ("A",)),))
-    problem = DesignProblem(spec, index_arr[:, None], loss_arr[:, None])
-    theta = cp.Variable((1, payout_structure.n_params))
-    entity_payout = cp.vstack([payout_structure.basis_matrix(index_arr) @ theta[0]]).T
-    assert tuple(entity_payout.shape) == (n_rows, 1)
-    return ProblemContext(
-        problem=problem,
-        payout_structure=payout_structure,
-        measure=measure,
-        scale=1.0,
-        theta=theta,
-        entity_payout=entity_payout,
-        payout=cast(cp.Expression, cp.sum(entity_payout, axis=1)),
-        loss=loss_arr,
-        entity_loss=loss_arr[:, None],
-        cap=np.array([loss_arr.max()]),
-    )
 
 
 def budget(ctx: ProblemContext, loading: float) -> cp.Constraint:
@@ -439,16 +329,6 @@ def test_problem_classes() -> None:
     for objective in (ExpectedUncovered(), WeightedCVaR(alpha=0.7, beta=0.9)):
         # Piecewise-linear objective + affine constraints = LP.
         assert objective.build(ctx).expression.is_pwl()
-
-
-def grouped_measure() -> GroupedMeasure:
-    # Annual-style measure: years {0, 1}, {2}, {3} and a year without rows,
-    # each with probability 1/4.
-    return GroupedMeasure(
-        basis=Basis.ANNUAL,
-        outcome_of_row=np.array([0, 0, 1, 2]),
-        probability=np.full(4, 0.25),
-    )
 
 
 @pytest.mark.parametrize(

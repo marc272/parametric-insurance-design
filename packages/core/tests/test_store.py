@@ -353,3 +353,76 @@ def test_root_must_be_a_directory(tmp_path: Path) -> None:
     file.write_text("x")
     with pytest.raises(StoreError, match="not a directory"):
         ResultStore(file)
+
+
+# -- reads without a listing (MAR-128) ---------------------------------------
+
+RUN_C = "sha256:" + "c" * 64
+
+
+def test_read_of_given_runs_does_not_list_the_manifests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = ResultStore(tmp_path)
+    store.write_run(make_tables(RUN_A), manifest(RUN_A))
+    store.write_run(make_tables(RUN_B), manifest(RUN_B))
+
+    def no_listing(self: ResultStore) -> tuple[str, ...]:
+        raise AssertionError("read(run_ids=...) listed the manifests directory")
+
+    monkeypatch.setattr(ResultStore, "run_ids", no_listing)
+    assert store.read("runs", run_ids=[RUN_B, RUN_A, RUN_B])["run_id"].tolist() == [
+        RUN_A,
+        RUN_A,
+        RUN_B,
+        RUN_B,
+    ]
+    assert store.read("kpis", run_ids=[]).equals(KPIS.empty())
+
+
+def test_reads_see_runs_committed_after_earlier_reads(tmp_path: Path) -> None:
+    # Nothing is cached between calls: a run committed by write_run, by this
+    # store object or by another one (as another process would), is seen by
+    # the next read, and an uncommitted run is not.
+    reader = ResultStore(tmp_path)
+    writer = ResultStore(tmp_path)
+    reader.write_run(make_tables(RUN_A), manifest(RUN_A))
+    assert reader.read("runs")["run_id"].unique().tolist() == [RUN_A]
+    assert len(reader.read("runs", run_ids=[RUN_A])) == 2
+    with pytest.raises(StoreError, match="not in the store"):
+        reader.read("runs", run_ids=[RUN_B])
+
+    writer.write_run(make_tables(RUN_B), manifest(RUN_B))
+    assert reader.read("runs", run_ids=[RUN_B])["run_id"].unique().tolist() == [RUN_B]
+    assert reader.read("runs")["run_id"].unique().tolist() == [RUN_A, RUN_B]
+
+    reader.write_run(make_tables(RUN_C), manifest(RUN_C))
+    assert len(reader.read("runs", run_ids=[RUN_C])) == 2
+    assert reader.run_ids() == (RUN_A, RUN_B, RUN_C)
+
+    (tmp_path / MANIFESTS_DIR / f"{'b' * 64}.json").unlink()  # uncommitted again
+    with pytest.raises(StoreError, match="not in the store"):
+        reader.read("runs", run_ids=[RUN_B])
+    assert reader.read("runs")["run_id"].unique().tolist() == [RUN_A, RUN_C]
+
+
+def test_read_names_every_unknown_run_like_before(tmp_path: Path) -> None:
+    store = ResultStore(tmp_path)
+    store.write_run(make_tables(RUN_A), manifest(RUN_A))
+    expected = f"runs not in the store {tmp_path}: {sorted([RUN_C, RUN_B])}"
+    with pytest.raises(StoreError) as info:
+        store.read("runs", run_ids=[RUN_C, RUN_A, RUN_B])
+    assert str(info.value) == expected
+    # A malformed id is one of the runs not in the store, as when read
+    # compared against the listing.
+    with pytest.raises(StoreError) as info:
+        store.read("runs", run_ids=[RUN_A, "not-a-run"])
+    assert str(info.value) == f"runs not in the store {tmp_path}: ['not-a-run']"
+    # A directory in place of a manifest is not a committed run.
+    (tmp_path / MANIFESTS_DIR / f"{'b' * 64}.json").mkdir()
+    with pytest.raises(StoreError, match="not in the store"):
+        store.read("runs", run_ids=[RUN_B])
+    # An empty or missing store has no runs either.
+    empty = ResultStore(tmp_path / "missing")
+    with pytest.raises(StoreError, match="not in the store"):
+        empty.read("runs", run_ids=[RUN_A])

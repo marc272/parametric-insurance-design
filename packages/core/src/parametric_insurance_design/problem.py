@@ -1,7 +1,7 @@
-"""Problem builder: scope x payout x objective x pricing x constraints (SPEC §4.2).
+"""Problem builder: scope x payout x objective x pricing x constraints.
 
-Owner: MAR-14. Replaces the thesis's nine near-duplicate solver methods
-(thesis issue C1) with one assembly, fixed by ADR 0002:
+Replaces the thesis's nine near-duplicate solver methods (three scopes times
+three objectives, in its notebook) with one fixed assembly:
 
 1. ``data = sample.select(eventset)`` (default :meth:`Sample.full`).
 2. ``measure = outcome_measure(data, basis, years=sample.years)``.
@@ -12,7 +12,10 @@ Owner: MAR-14. Replaces the thesis's nine near-duplicate solver methods
    constraints = ``payout_structure.constraints(ctx.theta, ctx.cap)`` +
    ``objective_term.constraints`` + ``premium.constraints`` +
    ``c.build(ctx, premium)`` for each extra constraint.
-6. ``cp.Problem(cp.Minimize(objective_term.expression), constraints)``.
+6. ``cp.Problem(cp.Minimize(objective_term.expression), constraints)``,
+   wrapped in a :class:`BuiltProblem` that also carries ``pricing``, so
+   that ``solve.solve`` records the exact premium of the solution without
+   being given the pricing again.
 
 Loss scaling and the payout cap are decided in :func:`build_context` (thesis:
 scale by the maximum objective-level loss, or 1 if it is <= 1e-6; cap each
@@ -23,10 +26,9 @@ convex programming (DCP) rules and raises :class:`ComponentConfigError` if
 not, so a non-convex combination fails when it is built, not when it is
 solved. Solving is :func:`parametric_insurance_design.solve.solve`'s job.
 
-The MAR-14 issue text names a single ``build_problem``; ADR 0002 fixed the
-interface as :func:`build_context` plus :func:`build_problems`, which returns
-one :class:`BuiltProblem` per design problem (one per asset in the individual
-scope).
+The entry points are :func:`build_context` and :func:`build_problems`, which
+returns one :class:`BuiltProblem` per design problem (one per asset in the
+individual scope).
 """
 
 from __future__ import annotations
@@ -40,6 +42,7 @@ import cvxpy as cp
 import numpy as np
 import scipy.sparse as sp
 
+from parametric_insurance_design._validation import check_real
 from parametric_insurance_design.basis import Basis, OutcomeMeasure, outcome_measure
 from parametric_insurance_design.errors import (
     ComponentConfigError,
@@ -84,6 +87,19 @@ class BuiltProblem:
         The assembled problem.
     build_seconds : float
         Wall time of the assembly.
+    pricing : Pricing, optional
+        The pricing that built ``premium``. :func:`build_problems`
+        always sets it; ``solve.solve`` then records ``SolveResult.premium``
+        as ``pricing.premium_value`` of the solution's realised payout, and
+        refuses a ``pricing`` argument that differs from it. Default
+        ``None``: not known, for a problem assembled by hand; ``solve``
+        then records the premium term's value, or ``premium_value`` under
+        the ``pricing`` it is given.
+
+    Raises
+    ------
+    ComponentConfigError
+        If ``pricing`` is neither ``None`` nor a :class:`Pricing`.
     """
 
     context: ProblemContext
@@ -91,6 +107,14 @@ class BuiltProblem:
     premium: Term
     problem: cp.Problem
     build_seconds: float
+    pricing: Pricing | None = None
+
+    def __post_init__(self) -> None:
+        """Refuse a ``pricing`` that is not a :class:`Pricing`."""
+        if self.pricing is not None and not isinstance(self.pricing, Pricing):
+            raise ComponentConfigError(
+                f"pricing must be a Pricing or None, got {self.pricing!r}"
+            )
 
     @property
     def spec(self) -> ProblemSpec:
@@ -112,12 +136,9 @@ def _check_scale(scale: object) -> float:
     InputMismatchError
         If ``scale`` is not a finite real number > 0.
     """
-    if isinstance(scale, bool) or not isinstance(scale, int | float | np.number):
-        raise InputMismatchError(f"scale must be a real number, got {scale!r}")
-    value = float(scale)
-    if not (np.isfinite(value) and value > 0):
-        raise InputMismatchError(f"scale must be finite and > 0, got {scale!r}")
-    return value
+    return check_real(
+        "scale", scale, low=0.0, include_low=False, error=InputMismatchError
+    )
 
 
 def build_context(
@@ -280,7 +301,7 @@ def build_problems(
 ) -> tuple[BuiltProblem, ...]:
     """Assemble every design problem of a scope.
 
-    Follows the ADR 0002 recipe (module docstring). ``build_seconds`` of each
+    Follows the assembly in the module docstring. ``build_seconds`` of each
     problem covers materialising its data, building the context, the terms
     and the constraints, and the DCP check. The shared steps (sample
     selection, measure, partition) are not attributed to any one problem.
@@ -298,7 +319,8 @@ def build_problems(
     objective : Objective
         Objective.
     pricing : Pricing
-        Pricing used for the premium term.
+        Pricing used for the premium term. Every :class:`BuiltProblem`
+        carries it as ``pricing`` (the same object).
     constraints : sequence of Constraint, optional
         Extra constraints, e.g. ``(Budget(1.0),)``.
     basis : Basis
@@ -341,6 +363,7 @@ def build_problems(
                 premium=premium,
                 problem=cvx_problem,
                 build_seconds=time.perf_counter() - start,
+                pricing=pricing,
             )
         )
     return tuple(built)

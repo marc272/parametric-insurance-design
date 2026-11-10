@@ -1,0 +1,79 @@
+# Dependabot version updates (MAR-77, MAR-147). Dependabot opens the PRs on
+# this repo; the orchestrator reviews and merges them once CI is green
+# (docs/ORCHESTRATION.md, "Merge policy", "Dependabot PRs").
+#
+# Reference: https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference
+version: 2
+
+updates:
+  # Actions in .github/workflows/*.yml. Actions pinned by commit SHA with a
+  # "# vX.Y.Z" comment (astral-sh/setup-uv, which has no floating major tag,
+  # and prefix-dev/setup-pixi) are bumped SHA and comment together. One PR a
+  # week for all actions.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # Skip releases younger than a week (supply-chain hygiene).
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
+
+  # The uv workspace lock (uv.lock, Python >= 3.12).
+  #
+  # lockfile-only: Dependabot updates uv.lock and never edits a pyproject.toml.
+  # Two reasons:
+  #   - the pixi env of packages/climada installs the core from
+  #     packages/core/pyproject.toml, and its CI job runs `pixi install
+  #     --locked`. Dependabot cannot re-lock pixi (no pixi ecosystem), so a
+  #     bumped core requirement would turn the climada job red. uv.lock is not
+  #     an input of pixi.lock, so lockfile-only updates cannot do that;
+  #   - the core's declared floors (numpy 1.26, pandas 2.1; the CI job
+  #     "core only, py3.11, lowest-direct") stay as they are.
+  # Every requirement is ">=", so new releases fit without editing a
+  # pyproject.toml. A change to a requirement or floor is an issue, not a
+  # Dependabot PR, and comes with `pixi lock` in packages/climada.
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    versioning-strategy: lockfile-only
+    cooldown:
+      default-days: 7
+    groups:
+      # The dev tooling of the root [dependency-groups] (test, lint), one PR.
+      # ruff runs from uv.lock in pre-commit too (.pre-commit-config.yaml),
+      # so a ruff bump here is the only ruff bump there is.
+      dev-tooling:
+        patterns:
+          - "ruff"
+          - "pyright"
+          - "pytest"
+          - "pytest-*"
+          - "hypothesis"
+          - "pre-commit"
+    commit-message:
+      prefix: "deps"
+
+  # Hook repos pinned by `rev:` in .pre-commit-config.yaml (MAR-147). Only
+  # pre-commit/pre-commit-hooks is pinned; the ruff hooks are `repo: local`
+  # and run from uv.lock, so ruff is bumped by the uv entry above, never here.
+  # versioning-strategy doesn't apply to this ecosystem.
+  - package-ecosystem: pre-commit
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    groups:
+      pre-commit-hooks:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"

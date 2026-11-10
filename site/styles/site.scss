@@ -1,0 +1,112 @@
+/*-- scss:rules --*/
+
+// Observable Plot draws text halos and tips on --plot-background, white by
+// default. Use the page background, so charts read in light and dark mode.
+.plot,
+.cell-output-display svg {
+  --plot-background: #{$body-bg};
+  background: transparent;
+}
+
+// Charts and inputs never overflow a phone-width column.
+.cell-output-display svg,
+.cell-output-display figure {
+  max-width: 100%;
+  height: auto;
+}
+
+// Observable Inputs: every label above its control on phone-width screens.
+// Quarto's OJS runtime names the inputs' forms "oi-<hash>" (as its own
+// quarto-ojs.css does), not "inputs-<hash>". Observable Inputs puts
+// the label beside the control from 30em (480 px) up, with a style it injects
+// at run time, after this sheet ("form.oi-<hash>", flex-wrap: nowrap); the
+// .observablehq ancestor (Quarto's OJS cell) makes these rules more specific.
+@media (max-width: 575.98px) {
+  .observablehq form[class^="oi-"] {
+    flex-wrap: wrap;
+    --label-width: 100%;
+  }
+  .observablehq form[class^="oi-"] > label {
+    width: 100%;
+    margin: 0 0 0.25rem;
+  }
+}
+
+// The setup table: label and value side by side, stacked on phones.
+.setup-table th {
+  white-space: nowrap;
+}
+.setup-table td,
+.setup-table th {
+  vertical-align: top;
+  padding: 0.2rem 0.75rem 0.2rem 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 575.98px) {
+  .setup-table tr,
+  .setup-table th,
+  .setup-table td {
+    display: block;
+    padding-right: 0;
+  }
+  .setup-table th {
+    padding-top: 0.5rem;
+  }
+}
+
+// Schematics on the home page: inline SVGs drawn in currentColor,
+// so they follow the light and the dark theme.
+figure.schematic {
+  max-width: 480px;
+  margin: 1rem auto 1.5rem;
+}
+figure.schematic svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+figure.schematic figcaption {
+  margin-top: 0.4rem;
+  font-size: 0.875rem;
+  opacity: 0.8;
+}
+
+// Method pages: the concept docs, rendered from docs/concepts/.
+// Wide tables (wrapped in .table-scroll) and display equations scroll inside
+// their own box, never the page, and long code names may break.
+.concept-figure,
+main img {
+  max-width: 100%;
+  height: auto;
+}
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+main td code,
+main th code,
+main li code,
+main p code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+mjx-container[display="true"] {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+// The concept figures are drawn for a desktop column. On phones they keep a
+// legible width and scroll sideways; the caption wraps to the column.
+@media (max-width: 575.98px) {
+  .figure-scroll {
+    overflow-x: auto;
+  }
+  .figure-scroll img.concept-figure {
+    width: 560px;
+    max-width: none;
+  }
+}
+.source-note {
+  font-size: 0.875rem;
+  opacity: 0.8;
+}

@@ -1,0 +1,72 @@
+# MAR-206 (C1 RQ2 sensitivities, family (c)): the C1 main line
+# (research/configs/c1/c1_main.yaml) with the thesis noise layer COMMON to all
+# assets. Same heteroscedastic layer (eta 0.3, 13 copies, bounds 20/70 m/s,
+# seed 42), but one standard-normal draw per (event, copy) row shared by the
+# 9 assets: each asset's noise keeps the per-asset layer's marginal
+# distribution, and across assets it is comonotone instead of independent.
+#
+# The EventSet is not committed. Build it (and check this checksum) with
+# research/scripts/c1_rq2_sensitivities.py --phase noise, which writes it to
+# results/c1-rq2-sensitivities/eventsets/thesis_common_noise
+# (function add_common_noise; the noise is already in the EventSet, so
+# noise: null here).
+#
+# research/scripts/c1_rq2_sensitivities.py --phase noise derives the single
+# runs from this file (one scope x one objective each) and varies only: the
+# pricing (pure; cost of capital r 0.06, q 0.99), the scope (individual,
+# cluster, cluster with joint: false, portfolio) and the objective (MSE,
+# E[U], weighted CVaR alpha 0.9 at beta 0.99 and 0.995). Budget loading 1.
+# Everything else is C1's main line. Each run's config hash is in
+# research/data/c1-rq2-sensitivities/.
+#
+# Paths are relative to this file.
+schema_version: 1
+name: c1-rq2-noise-common
+description: C1 main line with the noise common to all assets (MAR-206 family c).
+eventset:
+  path: ../../../results/c1-rq2-sensitivities/eventsets/thesis_common_noise
+  checksum: sha256:a55072066e97c22bd2765a1b8a4b825d2f268284b8d7605d52ef757dc3b401da
+portfolio:
+  location_ids: [A1, A2, A3, A4, A5, A6, A7, A8, A9]
+noise: null
+threshold:
+  value: 20.0
+  column: index
+basis: annual
+sample:
+  kind: holdout
+  train_fraction: 0.7
+payout:
+  kind: step
+  attachment: 20.0
+  limit: 70.0
+  n_bins: 15
+scopes:
+- kind: individual
+- kind: cluster
+  n_clusters: 3
+  strategy:
+    kind: thesis_ward
+    beta_tail: 0.9
+    linkage: ward
+- kind: portfolio
+objectives:
+- kind: mse
+- kind: expected_uncovered
+- kind: weighted_cvar
+  alpha: 0.9
+  beta: 0.99
+pricing:
+  kind: pure
+constraints:
+- kind: budget
+  loading: 1.0
+evaluation:
+  beta: 0.99
+bootstrap:
+  seed: 0
+  n_bootstrap: 1000
+  level: 0.9
+sweeps: []
+output:
+  directory: ../../../results/c1-rq2-sensitivities/store

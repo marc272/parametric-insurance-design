@@ -26,6 +26,10 @@ htmlcov/
 # go through scripts with checksums. Keep fixtures under a tests/ folder.
 data/
 !**/tests/**/data/
+# Small derived research tables (README, CSV, JSON, figures) are committed
+# normally under research/data/; the 500 kB pre-commit limit still applies.
+# Raw downloads and built EventSets stay in the ignored root data/ folder.
+!/research/data/
 *.nc
 *.h5
 *.hdf5

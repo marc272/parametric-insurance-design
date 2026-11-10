@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "parametric-insurance-design"
+abstract: >-
+  A Python library for designing parametric insurance payouts: a step payout
+  on a hazard index, calibrated on simulated events by an optimisation under a
+  premium budget. It carries a weighted-CVaR (tail-risk) objective, solved as a
+  linear program, and the joint calibration of one owner's sites across a
+  portfolio.
+authors:
+  - family-names: Prinzing
+    given-names: Marc
+version: 0.1.0
+date-released: 2026-11-02
+repository-code: "https://github.com/marc272/parametric-insurance-design"
+keywords:
+  - parametric insurance
+  - basis risk
+  - CVaR
+  - linear programming
+  - catastrophe risk

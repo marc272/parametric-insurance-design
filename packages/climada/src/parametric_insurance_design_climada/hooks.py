@@ -9,14 +9,21 @@ Paper P-03) can be added without changing the pipeline:
 :class:`IndexBuilder`
     Turns a batch into the ``index`` matrix. The default,
     :class:`CentroidWindIndex`, is the thesis index: the storm's maximum
-    sustained wind at the location's centroid. Cat-in-a-circle (MAR-26) will
-    be another builder, reading the tracks and the locations.
+    sustained wind at the location's centroid.
+    :class:`~parametric_insurance_design_climada.cat_in_circle.CatInCircleIndex`
+    is the cat-in-a-circle builder: it reads the tracks and the
+    locations, not the wind field. The config's ``index`` section selects the
+    builder (:func:`~parametric_insurance_design_climada.pipeline.make_index_builder`).
 :class:`VulnerabilityDraws`
     Turns a batch and its base loss matrix into one loss matrix per draw
     (``draw_id``). The default, :class:`NoDraws`, keeps the base loss as the
-    single draw 0. Impact-function draws (MAR-25) will be another
-    implementation; the pipeline already expands the rows, gives each draw
-    ``rate / n_draws`` (SPEC §5) and appends the hook's
+    single draw 0.
+    :class:`~parametric_insurance_design_climada.vulnerability.EmanuelVHalfDraws`
+    recomputes the loss with the Emanuel ``v_half`` drawn from a
+    prior per storm and draw; the config's ``vulnerability`` section selects
+    it (:func:`~parametric_insurance_design_climada.pipeline.make_vulnerability_draws`).
+    The pipeline expands the rows, gives each draw ``rate / n_draws``
+    (SPEC §5) and appends the hook's
     :class:`~parametric_insurance_design.eventset.TransformRecord`.
 
 Both are :class:`typing.Protocol` classes: any object with the right methods
@@ -60,7 +67,9 @@ class HazardBatch:
         The tracks, one per event, in row order.
     hazard : climada.hazard.TropCyclone
         The wind hazard at the location centroids: centroid ``j`` is
-        location ``j``.
+        location ``j``. Each event has frequency ``1 / n_years`` and is dated
+        by its simulation year ("The CLIMADA hazard" in
+        :mod:`parametric_insurance_design_climada.pipeline`).
     locations : pandas.DataFrame
         The EventSet ``locations`` table (``location_id``, ``lat``, ``lon``,
         ``value``, ``name`` and free columns).

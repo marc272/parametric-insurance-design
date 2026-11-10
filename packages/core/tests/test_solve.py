@@ -15,16 +15,18 @@ Two groups:
 
 from __future__ import annotations
 
+import copy
+import pickle
 from dataclasses import dataclass, replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, ClassVar
 
 import cvxpy as cp
 import numpy as np
+import pandas as pd
 import pytest
-import scipy
 from cvxpy.error import SolverError
-from numpy.lib import NumpyVersion
 from numpy.typing import NDArray
 
 from parametric_insurance_design import solve as solve_module
@@ -38,6 +40,7 @@ from parametric_insurance_design.errors import (
     UnboundedError,
 )
 from parametric_insurance_design.eventset import EventSet
+from parametric_insurance_design.experiment.runner import policy_fingerprint, run_key
 from parametric_insurance_design.interfaces import (
     Constraint,
     Objective,
@@ -55,6 +58,8 @@ from parametric_insurance_design.solve import (
     DEFAULT_POLICY,
     FAILURE_PRECEDENCE,
     NOT_INSTALLED,
+    OSQP_OPTIONS,
+    THESIS_POLICY,
     SolverPolicy,
     SolveStatus,
     is_qp,
@@ -123,11 +128,41 @@ def test_default_policy_follows_the_thesis() -> None:
     assert DEFAULT_POLICY.qp_solvers == ("OSQP", "CLARABEL")
     assert DEFAULT_POLICY.accept_inaccurate
     assert dict(DEFAULT_POLICY.solver_options["SCS"]) == {"max_iters": 20000}
+    # The one deviation from the thesis: OSQP at interior-point accuracy.
+    assert set(DEFAULT_POLICY.solver_options) == {"OSQP", "SCS"}
     assert DEFAULT_POLICY.accepted == {
         SolveStatus.OPTIMAL,
         SolveStatus.OPTIMAL_INACCURATE,
     }
     assert SolverPolicy(accept_inaccurate=False).accepted == {SolveStatus.OPTIMAL}
+
+
+def test_default_osqp_options_are_tight() -> None:
+    # MAR-98: cvxpy's OSQP defaults (eps 1e-5, max_iter 10000) leave
+    # violations of ~1.5e-5 in scaled units when polishing fails.
+    options = dict(DEFAULT_POLICY.solver_options["OSQP"])
+    assert options == dict(OSQP_OPTIONS)
+    assert options == {"eps_abs": 1e-8, "eps_rel": 1e-8, "max_iter": 100_000}
+    with pytest.raises(TypeError):
+        OSQP_OPTIONS["eps_abs"] = 1e-5  # type: ignore[index]
+
+
+def test_thesis_policy_is_the_pre_mar98_default() -> None:
+    # Main's DEFAULT_POLICY before MAR-98, field for field: OSQP at cvxpy's
+    # defaults, everything else as the default.
+    assert THESIS_POLICY.lp_solvers == DEFAULT_POLICY.lp_solvers
+    assert THESIS_POLICY.qp_solvers == DEFAULT_POLICY.qp_solvers
+    assert THESIS_POLICY.accept_inaccurate is DEFAULT_POLICY.accept_inaccurate
+    assert {k: dict(v) for k, v in THESIS_POLICY.solver_options.items()} == {
+        "SCS": {"max_iters": 20000}
+    }
+
+
+def test_explicit_options_replace_the_defaults() -> None:
+    # A policy that names its options runs OSQP with cvxpy's defaults, e.g.
+    # to reproduce the thesis MSE values.
+    policy = SolverPolicy(solver_options={"SCS": {"max_iters": 20000}})
+    assert "OSQP" not in policy.solver_options
 
 
 def test_policy_options_are_read_only() -> None:
@@ -173,6 +208,121 @@ def test_problem_class_selects_the_solver_list(toy_eventset: EventSet) -> None:
     assert DEFAULT_POLICY.solvers_for(lp.problem) == DEFAULT_POLICY.lp_solvers
 
 
+# -- pickling (MAR-124) ------------------------------------------------------
+
+# The fingerprints and run ids of the two named policies, computed on main
+# before MAR-124 (71676b9): pickling support must not change them.
+PINNED_FINGERPRINTS: dict[str, dict[str, Any]] = {
+    "DEFAULT_POLICY": {
+        "lp_solvers": ["CLARABEL", "HIGHS", "SCS"],
+        "qp_solvers": ["OSQP", "CLARABEL"],
+        "accept_inaccurate": True,
+        "solver_options": {
+            "OSQP": {"eps_abs": 1e-08, "eps_rel": 1e-08, "max_iter": 100000},
+            "SCS": {"max_iters": 20000},
+        },
+    },
+    "THESIS_POLICY": {
+        "lp_solvers": ["CLARABEL", "HIGHS", "SCS"],
+        "qp_solvers": ["OSQP", "CLARABEL"],
+        "accept_inaccurate": True,
+        "solver_options": {"SCS": {"max_iters": 20000}},
+    },
+}
+PINNED_RUN_IDS: dict[str, str] = {
+    "DEFAULT_POLICY": (
+        "sha256:394fa39d7a5f5a3a0d00f331a3d5498d4481881351a2d6ac4f142e5ee5249b5a"
+    ),
+    "THESIS_POLICY": (
+        "sha256:029a975bb3c32204cae56fbaf2263cc692152c6f11273af5a32983007a151535"
+    ),
+}
+NAMED_POLICIES: dict[str, SolverPolicy] = {
+    "DEFAULT_POLICY": DEFAULT_POLICY,
+    "THESIS_POLICY": THESIS_POLICY,
+}
+
+
+def _pinned_run_id(policy: SolverPolicy) -> str:
+    """The run id of a fixed config hash, checksum and version under a policy."""
+    return run_key(
+        "sha256:" + "0" * 64,
+        "sha256:" + "1" * 64,
+        package_version="0.0.0",
+        policy=policy,
+    )
+
+
+def _assert_read_only(policy: SolverPolicy) -> None:
+    """The options mapping and every per-solver mapping refuse writes."""
+    with pytest.raises(TypeError):
+        policy.solver_options["SCS"] = {}  # type: ignore[index]
+    for options in policy.solver_options.values():
+        with pytest.raises(TypeError):
+            options["max_iters"] = 1  # type: ignore[index]
+
+
+@pytest.mark.parametrize("name", sorted(NAMED_POLICIES))
+def test_named_policy_fingerprints_are_pinned(name: str) -> None:
+    policy = NAMED_POLICIES[name]
+    assert policy_fingerprint(policy) == PINNED_FINGERPRINTS[name]
+    assert _pinned_run_id(policy) == PINNED_RUN_IDS[name]
+
+
+@pytest.mark.parametrize("protocol", range(pickle.HIGHEST_PROTOCOL + 1))
+@pytest.mark.parametrize("name", sorted(NAMED_POLICIES))
+def test_named_policies_survive_a_pickle_round_trip(name: str, protocol: int) -> None:
+    policy = NAMED_POLICIES[name]
+    copied = pickle.loads(pickle.dumps(policy, protocol=protocol))
+    assert copied == policy
+    assert type(copied) is SolverPolicy
+    assert policy_fingerprint(copied) == PINNED_FINGERPRINTS[name]
+    assert _pinned_run_id(copied) == PINNED_RUN_IDS[name]
+    _assert_read_only(copied)
+    # Pickling does not unfreeze the original either.
+    _assert_read_only(policy)
+
+
+def test_a_custom_policy_survives_copies_and_pickling() -> None:
+    policy = SolverPolicy(
+        lp_solvers=("SCS",),
+        qp_solvers=("CLARABEL",),
+        accept_inaccurate=False,
+        solver_options={"SCS": {"max_iters": 5, "eps": 1e-3}, "OSQP": {}},
+    )
+    for copied in (
+        pickle.loads(pickle.dumps(policy)),
+        copy.copy(policy),
+        copy.deepcopy(policy),
+    ):
+        assert copied == policy
+        assert copied is not policy
+        assert policy_fingerprint(copied) == policy_fingerprint(policy)
+        assert copied.accepted == {SolveStatus.OPTIMAL}
+        _assert_read_only(copied)
+
+
+def test_unequal_policies_stay_unequal_after_pickling() -> None:
+    copied = pickle.loads(pickle.dumps(THESIS_POLICY))
+    assert copied != DEFAULT_POLICY
+    assert policy_fingerprint(copied) != policy_fingerprint(DEFAULT_POLICY)
+
+
+@dataclass(frozen=True)
+class _TaggedPolicy(SolverPolicy):
+    """A subclass with an extra field, to check that pickling keeps it."""
+
+    tag: str = "untagged"
+
+
+def test_a_policy_subclass_keeps_its_class_and_fields() -> None:
+    policy = _TaggedPolicy(accept_inaccurate=False, tag="worker")
+    copied = pickle.loads(pickle.dumps(policy))
+    assert type(copied) is _TaggedPolicy
+    assert copied == policy
+    assert copied.tag == "worker"
+
+
 # -- results -----------------------------------------------------------------
 
 
@@ -200,9 +350,9 @@ def test_mse_is_reported_in_squared_loss_units(toy_eventset: EventSet) -> None:
     built = toy_built(toy_eventset, MSE(), (Budget(2.0),))
     result = solve(built)
     assert result.solver in DEFAULT_POLICY.qp_solvers
-    assert result.objective_value == pytest.approx(12.5 / 3, rel=1e-4)
+    assert result.objective_value == pytest.approx(12.5 / 3, rel=1e-6)
     assert result.diagnostics["mse"] == pytest.approx(result.objective_value)
-    np.testing.assert_allclose(result.theta.sum(axis=0), [3.5, 16.0], rtol=1e-4)
+    np.testing.assert_allclose(result.theta.sum(axis=0), [3.5, 16.0], rtol=1e-6)
 
 
 INACCURATE_WARNING = "ignore:Solution may be inaccurate:UserWarning"
@@ -324,8 +474,9 @@ def test_accepted_status_without_solution_is_an_error(
 def test_missing_solver_is_recorded_and_skipped(
     toy_eventset: EventSet, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The CLIMADA env (cvxpy < 1.8) has no HiGHS: the default LP chain then
-    # records HIGHS as not installed if it gets that far, and goes on to SCS.
+    # Installs with cvxpy < 1.8 (e.g. the core's lowest-direct CI job) have no
+    # HiGHS: the default LP chain then records HIGHS as not installed if it
+    # gets that far, and goes on to SCS.
     built = toy_built(toy_eventset)
     monkeypatch.setattr(cp, "installed_solvers", lambda: ["CLARABEL", "SCS"])
     result = solve(built, SolverPolicy(lp_solvers=("HIGHS", "CLARABEL")))
@@ -378,6 +529,151 @@ def test_solve_module_reexports_the_result_types() -> None:
     assert solve_module.SolveError is SolveError
 
 
+# -- OSQP polishing guard (MAR-224) ------------------------------------------
+
+# OSQP 1.x returns an unstored (all-zero) solution with status ``solved`` when
+# its polishing step fails to factorise (``status_polish == -2``); see
+# research/notes/solver-check.md, section 3. The real trigger is a 60,000-
+# variable problem, so these tests solve the toy MSE problem for real and then
+# replace the OSQP result object that cvxpy keeps in
+# ``solver_stats.extra_stats``.
+
+# Slack-budget MSE optimum of the toy problem (test_mse_is_reported_...).
+TOY_MSE = 12.5 / 3
+
+
+def with_osqp_extra_stats(
+    monkeypatch: pytest.MonkeyPatch,
+    built: BuiltProblem,
+    extra_stats: object,
+    solvers: tuple[str, ...] = ("OSQP",),
+    status: str | None = None,
+    zero_theta: bool = False,
+) -> None:
+    """Solve for real, then set ``solver_stats.extra_stats`` after ``solvers``.
+
+    With ``status``, the cvxpy status of those solves is overwritten too;
+    with ``zero_theta``, the payout parameters are set to zero, as OSQP 1.x
+    returns them after a polish linsys error.
+    """
+    problem = built.problem
+    real_solve = problem.solve
+
+    def wrapped(*, solver: str, **kwargs: object) -> None:
+        real_solve(solver=solver, **kwargs)
+        if solver in solvers:
+            stats = replace(problem.solver_stats, extra_stats=extra_stats)
+            problem._solver_stats = stats  # pyright: ignore[reportAttributeAccessIssue]
+            if status is not None:
+                problem._status = status  # pyright: ignore[reportAttributeAccessIssue]
+            if zero_theta:
+                theta = built.context.theta
+                theta.value = np.zeros(theta.shape)
+
+    monkeypatch.setattr(problem, "solve", wrapped)
+
+
+def polish(code: object) -> SimpleNamespace:
+    """An OSQP result object whose ``info.status_polish`` is ``code``."""
+    return SimpleNamespace(info=SimpleNamespace(status_polish=code))
+
+
+def test_real_osqp_solves_expose_status_polish(toy_eventset: EventSet) -> None:
+    # The guard reads what cvxpy really stores; on the toy problem polishing
+    # stores the solution, so OSQP's result is accepted.
+    built = toy_built(toy_eventset, MSE(), (Budget(2.0),))
+    result = solve(built)
+    assert result.solver == "OSQP"
+    info = getattr(built.problem.solver_stats.extra_stats, "info", None)
+    if info is not None:  # other OSQP versions: the guard is a no-op
+        assert int(info.status_polish) != -2
+
+
+@pytest.mark.parametrize("name", sorted(NAMED_POLICIES))
+def test_osqp_polish_linsys_error_falls_back(
+    name: str, toy_eventset: EventSet, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # OSQP "converges" to the all-zero point; Clarabel returns the optimum.
+    built = toy_built(toy_eventset, MSE(), (Budget(2.0),))
+    with_osqp_extra_stats(monkeypatch, built, polish(-2), zero_theta=True)
+    result = solve(built, NAMED_POLICIES[name])
+    assert result.solver == "CLARABEL"
+    assert result.status is SolveStatus.OPTIMAL
+    assert result.objective_value == pytest.approx(TOY_MSE, rel=1e-6)
+    np.testing.assert_allclose(result.theta.sum(axis=0), [3.5, 16.0], rtol=1e-4)
+    rejected, accepted = result.attempts
+    assert (rejected.solver, rejected.status) == ("OSQP", SolveStatus.SOLVER_ERROR)
+    assert rejected.message is not None
+    assert "OSQP polishing failed to factorise" in rejected.message
+    assert "(cvxpy status 'optimal')" in rejected.message
+    assert rejected.seconds > 0
+    assert accepted.solver == "CLARABEL"
+    assert result.solve_seconds == pytest.approx(rejected.seconds + accepted.seconds)
+
+
+def test_osqp_polish_linsys_error_alone_raises(
+    toy_eventset: EventSet, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    built = toy_built(toy_eventset, MSE(), (Budget(2.0),))
+    with_osqp_extra_stats(monkeypatch, built, polish(-2))
+    with pytest.raises(SolveError, match="OSQP polishing failed") as info:
+        solve(built, SolverPolicy(qp_solvers=("OSQP",)))
+    assert type(info.value) is SolveError
+    assert info.value.status is SolveStatus.SOLVER_ERROR
+    (attempt,) = info.value.attempts
+    assert (attempt.solver, attempt.status) == ("OSQP", SolveStatus.SOLVER_ERROR)
+
+
+def test_osqp_polish_linsys_error_is_checked_on_inaccurate_results(
+    toy_eventset: EventSet, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    built = toy_built(toy_eventset, MSE(), (Budget(2.0),))
+    with_osqp_extra_stats(monkeypatch, built, polish(-2), status="optimal_inaccurate")
+    with pytest.raises(SolveError) as info:
+        solve(built, SolverPolicy(qp_solvers=("OSQP",)))
+    (attempt,) = info.value.attempts
+    assert attempt.status is SolveStatus.SOLVER_ERROR
+    assert attempt.message is not None
+    assert "(cvxpy status 'optimal_inaccurate')" in attempt.message
+
+
+@pytest.mark.parametrize(
+    "extra_stats",
+    [
+        pytest.param(polish(-1), id="polish-failed-benign"),
+        pytest.param(polish(0), id="polish-not-performed"),
+        pytest.param(polish(1), id="polish-success"),
+        pytest.param(polish(np.int64(1)), id="numpy-code"),
+        pytest.param(None, id="no-extra-stats"),
+        pytest.param(SimpleNamespace(), id="no-info"),
+        pytest.param(SimpleNamespace(info=SimpleNamespace()), id="no-code"),
+        pytest.param(polish(None), id="code-none"),
+        pytest.param(polish("n/a"), id="code-not-an-integer"),
+    ],
+)
+def test_osqp_results_without_a_linsys_error_are_accepted(
+    extra_stats: object, toy_eventset: EventSet, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    built = toy_built(toy_eventset, MSE(), (Budget(2.0),))
+    with_osqp_extra_stats(monkeypatch, built, extra_stats)
+    result = solve(built)
+    assert result.solver == "OSQP"
+    (attempt,) = result.attempts
+    assert attempt.message is None
+    assert result.objective_value == pytest.approx(TOY_MSE, rel=1e-6)
+
+
+def test_polish_guard_ignores_other_solvers(
+    toy_eventset: EventSet, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Only OSQP's polish codes mean anything; a -2 elsewhere is not read.
+    built = toy_built(toy_eventset, MSE(), (Budget(2.0),))
+    with_osqp_extra_stats(monkeypatch, built, polish(-2), solvers=("CLARABEL",))
+    result = solve(built, SolverPolicy(qp_solvers=("CLARABEL", "OSQP")))
+    assert result.solver == "CLARABEL"
+    assert [a.solver for a in result.attempts] == ["CLARABEL"]
+
+
 # -- MAR-14 acceptance on the parity fixture ---------------------------------
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -403,23 +699,6 @@ OBJECTIVES: dict[str, Objective] = {
 }
 N_PROBLEMS = {"individual": 9, "portfolio": 1, "cluster": 1}
 
-# scipy 1.15.0 and 1.15.1 overflow int32 indices when cvxpy reshapes the
-# sparse problem data of the weighted-CVaR LPs (more than 2**31 entries):
-# ``ValueError: negative axis 0 index``. Fixed in scipy 1.15.2. Core declares
-# ``scipy>=1.15``, so CI's lowest-direct job hits it; raising the floor is a
-# proposed follow-up (MAR-14 PR). Strict, so the mark goes stale loudly.
-SCIPY_COO_RESHAPE_OVERFLOW = pytest.mark.xfail(
-    NumpyVersion(scipy.__version__) < "1.15.2",
-    reason="scipy < 1.15.2 overflows int32 indices in COO reshape",
-    raises=ValueError,
-    strict=True,
-)
-FIXTURE_OBJECTIVES = [
-    pytest.param(name, marks=SCIPY_COO_RESHAPE_OVERFLOW)
-    if name == "weighted_cvar"
-    else name
-    for name in OBJECTIVES
-]
 N_ENTITIES = {"individual": 1, "portfolio": 9, "cluster": N_CLUSTERS}
 
 needs_fixture = pytest.mark.skipif(
@@ -459,7 +738,7 @@ def numpy_objective(
 
 
 @needs_fixture
-@pytest.mark.parametrize("objective", FIXTURE_OBJECTIVES)
+@pytest.mark.parametrize("objective", list(OBJECTIVES))
 @pytest.mark.parametrize("scope", list(SCOPES))
 def test_nine_combinations_solve_on_the_fixture(
     thesis_data: EventSet, scope: str, objective: str
@@ -484,11 +763,12 @@ def test_nine_combinations_solve_on_the_fixture(
         assert result.theta.shape == (N_ENTITIES[scope], N_BINS)
         assert result.solver == ("OSQP" if objective == "mse" else "CLARABEL")
         # Payout family and budget hold in loss units, up to the solver
-        # tolerance in scaled units (OSQP's eps is 1e-5; Clarabel's ~1e-8).
+        # tolerance in scaled units (OSQP's eps is 1e-8, MAR-98; Clarabel's
+        # ~1e-8). Measured: <= 4.4e-10 (OSQP), <= 5e-12 (Clarabel).
         violation = result.diagnostics["max_constraint_violation_scaled"]
-        assert violation <= 1e-5
+        assert violation <= 1e-6
         theta, cap = result.theta, problem.entity_loss.max(axis=0)
-        tol = 1e-5 * result.scale
+        tol = 1e-6 * result.scale
         assert np.all(theta >= -tol)
         assert np.all(np.diff(theta, axis=1) >= -tol)
         assert np.all(theta <= cap[:, None] + tol)
@@ -523,3 +803,63 @@ def test_injected_infeasible_problem_raises_on_the_fixture(
     assert error.status is SolveStatus.INFEASIBLE
     tried = DEFAULT_POLICY.solvers_for(built.problem)
     assert tuple(a.solver for a in error.attempts) == tried
+
+
+# -- THESIS_POLICY (MAR-98) --------------------------------------------------
+
+GOLDEN_RESULTS = REPO_ROOT / "parity" / "golden" / "full_optimization_results.csv.gz"
+THESIS_APPROACH = {
+    "portfolio": "integrated_portfolio_optimization",
+    "cluster": "cluster_optimization",
+}
+# MSE objective values (loss units) of main's DEFAULT_POLICY before MAR-98 on
+# this fixture (macOS arm64, workspace lock). Compared to 1e-9 relative, not
+# bit for bit: OSQP's iterates depend on the BLAS and on the solver versions
+# of each CI job. The MAR-98 default lands 9.1e-5 (portfolio) and 4.7e-6
+# (cluster) lower, far outside that tolerance.
+PRE_MAR98_MSE = {"portfolio": 606424236718.7905, "cluster": 676157755876.9508}
+
+
+def golden_payouts(approach: str, entity_ids: tuple[str, ...]) -> NDArray[np.float64]:
+    """The thesis single-run MSE step levels of the given entities."""
+    table = pd.read_csv(GOLDEN_RESULTS)
+    selected = (
+        (table["Source"] == "single_run")
+        & (table["Approach"] == approach)
+        & (table["Method"] == "pure_basis_risk_minimization")
+    )
+    payouts = dict(
+        zip(
+            table.loc[selected, "Asset_ID"], table.loc[selected, "Payouts"], strict=True
+        )
+    )
+    return np.vstack(
+        [np.array(str(payouts[e]).strip("[]").split(), float) for e in entity_ids]
+    )
+
+
+@needs_fixture
+@pytest.mark.parametrize("scope", ["portfolio", "cluster"])
+def test_thesis_policy_reproduces_the_thesis_mse_solves(
+    thesis_data: EventSet, scope: str
+) -> None:
+    payout = StepPayout(attachment=ATTACHMENT, limit=LIMIT, n_bins=N_BINS)
+    (built,) = build_problems(
+        thesis_data,
+        SCOPES[scope],
+        payout,
+        MSE(),
+        PurePremium(),
+        (Budget(KAPPA),),
+        basis=BASIS,
+    )
+    result = solve(built, THESIS_POLICY)
+    assert result.solver == "OSQP"
+    assert result.objective_value == pytest.approx(PRE_MAR98_MSE[scope], rel=1e-9)
+    # ... which is the objective of the thesis payouts themselves.
+    problem = built.context.problem
+    theta = golden_payouts(THESIS_APPROACH[scope], result.entity_ids)
+    paid = payout.evaluate(problem.index, theta).sum(axis=1)
+    p = thesis_data.rates / thesis_data.rates.sum()
+    thesis_value = numpy_objective("mse", problem.loss, paid, p)
+    assert result.objective_value == pytest.approx(thesis_value, rel=1e-9)

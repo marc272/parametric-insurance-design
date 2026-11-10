@@ -1,51 +1,127 @@
-"""Solver policy (SPEC §4.2, §3.1 C3).
+"""Solver policy: which solvers run, in which order, and what is accepted.
 
-Owner: MAR-14. :func:`solve` tries the policy's solvers in order and returns
+:func:`solve` tries the policy's solvers in order and returns
 a :class:`~parametric_insurance_design.interfaces.SolveResult` for the first
 acceptable status. If none is acceptable it raises
 :class:`~parametric_insurance_design.errors.SolveError` (or a subclass) with
-every attempt attached. Nothing is swallowed or skipped (thesis issue C3).
+every attempt attached. Nothing is swallowed or skipped: the thesis code
+swallowed solver exceptions and skipped failed runs.
 
 The result types are defined in ``interfaces.py`` and re-exported here.
 
 Default policy (:data:`DEFAULT_POLICY`)
-    * LPs and other conic problems (E[U], weighted CVaR): ``CLARABEL``, then
-      ``HIGHS``, then ``SCS`` with ``max_iters = 20000``. The thesis used
-      Clarabel, then SCS with the same iteration limit.
-    * QPs (MSE): ``OSQP``, then ``CLARABEL``, as in the thesis.
-    * ``optimal_inaccurate`` is accepted (thesis).
+---------------------------------------
+* LPs and other conic problems (E[U], weighted CVaR): ``CLARABEL``, then
+  ``HIGHS``, then ``SCS`` with ``max_iters = 20000``. The thesis used
+  Clarabel, then SCS with the same iteration limit.
+* QPs (MSE): ``OSQP``, then ``CLARABEL``, as in the thesis. OSQP runs
+  with :data:`OSQP_OPTIONS` (``eps_abs = eps_rel = 1e-8``, ``max_iter =
+  100000``), not with cvxpy's defaults (``1e-5`` and ``10000``) that the
+  thesis used ("OSQP accuracy", below).
+* ``optimal_inaccurate`` is accepted (thesis).
 
 A problem is a QP when its objective is quadratic but not piecewise linear
 and cvxpy recognises the whole problem as a QP; every other problem goes to
 the LP list.
 
+OSQP accuracy
+-------------
+OSQP is a first-order (ADMM) solver. With cvxpy's default ``eps = 1e-5``
+its solutions violate ``theta >= 0``, monotonicity, the cap and the
+budget by up to about ``1e-5`` in scaled units, and miss the optimal
+payouts by about as much, whenever OSQP's polishing step fails (on
+about a third of the MSE problems). The default policy therefore
+tightens OSQP to ``1e-8``, the accuracy of the interior-point solvers
+(Clarabel, HiGHS), so a solution meets the constraints to about
+``1e-8`` in scaled units whichever solver of the policy produced it.
+The cost is more ADMM iterations: 8 to 13 times the MSE solve time on
+the parity fixture (``parity/BENCHMARK.md``). The MSE objective values
+there drop by up to ``9.1e-5`` relative, to the true optimum: the thesis
+MSE values carry OSQP's default inaccuracy. KPIs of the MSE payouts move
+more, by up to about 2 % at portfolio level, because the objective is
+flat at its optimum. To reproduce the thesis values, use
+:data:`THESIS_POLICY` (for the parity check with the thesis code only).
+
+The premium of a solution
+-------------------------
+:func:`solve` records ``SolveResult.premium`` as ``pricing.premium_value``
+of the realised payout, with the pricing the problem was built with
+(``BuiltProblem.pricing``, which ``problem.build_problems`` sets):
+``payout_structure.evaluate(index, theta)`` in loss units, summed over
+the entities as ``evaluate.kpis`` sums them, under the problem's
+measure. That is exact, needs no solver, and equals the in-sample
+``premium`` KPI of the design problem bit for bit. ``solve(built)`` is
+enough. The optional ``pricing`` keyword is checked against it: a
+pricing that differs from the built one (``!=``: the pricing components
+are frozen dataclasses, equal when their class and fields are) raises
+:class:`~parametric_insurance_design.errors.ComponentConfigError` before
+any solver runs. Only a problem assembled by hand without a pricing
+(``BuiltProblem.pricing is None``) falls back: to ``premium_value``
+under the ``pricing`` given, unchecked since there is nothing to check
+it against, or else to the value of the premium term at the solution.
+That value is the pure premium up to rounding, but for a loaded premium
+(``pricing.CostOfCapitalLoad``) the Rockafellar-Uryasev bound at the
+solver's ``zeta``, exact only where the budget binds.
+
+Solvers that are not installed
+------------------------------
 Solvers that are not installed are not called, but they are still recorded
 as an attempt with status ``error`` and the message
 :data:`NOT_INSTALLED`, so the attempt log shows every solver the policy
 named up to the accepted one. This is how the policy copes with HiGHS
-missing: cvxpy < 1.8 ships no ``highspy`` (the CLIMADA env, ADR 0002), so
-the LP chain there is Clarabel, then SCS. If no solver of the chosen list is
-installed, :func:`solve` raises :class:`SolveError` before trying any.
+missing: cvxpy < 1.8 ships no ``highspy`` (e.g. the core's CI job on the
+lowest supported dependency versions), so the LP chain there is Clarabel,
+then SCS. If no solver of
+the chosen list is installed, :func:`solve` raises :class:`SolveError` before
+trying any.
 
 Failure handling
-    * An exception that cvxpy raises as :class:`cvxpy.error.SolverError`
-      (solver crash, unsupported problem class) is recorded as an attempt
-      with status ``solver_error`` and the exception text; the next solver
-      is tried. Every other exception propagates unchanged: it is a bug, not
-      a solver outcome.
-    * A status cvxpy reports that :class:`SolveStatus` does not list (e.g.
-      ``infeasible_or_unbounded``) is recorded as ``solver_error`` with the
-      raw status in the message.
-    * An accepted status without a finite solution is recorded as ``error``.
-    * After the last solver, the final status is the most informative status
-      among the attempts (:data:`FAILURE_PRECEDENCE`): an infeasibility or
-      unboundedness certificate beats a numerical failure. It selects the
-      error class: :class:`InfeasibleError`, :class:`UnboundedError`, or
-      :class:`SolveError` for everything else.
+----------------
+* An exception that cvxpy raises as :class:`cvxpy.error.SolverError`
+  (solver crash, unsupported problem class) is recorded as an attempt
+  with status ``solver_error`` and the exception text; the next solver
+  is tried. Every other exception propagates unchanged: it is a bug, not
+  a solver outcome.
+* A status cvxpy reports that :class:`SolveStatus` does not list (e.g.
+  ``infeasible_or_unbounded``) is recorded as ``solver_error`` with the
+  raw status in the message.
+* An accepted status without a finite solution is recorded as ``error``.
+* An OSQP solution whose polishing step failed to factorise its linear
+  system is recorded as ``solver_error`` and the next solver is tried
+  ("OSQP polishing guard", below).
+* After the last solver, the final status is the most informative status
+  among the attempts (:data:`FAILURE_PRECEDENCE`): an infeasibility or
+  unboundedness certificate beats a numerical failure. It selects the
+  error class: :class:`InfeasibleError`, :class:`UnboundedError`, or
+  :class:`SolveError` for everything else.
+
+OSQP polishing guard
+--------------------
+After converging, OSQP polishes its solution: it guesses the active
+constraints and solves a reduced, regularised KKT system. When that
+system cannot be factorised, OSQP 1.x sets ``info.status_polish`` to
+``-2`` (``OSQP_POLISH_LINSYS_ERROR``) and returns without storing the
+solution, so the returned point is OSQP's initial one (all zeros), yet
+``info.status`` stays ``solved`` and cvxpy reports ``optimal``. This
+was observed on large MSE problems (``research/notes/solver-check.md``,
+section 3). After every OSQP solve with status ``optimal`` or
+``optimal_inaccurate``, :func:`solve` therefore reads ``status_polish``
+from the OSQP result that cvxpy keeps in
+``problem.solver_stats.extra_stats.info``; if it is ``-2``, the attempt
+is recorded as ``solver_error`` with a message naming the polishing
+failure, and the next solver of the list is tried (Clarabel in both named
+policies). The other polishing outcomes (``-1``: polishing did not
+improve the point, which OSQP then keeps; ``0``: not performed; ``1``:
+success) store the solution and are accepted as before. The guard does
+nothing when ``extra_stats``, ``info`` or ``status_polish`` is missing
+(other OSQP or cvxpy versions). It applies under every policy that lists
+OSQP, :data:`THESIS_POLICY` included; it is not a policy option, so it
+leaves policy fingerprints and run ids unchanged.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -56,14 +132,17 @@ import cvxpy as cp
 import cvxpy.settings
 import numpy as np
 from cvxpy.error import SolverError
+from numpy.typing import NDArray
 
 from parametric_insurance_design.errors import (
+    ComponentConfigError,
     ConfigError,
     InfeasibleError,
     SolveError,
     UnboundedError,
 )
 from parametric_insurance_design.interfaces import (
+    Pricing,
     SolverAttempt,
     SolveResult,
     SolveStatus,
@@ -74,6 +153,8 @@ __all__ = [
     "DEFAULT_POLICY",
     "FAILURE_PRECEDENCE",
     "NOT_INSTALLED",
+    "OSQP_OPTIONS",
+    "THESIS_POLICY",
     "InfeasibleError",
     "SolveError",
     "SolveResult",
@@ -108,16 +189,27 @@ _INFEASIBLE: Final = frozenset(
 _UNBOUNDED: Final = frozenset({SolveStatus.UNBOUNDED, SolveStatus.UNBOUNDED_INACCURATE})
 
 
+OSQP_OPTIONS: Final[Mapping[str, Any]] = MappingProxyType(
+    {"eps_abs": 1e-8, "eps_rel": 1e-8, "max_iter": 100_000}
+)
+"""Default OSQP options: interior-point accuracy for MSE solutions.
+
+cvxpy's defaults are ``eps_abs = eps_rel = 1e-5`` and ``max_iter = 10000``.
+The parity MSE problems need up to about 15,000 iterations at ``1e-8`` and the
+engine's property tests up to about 25,000; ``max_iter`` leaves room above
+that. If OSQP still stops at the limit, it reports ``optimal_inaccurate``
+(accepted by default) or ``user_limit`` (Clarabel is tried next). Polishing
+stays on (cvxpy's default)."""
+
+
 def _default_options() -> Mapping[str, Mapping[str, Any]]:
-    """Default solver options: the thesis SCS iteration limit."""
-    return {"SCS": {"max_iters": 20000}}
+    """Default solver options: :data:`OSQP_OPTIONS` and the thesis SCS limit."""
+    return {"OSQP": dict(OSQP_OPTIONS), "SCS": {"max_iters": 20000}}
 
 
 @dataclass(frozen=True)
 class SolverPolicy:
     """Which solvers to try, in which order.
-
-    MAR-14 sets the default values; the fields are fixed by ADR 0002.
 
     Parameters
     ----------
@@ -129,7 +221,10 @@ class SolverPolicy:
         Whether ``optimal_inaccurate`` counts as success (thesis: yes).
     solver_options : mapping of str to mapping, optional
         Keyword arguments per solver name, e.g. ``{"SCS": {"max_iters":
-        20000}}``. Default: that SCS limit (thesis). Stored read-only.
+        20000}}``. Default: :data:`OSQP_OPTIONS` for OSQP (module docstring) and that
+        SCS limit (thesis). Passing a mapping replaces the default as a
+        whole, so a solver left out runs with cvxpy's defaults. Stored
+        read-only.
 
     Raises
     ------
@@ -137,6 +232,16 @@ class SolverPolicy:
         If a solver list is empty, repeats a name or names a solver cvxpy
         does not know, or an option key is not a cvxpy solver name. Options
         for a solver outside both lists are allowed and unused.
+
+    Notes
+    -----
+    A policy can be pickled, e.g. to send it to a worker process:
+    it is pickled as its class and fields, with the options as plain dicts,
+    and unpickling calls the class again, so the copy is validated and its
+    options are read-only again. The copy is equal to the original and has
+    the same fingerprint (``experiment.runner.policy_fingerprint``), so the
+    same run ids. :func:`copy.copy` and :func:`copy.deepcopy` work the same
+    way.
     """
 
     lp_solvers: tuple[str, ...] = ("CLARABEL", "HIGHS", "SCS")
@@ -171,6 +276,20 @@ class SolverPolicy:
         frozen = {k: MappingProxyType(dict(v)) for k, v in self.solver_options.items()}
         object.__setattr__(self, "solver_options", MappingProxyType(frozen))
 
+    def __reduce__(self) -> tuple[Any, ...]:
+        """Pickle the policy as its class and fields (class docstring, Notes).
+
+        ``MappingProxyType`` cannot be pickled, so the options go as plain
+        dicts; :func:`_rebuild_policy` freezes them again.
+        """
+        values = {
+            f.name: getattr(self, f.name) for f in dataclasses.fields(self) if f.init
+        }
+        values["solver_options"] = {
+            solver: dict(options) for solver, options in self.solver_options.items()
+        }
+        return (_rebuild_policy, (type(self), values))
+
     @property
     def accepted(self) -> frozenset[SolveStatus]:
         """Statuses that produce a :class:`SolveResult`."""
@@ -194,8 +313,22 @@ class SolverPolicy:
         return self.qp_solvers if is_qp(problem) else self.lp_solvers
 
 
+def _rebuild_policy(cls: type[SolverPolicy], values: dict[str, Any]) -> SolverPolicy:
+    """Unpickle a :class:`SolverPolicy`: call its class with its fields."""
+    return cls(**values)
+
+
 DEFAULT_POLICY: SolverPolicy = SolverPolicy()
 """The default solver policy (module docstring)."""
+
+THESIS_POLICY: SolverPolicy = SolverPolicy(solver_options={"SCS": {"max_iters": 20000}})
+"""Solver policy that reproduces the thesis solves; for the parity check only.
+
+The same solver lists and acceptance rule as :data:`DEFAULT_POLICY`, with
+OSQP at cvxpy's defaults (``eps_abs = eps_rel =
+1e-5``, ``max_iter = 10000``) as in the thesis. Its MSE solutions carry
+that inaccuracy (module docstring, "OSQP accuracy"); use
+:data:`DEFAULT_POLICY` for everything but comparing with the thesis."""
 
 
 def is_qp(problem: cp.Problem) -> bool:
@@ -224,8 +357,47 @@ def _status(raw: object) -> tuple[SolveStatus, str | None]:
         return SolveStatus.SOLVER_ERROR, f"unrecognised cvxpy status {raw!r}"
 
 
+_OSQP_POLISH_LINSYS_ERROR: Final[int] = -2
+"""OSQP 1.x ``info.status_polish`` code ``OSQP_POLISH_LINSYS_ERROR``."""
+
+_OSQP_POLISH_LINSYS_MESSAGE: Final[str] = (
+    "OSQP polishing failed to factorise its linear system (status_polish -2); "
+    "OSQP 1.x then does not store the solution, so the returned point is not "
+    "OSQP's solution"
+)
+"""Message of an OSQP attempt rejected by the polishing guard (module docstring)."""
+
+_SOLUTION_STATUSES: Final = frozenset(
+    {SolveStatus.OPTIMAL, SolveStatus.OPTIMAL_INACCURATE}
+)
+"""Statuses a policy can accept: the ones that come with a solution."""
+
+
+def _osqp_polish_failed(problem: cp.Problem) -> bool:
+    """Whether OSQP's last solve of ``problem`` hit a polish linsys error.
+
+    Reads ``problem.solver_stats.extra_stats.info.status_polish`` (module
+    docstring, "OSQP polishing guard"). Returns False when any link of that
+    chain is missing or the code is not an integer.
+    """
+    extra = getattr(problem.solver_stats, "extra_stats", None)
+    info = getattr(extra, "info", None)
+    code = getattr(info, "status_polish", None)
+    if code is None or isinstance(code, bool):
+        return False
+    try:
+        return int(code) == _OSQP_POLISH_LINSYS_ERROR
+    except (TypeError, ValueError):
+        return False
+
+
 def _try(built: BuiltProblem, solver: str, options: Mapping[str, Any]) -> SolverAttempt:
-    """Call one solver and record the outcome; only SolverError is caught."""
+    """Call one solver and record the outcome; only SolverError is caught.
+
+    An OSQP solve with a solution status whose polishing failed to factorise
+    is recorded as ``solver_error`` (module docstring, "OSQP polishing
+    guard").
+    """
     problem = built.problem
     start = time.perf_counter()
     try:
@@ -239,6 +411,17 @@ def _try(built: BuiltProblem, solver: str, options: Mapping[str, Any]) -> Solver
         )
     seconds = time.perf_counter() - start
     status, message = _status(problem.status)
+    if (
+        solver == "OSQP"
+        and status in _SOLUTION_STATUSES
+        and _osqp_polish_failed(problem)
+    ):
+        return SolverAttempt(
+            solver,
+            SolveStatus.SOLVER_ERROR,
+            seconds,
+            f"{_OSQP_POLISH_LINSYS_MESSAGE} (cvxpy status {status.value!r})",
+        )
     return SolverAttempt(solver, status, seconds, message)
 
 
@@ -280,19 +463,66 @@ def _diagnostics(built: BuiltProblem) -> dict[str, float]:
     return out
 
 
-def _result(built: BuiltProblem, attempts: list[SolverAttempt]) -> SolveResult:
+def _pricing(built: BuiltProblem, pricing: Pricing | None) -> Pricing | None:
+    """Return the pricing whose ``premium_value`` :func:`solve` records, if any.
+
+    ``built.pricing`` unless ``pricing`` is given; a given ``pricing`` must
+    equal it (module docstring, "The premium of a solution").
+
+    Raises
+    ------
+    ComponentConfigError
+        If ``pricing`` is not a :class:`Pricing`, or differs from
+        ``built.pricing``.
+    """
+    if pricing is None:
+        return built.pricing
+    if not isinstance(pricing, Pricing):
+        raise ComponentConfigError(f"pricing must be a Pricing, got {pricing!r}")
+    built_with = built.pricing
+    if built_with is not None and pricing is not built_with and pricing != built_with:
+        raise ComponentConfigError(
+            f"problem {built.spec.problem_id!r} was built with pricing "
+            f"{built_with!r}, not {pricing!r}; solve(built) records the premium "
+            "under the built pricing"
+        )
+    return pricing
+
+
+def _premium(
+    built: BuiltProblem, theta: NDArray[np.float64], pricing: Pricing | None
+) -> float:
+    """Premium of the solution in loss units (module docstring).
+
+    ``theta`` is in loss units. With a pricing (from :func:`_pricing`),
+    ``premium_value`` of the realised objective-level payout, summed over
+    the entities one vector after the other as ``evaluate`` does; otherwise
+    the premium term's value times ``scale``.
+    """
+    ctx = built.context
+    if pricing is None:
+        return _value(built.premium.expression) * ctx.scale
+    entity_payout = ctx.payout_structure.evaluate(ctx.problem.index, theta)
+    payout = np.vstack(list(entity_payout.T)).sum(axis=0)
+    return float(pricing.premium_value(payout, ctx.measure))
+
+
+def _result(
+    built: BuiltProblem, attempts: list[SolverAttempt], pricing: Pricing | None
+) -> SolveResult:
     """Package the accepted solution in loss units."""
     ctx, term = built.context, built.objective
-    theta = built.context.theta.value
-    assert theta is not None  # guarded by _has_finite_solution
+    value = built.context.theta.value
+    assert value is not None  # guarded by _has_finite_solution
+    theta = np.asarray(value, dtype=np.float64) * ctx.scale
     accepted = attempts[-1]
     return SolveResult(
         spec=built.spec,
         payout_structure=ctx.payout_structure,
-        theta=np.asarray(theta, dtype=np.float64) * ctx.scale,
+        theta=theta,
         status=accepted.status,
         objective_value=_value(term.expression) * ctx.scale**term.homogeneity,
-        premium=_value(built.premium.expression) * ctx.scale,
+        premium=_premium(built, theta, pricing),
         scale=ctx.scale,
         solver=accepted.solver,
         attempts=tuple(attempts),
@@ -321,7 +551,12 @@ def _failure(problem_id: str, attempts: list[SolverAttempt]) -> SolveError:
     return cls(message, problem_id=problem_id, status=final, attempts=attempts)
 
 
-def solve(built: BuiltProblem, policy: SolverPolicy = DEFAULT_POLICY) -> SolveResult:
+def solve(
+    built: BuiltProblem,
+    policy: SolverPolicy = DEFAULT_POLICY,
+    *,
+    pricing: Pricing | None = None,
+) -> SolveResult:
     """Solve a built design problem.
 
     Parameters
@@ -330,15 +565,23 @@ def solve(built: BuiltProblem, policy: SolverPolicy = DEFAULT_POLICY) -> SolveRe
         From ``problem.build_problems``.
     policy : SolverPolicy, optional
         Solver order and acceptance rule.
+    pricing : Pricing, optional
+        Not needed: the premium is ``premium_value`` of the solution's
+        realised payout under ``built.pricing``, the pricing
+        ``build_problems`` built it with, exact and without a solver call.
+        If given, it must equal ``built.pricing``. For a problem without a pricing
+        (``built.pricing is None``, assembled by hand) it is the pricing of
+        the premium, unchecked; without either, the premium is the premium
+        term's value (module docstring, "The premium of a solution").
 
     Returns
     -------
     SolveResult
         The accepted solution, in loss units: ``theta * scale``, the
-        objective value times ``scale ** homogeneity``, the premium times
-        ``scale``. ``solve_seconds`` is the wall time of every attempt,
-        including cvxpy's compilation. ``diagnostics`` holds the objective
-        components (loss units), the accepted solver's statistics
+        objective value times ``scale ** homogeneity``, and the premium
+        (``pricing`` above). ``solve_seconds`` is the wall time of every
+        attempt, including cvxpy's compilation. ``diagnostics`` holds the
+        objective components (loss units), the accepted solver's statistics
         (``solver_solve_time``, ``solver_setup_time``, ``solver_num_iters``
         where it reports them) and the largest constraint violation in scaled
         units (``max_constraint_violation_scaled``).
@@ -350,7 +593,11 @@ def solve(built: BuiltProblem, policy: SolverPolicy = DEFAULT_POLICY) -> SolveRe
         list is installed. :class:`InfeasibleError` and
         :class:`UnboundedError` for those final statuses. ``attempts`` holds
         every solver of the list, in order.
+    ComponentConfigError
+        If ``pricing`` is given but is not a :class:`Pricing`, or differs
+        from ``built.pricing``; raised before any solver runs.
     """
+    pricing = _pricing(built, pricing)
     problem_id = built.spec.problem_id
     solvers = policy.solvers_for(built.problem)
     installed = set(cp.installed_solvers())
@@ -378,5 +625,5 @@ def solve(built: BuiltProblem, policy: SolverPolicy = DEFAULT_POLICY) -> SolveRe
             )
         attempts.append(attempt)
         if attempt.status in policy.accepted:
-            return _result(built, attempts)
+            return _result(built, attempts, pricing)
     raise _failure(problem_id, attempts)

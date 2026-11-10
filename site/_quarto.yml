@@ -1,0 +1,240 @@
+# The project website (ADR 0003: Quarto + OJS, deployed to GitHub Pages by
+# .github/workflows/site.yml). Build it from the repository root with
+# `quarto render site`; the output goes to site/_site/ (ignored).
+#
+# The Quarto version is pinned: here (quarto-required) and in the workflow
+# (QUARTO_VERSION). Change both together: the Site workflow fails when they
+# differ.
+project:
+  type: website
+  output-dir: _site
+  # Only the pages: README.md and site/fixtures/README.md are repository
+  # docs, not site pages.
+  render:
+    - index.qmd
+    - method/*.qmd
+    - explorers/*.qmd
+    - blog/index.qmd
+    - about.qmd
+    # The API reference, written by `quartodoc build` before the render
+    # (the quartodoc section below; site/README.md, "API reference").
+    - reference/*.qmd
+  # No resources: the committed bundles under fixtures/ are test fixtures
+  # (thesis-fixture data, in sample) and stay out of the site. The
+  # pages read the explorer bundle, which the Site workflow exports into
+  # _site/bundles/explorer/ after the render (site/README.md, "Bundles").
+
+quarto-required: "1.10.19"
+
+# The API reference's sidebar, written by `quartodoc build` with the pages.
+metadata-files:
+  - reference/_sidebar.yml
+
+website:
+  title: "Parametric insurance design"
+  description: "Interactive explorers and posts on designing parametric insurance payouts."
+  favicon: favicon.svg
+  site-url: https://marc272.github.io/parametric-insurance-design/
+  repo-url: https://github.com/marc272/parametric-insurance-design
+  repo-subdir: site
+  open-graph: true
+  navbar:
+    left:
+      - href: index.qmd
+        text: Home
+      - text: Method
+        menu:
+          - href: method/index.qmd
+            text: Overview and glossary
+          - href: method/tail-risk-objective.qmd
+            text: The tail-risk objective
+          - href: method/portfolio-calibration.qmd
+            text: Portfolio calibration
+          - href: method/combination.qmd
+            text: Combining the two ideas
+      - text: Explorers
+        menu:
+          - href: explorers/alpha-beta.qmd
+            text: "Payout and exceedance explorer"
+      - href: reference/index.qmd
+        text: Reference
+      - href: blog/index.qmd
+        text: Posts
+      - href: about.qmd
+        text: About
+    tools:
+      - icon: github
+        href: https://github.com/marc272/parametric-insurance-design
+        aria-label: Source code on GitHub
+      - icon: rss
+        href: blog/index.xml
+        aria-label: RSS feed of the posts
+  page-footer:
+    left: "Site code BSD-3-Clause. Data derived from the IRIS event set, CC-BY-4.0."
+    right: "Built with [Quarto](https://quarto.org)."
+
+format:
+  html:
+    theme:
+      light: [flatly, styles/site.scss]
+      dark: [darkly, styles/site.scss]
+    # Follow the reader's system colour scheme; the navbar toggle overrides it.
+    respect-user-color-scheme: true
+    toc: false
+    smooth-scroll: false
+
+# The API reference (ADR 0004 Q4, R1). reference/build.py runs quartodoc
+# (the root pyproject.toml's `docs` group), which writes one page per entry
+# below into reference/, before `quarto render site`. The pages are generated, never
+# committed (reference/.gitignore). Only the public API (ADR 0004 Q2) is
+# listed: the curated top level (`pid.__all__`), the modules it imports, the
+# noise layer by its full name and the experiment layer. `robust` is left out
+# (not implemented, off the public API), and so is viz (ADR 0004 Q2 gives it
+# no public Python API; it is used through the `figures` and `export-site`
+# commands). Modules are listed
+# by their full names (`package: null`), so a module page never shares a name
+# with a class page (`index` with the landing page index.qmd, `eventset` with
+# EventSet.qmd on a case-insensitive file system) and shows the import path.
+quartodoc:
+  package: parametric_insurance_design
+  dir: reference
+  title: API reference
+  style: pkgdown
+  parser: numpy
+  render_interlinks: false
+  sidebar: reference/_sidebar.yml
+  sections:
+    - title: Design a payout in one call
+      desc: |
+        `pid.design` builds and solves every design problem of a scope. By
+        convention the package is imported as `pid`
+        (`import parametric_insurance_design as pid`).
+      contents:
+        - design
+        - name: parametric_insurance_design.workflow
+          package: null
+          members: []
+    - title: "Tail-risk objective"
+      desc: |
+        The objectives a payout is calibrated against: the weighted CVaR of
+        the uncovered loss, the expected uncovered loss and the mean squared
+        error.
+      contents:
+        - WeightedCVaR
+        - ExpectedUncovered
+        - MSE
+        - name: parametric_insurance_design.objectives
+          package: null
+          exclude: [WeightedCVaR, ExpectedUncovered, MSE]
+    - title: "Portfolio calibration"
+      desc: |
+        The scopes a payout is calibrated over: each asset on its own, all
+        assets jointly, or each cluster of assets jointly, and the clustering
+        that forms the clusters.
+      contents:
+        - Individual
+        - Portfolio
+        - Cluster
+        - ThesisWardClustering
+        - name: parametric_insurance_design.scopes
+          package: null
+          exclude: [Individual, Portfolio, Cluster]
+        - name: parametric_insurance_design.clustering
+          package: null
+          exclude: [ThesisWardClustering]
+    - title: "The rest of a design: payout, pricing, budget, index"
+      desc: |
+        The payout family, the premium principles, the premium budget and the
+        index of each entity.
+      contents:
+        - StepPayout
+        - PurePremium
+        - CostOfCapitalLoad
+        - Budget
+        - name: parametric_insurance_design.payout
+          package: null
+          exclude: [StepPayout]
+        - name: parametric_insurance_design.pricing
+          package: null
+          exclude: [PurePremium, CostOfCapitalLoad]
+        - name: parametric_insurance_design.constraints
+          package: null
+          exclude: [Budget]
+        - name: parametric_insurance_design.index
+          package: null
+    - title: Evaluation
+      desc: |
+        Out-of-sample KPIs and exceedance curves of solved designs, the
+        sample splits, block-bootstrap intervals and the risk measures.
+      contents:
+        - name: parametric_insurance_design.evaluate
+          package: null
+        - name: parametric_insurance_design.splits
+          package: null
+        - name: parametric_insurance_design.bootstrap
+          package: null
+        - name: parametric_insurance_design.riskmeasures
+          package: null
+    - title: Data contract and shared types
+      desc: |
+        The EventSet (the event-level loss and index data every design reads),
+        the basis that turns its rows into outcomes, and the types every
+        design problem and solve result share.
+      contents:
+        - EventSet
+        - EventSetMetadata
+        - Basis
+        - OutcomeMeasure
+        - Sample
+        - Entity
+        - ProblemSpec
+        - DesignProblem
+        - SolveResult
+        - SolveStatus
+        - ParametricInsuranceDesignError
+        - SolveError
+        - name: parametric_insurance_design.eventset
+          package: null
+          exclude: [EventSet, EventSetMetadata]
+        - name: parametric_insurance_design.basis
+          package: null
+          exclude: [Basis, OutcomeMeasure]
+        - name: parametric_insurance_design.noise
+          package: null
+    - title: The low-level path
+      desc: |
+        What `pid.design` composes: `pid.problem.build_problems`, then
+        `pid.solve.solve` for each problem, for work at the level of the
+        linear program.
+      contents:
+        - name: parametric_insurance_design.problem
+          package: null
+        - name: parametric_insurance_design.solve
+          package: null
+    - title: Extension points
+      desc: |
+        The interfaces a new objective, scope, payout or pricing implements,
+        the record schemas of the result store, and the errors.
+      contents:
+        - name: parametric_insurance_design.interfaces
+          package: null
+        - name: parametric_insurance_design.records
+          package: null
+        - name: parametric_insurance_design.errors
+          package: null
+    - title: Experiment layer
+      desc: |
+        Config, runs, the result store and sweeps, behind the
+        `parametric-insurance-design` command line. Imported by full name,
+        e.g. `parametric_insurance_design.experiment.config`.
+      contents:
+        - name: parametric_insurance_design.experiment.config
+          package: null
+        - name: parametric_insurance_design.experiment.runner
+          package: null
+        - name: parametric_insurance_design.experiment.store
+          package: null
+        - name: parametric_insurance_design.experiment.sweeps
+          package: null
+        - name: parametric_insurance_design.experiment.kfold
+          package: null

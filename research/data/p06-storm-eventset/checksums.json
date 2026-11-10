@@ -1,0 +1,62 @@
+{
+  "issue": "MAR-32 (P-06)",
+  "licence": "CC-BY-4.0",
+  "inputs": {
+    "catalogue": {
+      "file": "data/iris/transformed/IRIS_NA_10000Y_merged.txt",
+      "sha256": "7f7b224d87db743b5653ebfaa8d9ed1e9e8e7cffc1483643fc9a085f155606bd"
+    },
+    "locations": {
+      "file": "data/litpop-florida/locations/locations.yaml",
+      "sha256": "d0aed5d286a2db2472bd046a1a01a0d894ee72fbb8d4ef20b5e943b154a1cdb2"
+    },
+    "cells": {
+      "file": "data/litpop-florida/locations/cells.parquet",
+      "sha256": "7a3ac58782aa4a160d4ff804d8171abb505872a89a97a75e05a6af28c5d73ca6"
+    },
+    "storm": {
+      "status": "not downloaded: data.4tu.nl unreachable on 2026-10-27"
+    }
+  },
+  "configs": {
+    "packages/climada/configs/florida_counties_no_draws.yaml": "750480a23ddf035fc3f3f3a33711e0157c9d0d266de02d22000a5fd0e69f8e60",
+    "packages/climada/configs/florida_counties_storm.yaml": "2d24aa0970ad4df20dbde50154ee682311d2322901da1ee27aca42a784731884",
+    "packages/climada/configs/florida_counties_storm_cat_in_circle.yaml": "962516fee4a259660ba0fc3638a61c353314f753ec6610c7a7cb70fc34299cd3"
+  },
+  "builds": [
+    {
+      "eventset_dir": "data/eventsets/florida-counties-iris",
+      "role": "IRIS reference S_0, no draws",
+      "content_hash": "sha256:07eb5c9a808af45f7d05932b5d78f0cc9b1142f37aef8c9749138dc8c1f379e5",
+      "config": {
+        "file": "packages/climada/configs/florida_counties_no_draws.yaml",
+        "sha256": "750480a23ddf035fc3f3f3a33711e0157c9d0d266de02d22000a5fd0e69f8e60"
+      },
+      "files": {
+        "events.parquet": {"bytes": 140927, "sha256": "d8ff307121afd427bb9b150d696e5d6dc902e5c02285cbe998e4ea6233d3bf11"},
+        "locations.parquet": {"bytes": 5794, "sha256": "48c1b93451afa16bf3687eeba0374d5e84e15a636fd9f45c993c0792684eb832"},
+        "metadata.json": {"bytes": 6715, "sha256": "670f465984ffe40af6efc901112876f2fb764bbd1873604530d5fc4e6585a7d9"},
+        "values.parquet": {"bytes": 2059170, "sha256": "488831777b7285b0cf9075fbd3d31267a9889fce7e39fe2145423eb1522451e9"}
+      },
+      "rows": 13902,
+      "locations": 67,
+      "storms_in_catalogue": 67506,
+      "storms_within_500_km": 13902,
+      "pipeline_runtime_s": 487.9,
+      "wall_s": 494.26,
+      "peak_rss_bytes": 1572192256,
+      "expected_annual_loss_usd": 7615672695.469273
+    },
+    {
+      "eventset_dir": "data/eventsets/check-florida-counties-iris-vulnerability",
+      "role": "check only (not kept): MAR-114's configs/florida_counties.yaml rebuilt on this branch",
+      "content_hash": "sha256:d8698f7d2985409f5a5024101d7ba839d42a127a29d5456e5871ecaaa3385131",
+      "matches_mar_114": true,
+      "rows": 139020,
+      "pipeline_runtime_s": 698.1,
+      "wall_s": 715.72,
+      "peak_rss_bytes": 2020851712
+    }
+  ],
+  "machine": "owner's Apple-silicon Mac (osx-arm64), CLIMADA 6.1.0, Python 3.12; /usr/bin/time -l around pixi run"
+}

@@ -1,0 +1,9 @@
+# Written by `quartodoc build` (site/_quarto.yml, section quartodoc); never
+# committed. The build script, the folder metadata, the filter and the
+# stylesheet are source files.
+*
+!.gitignore
+!_metadata.yml
+!build.py
+!reference.css
+!reference.lua

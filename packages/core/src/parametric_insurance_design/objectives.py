@@ -1,13 +1,12 @@
-"""Objectives (SPEC §4.2, §6).
+"""Objectives: MSE, expected uncovered loss and weighted CVaR.
 
-Owner: MAR-13. The interface is
-:class:`~parametric_insurance_design.interfaces.Objective` (ADR 0002).
+The interface is :class:`~parametric_insurance_design.interfaces.Objective`.
 
 Every objective works on ``ctx.loss`` and ``ctx.payout`` (scaled, per row),
 aggregates per-row quantities into outcomes with
 ``ctx.measure.aggregate_expression`` and weights them with
 ``ctx.measure.probability``. That keeps objectives basis-agnostic: the annual
-basis (MAR-24) changes the measure, not this file.
+basis changes the measure, not this file.
 
 With outcome probabilities ``p_o``, outcome loss ``L_o`` and outcome payout
 ``pi_o`` (sums over the rows of outcome ``o``; one row per outcome on the
@@ -28,22 +27,22 @@ applied by ``problem.build_context``; objectives never see the scale.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
-from numbers import Real
 from typing import ClassVar, cast
 
 import cvxpy as cp
 import numpy as np
 from numpy.typing import NDArray
 
+from parametric_insurance_design._validation import check_real
 from parametric_insurance_design.basis import PROBABILITY_ATOL
-from parametric_insurance_design.errors import ComponentConfigError, InputMismatchError
+from parametric_insurance_design.errors import InputMismatchError
 from parametric_insurance_design.interfaces import (
     Objective,
     ObjectiveTerm,
     ProblemContext,
 )
+from parametric_insurance_design.riskmeasures import check_beta
 
 __all__ = [
     "MSE",
@@ -52,22 +51,6 @@ __all__ = [
     "WeightedCVaR",
     "rockafellar_uryasev",
 ]
-
-
-def _check_level(name: str, value: object) -> float:
-    """Return ``value`` as a float if it is a real number in ``(0, 1)``.
-
-    Raises
-    ------
-    ComponentConfigError
-        If ``value`` is not a real number strictly between 0 and 1.
-    """
-    if isinstance(value, bool) or not isinstance(value, Real):
-        raise ComponentConfigError(f"{name} must be a real number, got {value!r}")
-    level = float(value)
-    if not (math.isfinite(level) and 0.0 < level < 1.0):
-        raise ComponentConfigError(f"{name} must lie in (0, 1), got {value!r}")
-    return level
 
 
 def rockafellar_uryasev(
@@ -117,7 +100,7 @@ def rockafellar_uryasev(
         If ``values`` is not 1-D, or ``probability`` does not match it or is
         not a probability vector.
     """
-    level = _check_level("beta", beta)
+    level = check_beta(beta)
     if len(values.shape) != 1:
         raise InputMismatchError(
             f"values must be 1-D (one entry per outcome), got shape {values.shape}"
@@ -255,13 +238,9 @@ class WeightedCVaR(Objective):
 
     def __post_init__(self) -> None:
         """Validate ``alpha`` and ``beta``."""
-        alpha = self.alpha
-        if isinstance(alpha, bool) or not isinstance(alpha, Real):
-            raise ComponentConfigError(f"alpha must be a real number, got {alpha!r}")
-        if not (math.isfinite(float(alpha)) and 0.0 <= float(alpha) <= 1.0):
-            raise ComponentConfigError(f"alpha must lie in [0, 1], got {alpha!r}")
-        beta = _check_level("beta", self.beta)
-        object.__setattr__(self, "alpha", float(alpha))
+        alpha = check_real("alpha", self.alpha, low=0.0, high=1.0)
+        beta = check_beta(self.beta)
+        object.__setattr__(self, "alpha", alpha)
         object.__setattr__(self, "beta", beta)
 
     def build(self, ctx: ProblemContext) -> ObjectiveTerm:

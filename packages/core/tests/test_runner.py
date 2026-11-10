@@ -13,10 +13,9 @@ from typing import Any
 
 import numpy as np
 import pytest
-import scipy
-from numpy.lib import NumpyVersion
 
 from parametric_insurance_design import splits
+from parametric_insurance_design.basis import Basis
 from parametric_insurance_design.errors import ConfigError, InfeasibleError
 from parametric_insurance_design.eventset import EventSet, InconsistentKeysError
 from parametric_insurance_design.experiment import runner
@@ -27,6 +26,8 @@ from parametric_insurance_design.experiment.config import (
     parse_config,
 )
 from parametric_insurance_design.experiment.runner import (
+    DEGENERATE_TAIL_EXPECTED_UNCOVERED,
+    DEGENERATE_TAIL_SINGLE_OUTCOME,
     MANIFEST_FORMAT,
     PACKAGE,
     RUN_KEY_DOMAIN,
@@ -44,7 +45,7 @@ from parametric_insurance_design.experiment.runner import (
     run_single,
 )
 from parametric_insurance_design.experiment.store import ResultStore
-from parametric_insurance_design.interfaces import Sample, SolveStatus
+from parametric_insurance_design.interfaces import Pricing, Sample, SolveStatus
 from parametric_insurance_design.noise import add_noise
 from parametric_insurance_design.problem import BuiltProblem, build_problems
 from parametric_insurance_design.records import ALL_PROBLEMS, TABLES
@@ -57,15 +58,6 @@ PARITY_CONFIG = REPO_ROOT / "parity" / "configs" / "thesis.yaml"
 needs_fixture = pytest.mark.skipif(
     not (PARITY_EVENTSET.is_dir() and PARITY_CONFIG.is_file()),
     reason="the parity fixture is only in a repository checkout",
-)
-
-# Same scipy issue as test_solve.py: scipy 1.15.0/1.15.1 overflow int32
-# indices on the weighted-CVaR LPs of the fixture (ValueError from cvxpy).
-SCIPY_COO_RESHAPE_OVERFLOW = pytest.mark.xfail(
-    NumpyVersion(scipy.__version__) < "1.15.2",
-    reason="scipy < 1.15.2 overflows int32 indices in COO reshape",
-    raises=ValueError,
-    strict=True,
 )
 
 
@@ -253,6 +245,78 @@ def test_cache_hit_keeps_the_first_source_tag(toy_dir: Path, tmp_path: Path) -> 
     assert set(store.read("runs")["source"]) == {"single_run"}
 
 
+# -- the pricing reaches solve through the problem (MAR-171) ------------------
+
+LOADED = {"kind": "cost_of_capital", "rate": 0.1, "q": 0.9}
+
+
+def test_solve_gets_the_run_pricing_through_the_problem(
+    toy_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[tuple[Pricing | None, Pricing | None]] = []
+
+    def spy(
+        built: BuiltProblem,
+        policy: SolverPolicy = DEFAULT_POLICY,
+        *,
+        pricing: Pricing | None = None,
+    ) -> Any:  # noqa: ANN401
+        seen.append((built.pricing, pricing))
+        return solve(built, policy, pricing=pricing)
+
+    monkeypatch.setattr(runner, "solve", spy)
+    config = toy_config(toy_dir, tmp_path, pricing=LOADED)
+    run = single(config, "individual", "weighted_cvar")
+    outcome = run_single(run, load_input(config), ResultStore(tmp_path))
+    assert outcome.ok
+    # Each problem carries the run's pricing; the runner passes it once,
+    # through the problem, not again as the pricing keyword.
+    expected = run.to_components().pricing
+    assert seen == [(expected, None), (expected, None)]
+
+
+@pytest.mark.parametrize("pricing", [None, LOADED], ids=["pure", "loaded"])
+def test_stored_values_equal_those_of_the_explicit_pricing_call(
+    toy_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    pricing: dict[str, object] | None,
+) -> None:
+    changes: dict[str, object] = {} if pricing is None else {"pricing": pricing}
+    config = toy_config(toy_dir, tmp_path, **changes)
+    run = single(config, "individual", "weighted_cvar")
+    data = load_input(config)
+    new = ResultStore(tmp_path / "new")
+    new_outcome = run_single(run, data, new)
+
+    # The MAR-143 call: solve(problem, policy, pricing=<the run's pricing>).
+    run_pricing = run.to_components().pricing
+
+    def explicit(
+        built: BuiltProblem,
+        policy: SolverPolicy = DEFAULT_POLICY,
+        *,
+        pricing: Pricing | None = None,
+    ) -> Any:  # noqa: ANN401
+        return solve(built, policy, pricing=run_pricing)
+
+    monkeypatch.setattr(runner, "solve", explicit)
+    old = ResultStore(tmp_path / "old")
+    old_outcome = run_single(run, data, old)
+    assert new_outcome.ok
+    assert old_outcome.ok
+    assert new_outcome.run_id == old_outcome.run_id
+    run_id = new_outcome.run_id
+    columns = ["problem_id", "status", "solver", "objective_value", "premium"]
+    a, b = (s.read("runs", run_ids=[run_id]) for s in (new, old))
+    assert a[columns].equals(b[columns])  # exact float equality
+    for table in ("payouts", "kpis"):
+        x, y = (s.read(table, run_ids=[run_id]) for s in (new, old))
+        assert x.equals(y)
+    premiums = [e["premium"] for e in new.manifest(run_id)["problems"]]
+    assert premiums == [e["premium"] for e in old.manifest(run_id)["problems"]]
+
+
 # -- failures are recorded ----------------------------------------------------
 
 
@@ -293,14 +357,19 @@ def test_failing_solve_is_a_runs_row_with_its_error(
 def test_partial_failure_keeps_the_solved_problems(
     toy_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def fail_on_b(built: BuiltProblem, policy: SolverPolicy = DEFAULT_POLICY) -> Any:  # noqa: ANN401
+    def fail_on_b(
+        built: BuiltProblem,
+        policy: SolverPolicy = DEFAULT_POLICY,
+        *,
+        pricing: Pricing | None = None,
+    ) -> Any:  # noqa: ANN401
         if built.spec.problem_id == "B":
             raise InfeasibleError(
                 "no solver returned an acceptable result [CLARABEL: infeasible]",
                 problem_id="B",
                 status=SolveStatus.INFEASIBLE,
             )
-        return solve(built, policy)
+        return solve(built, policy, pricing=pricing)
 
     monkeypatch.setattr(runner, "solve", fail_on_b)
     config = toy_config(toy_dir, tmp_path)
@@ -555,6 +624,213 @@ def test_noisy_run_records_both_checksums(toy_dir: Path, tmp_path: Path) -> None
     assert params["n_copies"] == 3
 
 
+# -- degenerate tail flags (MAR-173) -------------------------------------------
+#
+# The toy EventSet has three equally likely outcomes on every basis (one event
+# a year, rates 1/3; on the event basis the "no event" outcome has
+# probability 0). P(L_o = 0) is 1/3 for asset A (ev1), 0 for asset B and for
+# the portfolio.
+
+TAIL_KEYS = ("p_zero_loss", "tail_outcomes", "degenerate_tail")
+
+
+def wcvar_config(
+    eventset_path: Path, output: Path, scope: str, beta: float, **changes: object
+) -> ExperimentConfig:
+    config = toy_config(
+        eventset_path,
+        output,
+        objectives=[{"kind": "weighted_cvar", "alpha": 0.5, "beta": beta}],
+        **changes,
+    )
+    return single(config, scope, "weighted_cvar")
+
+
+def tail_entries(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {p["problem_id"]: {k: p[k] for k in TAIL_KEYS} for p in manifest["problems"]}
+
+
+@pytest.mark.parametrize("basis", ["event_conditional", "event", "annual"])
+def test_weighted_cvar_below_the_zero_loss_mass_is_flagged(
+    toy_dir: Path, tmp_path: Path, basis: str
+) -> None:
+    # beta 0.3 <= P(L_o = 0) = 1/3 for A: an E[U] run in disguise. Not for B.
+    run = wcvar_config(toy_dir, tmp_path, "individual", 0.3, basis=basis)
+    _, manifest = execute(run, load_input(run))
+    entries = tail_entries(manifest)
+    assert entries["A"]["p_zero_loss"] == pytest.approx(1 / 3)
+    assert entries["A"]["tail_outcomes"] == pytest.approx(2.1)
+    assert entries["A"]["degenerate_tail"] == DEGENERATE_TAIL_EXPECTED_UNCOVERED
+    assert entries["B"] == {
+        "p_zero_loss": 0.0,
+        "tail_outcomes": pytest.approx(2.1),
+        "degenerate_tail": None,
+    }
+    # Recorded, not raised: the run is solved and evaluated as usual.
+    assert {p["status"] for p in manifest["problems"]} == {"optimal"}
+    assert manifest["evaluation"]["evaluated"]
+
+
+@pytest.mark.parametrize("basis", ["event_conditional", "event", "annual"])
+def test_weighted_cvar_with_a_single_tail_outcome_is_flagged(
+    toy_dir: Path, tmp_path: Path, basis: str
+) -> None:
+    # (1 - 0.7) / (1/3) = 0.9 <= 1: CVaR_0.7 is the worst outcome. On the event
+    # basis there are 4 outcomes (the "no event" one has probability 0), so
+    # (1 - beta) * n_outcomes would be 1.2; the smallest positive probability
+    # is what bounds the tail.
+    run = wcvar_config(toy_dir, tmp_path, "portfolio", 0.7, basis=basis)
+    _, manifest = execute(run, load_input(run))
+    assert tail_entries(manifest) == {
+        "portfolio": {
+            "p_zero_loss": 0.0,
+            "tail_outcomes": pytest.approx(0.9),
+            "degenerate_tail": DEGENERATE_TAIL_SINGLE_OUTCOME,
+        }
+    }
+    assert manifest["evaluation"]["evaluated"]
+
+
+def test_normal_weighted_cvar_run_has_no_flag(toy_dir: Path, tmp_path: Path) -> None:
+    # beta 0.5: above every P(L_o = 0), and 1.5 outcomes in the tail.
+    run = single(toy_config(toy_dir, tmp_path), "individual", "weighted_cvar")
+    _, manifest = execute(run, load_input(run))
+    assert tail_entries(manifest) == {
+        "A": {
+            "p_zero_loss": pytest.approx(1 / 3),
+            "tail_outcomes": pytest.approx(1.5),
+            "degenerate_tail": None,
+        },
+        "B": {
+            "p_zero_loss": 0.0,
+            "tail_outcomes": pytest.approx(1.5),
+            "degenerate_tail": None,
+        },
+    }
+
+
+@pytest.mark.parametrize("objective", ["mse", "expected_uncovered"])
+def test_other_objectives_record_only_the_zero_loss_mass(
+    toy_dir: Path, tmp_path: Path, objective: str
+) -> None:
+    run = single(toy_config(toy_dir, tmp_path), "individual", objective)
+    _, manifest = execute(run, load_input(run))
+    assert tail_entries(manifest) == {
+        "A": {
+            "p_zero_loss": pytest.approx(1 / 3),
+            "tail_outcomes": None,
+            "degenerate_tail": None,
+        },
+        "B": {"p_zero_loss": 0.0, "tail_outcomes": None, "degenerate_tail": None},
+    }
+
+
+def test_expected_uncovered_flag_wins_when_both_hold(
+    tmp_path: Path, toy_eventset: EventSet
+) -> None:
+    # Asset A without loss in ev1 and ev2: P(L_o = 0) = 2/3. At beta = 2/3 both
+    # conditions hold (tail_outcomes = 1, within rounding).
+    loss = toy_eventset.loss.copy()
+    loss[1, 0] = 0.0
+    eventset = EventSet(
+        events=toy_eventset.events,
+        locations=toy_eventset.locations,
+        index=toy_eventset.index,
+        loss=loss,
+        metadata=toy_eventset.metadata,
+    )
+    path = tmp_path / "eventset"
+    eventset.to_parquet(path)
+    run = wcvar_config(path, tmp_path, "individual", 2 / 3)
+    _, manifest = execute(run, load_input(run))
+    entry = tail_entries(manifest)["A"]
+    assert entry["p_zero_loss"] == pytest.approx(2 / 3)
+    assert entry["tail_outcomes"] == pytest.approx(1.0)
+    assert entry["degenerate_tail"] == DEGENERATE_TAIL_EXPECTED_UNCOVERED
+
+
+def test_zero_loss_mass_is_taken_on_the_calibration_sample(
+    toy_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Calibrating on years 0 and 1 only: P(L_o = 0) of A is 1/2, so beta 0.4
+    # is flagged, although it is above A's 1/3 on all three years.
+    def fake_holdout(
+        eventset: EventSet, *, train_fraction: float = 0.7
+    ) -> tuple[Sample, Sample]:
+        years = eventset.events["year"].to_numpy()
+        return (
+            Sample("train", years < 2, np.array([0, 1])),
+            Sample("test", years >= 2, np.array([2])),
+        )
+
+    monkeypatch.setattr(splits, "holdout", fake_holdout)
+    run = wcvar_config(
+        toy_dir,
+        tmp_path,
+        "individual",
+        0.4,
+        basis="annual",
+        sample={"kind": "holdout", "train_fraction": 0.6},
+    )
+    _, manifest = execute(run, load_input(run))
+    entries = tail_entries(manifest)
+    assert entries["A"] == {
+        "p_zero_loss": pytest.approx(0.5),
+        "tail_outcomes": pytest.approx(1.2),  # (1 - 0.4) * 2 training years
+        "degenerate_tail": DEGENERATE_TAIL_EXPECTED_UNCOVERED,
+    }
+    assert entries["B"]["degenerate_tail"] is None
+
+
+@pytest.mark.filterwarnings("ignore:Solution may be inaccurate")
+def test_failed_solve_still_records_the_tail(toy_dir: Path, tmp_path: Path) -> None:
+    # The values depend on the data, not on a solution.
+    policy = SolverPolicy(
+        lp_solvers=("SCS",),
+        accept_inaccurate=False,
+        solver_options={"SCS": {"max_iters": 1}},
+    )
+    run = wcvar_config(toy_dir, tmp_path, "individual", 0.3)
+    _, manifest = execute(run, load_input(run), policy=policy)
+    assert {p["status"] for p in manifest["problems"]} == {"optimal_inaccurate"}
+    assert tail_entries(manifest)["A"]["degenerate_tail"] == (
+        DEGENERATE_TAIL_EXPECTED_UNCOVERED
+    )
+
+
+def test_build_failure_records_no_tail(toy_dir: Path, tmp_path: Path) -> None:
+    config = toy_config(
+        toy_dir,
+        tmp_path,
+        scopes=[
+            {
+                "kind": "cluster",
+                "n_clusters": 3,  # the toy EventSet has 2 locations
+                "strategy": {"kind": "thesis_ward", "beta_tail": 0.5},
+            }
+        ],
+        objectives=[{"kind": "weighted_cvar", "alpha": 0.5, "beta": 0.3}],
+    )
+    (run,) = config.single_runs()
+    _, manifest = execute(run, load_input(run))
+    assert tail_entries(manifest) == {ALL_PROBLEMS: {k: None for k in TAIL_KEYS}}
+
+
+def test_tail_record_leaves_the_run_id_and_tables_alone(
+    toy_dir: Path, tmp_path: Path
+) -> None:
+    # The flag is manifest-only: the cache key does not see it, and the
+    # records are those of the same config.
+    run = wcvar_config(toy_dir, tmp_path, "individual", 0.3)
+    data = load_input(run)
+    tables, manifest = execute(run, data)
+    assert manifest["run_id"] == run_key(config_hash(run), data.checksum)
+    assert set(tables.runs["run_id"]) == {manifest["run_id"]}
+    assert "degenerate_tail" not in tables.runs["parameters"].iloc[0]
+    assert "degenerate_tail" not in json.dumps(manifest["config"])
+    assert "degenerate_tail" not in json.dumps(manifest["parameters"])
+
+
 # -- samples and config checks ------------------------------------------------
 
 
@@ -587,14 +863,23 @@ def test_holdout_calibrates_on_train_and_evaluates_both(
     assert m["parameters"]["train_fraction"] == 0.6
 
 
-def test_kfold_is_refused(
+def test_kfold_without_a_fold_is_refused(
     toy_dir: Path, tmp_path: Path, toy_eventset: EventSet
 ) -> None:
+    # MAR-22: each fold is a run of its own; single_runs() sets the fold.
     config = toy_config(toy_dir, tmp_path, sample={"kind": "kfold", "k": 3})
     run = single(config, "portfolio", "mse")
     assert run_parameters(run, toy_eventset)["k"] == 3
+    assert run_parameters(run, toy_eventset)["fold"] == 0
+    whole = toy_config(
+        toy_dir,
+        tmp_path,
+        sample={"kind": "kfold", "k": 3},
+        scopes=[{"kind": "portfolio"}],
+        objectives=[{"kind": "mse"}],
+    )
     with pytest.raises(ConfigError, match="k-fold"):
-        execute(run, load_input(config))
+        execute(whole, load_input(config))
 
 
 def test_run_single_needs_one_scope_and_objective(
@@ -660,7 +945,6 @@ def test_package_versions_list_missing_packages_as_none(
 
 
 @needs_fixture
-@SCIPY_COO_RESHAPE_OVERFLOW
 def test_thesis_run_fills_the_store_and_hits_the_cache(tmp_path: Path) -> None:
     config = load_config(PARITY_CONFIG)
     store = ResultStore(tmp_path)
@@ -712,3 +996,29 @@ def test_thesis_failing_solve_shows_up_in_runs(tmp_path: Path) -> None:
     assert row["error_type"] == "SolveError"
     assert "SCS" in row["error_message"]
     assert row["eventset_checksum"] == config.eventset.checksum
+
+
+@needs_fixture
+def test_thesis_annual_weighted_cvar_at_beta_090_is_flagged() -> None:
+    # Design review MAR-161, F4: on the annual basis P(L_o = 0) of the
+    # portfolio problem is 0.930, so weighted CVaR at beta 0.90 is an E[U] run.
+    config = load_config(PARITY_CONFIG)
+    run = next(
+        r
+        for r in config.single_runs()
+        if r.scopes[0].kind == "portfolio" and r.objectives[0].kind == "weighted_cvar"
+    )
+    (objective,) = run.objectives
+    run = run.model_copy(
+        update={
+            "basis": Basis.ANNUAL,
+            "objectives": (objective.model_copy(update={"beta": 0.9}),),
+        }
+    )
+    _, manifest = execute(run, load_input(run))
+    (entry,) = manifest["problems"]
+    assert entry["status"] == "optimal"
+    assert entry["p_zero_loss"] == pytest.approx(0.930, abs=5e-4)
+    # 0.1 x 130,000 outcomes: 10,000 years x 13 noise draws.
+    assert entry["tail_outcomes"] == pytest.approx(13000.0)
+    assert entry["degenerate_tail"] == DEGENERATE_TAIL_EXPECTED_UNCOVERED

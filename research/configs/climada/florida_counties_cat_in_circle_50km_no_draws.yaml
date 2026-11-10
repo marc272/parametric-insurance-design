@@ -1,0 +1,54 @@
+# Cat-in-a-circle radius sensitivity, 50 km (MAR-133, P-05). Index (b) of
+# the Florida-counties EventSet (configs/florida_counties_cat_in_circle.yaml,
+# MAR-26/MAR-114) at radius_km 50, on the base impact function without
+# vulnerability draws (configs/florida_counties_no_draws.yaml, MAR-32): every
+# setting is florida_counties_no_draws.yaml's except the index, the batch
+# size and the Monroe County note. The loss matrix is therefore that of the
+# no-draws build; only the index changes with the radius. Without draws the
+# result does not depend on the open question on the v_half prior (MAR-132).
+# Sibling configs: 50, 75, 100 and 150 km (radius_km <= proximity_km / 2).
+#
+#   pixi run build-eventset --config configs/florida_counties_cat_in_circle_50km_no_draws.yaml
+#
+# Paths are relative to this file; inputs and output live under the
+# ignored data/ at the repository root. Results:
+# research/notes/cat-in-circle-radius-sensitivity.md.
+catalogue: ../../../data/iris/transformed/IRIS_NA_10000Y_merged.txt
+n_years: 10000
+locations:
+  yaml: ../../../data/litpop-florida/locations/locations.yaml
+proximity_km: 500
+# batch_size does not change the data.
+batch_size: 250
+wind:
+  model: H08
+  intensity_thres: 17.5
+  max_dist_eye_km: 300
+  max_latitude: 61
+  max_dist_inland_km: null
+impact_function:
+  kind: emanuel_usa
+  impf_id: 1
+  v_thresh: 25.7
+  v_half: 74.7
+  scale: 1.0
+index:
+  kind: cat_in_circle
+  radius_km: 50
+  metric: category
+  breakpoints_kn: [64, 83, 96, 113, 137]
+  track_step_hours: 0.5
+vulnerability:
+  kind: none
+loss:
+  kind: cells
+  cells: ../../../data/litpop-florida/locations/cells.parquet
+  unit: USD (LitPop reference_year 2018)
+scenario_id: iris-present-climate
+scenario_notes:
+  - "Value unit: USD (LitPop reference_year 2018); produced capital scaled from 2014 constant USD by CLIMADA, see research/notes/d2-florida-litpop-locations.md."
+  - "Locations: Florida's 67 counties (location_id = county GEOID), each the sum of its LitPop cells and located at the cells' value-weighted centroid; the State of Florida is the single risk owner (D2, SPEC §6.6)."
+  - "Attribution: asset values from the CLIMADA data API, dataset LitPop_150arcsec_USA v3 (uuid 678e9551-32ca-40f3-9881-9bd38412c1cd), CC BY 4.0, Eberenz et al. (2020), Earth Syst. Sci. Data 12, 817-833, doi:10.5194/essd-12-817-2020, archive doi:10.3929/ethz-b-000331316; county boundaries: U.S. Census Bureau, 2025 TIGER/Line Shapefiles; hazard: IRIS (Sparks and Toumi 2024), data descriptor doi:10.1038/s41597-024-03250-y, collection doi:10.6084/m9.figshare.c.6724251.v1."
+  - "Monroe County (the Florida Keys, GEOID 12087) is in the portfolio with a known exposure gap: the LitPop_150arcsec_USA grid has no cell centred west of 81.604 deg W in the Keys, so Key West and the Lower Keys west of it carry no asset value (LitPop's land mask at 150 arcsec leaves them out; they have no cell at all, not a zero-valued one). Monroe's value (0.765e9 USD, 0.016 % of the 4.893e12 USD portfolio) and its losses are therefore understated; the gap is not filled from another source (MAR-132; owner decision on MAR-118)."
+licence: CC-BY-4.0
+output: ../../../data/eventsets/florida-counties-iris-cat-in-circle-50km

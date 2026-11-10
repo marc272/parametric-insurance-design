@@ -1,0 +1,241 @@
+{
+  "issue": "MAR-202",
+  "phases": {
+    "guard": {
+      "issue": "MAR-202",
+      "plan": "research/configs/florida/plan.yaml",
+      "package_versions": {
+        "parametric-insurance-design": "0.1.0.dev0",
+        "numpy": "2.5.4",
+        "scipy": "1.18.1",
+        "pandas": "3.1.0",
+        "pyarrow": "26.0.0",
+        "pydantic": "2.14.1",
+        "pyyaml": "6.0.3",
+        "cvxpy": "1.9.3",
+        "clarabel": "0.11.1",
+        "osqp": "1.1.3",
+        "scs": "3.3.1",
+        "highspy": "1.15.1"
+      },
+      "solver_policy": "DEFAULT_POLICY",
+      "guard_samples": 24,
+      "guard_fires": 0,
+      "guard_runs_scanned": 288,
+      "tail_records": 1656,
+      "tail_records_flagged": 0,
+      "tail_flags_by_scope": {},
+      "manifest_tail_records_equal_recomputed": 2350,
+      "phase_seconds": 38.1
+    },
+    "holdout": {
+      "issue": "MAR-202",
+      "plan": "research/configs/florida/plan.yaml",
+      "package_versions": {
+        "parametric-insurance-design": "0.1.0.dev0",
+        "numpy": "2.5.4",
+        "scipy": "1.18.1",
+        "pandas": "3.1.0",
+        "pyarrow": "26.0.0",
+        "pydantic": "2.14.1",
+        "pyyaml": "6.0.3",
+        "cvxpy": "1.9.3",
+        "clarabel": "0.11.1",
+        "osqp": "1.1.3",
+        "scs": "3.3.1",
+        "highspy": "1.15.1"
+      },
+      "solver_policy": "DEFAULT_POLICY",
+      "holdout_groups": 12,
+      "holdout_decompositions_checked": 1728,
+      "holdout_premium_splits_checked": 216,
+      "holdout_seconds": 3322.7,
+      "holdout_seconds_per_group": {
+        "cic75|pure|0.5": 1365.6,
+        "cic75|pure|1.5": 1368.5,
+        "cic75|pure|1": 1369.9,
+        "cic75|coc_r0.06|0.5": 2552.4,
+        "cic75|coc_r0.06|1.5": 1948.6,
+        "cic75|coc_r0.06|1": 1952.9
+      },
+      "phase_seconds": 3322.7
+    },
+    "kfold": {
+      "issue": "MAR-202",
+      "plan": "research/configs/florida/plan.yaml",
+      "package_versions": {
+        "parametric-insurance-design": "0.1.0.dev0",
+        "numpy": "2.5.4",
+        "scipy": "1.18.1",
+        "pandas": "3.1.0",
+        "pyarrow": "26.0.0",
+        "pydantic": "2.14.1",
+        "pyyaml": "6.0.3",
+        "cvxpy": "1.9.3",
+        "clarabel": "0.11.1",
+        "osqp": "1.1.3",
+        "scs": "3.3.1",
+        "highspy": "1.15.1"
+      },
+      "solver_policy": "DEFAULT_POLICY",
+      "kfold_k": 5,
+      "kfold_experiment_config_hashes": {
+        "a|pure|1|a": "sha256:2ace43bd99c89f7c3167d2f3b3ab667d99b88fda7611583a9b8e83e35eac9393",
+        "a|pure|1|b": "sha256:e030e975389dac912c1a2284e6fe07b21cbaa1d89c06c6acbe126ee25c16aa88",
+        "cic75|pure|1|a": "sha256:a2e2c3b6875fbca338c8d773bc1b23e85ab24d05f093d0f90613bfdae6533b9b",
+        "cic75|pure|1|b": "sha256:0e7dc2834399392b38200ba08ba3c66dde17a7e3f0fd623019ae69a94dda6be5"
+      },
+      "kfold_runs": 120,
+      "kfold_checked_against_pooled_difference": 108,
+      "kfold_decompositions_checked": 144,
+      "kfold_replaced_runs": {
+        "sha256:0e496b2db9c8e542e60f71d21e335ce611a0d9235012b488d0c18af49fd01c0a": "sha256:3db0dfb41be6b74784a8fcd76b9925f2906cc969f0b1d13e426c7687ac511ff0",
+        "sha256:4973fcdf6e3a93e2a14833679c84f359b02145ff42ea38a7e12bc18dff09f62d": "sha256:f9437ae84b0f3aaca4c539a2927d151f429ee9e414791798492c9d80a00fec0e"
+      },
+      "kfold_seconds": 237.5,
+      "phase_seconds": 237.6
+    },
+    "matched": {
+      "issue": "MAR-202",
+      "plan": "research/configs/florida/plan.yaml",
+      "package_versions": {
+        "parametric-insurance-design": "0.1.0.dev0",
+        "numpy": "2.5.4",
+        "scipy": "1.18.1",
+        "pandas": "3.1.0",
+        "pyarrow": "26.0.0",
+        "pydantic": "2.14.1",
+        "pyyaml": "6.0.3",
+        "cvxpy": "1.9.3",
+        "clarabel": "0.11.1",
+        "osqp": "1.1.3",
+        "scs": "3.3.1",
+        "highspy": "1.15.1"
+      },
+      "solver_policy": "DEFAULT_POLICY",
+      "matched_runs": 24,
+      "matched_solved_this_call": 12,
+      "matched_seconds": 3102.3,
+      "matched_solve_seconds_per_run": {
+        "f377b9ba9c07": 300.8,
+        "2303ec1bde40": 426.8,
+        "c48eac99c4d0": 493.6,
+        "0c0aceb79495": 392.5,
+        "db765138dc11": 417.8,
+        "65cb98ca2b79": 479.7,
+        "24b4b6f840d2": 463.3,
+        "39b7d7914142": 421.6,
+        "c047e0ce98af": 2499.3,
+        "76fd0a34f584": 459.0,
+        "32537ff95685": 2466.5,
+        "9e5fc9407a29": 2187.6
+      },
+      "phase_seconds": 3102.3
+    },
+    "solve": {
+      "issue": "MAR-202",
+      "plan": "research/configs/florida/plan.yaml",
+      "package_versions": {
+        "parametric-insurance-design": "0.1.0.dev0",
+        "numpy": "2.5.4",
+        "scipy": "1.18.1",
+        "pandas": "3.1.0",
+        "pyarrow": "26.0.0",
+        "pydantic": "2.14.1",
+        "pyyaml": "6.0.3",
+        "cvxpy": "1.9.3",
+        "clarabel": "0.11.1",
+        "osqp": "1.1.3",
+        "scs": "3.3.1",
+        "highspy": "1.15.1"
+      },
+      "solver_policy": "DEFAULT_POLICY",
+      "n_holdout_runs": 144,
+      "n_kfold_runs": 120,
+      "n_solved_this_call": 23,
+      "solve_seconds": 39821.3,
+      "phase_seconds": 39821.3
+    },
+    "solvercheck": {
+      "issue": "MAR-202",
+      "plan": "research/configs/florida/plan.yaml",
+      "package_versions": {
+        "parametric-insurance-design": "0.1.0.dev0",
+        "numpy": "2.5.4",
+        "scipy": "1.18.1",
+        "pandas": "3.1.0",
+        "pyarrow": "26.0.0",
+        "pydantic": "2.14.1",
+        "pyyaml": "6.0.3",
+        "cvxpy": "1.9.3",
+        "clarabel": "0.11.1",
+        "osqp": "1.1.3",
+        "scs": "3.3.1",
+        "highspy": "1.15.1"
+      },
+      "solver_policy": "DEFAULT_POLICY",
+      "solvercheck_runs": 55,
+      "solvercheck_gap_threshold": 0.001,
+      "solvercheck_not_optimal": [
+        "sha256:0e496b2db9c8e542e60f71d21e335ce611a0d9235012b488d0c18af49fd01c0a",
+        "sha256:4973fcdf6e3a93e2a14833679c84f359b02145ff42ea38a7e12bc18dff09f62d"
+      ],
+      "solvercheck_max_abs_gap_others": 9.78545252285248e-06,
+      "phase_seconds": 519.5
+    },
+    "t14": {
+      "issue": "MAR-202",
+      "plan": "research/configs/florida/plan.yaml",
+      "package_versions": {
+        "parametric-insurance-design": "0.1.0.dev0",
+        "numpy": "2.5.4",
+        "scipy": "1.18.1",
+        "pandas": "3.1.0",
+        "pyarrow": "26.0.0",
+        "pydantic": "2.14.1",
+        "pyyaml": "6.0.3",
+        "cvxpy": "1.9.3",
+        "clarabel": "0.11.1",
+        "osqp": "1.1.3",
+        "scs": "3.3.1",
+        "highspy": "1.15.1"
+      },
+      "solver_policy": "DEFAULT_POLICY",
+      "t14_issue": "MAR-203",
+      "t14_policy": {
+        "lp_solvers": [
+          "CLARABEL",
+          "HIGHS",
+          "SCS"
+        ],
+        "qp_solvers": [
+          "CLARABEL",
+          "OSQP"
+        ]
+      },
+      "t14_replaced": {
+        "sha256:0e496b2db9c8e542e60f71d21e335ce611a0d9235012b488d0c18af49fd01c0a": "sha256:3db0dfb41be6b74784a8fcd76b9925f2906cc969f0b1d13e426c7687ac511ff0",
+        "sha256:4973fcdf6e3a93e2a14833679c84f359b02145ff42ea38a7e12bc18dff09f62d": "sha256:f9437ae84b0f3aaca4c539a2927d151f429ee9e414791798492c9d80a00fec0e"
+      },
+      "phase_seconds": 350.0
+    }
+  },
+  "guard_fires": 0,
+  "committed_tables": [
+    "cluster_parts.csv",
+    "clusters.csv",
+    "contrasts.csv",
+    "contrasts_pooled.csv",
+    "contrasts_train.csv",
+    "entity_payouts.csv",
+    "grid.csv",
+    "guard.csv",
+    "guard_tail_counties.csv",
+    "guard_tails.csv",
+    "kfold_folds.csv",
+    "premium_split.csv",
+    "premiums.csv",
+    "runs.csv",
+    "solver_check.csv"
+  ]
+}

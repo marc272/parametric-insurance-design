@@ -1,0 +1,51 @@
+{
+  "issue": "MAR-22",
+  "config": "parity/configs/thesis.yaml",
+  "eventset_checksum": "sha256:404b0c3a3aefa38965ad3ace2747d308685a67e3b218cb835d45a9ab375294df",
+  "package_version": "0.1.0.dev0",
+  "solver_policy": {
+    "accept_inaccurate": true,
+    "lp_solvers": [
+      "CLARABEL",
+      "HIGHS",
+      "SCS"
+    ],
+    "qp_solvers": [
+      "OSQP",
+      "CLARABEL"
+    ],
+    "solver_options": {
+      "OSQP": {
+        "eps_abs": 1e-08,
+        "eps_rel": 1e-08,
+        "max_iter": 100000
+      },
+      "SCS": {
+        "max_iters": 20000
+      }
+    }
+  },
+  "prepared_eventset": {
+    "n_rows": 13897,
+    "n_years": 10000
+  },
+  "samples": {
+    "full": {
+      "kind": "full"
+    },
+    "holdout": {
+      "kind": "holdout",
+      "train_fraction": 0.7
+    },
+    "kfold": {
+      "kind": "kfold",
+      "k": 5
+    }
+  },
+  "runs": {
+    "full": 45,
+    "holdout": 45,
+    "kfold": 45
+  },
+  "jobs": 1
+}

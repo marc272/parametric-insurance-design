@@ -1,8 +1,21 @@
 """Figures for parametric-insurance-design.
 
 Plotting reads results from the core's result store and never re-runs an
-optimisation. This package must never import an adapter
-(``parametric_insurance_design_crc`` or ``parametric_insurance_design_climada``).
+optimisation: computation, then the store, then plotting, as strictly
+separate layers. This package must never import an adapter
+(``parametric_insurance_design_crc`` or ``parametric_insurance_design_climada``),
+nor the core's solver or problem builder.
+
+Modules: :mod:`.style` (fonts, palette, labels), :mod:`.reader` (result-store
+reader), :mod:`.figure_data` (image plus figure-data CSVs),
+:mod:`.payout_functions` (payout figures), :mod:`.kpi_figures` (KPI
+heatmaps, performance overview, exceedance curves), :mod:`.sweep_figures`
+(sweep plots, premium reallocation, trade-off and cluster figures),
+:mod:`.degenerate_tail` (the runner's degenerate-tail flags, read and
+marked in the KPI and sweep figures and the site bundles),
+:mod:`.command` (the figure set of ``parametric-insurance-design figures``),
+:mod:`.site_export` (the site bundles of ``parametric-insurance-design
+export-site``: JSON, Arrow IPC and a checksummed manifest) and :mod:`.errors`.
 """
 
 from importlib.metadata import version

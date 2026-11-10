@@ -1,106 +1,27 @@
-"""PurePremium on hand-computed payouts (MAR-13, SPEC §6.4).
+"""PurePremium (MAR-13) and CostOfCapitalLoad (MAR-27) on hand-computed
+payouts (SPEC §6.4).
 
-Context doubles as in ``test_objectives.py``: one entity, scale 1, a free
-payout per row. Rows: ``L = (0, 2, 4, 10)``, ``p = (0.4, 0.3, 0.2, 0.1)``.
+Doubles and context builder from ``_doubles.py`` (MAR-87): one entity, scale
+1, a free payout per row. Rows: ``L = (0, 2, 4, 10)``, ``p = (0.4, 0.3, 0.2,
+0.1)``.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import ClassVar, cast
-
-import cvxpy as cp
 import numpy as np
 import pytest
 from numpy.typing import ArrayLike, NDArray
 
-from parametric_insurance_design.basis import Basis, OutcomeMeasure
-from parametric_insurance_design.errors import InputMismatchError
-from parametric_insurance_design.interfaces import (
-    DesignProblem,
-    Entity,
-    PayoutStructure,
-    ProblemContext,
-    ProblemSpec,
-)
-from parametric_insurance_design.pricing import PurePremium
+from parametric_insurance_design.errors import ComponentConfigError, InputMismatchError
+from parametric_insurance_design.interfaces import ProblemContext
+from parametric_insurance_design.pricing import CostOfCapitalLoad, PurePremium
+from parametric_insurance_design.riskmeasures import var_cvar
 
-LOSS = np.array([0.0, 2.0, 4.0, 10.0])
-PROB = np.array([0.4, 0.3, 0.2, 0.1])
+from ._doubles import FreePayout, event_measure, grouped_measure, make_context
+
 PAYOUT = np.array([1.0, 1.0, 1.0, 4.0])
 # 0.4 + 0.3 + 0.2 + 0.4
 PREMIUM = 1.3
-
-
-@dataclass(frozen=True)
-class FreePayout(PayoutStructure):
-    """One parameter per row: every row's payout is free in ``[0, cap]``."""
-
-    name: ClassVar[str] = "free"
-    n: int = 4
-
-    @property
-    def n_params(self) -> int:
-        return self.n
-
-    def parameter_bounds(self) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-        edges = np.arange(self.n + 1, dtype=np.float64)
-        return edges[:-1], edges[1:]
-
-    def basis_matrix(self, index: ArrayLike) -> NDArray[np.float64]:
-        return np.eye(self.n)
-
-    def constraints(
-        self, theta: cp.Variable, cap: NDArray[np.float64]
-    ) -> tuple[cp.Constraint, ...]:
-        return (theta >= 0, theta <= np.repeat(cap[:, None], self.n, axis=1))
-
-    def evaluate(self, index: ArrayLike, theta: ArrayLike) -> NDArray[np.float64]:
-        return np.asarray(theta, dtype=np.float64).T.copy()
-
-
-@dataclass(frozen=True, eq=False)
-class GroupedMeasure(OutcomeMeasure):
-    """Rows summed into outcomes with a 0/1 matrix (stands in for MAR-24)."""
-
-    def aggregate_expression(self, expression: cp.Expression) -> cp.Expression:
-        groups = np.zeros((self.n_outcomes, self.n_rows))
-        groups[self.outcome_of_row, np.arange(self.n_rows)] = 1.0
-        return groups @ expression
-
-
-def event_measure() -> OutcomeMeasure:
-    return OutcomeMeasure.per_row(Basis.EVENT_CONDITIONAL, PROB)
-
-
-def grouped_measure() -> GroupedMeasure:
-    # Years {0, 1}, {2}, {3} and a year without rows, probability 1/4 each.
-    return GroupedMeasure(
-        basis=Basis.ANNUAL,
-        outcome_of_row=np.array([0, 0, 1, 2]),
-        probability=np.full(4, 0.25),
-    )
-
-
-def make_context(measure: OutcomeMeasure) -> ProblemContext:
-    payout = FreePayout()
-    spec = ProblemSpec("A", (Entity("A", ("A",)),))
-    index = np.arange(4, dtype=np.float64)
-    problem = DesignProblem(spec, index[:, None], LOSS[:, None])
-    theta = cp.Variable((1, payout.n_params))
-    entity_payout = cp.vstack([payout.basis_matrix(index) @ theta[0]]).T
-    return ProblemContext(
-        problem=problem,
-        payout_structure=payout,
-        measure=measure,
-        scale=1.0,
-        theta=theta,
-        entity_payout=entity_payout,
-        payout=cast(cp.Expression, cp.sum(entity_payout, axis=1)),
-        loss=LOSS,
-        entity_loss=LOSS[:, None],
-        cap=np.array([LOSS.max()]),
-    )
 
 
 def premium_at(ctx: ProblemContext, payout: ArrayLike) -> float:
@@ -112,7 +33,7 @@ def premium_at(ctx: ProblemContext, payout: ArrayLike) -> float:
 
 
 def test_premium_is_the_expected_payout() -> None:
-    ctx = make_context(event_measure())
+    ctx = make_context(FreePayout(), measure=event_measure())
     term = PurePremium().premium(ctx)
     assert term.constraints == ()
     assert term.expression.is_affine()
@@ -125,12 +46,12 @@ def test_premium_value_matches_the_expression() -> None:
         PREMIUM, rel=1e-12
     )
     assert PurePremium().premium_value(PAYOUT.tolist(), measure) == pytest.approx(
-        premium_at(make_context(measure), PAYOUT), rel=1e-12
+        premium_at(make_context(FreePayout(), measure=measure), PAYOUT), rel=1e-12
     )
 
 
 def test_premium_of_zero_payout_is_zero() -> None:
-    ctx = make_context(event_measure())
+    ctx = make_context(FreePayout(), measure=event_measure())
     assert premium_at(ctx, np.zeros(4)) == 0.0
     assert PurePremium().premium_value(np.zeros(4), ctx.measure) == 0.0
 
@@ -139,12 +60,13 @@ def test_premium_aggregates_rows_into_outcomes() -> None:
     # Outcome payouts (1 + 1, 1, 4, 0), probability 1/4 each.
     measure = grouped_measure()
     expected = (2 + 1 + 4 + 0) / 4
-    assert premium_at(make_context(measure), PAYOUT) == pytest.approx(expected)
+    ctx = make_context(FreePayout(), measure=measure)
+    assert premium_at(ctx, PAYOUT) == pytest.approx(expected)
     assert PurePremium().premium_value(PAYOUT, measure) == pytest.approx(expected)
 
 
 def test_premium_is_homogeneous_of_degree_one() -> None:
-    ctx = make_context(event_measure())
+    ctx = make_context(FreePayout(), measure=event_measure())
     assert premium_at(ctx, 3.0 * PAYOUT) == pytest.approx(3.0 * PREMIUM)
 
 
@@ -167,3 +89,174 @@ def test_premium_value_rejects_bad_payouts(
 def test_name() -> None:
     assert PurePremium.name == "pure"
     assert PurePremium() == PurePremium()
+
+
+# --- CostOfCapitalLoad (MAR-27) ----------------------------------------------
+# PAYOUT = (1, 1, 1, 4) with p = (0.4, 0.3, 0.2, 0.1): E[pi] = 1.3.
+# CVaR_q(pi) is the mean of the worst 1 - q probability mass:
+#   q = 0.5:  (0.1 * 4 + 0.4 * 1) / 0.5 = 1.6
+#   q = 0.8:  (0.1 * 4 + 0.1 * 1) / 0.2 = 2.5
+#   q = 0.95: 4 (the worst 5 % lies in the row paying 4)
+PAYOUT_CVAR = {0.5: 1.6, 0.8: 2.5, 0.95: 4.0}
+
+
+def loaded_premium_at(
+    pricing: CostOfCapitalLoad,
+    ctx: ProblemContext,
+    payout: ArrayLike,
+    zeta: float | None = None,
+) -> float:
+    """Value of the loaded premium term at ``payout`` and the auxiliary ``zeta``.
+
+    Default ``zeta``: the VaR of the outcome payouts, a minimiser of the
+    Rockafellar-Uryasev function, where the term equals the loaded premium.
+    """
+    term = pricing.premium(ctx)
+    values = np.asarray(payout, dtype=np.float64)
+    ctx.theta.value = values[None, :]
+    if zeta is None:
+        measure = ctx.measure
+        zeta, _ = var_cvar(measure.aggregate(values), measure.probability, pricing.q)
+    for variable in term.expression.variables():
+        if variable.id != ctx.theta.id:
+            variable.value = np.asarray(zeta)
+    v = term.expression.value
+    assert v is not None
+    return float(np.asarray(v))
+
+
+@pytest.mark.parametrize("q", sorted(PAYOUT_CVAR))
+@pytest.mark.parametrize("rate", [0.06, 0.1, 0.5, 1.0])
+def test_loaded_premium_matches_hand_computed_values(rate: float, q: float) -> None:
+    pricing = CostOfCapitalLoad(rate=rate, q=q)
+    expected = (1 - rate) * PREMIUM + rate * PAYOUT_CVAR[q]
+    measure = event_measure()
+    assert pricing.premium_value(PAYOUT, measure) == pytest.approx(expected, rel=1e-12)
+    ctx = make_context(FreePayout(), measure=measure)
+    # The term is the Rockafellar-Uryasev function: the loaded premium at the
+    # minimising zeta (the VaR), more at any other zeta (MAR-143).
+    assert loaded_premium_at(pricing, ctx, PAYOUT) == pytest.approx(expected, rel=1e-12)
+    for zeta in (-1.0, 0.0, 0.5, 2.0, 5.0):
+        assert loaded_premium_at(pricing, ctx, PAYOUT, zeta) >= expected - 1e-12
+
+
+def test_rate_zero_is_the_pure_premium() -> None:
+    """r = 0 reduces to the pure premium: same term, same value, bit for bit."""
+    measure = event_measure()
+    loaded = CostOfCapitalLoad(rate=0.0, q=0.99)
+    assert loaded.premium_value(PAYOUT, measure) == PurePremium().premium_value(
+        PAYOUT, measure
+    )
+    ctx = make_context(FreePayout(), measure=measure)
+    term = loaded.premium(ctx)
+    assert term.constraints == ()
+    assert term.expression.is_affine()
+    assert loaded_premium_at(loaded, ctx, PAYOUT) == premium_at(ctx, PAYOUT)
+    grouped = grouped_measure()
+    assert loaded.premium_value(PAYOUT, grouped) == PurePremium().premium_value(
+        PAYOUT, grouped
+    )
+
+
+def test_rate_one_is_the_payout_cvar() -> None:
+    measure = event_measure()
+    for q, cvar in PAYOUT_CVAR.items():
+        assert CostOfCapitalLoad(rate=1.0, q=q).premium_value(
+            PAYOUT, measure
+        ) == pytest.approx(cvar, rel=1e-12)
+
+
+def test_loaded_premium_is_convex_without_own_constraints() -> None:
+    ctx = make_context(FreePayout(), measure=event_measure())
+    term = CostOfCapitalLoad(rate=0.1, q=0.99).premium(ctx)
+    assert term.constraints == ()
+    assert term.expression.is_convex()
+    assert not term.expression.is_affine()
+    assert term.expression.is_dcp()
+
+
+def test_loaded_premium_aggregates_rows_into_outcomes() -> None:
+    # Real annual measure (MAR-24): years {0, 1}, {2}, {3} and an empty year.
+    # Outcome payouts (1 + 1, 1, 4, 0), probability 1/4 each: E = 7/4 and
+    # CVaR_0.5 = (4 + 2) / 2 = 3.
+    measure = grouped_measure()
+    pricing = CostOfCapitalLoad(rate=0.2, q=0.5)
+    expected = 0.8 * 7 / 4 + 0.2 * 3
+    assert pricing.premium_value(PAYOUT, measure) == pytest.approx(expected)
+    ctx = make_context(FreePayout(), measure=measure)
+    assert loaded_premium_at(pricing, ctx, PAYOUT) == pytest.approx(expected, rel=1e-12)
+
+
+def test_loaded_premium_lies_between_mean_and_cvar_and_is_homogeneous() -> None:
+    rng = np.random.default_rng(27)
+    measure = event_measure()
+    pure = PurePremium()
+    for _ in range(20):
+        payout = rng.uniform(0.0, 10.0, size=4)
+        rate, q = float(rng.uniform(0, 1)), float(rng.uniform(0.05, 0.95))
+        loaded = CostOfCapitalLoad(rate=rate, q=q)
+        value = loaded.premium_value(payout, measure)
+        cvar = CostOfCapitalLoad(rate=1.0, q=q).premium_value(payout, measure)
+        assert pure.premium_value(payout, measure) <= value + 1e-12
+        assert value <= cvar + 1e-12
+        assert loaded.premium_value(2.5 * payout, measure) == pytest.approx(
+            2.5 * value, rel=1e-12
+        )
+        ctx = make_context(FreePayout(), measure=measure)
+        assert loaded_premium_at(loaded, ctx, payout) == pytest.approx(
+            value, rel=1e-12, abs=1e-12
+        )
+
+
+def test_loaded_premium_value_is_none_before_a_solve() -> None:
+    ctx = make_context(FreePayout(), measure=event_measure())
+    term = CostOfCapitalLoad(rate=0.1, q=0.99).premium(ctx)
+    assert term.expression.value is None
+
+
+@pytest.mark.parametrize(
+    ("payout", "match"),
+    [
+        (np.ones(3), "shape"),
+        (np.ones((4, 1)), "shape"),
+        (np.array([1.0, np.nan, 1.0, 1.0]), "finite"),
+        (np.array([1.0, np.inf, 1.0, 1.0]), "finite"),
+    ],
+)
+def test_loaded_premium_value_rejects_bad_payouts(
+    payout: NDArray[np.float64], match: str
+) -> None:
+    for rate in (0.0, 0.1):
+        with pytest.raises(InputMismatchError, match=match):
+            CostOfCapitalLoad(rate=rate, q=0.99).premium_value(payout, event_measure())
+
+
+@pytest.mark.parametrize(
+    ("rate", "q", "match"),
+    [
+        (-0.01, 0.99, "rate must lie"),
+        (1.01, 0.99, "rate must lie"),
+        (float("nan"), 0.99, "rate must be finite"),
+        (True, 0.99, "rate must be a real number"),
+        ("0.1", 0.99, "rate must be a real number"),
+        (0.1, 0.0, "q must lie"),
+        (0.1, 1.0, "q must lie"),
+        (0.1, float("inf"), "q must be finite"),
+        (0.1, None, "q must be a real number"),
+    ],
+)
+def test_cost_of_capital_rejects_bad_parameters(
+    rate: object, q: object, match: str
+) -> None:
+    with pytest.raises(ComponentConfigError, match=match):
+        CostOfCapitalLoad(rate=rate, q=q)  # type: ignore[arg-type]
+
+
+def test_cost_of_capital_name_and_coercion() -> None:
+    assert CostOfCapitalLoad.name == "cost_of_capital"
+    pricing = CostOfCapitalLoad(rate=0, q=np.float64(0.99))
+    assert isinstance(pricing.rate, float)
+    assert pricing.rate == 0.0
+    assert isinstance(pricing.q, float)
+    assert pricing.q == 0.99
+    assert CostOfCapitalLoad(0.1, 0.99) == CostOfCapitalLoad(rate=0.1, q=0.99)

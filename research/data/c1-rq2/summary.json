@@ -1,0 +1,286 @@
+{
+  "holdout_f12": {
+    "issue": "MAR-158",
+    "base_config": "research/configs/c1/c1_main.yaml",
+    "designs": [
+      "mse",
+      "eu",
+      "wcvar@0.99",
+      "wcvar@0.995"
+    ],
+    "f12_designs": [
+      "mse",
+      "eu",
+      "wcvar@0.99"
+    ],
+    "eval_betas": [
+      0.95,
+      0.99,
+      0.995
+    ],
+    "alt_policy": {
+      "lp_solvers": [
+        "HIGHS",
+        "CLARABEL",
+        "SCS"
+      ],
+      "qp_solvers": [
+        "CLARABEL",
+        "OSQP"
+      ]
+    },
+    "package_versions": {
+      "parametric-insurance-design": "0.1.0.dev0",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.0",
+      "pyarrow": "26.0.0",
+      "pydantic": "2.14.1",
+      "pyyaml": "6.0.3",
+      "cvxpy": "1.9.3",
+      "clarabel": "0.11.1",
+      "osqp": "1.1.3",
+      "scs": "3.3.1",
+      "highspy": "1.15.1"
+    },
+    "holdout_groups": 24,
+    "holdout_rows_checked_against_c1": 1728,
+    "holdout_seconds": 649.9,
+    "holdout_seconds_per_group": {
+      "f12|cic50|pure|1|mse": 10.0,
+      "f12|cic50|pure|1|eu": 10.1,
+      "f12|cic50|pure|1|wcvar@0.99": 9.3,
+      "f12|cic50|coc_r0.06|1|eu": 20.0,
+      "f12|cic50|coc_r0.06|1|wcvar@0.99": 18.5,
+      "f12|vuln|pure|1|mse": 18.8,
+      "f12|vuln|pure|1|eu": 19.0,
+      "f12|vuln|pure|1|wcvar@0.99": 20.3,
+      "f12|cic50|coc_r0.06|1|mse": 133.5,
+      "f12|vuln|coc_r0.06|1|eu": 25.6,
+      "f12|vuln|coc_r0.06|1|wcvar@0.99": 28.5,
+      "f12|cic50_vuln|pure|1|mse": 58.3,
+      "f12|vuln|coc_r0.06|1|mse": 185.6,
+      "f12|cic50_vuln|pure|1|eu": 70.5,
+      "f12|cic50_vuln|pure|1|wcvar@0.99": 85.8,
+      "f12|cic50_vuln|coc_r0.06|1|mse": 137.2,
+      "f12|cic50_vuln|coc_r0.06|1|eu": 134.9,
+      "f12|vuln_basins_null|pure|1|mse": 15.3,
+      "f12|vuln_basins_null|pure|1|eu": 19.1,
+      "f12|vuln_basins_null|pure|1|wcvar@0.99": 24.2,
+      "f12|cic50_vuln|coc_r0.06|1|wcvar@0.99": 143.2,
+      "f12|vuln_basins_null|coc_r0.06|1|mse": 35.4,
+      "f12|vuln_basins_null|coc_r0.06|1|eu": 23.0,
+      "f12|vuln_basins_null|coc_r0.06|1|wcvar@0.99": 22.5
+    }
+  },
+  "holdout_main": {
+    "issue": "MAR-158",
+    "base_config": "research/configs/c1/c1_main.yaml",
+    "designs": [
+      "mse",
+      "eu",
+      "wcvar@0.99",
+      "wcvar@0.995"
+    ],
+    "f12_designs": [
+      "mse",
+      "eu",
+      "wcvar@0.99"
+    ],
+    "eval_betas": [
+      0.95,
+      0.99,
+      0.995
+    ],
+    "alt_policy": {
+      "lp_solvers": [
+        "HIGHS",
+        "CLARABEL",
+        "SCS"
+      ],
+      "qp_solvers": [
+        "CLARABEL",
+        "OSQP"
+      ]
+    },
+    "package_versions": {
+      "parametric-insurance-design": "0.1.0.dev0",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.0",
+      "pyarrow": "26.0.0",
+      "pydantic": "2.14.1",
+      "pyyaml": "6.0.3",
+      "cvxpy": "1.9.3",
+      "clarabel": "0.11.1",
+      "osqp": "1.1.3",
+      "scs": "3.3.1",
+      "highspy": "1.15.1"
+    },
+    "holdout_groups": 36,
+    "holdout_rows_checked_against_c1": 2592,
+    "holdout_seconds": 204.3,
+    "holdout_seconds_per_group": {
+      "main|thesis|pure|0.5|eu": 10.8,
+      "main|thesis|pure|0.5|wcvar@0.995": 11.5,
+      "main|thesis|pure|0.5|wcvar@0.99": 11.8,
+      "main|thesis|pure|0.5|mse": 14.7,
+      "main|thesis|pure|1|mse": 14.5,
+      "main|thesis|pure|1|eu": 15.0,
+      "main|thesis|pure|1|wcvar@0.99": 17.0,
+      "main|thesis|pure|1|wcvar@0.995": 16.1,
+      "main|thesis|pure|1.5|mse": 9.9,
+      "main|thesis|pure|1.5|eu": 10.4,
+      "main|thesis|pure|1.5|wcvar@0.99": 11.2,
+      "main|thesis|pure|1.5|wcvar@0.995": 11.5,
+      "main|thesis|coc_r0.06|0.5|eu": 18.3,
+      "main|thesis|coc_r0.06|0.5|wcvar@0.99": 20.0,
+      "main|thesis|coc_r0.06|0.5|wcvar@0.995": 20.7,
+      "main|thesis|coc_r0.06|0.5|mse": 36.5,
+      "main|thesis|coc_r0.06|1|wcvar@0.99": 26.4,
+      "main|thesis|coc_r0.06|1|eu": 29.9,
+      "main|thesis|coc_r0.06|1|wcvar@0.995": 26.1,
+      "main|thesis|coc_r0.06|1|mse": 45.0,
+      "main|thesis|coc_r0.06|1.5|eu": 19.3,
+      "main|thesis|coc_r0.06|1.5|wcvar@0.99": 20.2,
+      "main|thesis|coc_r0.06|1.5|wcvar@0.995": 21.3,
+      "main|thesis|coc_r0.06|1.5|mse": 39.1,
+      "main|thesis|coc_r0.10|0.5|eu": 17.7,
+      "main|thesis|coc_r0.10|0.5|wcvar@0.99": 18.2,
+      "main|thesis|coc_r0.10|0.5|mse": 35.5,
+      "main|thesis|coc_r0.10|0.5|wcvar@0.995": 18.3,
+      "main|thesis|coc_r0.10|1|eu": 29.1,
+      "main|thesis|coc_r0.10|1|wcvar@0.99": 28.3,
+      "main|thesis|coc_r0.10|1|wcvar@0.995": 26.9,
+      "main|thesis|coc_r0.10|1|mse": 42.3,
+      "main|thesis|coc_r0.10|1.5|eu": 19.1,
+      "main|thesis|coc_r0.10|1.5|wcvar@0.99": 18.5,
+      "main|thesis|coc_r0.10|1.5|wcvar@0.995": 18.1,
+      "main|thesis|coc_r0.10|1.5|mse": 31.4
+    }
+  },
+  "kfold": {
+    "issue": "MAR-158",
+    "base_config": "research/configs/c1/c1_main.yaml",
+    "designs": [
+      "mse",
+      "eu",
+      "wcvar@0.99",
+      "wcvar@0.995"
+    ],
+    "f12_designs": [
+      "mse",
+      "eu",
+      "wcvar@0.99"
+    ],
+    "eval_betas": [
+      0.95,
+      0.99,
+      0.995
+    ],
+    "alt_policy": {
+      "lp_solvers": [
+        "HIGHS",
+        "CLARABEL",
+        "SCS"
+      ],
+      "qp_solvers": [
+        "CLARABEL",
+        "OSQP"
+      ]
+    },
+    "package_versions": {
+      "parametric-insurance-design": "0.1.0.dev0",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.0",
+      "pyarrow": "26.0.0",
+      "pydantic": "2.14.1",
+      "pyyaml": "6.0.3",
+      "cvxpy": "1.9.3",
+      "clarabel": "0.11.1",
+      "osqp": "1.1.3",
+      "scs": "3.3.1",
+      "highspy": "1.15.1"
+    },
+    "kfold_k": 5,
+    "kfold_pricings": [
+      "pure",
+      "coc_r0.06"
+    ],
+    "kfold_runs": 120,
+    "kfold_solved_this_call": 0,
+    "kfold_experiment_config_hashes": {
+      "pure|a": "sha256:dcfc293da2862fcf0e990c90aeb7c4f94504906bd1fd29a909b497898a920915",
+      "pure|b": "sha256:0b9b994ccdda0d3ba8b9be7f92f087aa4593efee610dd73ee8794efe5c451b52",
+      "coc_r0.06|a": "sha256:e365ed1566e43f9b81f9421de35e3484d1d2ed15c07da31da6e7eabe082eb43d",
+      "coc_r0.06|b": "sha256:46bdbdf8095fd029f919c475dcb34ca09c18d03cada0a2f382dc852dc97dcc31"
+    },
+    "kfold_seconds": {
+      "solve_phase": 0.0,
+      "total": 27.2
+    },
+    "kfold_solve_seconds_per_run": {}
+  },
+  "ranges": {
+    "issue": "MAR-158",
+    "base_config": "research/configs/c1/c1_main.yaml",
+    "designs": [
+      "mse",
+      "eu",
+      "wcvar@0.99",
+      "wcvar@0.995"
+    ],
+    "f12_designs": [
+      "mse",
+      "eu",
+      "wcvar@0.99"
+    ],
+    "eval_betas": [
+      0.95,
+      0.99,
+      0.995
+    ],
+    "alt_policy": {
+      "lp_solvers": [
+        "HIGHS",
+        "CLARABEL",
+        "SCS"
+      ],
+      "qp_solvers": [
+        "CLARABEL",
+        "OSQP"
+      ]
+    },
+    "package_versions": {
+      "parametric-insurance-design": "0.1.0.dev0",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.0",
+      "pyarrow": "26.0.0",
+      "pydantic": "2.14.1",
+      "pyyaml": "6.0.3",
+      "cvxpy": "1.9.3",
+      "clarabel": "0.11.1",
+      "osqp": "1.1.3",
+      "scs": "3.3.1",
+      "highspy": "1.15.1"
+    },
+    "ranges_groups": 8,
+    "ranges_rel_tol": 1e-05,
+    "ranges_not_optimal": 6,
+    "ranges_seconds": 136.2
+  },
+  "committed_tables": {
+    "runs.csv": "every design: config hash (or derived id), run id, statuses",
+    "scope_kpis.csv": "portfolio KPIs: train, test (holdout), pooled (k-fold)",
+    "scope_paired.csv": "scope differences: test and pooled with paired CIs",
+    "scope_kpis_f12.csv": "the same on the provisional F-12 EventSets (C1 s. 6)",
+    "scope_paired_f12.csv": "scope differences on the F-12 EventSets",
+    "entity_payouts.csv": "expected payout and loss per payout entity",
+    "premiums.csv": "aggregate premium vs the sum of the problem premiums",
+    "kfold_folds.csv": "per-fold portfolio KPIs of the k-fold runs",
+    "payout_ranges.csv": "per-entity payout range over the optimal set (F8)",
+    "full tables": "results/c1-rq2/full/ (not committed), by c1_rq2.py"
+  }
+}

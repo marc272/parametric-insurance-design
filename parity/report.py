@@ -1,20 +1,37 @@
-r"""Parity report generator: writes ``parity/REPORT.md`` (MAR-67, SPEC §7 F-06).
+r"""Parity report generator: writes ``parity/REPORT.md`` (SPEC §7 F-06).
 
 The report renders a :class:`harness.ParityResult`:
 
-1. **Setup**: the store, the golden files and their SHA256, the
-   tolerances and the matching settings, so every number has its setup.
+1. **Setup**: the store, the golden files and their SHA256 (as read and,
+   for gzipped files, decompressed, checked against ``parity/manifest.json``),
+   the tolerances and the matching settings, so every number has its setup.
 2. **Overview**: one row per comparison (KPI values, objective values,
    payout vectors, cluster assignments) with golden, compared, matching and
    mismatching counts.
 3. **Summary by comparison group**: one row per golden ``Source`` x
    ``Approach`` x ``Method``.
-4. **Findings**: every gap the harness found, with a stable id and an
-   explanation column. The parity gate (MAR-18) needs every gap explained.
-5. **Payout differences** (informational): the largest payout-level
+4. **Matched runs**: the store run of every golden record, with its
+   ``config_hash``.
+5. **Objective values** (only with a golden objective table): every golden
+   objective, how it was obtained, ours and the relative error.
+6. **Findings**: every gap the harness found, with a stable id and an
+   explanation column. The parity gate needs every gap explained.
+7. **Payout differences** (informational): the largest payout-level
    differences. They are reported, not asserted, because LP optima can be
    non-unique.
-6. **Store runs without a golden record** (informational).
+8. **Store runs without a golden record** (informational).
+9. Appendices (optional): Markdown files appended verbatim (``--appendix``),
+   e.g. an analysis that explains findings.
+
+Compact form (``--compact``)
+    For comparisons with many findings (the sweeps), so that the report
+    stays under the repository's 500 kB file limit: the findings are grouped
+    by record (one heading per record instead of the record columns), their
+    explanation cell names an explanation (``E1``, ``E2``, ...) whose text is
+    listed once in an *Explanations* section, and the objective table lists
+    only the values that do not match (the summary by group gives the largest
+    error of every group). The counts, the overview and every finding id are
+    the same as in the full form.
 
 Explanations
     The report is generated, so explanations live in a separate YAML file
@@ -27,9 +44,11 @@ Explanations
 Command line, from the repository root::
 
     uv run python parity/report.py --store results/thesis \
+        --objectives parity/golden/golden_objectives.csv \
         --explanations parity/explanations.yaml --out parity/REPORT.md
 
 ``--check`` exits with status 1 if a finding has no explanation.
+``parity/README.md`` gives the command that writes the committed report.
 """
 
 from __future__ import annotations
@@ -49,13 +68,17 @@ import yaml
 from harness import (
     GOLDEN_DIR,
     KPIS_FILE,
+    MANIFEST,
+    PORTFOLIO_SUBJECT,
     RESULTS_FILE,
     Finding,
     FindingKind,
     HarnessError,
     ParityResult,
+    check_manifest,
     compare,
     load_golden,
+    load_simulation_golden,
 )
 
 from parametric_insurance_design.experiment.store import ResultStore
@@ -65,6 +88,8 @@ __all__ = [
     "PENDING",
     "ExplanationsError",
     "explanation_for",
+    "explanation_key_for",
+    "joint_entity_kpi",
     "load_explanations",
     "main",
     "overview",
@@ -129,6 +154,32 @@ def load_explanations(path: str | Path) -> dict[str, str]:
     return {str(k): str(v).strip() for k, v in data.items()}
 
 
+def explanation_key_for(
+    finding: Finding, explanations: Mapping[str, str]
+) -> str | None:
+    """Return the key (id or glob) of a finding's explanation, if any.
+
+    Parameters
+    ----------
+    finding : harness.Finding
+        The finding.
+    explanations : mapping of str to str
+        Finding id or path glob to text (module docstring).
+
+    Returns
+    -------
+    str or None
+        The finding's id if it is a key, else the first glob that matches its
+        path, else None.
+    """
+    if finding.id in explanations:
+        return finding.id
+    for pattern in explanations:
+        if _GLOB_CHARS & set(pattern) and fnmatch.fnmatchcase(finding.path, pattern):
+            return pattern
+    return None
+
+
 def explanation_for(finding: Finding, explanations: Mapping[str, str]) -> str | None:
     """Return the explanation of a finding, if any.
 
@@ -145,12 +196,8 @@ def explanation_for(finding: Finding, explanations: Mapping[str, str]) -> str | 
         The text for the finding's id, else for the first glob that matches
         its path, else None.
     """
-    if finding.id in explanations:
-        return explanations[finding.id]
-    for pattern, text in explanations.items():
-        if _GLOB_CHARS & set(pattern) and fnmatch.fnmatchcase(finding.path, pattern):
-            return text
-    return None
+    key = explanation_key_for(finding, explanations)
+    return None if key is None else explanations[key]
 
 
 # --------------------------------------------------------------------------
@@ -203,6 +250,24 @@ def _count(rows: Sequence[Row], *statuses: str) -> int:
     return sum(r["status"] in statuses for r in rows)
 
 
+INDIVIDUAL_APPROACH: Final[str] = "individual_optimization"
+
+GATED_KPIS: Final[str] = "KPI values: gated"
+"""Overview row of the KPIs the gate judges (gate criteria, 2026-10-27)."""
+UNGATED_KPIS: Final[str] = "KPI values: reported, not gated"
+"""Overview row of the entity-level KPIs of joint scopes (not gated)."""
+
+
+def joint_entity_kpi(approach: str, subject: str) -> bool:
+    """Whether a KPI is entity level in a joint (cluster or portfolio) scope.
+
+    By the owner's gate criteria (2026-10-27) such KPIs are
+    reported, not gated, at non-unique optima, when the thesis-payout check
+    backs them (the evidence rule of ``run_default_parity.py`` checks that).
+    """
+    return approach != INDIVIDUAL_APPROACH and subject != PORTFOLIO_SUBJECT
+
+
 def overview(result: ParityResult) -> pd.DataFrame:
     """Return one row per comparison: counts and the largest error.
 
@@ -218,25 +283,31 @@ def overview(result: ParityResult) -> pd.DataFrame:
         ``mismatch``, ``not_compared``, ``max_error`` and ``rule``. For payout
         vectors, ``match`` counts the vectors compared, ``mismatch`` those
         with another shape or other bin edges, and ``max_error`` is the
-        largest level difference over the largest golden level.
+        largest level difference over the largest golden level. The KPI
+        values are split after their total row into :data:`GATED_KPIS`
+        (portfolio level, and entity level in the individual scope) and
+        :data:`UNGATED_KPIS` (entity level in the joint scopes,
+        :func:`joint_entity_kpi`).
     """
     tol = result.tolerances
+    kpi_rule = f"relative error <= {tol.kpi_rtol:g} (atol {tol.kpi_atol:g})"
+    kpi_rows = _rows(result.kpis)
+    ungated = [r for r in kpi_rows if joint_entity_kpi(r["approach"], r["subject"])]
+    gated = [r for r in kpi_rows if not joint_entity_kpi(r["approach"], r["subject"])]
     out: list[Row] = []
     for name, frame, rule in (
-        (
-            "KPI values",
-            result.kpis,
-            f"relative error <= {tol.kpi_rtol:g} (atol {tol.kpi_atol:g})",
-        ),
+        ("KPI values", kpi_rows, kpi_rule),
+        (GATED_KPIS, gated, kpi_rule),
+        (UNGATED_KPIS, ungated, kpi_rule + ", reported only"),
         (
             "Objective values",
-            result.objectives,
+            _rows(result.objectives),
             f"relative error <= {tol.objective_rtol:g} (atol {tol.objective_atol:g})"
             if result.objectives_available
             else "not in the golden data",
         ),
     ):
-        rows = _rows(frame)
+        rows = frame
         compared = [r for r in rows if r["status"] != "missing"]
         out.append(
             {
@@ -372,7 +443,31 @@ def summary_by_group(
 # --------------------------------------------------------------------------
 
 
-def _setup(result: ParityResult) -> str:
+def _content_lines(result: ParityResult, manifest: str | Path | None) -> list[str]:
+    """Return setup lines: decompressed-content SHA256 and the manifest check."""
+    content = dict(result.golden_content)
+    if not content:
+        return []
+    checks = {} if manifest is None else check_manifest(content, manifest)
+    where = "" if manifest is None else Path(manifest).name
+    lines = ["- Golden content (SHA256 of the decompressed CSV):"]
+    for name, digest in content.items():
+        status = checks.get(name)
+        if status is None:
+            suffix = ""
+        elif status == "not in the manifest":
+            suffix = f" (not in `{where}`)"
+        else:
+            suffix = f" ({status} `{where}`)"
+        lines.append(f"  - `{name}`: `{digest}`{suffix}")
+    return lines
+
+
+def _setup(
+    result: ParityResult,
+    manifest: str | Path | None = None,
+    setup_notes: Sequence[str] = (),
+) -> str:
     tol = result.tolerances
     fixed = result.fixed_parameters
     sources = result.sources
@@ -387,6 +482,16 @@ def _setup(result: ParityResult) -> str:
         matching += ", and " + ", ".join(
             f"`{k}` = {json.dumps(v)}" for k, v in fixed.items()
         )
+    baseline = result.baseline_parameters
+    matching += (
+        ". A record of a simulation sweep also names its `noise_level`, or its "
+        "`n_assets` and asset subset (`locations`, the run's prepared "
+        "locations), which the run must have"
+    )
+    if baseline:
+        matching += "; a record that names neither needs the baseline " + ", ".join(
+            f"`{k}` = {json.dumps(v)}" for k, v in baseline.items()
+        )
     matching += ". " + (
         "The `source` tag must agree."
         if result.strict_source
@@ -397,10 +502,12 @@ def _setup(result: ParityResult) -> str:
         "## Setup",
         "",
         f"- Result store: `{result.store_root}`, {result.n_store_runs} committed "
-        f"runs, {result.n_store_runs - len(result.unmatched_runs)} of them matched "
+        + ("runs of the sweeps compared" if result.restricted else "runs")
+        + f", {result.n_store_runs - len(result.unmatched_runs)} of them matched "
         "by a golden record.",
         "- Golden files (SHA256 of the files as read):",
         *(f"  - `{name}`: `{digest}`" for name, digest in result.golden_files.items()),
+        *_content_lines(result, manifest),
         "- Golden records compared: "
         + ("all sources." if sources is None else ", ".join(sources) + "."),
         matching,
@@ -418,6 +525,7 @@ def _setup(result: ParityResult) -> str:
         "reported, not asserted (LP optima can be non-unique). Bin edges must "
         f"agree within {tol.edge_atol:g}.",
         "- Cluster assignments: the map from cluster id to members must be equal.",
+        *(f"- {note.strip()}" for note in setup_notes if note.strip()),
     ]
     return "\n".join(lines)
 
@@ -444,6 +552,19 @@ def _overview_md(result: ParityResult, explanations: Mapping[str, str]) -> str:
         "No findings."
         if n == 0
         else f"{n} findings, {explained} of them explained, {n - explained} not yet."
+    )
+    ungated = sum(
+        f.kind is FindingKind.KPI and joint_entity_kpi(f.key.approach, f.subject)
+        for f in result.findings
+    )
+    verdict += (
+        f" {ungated} of the findings are entity-level KPIs in a joint scope "
+        f"(*{UNGATED_KPIS}*): by the owner's gate criteria (2026-10-27) they "
+        "are reported, not gated, where the thesis-payout check backs "
+        "them (an explanation that claims an alternative optimum must have that "
+        "verdict for its record); the gate judges objectives, portfolio-level "
+        "KPIs, the entity-level KPIs of the individual scope (*"
+        f"{GATED_KPIS}*), payout bin edges and cluster assignments."
     )
     header = (
         "Comparison",
@@ -518,6 +639,232 @@ def _summary_md(result: ParityResult, explanations: Mapping[str, str]) -> str:
             _table(header, rows),
         ]
     )
+
+
+def _matched_runs_md(result: ParityResult, findings_only: bool = False) -> str:
+    lines = [
+        "## Matched runs",
+        "",
+        "The store run each golden record was compared with. A run's "
+        "`config_hash` identifies its configuration; its `run_id` "
+        "adds the input checksum, package version and solver policy.",
+        "",
+    ]
+    rows = _rows(result.matched_runs)
+    if not rows:
+        lines.append("No golden records were compared.")
+        return "\n".join(lines)
+    if findings_only:
+        cited = {(f.key.label(), f.key.parameter_text()) for f in result.findings}
+        listed = [
+            r
+            for r in rows
+            if int(r["candidates"]) != 1
+            or int(r["failed"])
+            or (
+                "/".join((r["approach"], r["method"], r["source"], r["parameters"])),
+                r["parameters"],
+            )
+            in cited
+        ]
+        lines += [
+            f"Only the {len(listed)} of {len(rows)} records with a finding, a "
+            "failed problem or not exactly one matched run are listed (the "
+            "full table would exceed the file-size limit); the sweep manifest "
+            "named in the setup (in the result store) lists the `config_hash` and "
+            "`run_id` of every sweep point.",
+            "",
+        ]
+        rows = listed
+        if not rows:
+            return "\n".join(lines)
+    table = [
+        (
+            f"{r['approach']} / {r['method']} / {r['source']}",
+            r["parameters"],
+            f"`{r['config_hash']}`" if r["config_hash"] else "",
+            f"`{str(r['run_id'])[:19]}…`" if r["run_id"] else "",
+            r["run_source"],
+            f"{int(r['problems']) - int(r['failed'])} / {int(r['problems'])}",
+            "" if int(r["candidates"]) == 1 else f"{int(r['candidates'])} runs match",
+        )
+        for r in rows
+    ]
+    header = (
+        "Record",
+        "Parameters",
+        "config_hash",
+        "run_id",
+        "Run source",
+        "Problems solved",
+        "Note",
+    )
+    lines.append(_table(header, table))
+    return "\n".join(lines)
+
+
+def _objectives_md(result: ParityResult, compact: bool = False) -> str:
+    lines = ["## Objective values", ""]
+    if not result.objectives_available:
+        lines.append("No golden objective table was given; nothing compared.")
+        return "\n".join(lines)
+    rows = _rows(result.objectives)
+    lines += [
+        "One row per golden design problem. *Derivation*: how the golden value "
+        "was obtained (`a_golden_kpis`: from the golden KPI row named in "
+        "*KPI source*; `b_thesis_code`: recomputed with the thesis code); "
+        "see `golden/golden_objectives.json`. Ours is `runs.objective_value` "
+        "in loss units.",
+        "",
+    ]
+    if not rows:
+        lines.append("No golden objective values for the records compared.")
+        return "\n".join(lines)
+    if compact:
+        listed = [r for r in rows if r["status"] != "match"]
+        lines.append(
+            f"Compact form: the {len(rows) - len(listed)} of {len(rows)} golden "
+            "objective values that match are not listed (the summary by "
+            "comparison group gives the largest relative error of each group)."
+        )
+        if not listed:
+            return "\n".join(lines)
+        lines.append("")
+        rows = listed
+    table = [
+        (
+            f"{r['approach']} / {r['method']} / {r['source']}",
+            r["parameters"],
+            r["problem_id"],
+            r["derivation"],
+            r["kpi_source"],
+            _num(r["golden"]),
+            _num(r["ours"]),
+            _sci(r["rel_error"]),
+            r["status"],
+        )
+        for r in rows
+    ]
+    header = (
+        "Record",
+        "Parameters",
+        "Problem",
+        "Derivation",
+        "KPI source",
+        "Golden",
+        "Ours",
+        "Rel. error",
+        "Status",
+    )
+    lines.append(_table(header, table))
+    return "\n".join(lines)
+
+
+def _num(value: object) -> str:
+    """Return a value with 10 significant digits; empty if undefined."""
+    if not isinstance(value, int | float) or math.isnan(value):
+        return ""
+    return f"{value:.10g}"
+
+
+def explanation_labels(
+    result: ParityResult, explanations: Mapping[str, str]
+) -> dict[str, str]:
+    """Label the explanations the findings use: ``E1``, ``E2``, ... in file order.
+
+    Parameters
+    ----------
+    result : harness.ParityResult
+        The comparison.
+    explanations : mapping of str to str
+        Finding id or path glob to text.
+
+    Returns
+    -------
+    dict of str to str
+        Explanation key to label, for the keys at least one finding uses.
+    """
+    used = {explanation_key_for(f, explanations) for f in result.findings}
+    keys = [k for k in explanations if k in used]
+    return {key: f"E{i}" for i, key in enumerate(keys, start=1)}
+
+
+def _findings_compact_md(result: ParityResult, explanations: Mapping[str, str]) -> str:
+    labels = explanation_labels(result, explanations)
+    lines = [
+        "## Findings",
+        "",
+        "Every gap between the golden data and the store, grouped by golden "
+        "record. Explain each one in the explanations file, by id or by a glob "
+        "over its path (`kind/approach/method/source/parameters/subject/item`), "
+        "and regenerate the report. *Explanation* names the text in the "
+        "*Explanations* section below.",
+    ]
+    if not result.findings:
+        lines += ["", "None."]
+        return "\n".join(lines)
+    header = (
+        "ID",
+        "Kind",
+        "Subject / item",
+        "Golden",
+        "Ours",
+        "Rel. error",
+        "Detail",
+        "Explanation",
+    )
+    by_record: dict[tuple[str, str], list[Finding]] = defaultdict(list)
+    for f in result.findings:
+        by_record[(f.key.label(), f.key.parameter_text())].append(f)
+    for findings in by_record.values():
+        key = findings[0].key
+        lines += [
+            "",
+            f"### {key.approach} / {key.method} / {key.source}: "
+            f"{key.parameter_text() or 'no parameters'}",
+            "",
+        ]
+        rows = []
+        for f in findings:
+            label = labels.get(explanation_key_for(f, explanations) or "")
+            rows.append(
+                (
+                    f"`{f.id}`",
+                    f.kind.value,
+                    " / ".join(x for x in (f.subject, f.item) if x),
+                    f.golden,
+                    f.ours,
+                    _sci(f.rel_error),
+                    f.detail,
+                    label or PENDING,
+                )
+            )
+        lines.append(_table(header, rows))
+    return "\n".join(lines)
+
+
+def _explanations_md(result: ParityResult, explanations: Mapping[str, str]) -> str:
+    labels = explanation_labels(result, explanations)
+    counts: dict[str, int] = defaultdict(int)
+    for f in result.findings:
+        key = explanation_key_for(f, explanations)
+        if key is not None:
+            counts[key] += 1
+    lines = [
+        "## Explanations",
+        "",
+        "The explanations the findings above use, from the explanations file "
+        "(key: a finding id or a glob over the finding path).",
+    ]
+    if not labels:
+        lines += ["", "None."]
+        return "\n".join(lines)
+    for key, label in labels.items():
+        lines += [
+            "",
+            f"**{label}** (`{key}`, {counts[key]} findings): {explanations[key]}",
+        ]
+    return "\n".join(lines)
 
 
 def _findings_md(result: ParityResult, explanations: Mapping[str, str]) -> str:
@@ -625,6 +972,12 @@ def render(
     explanations: Mapping[str, str] | None = None,
     title: str = "Parity report",
     notes: str | None = None,
+    appendices: Sequence[str] = (),
+    manifest: str | Path | None = MANIFEST,
+    setup_notes: Sequence[str] = (),
+    compact: bool = False,
+    sections: Sequence[str] = (),
+    matched_findings_only: bool = False,
 ) -> str:
     """Render the parity report as Markdown.
 
@@ -638,6 +991,24 @@ def render(
         The top heading.
     notes : str, optional
         Free text placed under the title (e.g. how the store was produced).
+    appendices : sequence of str, optional
+        Markdown texts appended at the end, in order (e.g. an analysis that
+        the explanations cite).
+    manifest : str or pathlib.Path or None, default ``parity/manifest.json``
+        Manifest to check the golden content SHA256 against; None to skip.
+    setup_notes : sequence of str, optional
+        Extra bullet points for the setup section (e.g. the solver policy).
+    compact : bool, default False
+        The compact form (module docstring): findings grouped by record with
+        explanation labels, an *Explanations* section, and only the
+        objective values that do not match.
+    sections : sequence of str, optional
+        Markdown sections placed after the summary by comparison group (e.g.
+        the index of the per-sweep reports).
+    matched_findings_only : bool, default False
+        List only the matched runs of records with a finding, a failed
+        problem or not exactly one match (the asset-count sweep has 1,521
+        records).
 
     Returns
     -------
@@ -649,22 +1020,33 @@ def render(
     parts = [
         f"# {title}",
         "",
-        "<!-- Generated by parity/report.py (MAR-67). Do not edit by hand: put "
+        "<!-- Generated by parity/report.py. Do not edit by hand: put "
         "explanations in the explanations file and regenerate. -->",
         "",
         "Parity of the new engine with the thesis golden tables (SPEC §7 F-06, "
-        "gate MAR-18). Every gap is listed under *Findings* and needs an "
+        "the parity gate). Every gap is listed under *Findings* and needs an "
         "explanation.",
     ]
     if notes:
         parts += ["", notes.strip()]
     for section in (
-        _setup(result),
+        _setup(result, manifest, setup_notes),
         _overview_md(result, explanations),
         _summary_md(result, explanations),
-        _findings_md(result, explanations),
+        *(s.strip() for s in sections if s.strip()),
+        _matched_runs_md(result, matched_findings_only),
+        _objectives_md(result, compact),
+        *(
+            (
+                _findings_compact_md(result, explanations),
+                _explanations_md(result, explanations),
+            )
+            if compact
+            else (_findings_md(result, explanations),)
+        ),
         _payouts_md(result),
         _unmatched_md(result),
+        *(a.strip() for a in appendices if a.strip()),
     ):
         parts += ["", section]
     return "\n".join(parts) + "\n"
@@ -677,6 +1059,12 @@ def write_report(
     explanations: Mapping[str, str] | None = None,
     title: str = "Parity report",
     notes: str | None = None,
+    appendices: Sequence[str] = (),
+    manifest: str | Path | None = MANIFEST,
+    setup_notes: Sequence[str] = (),
+    compact: bool = False,
+    sections: Sequence[str] = (),
+    matched_findings_only: bool = False,
 ) -> Path:
     """Render the report and write it to ``path``.
 
@@ -692,6 +1080,18 @@ def write_report(
         As for :func:`render`.
     notes : str, optional
         As for :func:`render`.
+    appendices : sequence of str, optional
+        As for :func:`render`.
+    manifest : str or pathlib.Path or None, default ``parity/manifest.json``
+        As for :func:`render`.
+    setup_notes : sequence of str, optional
+        As for :func:`render`.
+    compact : bool, default False
+        As for :func:`render`.
+    sections : sequence of str, optional
+        As for :func:`render`.
+    matched_findings_only : bool, default False
+        As for :func:`render`.
 
     Returns
     -------
@@ -699,8 +1099,20 @@ def write_report(
         The file written.
     """
     out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(
-        render(result, explanations=explanations, title=title, notes=notes),
+        render(
+            result,
+            explanations=explanations,
+            title=title,
+            notes=notes,
+            appendices=appendices,
+            manifest=manifest,
+            setup_notes=setup_notes,
+            compact=compact,
+            sections=sections,
+            matched_findings_only=matched_findings_only,
+        ),
         encoding="utf-8",
     )
     return out
@@ -723,6 +1135,14 @@ def _fixed(items: Sequence[str]) -> dict[str, object]:
         except json.JSONDecodeError:
             fixed[name] = raw
     return fixed
+
+
+def _read_text(parser: argparse.ArgumentParser, path: str) -> str:
+    """Read a text file given on the command line, or exit with an error."""
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except OSError as exc:
+        parser.error(f"cannot read {path}: {exc}")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -773,7 +1193,49 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--strict-source", action="store_true", help="require runs.source to agree"
     )
+    parser.add_argument(
+        "--simulation-golden",
+        metavar="DIR",
+        help="also read the regenerated simulation-sweep tables in DIR "
+        "(golden/simulation_sweeps)",
+    )
+    parser.add_argument(
+        "--baseline",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="value of noise_level or n_assets a run must have when a golden "
+        "record leaves it empty (JSON value)",
+    )
     parser.add_argument("--notes", help="text placed under the report title")
+    parser.add_argument(
+        "--notes-file", help="file whose text is placed under the report title"
+    )
+    parser.add_argument(
+        "--appendix",
+        action="append",
+        default=[],
+        metavar="FILE",
+        help="Markdown file appended to the report (repeatable)",
+    )
+    parser.add_argument(
+        "--setup-note",
+        action="append",
+        default=[],
+        metavar="TEXT",
+        help="extra bullet point for the setup section (repeatable)",
+    )
+    parser.add_argument(
+        "--manifest",
+        default=str(MANIFEST),
+        help="manifest to check the golden content SHA256 against",
+    )
+    parser.add_argument(
+        "--compact",
+        action="store_true",
+        help="compact form: findings grouped by record, explanations listed "
+        "once, only the objective values that do not match",
+    )
     parser.add_argument(
         "--check",
         action="store_true",
@@ -786,9 +1248,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error(f"--store {store_dir} is not a directory")
     try:
         fixed = _fixed(args.fixed)
+        baseline = _fixed(args.baseline)
     except ValueError as exc:
         parser.error(str(exc))
+    notes = args.notes
+    if args.notes_file:
+        notes = "\n\n".join(
+            x for x in (notes, _read_text(parser, args.notes_file)) if x
+        )
+    appendices = [_read_text(parser, path) for path in args.appendix]
     golden = load_golden(args.results, args.kpis, args.objectives)
+    if args.simulation_golden:
+        golden = golden.merge(load_simulation_golden(args.simulation_golden))
     explanations = load_explanations(args.explanations) if args.explanations else {}
     result = compare(
         golden,
@@ -796,8 +1267,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         fixed_parameters=fixed,
         strict_source=args.strict_source,
         sources=args.sources,
+        baseline_parameters=baseline,
     )
-    out = write_report(result, args.out, explanations=explanations, notes=args.notes)
+    out = write_report(
+        result,
+        args.out,
+        explanations=explanations,
+        notes=notes,
+        appendices=appendices,
+        manifest=args.manifest,
+        setup_notes=args.setup_note,
+        compact=args.compact,
+    )
     unexplained = [
         f for f in result.findings if explanation_for(f, explanations) is None
     ]

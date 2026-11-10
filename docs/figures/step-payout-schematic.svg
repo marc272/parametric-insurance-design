@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 350" width="680" height="350" role="img" aria-labelledby="title desc">
+<title id="title">Schematic: a step payout on a hazard index, with its attachment, limit and cap, and the uncovered loss of one event</title>
+<desc id="desc">The payout is zero below the attachment, has one non-decreasing level per bin between the attachment and the limit, keeps the last level above the limit, and never exceeds the cap, the largest loss. Each dot is the loss of a simulated event at its index value. Where the loss is above the payout, the difference is the uncovered loss. Schematic, not data.</desc>
+<style>
+  svg { color: #737d87; font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  .s { fill: currentColor; font-size: 12px; font-weight: 500; }
+  .ttl { fill: currentColor; font-size: 15px; font-weight: 700; }
+  .note { fill: currentColor; font-size: 12px; font-style: italic; }
+  .ln { stroke: currentColor; stroke-width: 1.5; fill: none; }
+  .thin { stroke: currentColor; stroke-width: 1; fill: none; }
+  .dash { stroke: currentColor; stroke-width: 1.2; fill: none; stroke-dasharray: 5 4; }
+  .dot { stroke: currentColor; stroke-width: 1.2; fill: none; stroke-dasharray: 2 3; }
+  .loss { fill: currentColor; fill-opacity: 0.75; stroke: none; }
+  .acc { stroke: #3b82f6; stroke-width: 3; fill: none; stroke-linejoin: round; }
+  .warm { stroke: #d4631c; stroke-width: 2; fill: none; }
+  .warmdot { fill: #d4631c; stroke: none; }
+  .warmt { fill: #d4631c; font-size: 13px; font-weight: 600; }
+</style>
+<defs>
+  <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+  </marker>
+  <marker id="warr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#d4631c"/>
+  </marker>
+</defs>
+<text class="ttl" x="8" y="20">A step payout on a hazard index</text>
+<text class="note" x="672" y="20" text-anchor="end">Schematic, not data</text>
+<!-- axes -->
+<line class="ln" x1="70" y1="270" x2="625" y2="270" marker-end="url(#arr)"/>
+<line class="ln" x1="70" y1="270" x2="70" y2="38" marker-end="url(#arr)"/>
+<text class="s" x="34" y="160" text-anchor="middle" transform="rotate(-90 34 160)">payout and loss of an event</text>
+<text class="s" x="622" y="306" text-anchor="end">hazard index at the asset (e.g. peak wind)</text>
+<!-- cap: the largest loss -->
+<line class="dot" x1="70" y1="60" x2="610" y2="60"/>
+<text class="s" x="78" y="54">cap: the largest loss</text>
+<!-- attachment and limit -->
+<line class="dash" x1="200" y1="270" x2="200" y2="72"/>
+<line class="dash" x1="530" y1="270" x2="530" y2="72"/>
+<text class="s" x="200" y="288" text-anchor="middle">attachment</text>
+<text class="s" x="530" y="288" text-anchor="middle">limit</text>
+<!-- bin edges -->
+<line class="thin" x1="255" y1="270" x2="255" y2="276"/>
+<line class="thin" x1="310" y1="270" x2="310" y2="276"/>
+<line class="thin" x1="365" y1="270" x2="365" y2="276"/>
+<line class="thin" x1="420" y1="270" x2="420" y2="276"/>
+<line class="thin" x1="475" y1="270" x2="475" y2="276"/>
+<!-- losses of simulated events -->
+<circle class="loss" cx="110" cy="270" r="3.5"/>
+<circle class="loss" cx="135" cy="270" r="3.5"/>
+<circle class="loss" cx="160" cy="270" r="3.5"/>
+<circle class="loss" cx="185" cy="267" r="3.5"/>
+<circle class="loss" cx="212" cy="260" r="3.5"/>
+<circle class="loss" cx="230" cy="240" r="3.5"/>
+<circle class="loss" cx="245" cy="258" r="3.5"/>
+<circle class="loss" cx="270" cy="230" r="3.5"/>
+<circle class="loss" cx="290" cy="245" r="3.5"/>
+<circle class="loss" cx="300" cy="210" r="3.5"/>
+<circle class="loss" cx="325" cy="215" r="3.5"/>
+<circle class="loss" cx="340" cy="180" r="3.5"/>
+<circle class="loss" cx="355" cy="200" r="3.5"/>
+<circle class="loss" cx="375" cy="170" r="3.5"/>
+<circle class="loss" cx="400" cy="185" r="3.5"/>
+<circle class="loss" cx="410" cy="140" r="3.5"/>
+<circle class="loss" cx="430" cy="150" r="3.5"/>
+<circle class="loss" cx="450" cy="105" r="3.5"/>
+<circle class="loss" cx="465" cy="135" r="3.5"/>
+<circle class="loss" cx="490" cy="90" r="3.5"/>
+<circle class="loss" cx="505" cy="120" r="3.5"/>
+<circle class="loss" cx="520" cy="70" r="3.5"/>
+<circle class="loss" cx="545" cy="85" r="3.5"/>
+<circle class="loss" cx="565" cy="60" r="3.5"/>
+<circle class="loss" cx="590" cy="75" r="3.5"/>
+<!-- the step payout -->
+<polyline class="acc" points="70,270 200,270 200,250 255,250 255,225 310,225 310,190 365,190 365,155 420,155 420,120 475,120 475,95 530,95 605,95"/>
+<!-- one event's uncovered loss -->
+<circle class="warmdot" cx="385" cy="110" r="4.5"/>
+<line class="warm" x1="385" y1="153" x2="385" y2="116" marker-start="url(#warr)" marker-end="url(#warr)"/>
+<text class="warmt" x="377" y="137" text-anchor="end">uncovered loss (L − π)⁺</text>
+<text class="s" x="78" y="240">pays 0 below</text>
+<text class="s" x="78" y="255">the attachment</text>
+<!-- legend -->
+<circle class="loss" cx="78" cy="331" r="3.5"/>
+<text class="s" x="88" y="335">loss L of a simulated event</text>
+<line class="acc" x1="262" y1="331" x2="290" y2="331"/>
+<text class="s" x="298" y="335">payout π: one level per bin, non-decreasing, chosen by the optimiser</text>
+</svg>

@@ -1,9 +1,11 @@
-"""Tests for the thesis Ward clustering (MAR-12).
+"""Tests for the thesis Ward clustering (MAR-12, MAR-172).
 
 Thesis parity on the Miami fixture is in ``parity/tests/test_clustering_parity.py``.
 """
 
 from __future__ import annotations
+
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -15,12 +17,24 @@ from parametric_insurance_design.clustering import (
     FEATURE_NAMES,
     LINKAGE_METHODS,
     ClusteringStrategy,
+    DegenerateTailError,
     ThesisWardClustering,
     _weighted_quantile,
     _zscore,
 )
-from parametric_insurance_design.errors import ComponentConfigError, InputMismatchError
+from parametric_insurance_design.errors import (
+    ComponentConfigError,
+    InputMismatchError,
+    ParametricInsuranceDesignError,
+)
 from parametric_insurance_design.eventset import EventSet
+from parametric_insurance_design.experiment.config import load_config
+from parametric_insurance_design.experiment.runner import prepare_eventset
+from parametric_insurance_design.scopes import Cluster
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+PARITY_EVENTSET = REPO_ROOT / "parity" / "tests" / "data" / "thesis_eventset"
+PARITY_CONFIG = REPO_ROOT / "parity" / "configs" / "thesis.yaml"
 
 
 def make_eventset(
@@ -199,6 +213,163 @@ def test_features_reject_an_empty_eventset(toy_eventset: EventSet) -> None:
 
 
 # --------------------------------------------------------------------------
+# Degenerate tail (MAR-172, review F9)
+# --------------------------------------------------------------------------
+
+
+def zero_loss_eventset(base: EventSet, rates: list[float]) -> EventSet:
+    """Four rows, two locations; only the last row has a portfolio loss.
+
+    The rates are binary fractions summing to 1, so the cumulative
+    probabilities, and hence the quantiles, are exact.
+    """
+    index = np.array([[5.0, 6.0], [10.0, 12.0], [15.0, 14.0], [40.0, 50.0]])
+    loss = np.array([[0.0, 0.0], [0.0, 0.0], [0.0, 0.0], [4.0, 6.0]])
+    return make_eventset(base, index, loss, [100.0, 50.0], rates=np.array(rates))
+
+
+@pytest.mark.parametrize(
+    ("rates", "beta_tail", "share"),
+    [
+        # Zero-loss probability 0.75: equal to beta_tail (VaR_0.75 = 0) ...
+        ([0.25, 0.25, 0.25, 0.25], 0.75, "75.0000%"),
+        # ... and above it.
+        ([0.25, 0.25, 0.25, 0.25], 0.5, "75.0000%"),
+        # By probability, not by row count: 3 of 4 rows (75 %) but 87.5 %.
+        ([0.25, 0.25, 0.375, 0.125], 0.8, "87.5000%"),
+    ],
+)
+def test_degenerate_tail_raises(
+    toy_eventset: EventSet, rates: list[float], beta_tail: float, share: str
+) -> None:
+    es = zero_loss_eventset(toy_eventset, rates)
+    strategy = ThesisWardClustering(beta_tail=beta_tail)
+    with pytest.raises(DegenerateTailError) as info:
+        strategy.features(es)
+    message = str(info.value)
+    assert f"{share} of the row probability has zero portfolio loss" in message
+    assert f"beta_tail={beta_tail:g}" in message
+    assert "choose a beta_tail above that share" in message
+    with pytest.raises(DegenerateTailError):
+        strategy.assign(es, 2)
+
+
+@pytest.mark.parametrize(
+    ("rates", "beta_tail"),
+    [
+        # Zero-loss probability 0.75, just below beta_tail.
+        ([0.25, 0.25, 0.25, 0.25], 0.8),
+        # 3 of 4 rows (75 % >= 0.75) have no loss, but only 37.5 % of the mass.
+        ([0.125, 0.125, 0.125, 0.625], 0.75),
+    ],
+)
+def test_tail_below_the_zero_loss_mass_is_the_loss_rows(
+    toy_eventset: EventSet, rates: list[float], beta_tail: float
+) -> None:
+    es = zero_loss_eventset(toy_eventset, rates)
+    features = ThesisWardClustering(beta_tail=beta_tail).features(es)
+    # The tail is the last row only (portfolio loss 10).
+    np.testing.assert_allclose(
+        features["tail_share"], [4 / (10 + 1e-12), 6 / (10 + 1e-12)], rtol=1e-14
+    )
+
+
+def test_all_zero_loss_is_a_degenerate_tail(toy_eventset: EventSet) -> None:
+    es = make_eventset(
+        toy_eventset,
+        np.array(toy_eventset.index),
+        np.zeros_like(np.array(toy_eventset.loss)),
+        [100.0, 50.0],
+    )
+    with pytest.raises(DegenerateTailError, match="every row has zero portfolio loss"):
+        ThesisWardClustering(beta_tail=0.5).features(es)
+
+
+def test_degenerate_tail_error_is_a_library_input_error() -> None:
+    assert issubclass(DegenerateTailError, InputMismatchError)
+    assert issubclass(DegenerateTailError, ParametricInsuranceDesignError)
+    assert issubclass(DegenerateTailError, ValueError)
+
+
+def test_cluster_scope_raises_on_a_degenerate_tail(toy_eventset: EventSet) -> None:
+    # The runner records a library error raised while building as a failed run.
+    es = zero_loss_eventset(toy_eventset, [0.25, 0.25, 0.25, 0.25])
+    scope = Cluster(strategy=ThesisWardClustering(beta_tail=0.75), n_clusters=2)
+    with pytest.raises(DegenerateTailError):
+        scope.partition(es)
+
+
+def test_single_location_needs_no_tail(toy_eventset: EventSet) -> None:
+    # One location is one cluster without features, even with no tail.
+    es = make_eventset(
+        toy_eventset, np.array([[1.0], [2.0]]), np.array([[0.0], [0.0]]), [10.0]
+    )
+    assert dict(ThesisWardClustering(0.9).assign(es, 1)) == {"L0": 1}
+
+
+# --------------------------------------------------------------------------
+# The thesis data are not degenerate (MAR-172): today's assignment, pinned
+# --------------------------------------------------------------------------
+
+THESIS_ASSIGNMENTS: dict[int, str] = {
+    1: "111111111",
+    2: "112222222",
+    3: "112222333",
+    4: "112222343",
+    5: "112222354",
+    6: "112233465",
+    7: "112234576",
+    8: "112345687",
+    9: "123456789",
+}
+"""Labels of A1 .. A9 by ``n_clusters``, on the thesis data (beta_tail 0.9).
+
+Equal to ``parity/golden/thesis_cluster_assignments.json`` (thesis code).
+"""
+
+
+@pytest.fixture(scope="module")
+def thesis_data() -> EventSet:
+    """The parity fixture prepared as the parity config does (noise, filter)."""
+    config = load_config(PARITY_CONFIG)
+    return prepare_eventset(config, EventSet.from_parquet(PARITY_EVENTSET))
+
+
+@pytest.mark.skipif(
+    not PARITY_EVENTSET.is_dir(),
+    reason="the parity fixture is only in a repository checkout",
+)
+def test_thesis_assignment_is_pinned(thesis_data: EventSet) -> None:
+    p = thesis_data.rates / thesis_data.rates.sum()
+    loss_port = np.ascontiguousarray(thesis_data.loss).sum(axis=1)
+    # 32 % of the probability has zero portfolio loss, far below beta_tail 0.9.
+    assert float(p[loss_port == 0.0].sum()) == pytest.approx(0.3209, abs=1e-4)
+    strategy = ThesisWardClustering(beta_tail=0.9)
+    assert thesis_data.location_ids == [f"A{k}" for k in range(1, 10)]
+    for k, expected in THESIS_ASSIGNMENTS.items():
+        labels = strategy.assign(thesis_data, k)
+        assert "".join(str(labels[a]) for a in thesis_data.location_ids) == expected
+
+
+@pytest.mark.skipif(
+    not PARITY_EVENTSET.is_dir(),
+    reason="the parity fixture is only in a repository checkout",
+)
+def test_unfiltered_thesis_fixture_is_not_degenerate() -> None:
+    # The fixture without noise or filter: 88 % of the probability has zero
+    # portfolio loss, just below beta_tail 0.9, so VaR_0.9 > 0.
+    raw = EventSet.from_parquet(PARITY_EVENTSET)
+    p = raw.rates / raw.rates.sum()
+    loss_port = np.ascontiguousarray(raw.loss).sum(axis=1)
+    assert float(p[loss_port == 0.0].sum()) == pytest.approx(0.8801, abs=1e-4)
+    features = ThesisWardClustering(beta_tail=0.9).features(raw)
+    assert features.notna().all().all()
+    # At a beta_tail below the zero-loss share the tail would be every row.
+    with pytest.raises(DegenerateTailError, match=r"88\.0\d{3}% of the row"):
+        ThesisWardClustering(beta_tail=0.85).features(raw)
+
+
+# --------------------------------------------------------------------------
 # Assignment
 # --------------------------------------------------------------------------
 
@@ -267,8 +438,12 @@ def test_single_location_is_one_cluster(toy_eventset: EventSet) -> None:
 
 
 def test_single_location_has_no_dependence_features(toy_eventset: EventSet) -> None:
+    # One zero-loss row of three, below beta_tail: VaR_0.5 = 1, tail rows 2-3.
     es = make_eventset(
-        toy_eventset, np.array([[1.0], [2.0]]), np.array([[0.0], [1.0]]), [10.0]
+        toy_eventset,
+        np.array([[1.0], [2.0], [3.0]]),
+        np.array([[0.0], [1.0], [3.0]]),
+        [10.0],
     )
     features = ThesisWardClustering(0.5).features(es)
     assert features.loc["L0", "sigma_L"] == 0.0

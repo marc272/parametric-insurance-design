@@ -131,7 +131,7 @@ def test_metadata_records_climada_iris_and_impact_function(result: Any) -> None:
     assert meta.n_years == N_YEARS
     assert meta.hazard.name == "IRIS"
     assert meta.hazard.release == "synthetic test catalogue"
-    assert meta.licence == "CC0-1.0"
+    assert meta.licence == "CC-BY-4.0"
     assert meta.loss.currency == "USD"
     assert meta.index.unit == "m/s"
     assert f"CLIMADA {version('climada')}" in meta.index.definition

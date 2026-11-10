@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import re
 from abc import ABC
 from typing import cast
 
@@ -76,12 +77,10 @@ MODULES = [
 def test_every_module_imports_and_documents_itself(name: str) -> None:
     module = importlib.import_module(f"parametric_insurance_design.{name}")
     assert module.__doc__
-    assert "Owner" in module.__doc__ or name in {
-        "eventset",
-        "interfaces",
-        "errors",
-        "records",
-    }
+    # A one-line summary first; behaviour, not the program's history (no
+    # Linear issue IDs). Ownership lives in ADR 0002's ownership map.
+    assert module.__doc__.splitlines()[0].strip()
+    assert not re.search(r"\bMAR-\d+", module.__doc__)
 
 
 # (implementation, interface) pairs fixed by ADR 0002.
@@ -238,7 +237,12 @@ def test_full_sample_enforces_year_convention(toy_eventset: EventSet) -> None:
         )
     # Sample.full keeps its own guard: bypass validation to reach it.
     object.__setattr__(toy_eventset, "events", events)
-    with pytest.raises(errors.InputMismatchError, match="year convention"):
+    with pytest.raises(
+        errors.InputMismatchError,
+        match=re.escape(
+            "event years must lie in [0, 3) (years are 0-based), got [1, 3]"
+        ),
+    ):
         Sample.full(toy_eventset)
 
 

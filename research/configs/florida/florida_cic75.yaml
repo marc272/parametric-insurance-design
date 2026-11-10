@@ -1,0 +1,63 @@
+# Florida rerun (MAR-202, C1-F1), index (b): cat-in-a-circle at 75 km around
+# the county's value-weighted centroid (Saffir-Simpson category 0-5; MAR-145,
+# radius chosen in MAR-118 Q6). Same loss matrix as index (a): LitPop cells,
+# 10 vulnerability draws per storm from the recentred prior (MAR-160).
+#
+# As florida_main.yaml, except, as for C1's cat-in-a-circle F-12 runs
+# (research/scripts/c1_checkpoint.py, CAT_PAYOUT): no threshold filter, and a
+# step payout with one bin per category, breakpoints 0, 1, ..., 6
+# (packages/climada/README.md). below_attachment "zero" as decided for the
+# rerun; with the attachment at category 0 no index lies below it, so it
+# changes nothing here but the config hash.
+#
+# Paths are relative to this file.
+schema_version: 1
+name: florida-cic75
+description: MAR-202 Florida rerun, index (b) 75 km, annual basis, holdout, bootstrap.
+eventset:
+  path: ../../../results/florida/eventsets/florida-counties-iris-cat-in-circle-75km-vulnerability
+  checksum: sha256:70af1fed283d9e800574c01181ff4e3ee40dee7ab227a890145d7744e8328a60
+portfolio:
+  location_ids: null
+noise: null
+threshold: null
+basis: annual
+sample:
+  kind: holdout
+  train_fraction: 0.7
+payout:
+  kind: step
+  attachment: 0.0
+  limit: 6.0
+  n_bins: 6
+  breakpoints: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+  below_attachment: zero
+scopes:
+- kind: individual
+- kind: cluster
+  n_clusters: 3
+  strategy:
+    kind: thesis_ward
+    beta_tail: 0.9
+    linkage: ward
+- kind: portfolio
+objectives:
+- kind: mse
+- kind: expected_uncovered
+- kind: weighted_cvar
+  alpha: 0.9
+  beta: 0.99
+pricing:
+  kind: pure
+constraints:
+- kind: budget
+  loading: 1.0
+evaluation:
+  beta: 0.99
+bootstrap:
+  seed: 0
+  n_bootstrap: 1000
+  level: 0.9
+sweeps: []
+output:
+  directory: ../../../results/florida/store

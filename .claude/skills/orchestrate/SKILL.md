@@ -14,15 +14,22 @@ All state lives in Linear, git and GitHub, never in this conversation, so this s
 - The Linear connector works: you can read the [Program hub](https://linear.app/marc-prinzing/project/program-hub-1b757250497c).
 - `gh auth status` succeeds, and `git fetch` works in `/Users/marcprinzing/Parametric_Insurance/parametric-insurance-design`.
 - The main checkout is on `main` with a clean tree. Never do worker edits in it: workers get their own worktrees.
+- The session runs in this repository, with `/Users/marcprinzing/Parametric_Insurance/forks` added as a working directory (runbook "One-time setup", step 2). Started elsewhere, it lacks this repository's deny rules.
+
+**Fork preconditions.** If one fails, stop fork work only and alert Marc; the other lanes go on. For each fork clone, `/Users/marcprinzing/Parametric_Insurance/forks/crc-sdk` and `/Users/marcprinzing/Parametric_Insurance/forks/crc-docs`:
+
+- `git -C <clone> fetch origin` and `git -C <clone> fetch upstream` work;
+- `git -C <clone> remote get-url --push upstream` prints `DISABLED`;
+- `gh repo set-default --view`, run in the clone, prints `marc272/<fork>`.
 
 ## 1. Session start (runbook "Session start", plus resume)
 
 1. Read the Program hub description and its **latest status update**.
 2. `git fetch --prune`, then `git switch main && git pull --ff-only`.
-3. Collect the facts:
-   - `gh pr list --state open --json number,title,headRefName,isDraft,statusCheckRollup`;
-   - `gh pr list --state merged --limit 20 --json number,headRefName,mergedAt`;
-   - `git worktree list`;
+3. Collect the facts, for each of the three repositories. `<repo>` is `marc272/parametric-insurance-design`, `marc272/crc-sdk` or `marc272/crc-docs`; always pass `--repo`:
+   - `gh pr list --repo <repo> --state open --json number,title,headRefName,baseRefName,isDraft,statusCheckRollup`;
+   - `gh pr list --repo <repo> --state merged --limit 20 --json number,headRefName,mergedAt`;
+   - `git worktree list` here, and `git -C <clone> worktree list` in each fork clone;
    - Linear issues of team MAR that are **In Progress** or **In Review**.
 4. **Reconcile** each In Progress or In Review issue, using its latest *Dispatch record* comment (runbook "Dispatch record"):
 
@@ -37,28 +44,43 @@ All state lives in Linear, git and GitHub, never in this conversation, so this s
 
    **Resuming a worker.** First try `SendMessage` to the agent ID in the dispatch record ("continue: <what is left>"). This only works if the agent still exists in this session. Otherwise, dispatch a **new** worker on the **existing branch**, with the resume brief from the runbook, and post a new dispatch record.
 5. Read comments on Human, Gate and Decision issues since the last status update. Marc may have answered. Record each answer on its issue, then act on it.
-6. Clean up: `git worktree remove` the worktrees whose PR is merged and that have no uncommitted changes. Never delete branches or data.
+6. Clean up: `git worktree remove` (in a fork, `git -C <clone> worktree remove`) the worktrees whose PR is merged and that have no uncommitted changes. Never delete branches or data.
+7. **Keep `parametric` current.** In each fork, if upstream `main` has moved past `parametric`, merge it in through a sync PR (runbook "Keeping `parametric` current"). Never rebase `parametric`.
 
 ## 2. The loop (runbook "The loop")
 
 Repeat until no step can make progress:
 
 1. **Sync.** Move Backlog → Todo for every issue whose blockers are all Done.
-2. **Pick** ready leaf issues without the Human label, following the scheduling rules. Respect the limits: at most 3 workers, no two on the same module, and anything touching `pyproject.toml`, `uv.lock`, `pixi.*` or `.github/` runs one at a time.
+2. **Pick** ready leaf issues without the Human label, following the scheduling rules (runbook "Scheduling across streams"):
+   - CRC Contribution first, in milestone order R1 → R2 → R3 → R4;
+   - CLIMADA Contribution only when CRC has no ready agent work;
+   - nothing from the paused projects (Foundation, Website & Blog, Paper), even in Todo, until Marc resumes one. Their open PRs get no rebases and no merges. Fixing a red `main` is still allowed.
+
+   Respect the limits: at most 3 workers across the three repositories, no two on the same module, and anything touching a `pyproject.toml`, `uv.lock`, `pixi.*` or `.github/` runs one at a time in its repository.
 3. **Split** issues that are too big into sub-issues before dispatching them.
 4. **Dispatch** each pick:
-   - spawn a worker with `Agent`, `isolation: "worktree"`, `run_in_background: true`, using the runbook brief template;
+   - **in this repository:** spawn a worker with `Agent`, `isolation: "worktree"`, `run_in_background: true`, using the runbook brief template;
+   - **in a fork:** `isolation: "worktree"` only makes worktrees of this repository, so make the worktree yourself (runbook "Worker worktrees in the forks"):
+
+     ```bash
+     git -C <clone> fetch origin
+     git -C <clone> worktree add --no-track -b <gitBranchName> \
+       /Users/marcprinzing/Parametric_Insurance/forks/worktrees/<fork>-mar-<n> origin/parametric
+     ```
+
+     Then spawn the worker with `Agent`, `run_in_background: true` and **no** `isolation`, using the runbook's fork brief template with that path;
    - set the issue to **In Progress**;
-   - post a **Dispatch record** comment on it.
+   - post a **Dispatch record** comment on it, with the repository and the worktree path.
 
    Then keep working on other steps. You are notified when a worker finishes; don't poll.
-5. **Review** each PR a worker reports, against the runbook checklist. Wait for CI with `gh pr checks <n> --watch` (in the background if it's slow). If the review fails, send the findings to the same worker. After two failed rounds, escalate to Marc.
+5. **Review** each PR a worker reports, against the runbook checklist, with the fork checks for a fork PR. Wait for CI with `gh pr checks <n> --repo <repo> --watch` (in the background if it's slow). In crc-docs, Actions are off and must stay off, so there is no CI to wait for: re-run the fork's checks (`uv sync --locked`, `uv run pytest -q`, `uv run ruff check pipelines tests tools`, `uv run ruff format --check pipelines tests tools`, never with `CRC_DOCS_LIVE=1`) in the PR's worktree, on the head you are about to merge. They are the merge gate (runbook "Fork PRs"). While Actions minutes are exhausted, follow the runbook's "Fallback: local CI": check the worker's pasted `scripts/ci_local.sh` summary and re-run the relevant jobs in the PR's worktree before merging. If the review fails, send the findings to the same worker. After two failed rounds, escalate to Marc.
 6. **Merge** the PRs that pass review, in dependency order (runbook "Merge policy"):
-   - `gh pr merge <n> --squash`;
-   - then `git pull --ff-only` on `main`;
+   - in this repository: `gh pr merge <n> --repo marc272/parametric-insurance-design --squash`, then `git pull --ff-only` on `main`;
+   - in a fork: `gh pr merge <n> --repo marc272/<fork> --squash --subject "<conventional-commit subject> (#<n>)" --body "Refs: MAR-<issue>"`, then `git -C <clone> fetch origin`;
    - set the issue to Done, comment with the PR link, and file the reported follow-ups.
 
-   Rebase dependent branches if needed. **Never merge** a Human or Gate output, a PR with red or pending CI, or a PR that changes a spec decision without Marc's recorded answer.
+   Update dependent branches if needed; never rebase `main` or `parametric`. **Never merge** a Human or Gate output, a PR with red or pending CI (except billing-only red, per the runbook's "Fallback: local CI"), a PR that changes a spec decision without Marc's recorded answer, or a PR of a paused project (except a fix for a red `main`). Never merge anything upstream: the upstream PRs are Marc's (MAR-249).
 7. **Prepare** "Agent may prepare" parts of Human issues when a worker slot is free and nothing on the critical path is ready. Then set the issue to In Review, assign it to Marc, and alert him (step 3).
 
 While workers run, stay responsive. End your turn only when you're waiting on workers, because their completion wakes you.
@@ -75,7 +97,7 @@ Then keep the other lanes moving. Don't stop the loop for a block that only affe
 
 ## 4. Stopping (runbook "Session end")
 
-Stop the loop when no worker is running and nothing is dispatchable or mergeable: everything left is Backlog, Human, or blocked on Marc. Also stop before a long pause. Then:
+Stop the loop when no worker is running and nothing is dispatchable or mergeable: everything left is Backlog, Human, paused, or blocked on Marc. Also stop before a long pause. Then:
 
 1. Leave Linear true, following the runbook "Session end" list. No In Progress issue may be left without a live worker or a dispatch record you can resume.
 2. Post a Program hub status update in the runbook's format.

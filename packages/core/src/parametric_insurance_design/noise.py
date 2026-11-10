@@ -1,15 +1,24 @@
-"""Thesis noise layer: lognormal loss noise on copies of each event (SPEC §4.2).
+"""Thesis noise layer: lognormal loss noise on copies of each event.
 
-Owner: MAR-10. A bit-identical port of the thesis
+The thesis's model of basis risk: with the wind at the asset as the index,
+this noise layer is the only mismatch between index and loss. The library
+keeps it as a baseline for comparison with the thesis, next to the
+vulnerability draws of the CLIMADA adapter. It is supported, and the
+experiment runner applies it (the config's ``noise`` section). It is off the
+package's top level: the package's ``__init__`` doesn't import it, so import
+it by its full name, ``parametric_insurance_design.noise``.
+
+A bit-identical port of the thesis
 ``add_noise_to_asset_losses`` (``src/utils/data_processing.py`` in
-``parametric-insurance-framework``) for parity (F-06). Each event row is
+``parametric-insurance-framework``), for parity with the thesis code. Each
+event row is
 repeated ``n_copies`` times (``draw_id = 0 .. n_copies - 1``, event-major order
 as in the thesis), and each location's loss is multiplied by a mean-one
 lognormal factor. The index is unchanged.
 
 Rates: each copy gets ``rate / n_copies``, so the copies of an event keep its
-total rate (thesis: ``1 / (Y * n_copies)`` per row). ADR 0002 records this as
-the proposed draw-row rate convention.
+total rate (thesis: ``1 / (Y * n_copies)`` per row). This is the EventSet's
+draw-row rate convention.
 """
 
 from __future__ import annotations

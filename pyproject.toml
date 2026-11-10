@@ -14,10 +14,16 @@ exclude = ["packages/climada"]
 test = ["pytest>=9", "pytest-cov>=7", "hypothesis>=6.100"]
 lint = ["ruff>=0.17", "pyright[nodejs]>=1.1.400", "pre-commit>=4"]
 dev = [{ include-group = "test" }, { include-group = "lint" }]
+# The site's API reference (ADR 0004 Q4, R1): quartodoc turns the docstrings
+# into .qmd pages before `quarto render site` (site/reference/build.py). Pinned
+# exactly; never a package dependency. Not in `dev`: only the Site workflow and
+# a local site build use it. griffe, quartodoc's docstring parser, stays on 1.x:
+# quartodoc 0.11.1 passes a parser option that griffe 2 no longer accepts.
+docs = ["quartodoc==0.11.1", "griffe==1.15.0"]
 
 # --- ruff -------------------------------------------------------------------
-# Keep the ruff rev in .pre-commit-config.yaml equal to the ruff version in
-# uv.lock.
+# pre-commit runs this ruff from uv.lock (local hooks in .pre-commit-config.yaml,
+# checked by scripts/check_ruff_single_source.py), so there is one ruff version.
 
 [tool.ruff]
 line-length = 88
@@ -56,7 +62,7 @@ known-first-party = [
 
 [tool.pyright]
 typeCheckingMode = "basic"
-include = ["packages/core", "packages/viz", "packages/crc", "parity"]
+include = ["packages/core", "packages/viz", "packages/crc", "parity", "examples"]
 # packages/climada is type-checked in its own pixi env (CLIMADA adapter work).
 exclude = ["**/__pycache__", "**/.*", "packages/climada"]
 executionEnvironments = [

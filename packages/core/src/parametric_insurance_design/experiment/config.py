@@ -1,12 +1,13 @@
-"""Experiment configuration schema (SPEC §4.2, thesis issues C2, C4, C8).
+"""Experiment configuration schema.
 
-Owner: MAR-63. Typed, validated configuration of one experiment: the EventSet,
-the portfolio subset, the noise layer, the threshold filter, the outcome
+Typed, validated configuration of one experiment: the EventSet, the
+portfolio subset, the noise layer, the threshold filter, the outcome
 basis, the sample, the payout structure, the scopes, the objectives, the
 pricing, the extra constraints, the evaluation, the one-factor-at-a-time
-sweeps and the output location. It replaces the thesis' four YAML files and
-the notebook globals (``parity/configs/thesis.yaml`` is the migrated thesis
-configuration, written by ``parity/scripts/migrate_thesis_config.py``).
+sweeps and the output location. It replaces the thesis' four YAML files,
+the notebook globals and the paths and parameters its code hard-coded
+(``parity/configs/thesis.yaml`` is the migrated thesis configuration, written
+by ``parity/scripts/migrate_thesis_config.py``).
 
 Every model forbids unknown keys, and numbers are strict: booleans and
 strings are not numbers, floats must be finite, and integer fields take
@@ -19,7 +20,8 @@ parameters are checked by building the component at load time, so the
 component's own checks (e.g. the last-bin width of
 :class:`~parametric_insurance_design.payout.StepPayout`) also fail at load time.
 
-Pipeline order (what the runner, MAR-64, does with a config; thesis order):
+Pipeline order (what :mod:`~parametric_insurance_design.experiment.runner`
+does with a config; thesis order):
 
 1. read the EventSet at ``eventset.path`` (and check ``eventset.checksum``);
 2. keep the locations in ``portfolio.location_ids``;
@@ -57,16 +59,20 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    SerializerFunctionWrapHandler,
     ValidationError,
     ValidationInfo,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
 from parametric_insurance_design.basis import Basis
+from parametric_insurance_design.bootstrap import DEFAULT_LEVEL, DEFAULT_N_BOOTSTRAP
 from parametric_insurance_design.clustering import ThesisWardClustering
 from parametric_insurance_design.constraints import Budget
 from parametric_insurance_design.errors import ComponentConfigError, ConfigError
+from parametric_insurance_design.evaluate import DEFAULT_RETURN_PERIODS
 from parametric_insurance_design.index import (
     EntityIndex,
     PointIndex,
@@ -81,15 +87,19 @@ from parametric_insurance_design.interfaces import (
 )
 from parametric_insurance_design.noise import NoiseKind
 from parametric_insurance_design.objectives import MSE, ExpectedUncovered, WeightedCVaR
-from parametric_insurance_design.payout import StepPayout
+from parametric_insurance_design.payout import BelowAttachment, StepPayout
 from parametric_insurance_design.pricing import CostOfCapitalLoad, PurePremium
 from parametric_insurance_design.scopes import Cluster, Individual, Portfolio
 
 __all__ = [
+    "ALLOCATION_RULES",
     "CONFIG_HASH_DOMAIN",
     "CONFIG_HASH_EXCLUDED",
+    "OMITTED_WHEN_ABSENT",
     "SCHEMA_VERSION",
     "SWEEP_PARAMETERS",
+    "AllocationRule",
+    "BootstrapConfig",
     "BudgetConfig",
     "ClusterScopeConfig",
     "Components",
@@ -161,7 +171,7 @@ SweepParameter = Literal[
 every ``budget`` constraint, ``n_bins`` the step payout, ``n_clusters`` every
 ``cluster`` scope, ``noise_level`` the noise level (EventSet-rebuilding), and
 ``n_assets`` the size of the location subsets (EventSet-rebuilding; the
-subsets are chosen by the sweep, MAR-65). The thesis name of ``noise_level``
+subsets are chosen by the sweep). The thesis name of ``noise_level``
 is ``noise_value``.
 """
 
@@ -191,8 +201,16 @@ Seed = Annotated[int, Field(strict=True, ge=0)]
 """A seed for :func:`numpy.random.default_rng`, an integer >= 0."""
 NonEmptyStr = Annotated[str, Field(strict=True, min_length=1)]
 """A non-empty string."""
+ReturnPeriod = Annotated[float, Field(strict=True, allow_inf_nan=False, gt=1.0)]
+"""A finite return period > 1; integers are accepted."""
 IndexKind = Literal["point", "value_weighted"]
 """Entity index: ``PointIndex`` or ``ValueWeightedIndex``."""
+AllocationRule = Literal["none", "value", "loss"]
+"""Allocation rule of the evaluation (``evaluate.Allocation`` values)."""
+
+ALLOCATION_RULES: Final[tuple[str, ...]] = get_args(AllocationRule)
+"""The values of :data:`AllocationRule`, in order: the ``evaluate.Allocation``
+values (``tests/test_config_allocation.py`` checks that they agree)."""
 
 
 class _Model(BaseModel):
@@ -299,7 +317,7 @@ class NoiseConfig(_Model):
         Seed of the generator, >= 0 (thesis ``RANDOM_SEED``).
     bounds : tuple of float, default (20.0, 70.0)
         Index range of the heteroscedastic ramp, ``low < high``. The thesis
-        hard-coded its attachment and limit (issue C4).
+        hard-coded it as 20 to 70, its attachment and limit.
     """
 
     kind: NoiseKind
@@ -372,14 +390,33 @@ class HoldoutSampleConfig(_Model):
 class KFoldSampleConfig(_Model):
     """Year-block k-fold (:func:`~parametric_insurance_design.splits.year_block_kfold`).
 
+    A k-fold experiment calibrates once per fold. Each fold is a run of its
+    own: :meth:`ExperimentConfig.single_runs` expands a config
+    without ``fold`` into one config per fold, so the fold is part of the
+    :func:`config_hash` and of the ``run_id``, and the ``runs`` key
+    ``(run_id, problem_id)`` stays unique without a ``fold`` column.
+
     Parameters
     ----------
     k : int, default 5
         Number of folds, >= 2.
+    fold : int or None, default None
+        The fold this run calibrates on, in ``0 .. k - 1``. None (the
+        experiment level) means every fold; the runner needs it set.
     """
 
     kind: Literal["kfold"]
     k: Annotated[int, Field(strict=True, ge=2)] = 5
+    fold: Annotated[int, Field(strict=True, ge=0)] | None = None
+
+    @model_validator(mode="after")
+    def _fold_in_range(self) -> Self:
+        """Check that the fold lies in ``0 .. k - 1``."""
+        if self.fold is not None and self.fold >= self.k:
+            raise ValueError(
+                f"fold {self.fold} is not in 0 .. {self.k - 1} (k={self.k})"
+            )
+        return self
 
 
 SampleConfig = Annotated[
@@ -410,6 +447,21 @@ class StepPayoutConfig(_Model):
     breakpoints : tuple of float or None, default None
         Explicit breakpoints (``n_bins + 1`` values from ``attachment`` to
         ``limit``); uniform if None.
+    below_attachment : {"first_bin", "zero"}, default "first_bin"
+        What an index below ``attachment`` pays: the first bin's
+        level (``"first_bin"``, the thesis code) or nothing (``"zero"``, the
+        thesis text). ``"zero"`` makes a threshold filter at the attachment
+        exact on the ``event`` and ``annual`` bases; see
+        :mod:`~parametric_insurance_design.payout`.
+
+    Notes
+    -----
+    ``below_attachment`` is left out of :func:`to_dict`, :func:`dump_config`
+    and :func:`canonical_json` when it is ``"first_bin"``, its default,
+    whether unset or written out. A config that does not set ``"zero"``
+    therefore dumps and hashes exactly as one without the field (so the
+    parity config's hashes and run ids don't depend on it); a config that
+    sets ``"zero"`` has a hash of its own.
     """
 
     kind: Literal["step"] = "step"
@@ -417,6 +469,17 @@ class StepPayoutConfig(_Model):
     limit: StrictFloat
     n_bins: PositiveInt
     breakpoints: tuple[StrictFloat, ...] | None = None
+    below_attachment: BelowAttachment = "first_bin"
+
+    @model_serializer(mode="wrap")
+    def _drop_default_below_attachment(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> Any:  # noqa: ANN401
+        """Leave ``below_attachment`` out of every dump while it is the default."""
+        data = handler(self)
+        if self.below_attachment == "first_bin" and isinstance(data, dict):
+            data.pop("below_attachment", None)
+        return data
 
     @model_validator(mode="after")
     def _check(self) -> Self:
@@ -431,6 +494,7 @@ class StepPayoutConfig(_Model):
             limit=self.limit,
             n_bins=self.n_bins,
             breakpoints=self.breakpoints,
+            below_attachment=self.below_attachment,
         )
 
 
@@ -513,12 +577,81 @@ class ClusterScopeConfig(_Model):
         Clustering strategy.
     index : {"point", "value_weighted"} or None, default None
         Entity index; None uses the scope's default (``value_weighted``).
+    cap_n_clusters : bool, default False
+        In an ``n_assets`` sweep, give a location subset smaller than
+        ``n_clusters`` the effective count ``min(n_clusters, n_locations)``
+        (:meth:`effective_n_clusters`). The sweep writes it into the
+        point's config, so the run's manifest, ``runs.parameters`` and its
+        config hash carry the count the run used, and the sweep manifest
+        records the requested and the effective count. False is the thesis
+        behaviour: such a subset fails to build (``InputMismatchError``), as
+        the thesis did. The scope itself never caps: a run whose own config
+        asks for more clusters than it has locations fails.
+    joint : bool, default True
+        Calibrate the clusters jointly, in one design problem (True, the
+        thesis), or each cluster on its own, with its own budget (False);
+        see :class:`~parametric_insurance_design.scopes.Cluster`.
+
+    Notes
+    -----
+    ``cap_n_clusters`` is left out of :func:`to_dict`, :func:`dump_config`
+    and :func:`canonical_json` when it is False, its default, and ``joint``
+    when it is True, its default, whether unset or written out. A config
+    that sets neither therefore dumps and hashes exactly as one without the
+    two fields (so the parity config's hashes don't depend on them); a
+    config that sets ``cap_n_clusters: true`` or ``joint: false`` has a
+    hash of its own.
     """
 
     kind: Literal["cluster"]
     n_clusters: PositiveInt
     strategy: ThesisWardConfig
     index: IndexKind | None = None
+    cap_n_clusters: Annotated[bool, Field(strict=True)] = False
+    joint: Annotated[bool, Field(strict=True)] = True
+
+    @model_serializer(mode="wrap")
+    def _drop_defaults(self, handler: SerializerFunctionWrapHandler) -> Any:  # noqa: ANN401
+        """Leave a False ``cap_n_clusters`` and a True ``joint`` out of every dump."""
+        data = handler(self)
+        if isinstance(data, dict):
+            if not self.cap_n_clusters:
+                data.pop("cap_n_clusters", None)
+            if self.joint:
+                data.pop("joint", None)
+        return data
+
+    def effective_n_clusters(self, n_locations: int) -> int:
+        """Return the number of clusters a run on ``n_locations`` locations uses.
+
+        Parameters
+        ----------
+        n_locations : int
+            Number of locations of the run, >= 1.
+
+        Returns
+        -------
+        int
+            ``min(n_clusters, n_locations)`` with ``cap_n_clusters``,
+            ``n_clusters`` without (the scope then refuses a count above
+            ``n_locations``).
+
+        Raises
+        ------
+        ConfigError
+            If ``n_locations`` is not an integer >= 1.
+        """
+        if (
+            isinstance(n_locations, bool)
+            or not isinstance(n_locations, int | np.integer)
+            or n_locations < 1
+        ):
+            raise ConfigError(
+                f"n_locations must be an integer >= 1, got {n_locations!r}"
+            )
+        if self.cap_n_clusters:
+            return min(self.n_clusters, int(n_locations))
+        return self.n_clusters
 
     def build(self) -> Cluster:
         """Return the :class:`Cluster` scope."""
@@ -526,6 +659,7 @@ class ClusterScopeConfig(_Model):
             strategy=self.strategy.build(),
             n_clusters=self.n_clusters,
             index=_entity_index(self.index, ValueWeightedIndex),
+            joint=self.joint,
         )
 
 
@@ -617,7 +751,7 @@ class CostOfCapitalConfig(_Model):
     q: UnitOpen
 
     def build(self) -> CostOfCapitalLoad:
-        """Return the :class:`CostOfCapitalLoad` pricing (MAR-27)."""
+        """Return the :class:`CostOfCapitalLoad` pricing."""
         return CostOfCapitalLoad(rate=self.rate, q=self.q)
 
 
@@ -656,7 +790,7 @@ ConstraintConfig = Annotated[BudgetConfig, Field(discriminator="kind")]
 
 
 class EvaluationConfig(_Model):
-    """KPI settings (:func:`~parametric_insurance_design.evaluate.kpis`).
+    """KPI and exceedance-curve settings (:mod:`~parametric_insurance_design.evaluate`).
 
     Parameters
     ----------
@@ -664,9 +798,115 @@ class EvaluationConfig(_Model):
         VaR/CVaR level of the KPIs, in ``(0, 1)`` (thesis ``BENCHMARK_BETA``).
         Independent of the objectives' ``beta``: a ``beta`` sweep changes the
         objectives only, as in the thesis.
+    return_periods : tuple of float, default ``evaluate.DEFAULT_RETURN_PERIODS``
+        Return periods of the ``exceedance`` table
+        (:func:`~parametric_insurance_design.evaluate.exceedance_curves`):
+        at least one, each finite and > 1, in strictly increasing
+        order. Integers are read as floats. Their unit follows the basis
+        (years on ``annual`` and ``event``, events on ``event_conditional``;
+        see ``exceedance_curves``). The default is
+        :data:`~parametric_insurance_design.evaluate.DEFAULT_RETURN_PERIODS`
+        (2, 5, 10, 25, 50, 100, 250); the parity config sets the thesis grid
+        of Figure 5.6 (2, 5, 10, 20, 50, 100, 200, 500).
+    allocation : {"none", "value", "loss"}, default "none"
+        Rule that splits each design problem's payout across its locations
+        in the stored ``kpis`` and ``exceedance`` tables (the ``allocation``
+        argument of :func:`~parametric_insurance_design.evaluate.kpis`,
+        :func:`~parametric_insurance_design.evaluate.exceedance_curves` and
+        ``bootstrap.bootstrap_kpis``). ``"none"`` writes no
+        per-location rows. ``"value"`` adds rows at ``level =
+        "location_by_value"``, ``"loss"`` at ``level = "location_by_loss"``:
+        the eight KPIs of every location (no ``premium``), with bootstrap
+        intervals when the config has a ``bootstrap`` section, and its
+        exceedance curves. The entity, problem and portfolio rows are the
+        same under every rule. The rule changes the evaluation only, never
+        what a design problem optimises. See
+        ``docs/methodology/payout-allocation.md``.
+
+    Notes
+    -----
+    ``return_periods`` is left out of :func:`to_dict`, :func:`dump_config`
+    and :func:`canonical_json` when it equals the default, whether unset or
+    written out. A config that does not set another grid therefore dumps and
+    hashes exactly as one without the field, with the same run ids; a config
+    with
+    another grid has a hash of its own, since the grid is part of the run's
+    stored ``exceedance`` table.
+
+    ``allocation`` is left out the same way while it is ``"none"``, so every
+    config that does not set a rule dumps and hashes exactly as one without
+    the field. A config with a rule has a hash, and so a run id, of its own: the
+    location rows are part of the run's stored tables. Such a run is a cache
+    entry of its own, never a hit on the stored ``"none"`` run of the same
+    design, and the runner solves it again (deterministically: the same
+    design); the store holds each run's tables as written and never
+    re-evaluates a stored run in place.
     """
 
     beta: UnitOpen
+    return_periods: tuple[ReturnPeriod, ...] = DEFAULT_RETURN_PERIODS
+    allocation: AllocationRule = "none"
+
+    @field_validator("return_periods")
+    @classmethod
+    def _check_return_periods(cls, value: tuple[float, ...]) -> tuple[float, ...]:
+        """Require a non-empty, strictly increasing grid; store floats."""
+        if not value:
+            raise ValueError("needs at least one return period")
+        repeated = sorted({v for v in value if value.count(v) > 1})
+        if repeated:
+            raise ValueError(f"return periods repeat {repeated}")
+        if list(value) != sorted(value):
+            raise ValueError(
+                f"return periods must be in increasing order, got {list(value)}"
+            )
+        return tuple(float(v) for v in value)
+
+    @model_serializer(mode="wrap")
+    def _drop_defaults(self, handler: SerializerFunctionWrapHandler) -> Any:  # noqa: ANN401
+        """Leave ``return_periods`` and ``allocation`` out while at their defaults."""
+        data = handler(self)
+        if isinstance(data, dict):
+            if self.return_periods == DEFAULT_RETURN_PERIODS:
+                data.pop("return_periods", None)
+            if self.allocation == "none":
+                data.pop("allocation", None)
+        return data
+
+
+class BootstrapConfig(_Model):
+    """Block-bootstrap confidence intervals of the KPIs.
+
+    The runner resamples the years of every evaluation sample
+    (``bootstrap.resample_years``) and fills the ``ci_*`` columns of the
+    ``kpis`` table (``bootstrap.bootstrap_kpis``). Point estimates do not
+    change. Each sample gets a fresh generator from ``seed``, so runs with
+    the same seed and the same evaluation sample draw the same years: their
+    intervals are computed on the same resamples (paired).
+
+    Parameters
+    ----------
+    seed : int
+        Seed of :meth:`rng`, >= 0.
+    n_bootstrap : int, default 1000
+        Number of replicates ``B``, >= 1.
+    level : float, default 0.9
+        Confidence level of the intervals, in ``(0, 1)``.
+    """
+
+    seed: Seed
+    n_bootstrap: PositiveInt = DEFAULT_N_BOOTSTRAP
+    level: UnitOpen = DEFAULT_LEVEL
+
+    def rng(self) -> np.random.Generator:
+        """Return a fresh generator, ``numpy.random.default_rng(seed)``.
+
+        Returns
+        -------
+        numpy.random.Generator
+            A new generator on every call.
+        """
+        return np.random.default_rng(self.seed)
 
 
 class SweepConfig(_Model):
@@ -732,7 +972,7 @@ class OutputConfig(_Model):
     Parameters
     ----------
     directory : pathlib.Path
-        Result-store directory (MAR-64). A relative path is relative to the
+        Result-store directory. A relative path is relative to the
         config file's directory when read with :func:`load_config`.
     """
 
@@ -812,6 +1052,10 @@ class ExperimentConfig(_Model):
         Extra constraints; no repeated kind.
     evaluation : EvaluationConfig
         KPI settings.
+    bootstrap : BootstrapConfig or None, default None
+        Confidence intervals of the KPIs; None for none (null ``ci_*``
+        columns). Opt-in: when None it is left out of :func:`config_hash` and
+        :func:`to_dict`, so configs without it keep their hashes.
     sweeps : tuple of SweepConfig, default ()
         One-factor-at-a-time sweeps; one per parameter, each applicable to
         this config.
@@ -841,6 +1085,7 @@ class ExperimentConfig(_Model):
     pricing: PricingConfig = PurePremiumConfig(kind="pure")
     constraints: tuple[ConstraintConfig, ...] = ()
     evaluation: EvaluationConfig
+    bootstrap: BootstrapConfig | None = None
     sweeps: tuple[SweepConfig, ...] = ()
     output: OutputConfig
 
@@ -924,17 +1169,30 @@ class ExperimentConfig(_Model):
     def single_runs(self) -> tuple[ExperimentConfig, ...]:
         """Split into one config per (scope, objective), without sweeps.
 
+        A k-fold sample without a ``fold`` is also split per fold, so each
+        fold is a run of its own (:class:`KFoldSampleConfig`).
+
         Returns
         -------
         tuple of ExperimentConfig
             Scope-major (every objective for the first scope, then the next),
-            in config order. Each has one scope, one objective and no sweeps;
-            its :func:`config_hash` is the cache key of that run.
+            in config order, and for k-fold fold-minor (folds ``0 .. k - 1``
+            of a scope and objective next to each other). Each has one scope,
+            one objective, no sweeps and, for k-fold, one fold; its
+            :func:`config_hash` is the cache key of that run.
         """
+        sample = self.sample
+        samples: list[dict[str, Any]] = [sample.model_dump(mode="python")]
+        if sample.kind == "kfold" and sample.fold is None:
+            samples = [
+                sample.model_copy(update={"fold": f}).model_dump(mode="python")
+                for f in range(sample.k)
+            ]
         return tuple(
-            self._replaced(scopes=[scope], objectives=[objective], sweeps=[])
+            self._replaced(scopes=[scope], objectives=[objective], sweeps=[], sample=s)
             for scope in self.scopes
             for objective in self.objectives
+            for s in samples
         )
 
     def applies(self, parameter: str) -> bool:
@@ -1209,10 +1467,15 @@ def load_config(path: str | Path) -> ExperimentConfig:
 def to_dict(config: ExperimentConfig) -> dict[str, Any]:
     """Return the config as plain JSON/YAML types (str, int, float, list, dict).
 
-    Every field is written, defaults included, so the output is complete.
+    Every field is written, defaults included, so the output is complete,
+    except the opt-in fields left out at their default: an absent
+    ``bootstrap`` (:data:`OMITTED_WHEN_ABSENT`), a False ``cap_n_clusters``,
+    a True cluster ``joint``, the default ``evaluation.return_periods``, a ``"none"``
+    ``evaluation.allocation`` and a ``"first_bin"``
+    ``payout.below_attachment``.
     Paths are written as POSIX strings.
     """
-    data = config.model_dump(mode="json", round_trip=True)
+    data = _drop_absent(config.model_dump(mode="json", round_trip=True))
     data["eventset"]["path"] = config.eventset.path.as_posix()
     data["output"]["directory"] = config.output.directory.as_posix()
     return data
@@ -1253,6 +1516,23 @@ def _represent_list(dumper: yaml.SafeDumper, data: list[Any]) -> yaml.Node:
 _ConfigDumper.add_representer(list, _represent_list)
 
 
+OMITTED_WHEN_ABSENT: Final[tuple[str, ...]] = ("bootstrap",)
+"""Optional top-level sections left out of :func:`canonical_json` and
+:func:`to_dict` when they are None.
+
+Leaving an absent section out makes the hash, and the YAML, of a config
+without it the same as if the section did not exist; a config that sets it
+hashes the section.
+"""
+
+
+def _drop_absent(data: dict[str, Any]) -> dict[str, Any]:
+    """Remove the :data:`OMITTED_WHEN_ABSENT` keys whose value is None."""
+    return {
+        k: v for k, v in data.items() if not (k in OMITTED_WHEN_ABSENT and v is None)
+    }
+
+
 def _normalise(value: Any) -> Any:  # noqa: ANN401 (JSON tree)
     """Write ``-0.0`` as ``0.0`` throughout a JSON tree.
 
@@ -1279,8 +1559,9 @@ def canonical_json(config: ExperimentConfig) -> str:
     Returns
     -------
     str
-        The config without :data:`CONFIG_HASH_EXCLUDED`, every remaining
-        field included (defaults too), as JSON with sorted keys, no
+        The config without :data:`CONFIG_HASH_EXCLUDED` and without the
+        absent :data:`OMITTED_WHEN_ABSENT` sections, every remaining field
+        included (defaults too), as JSON with sorted keys, no
         whitespace (``(",", ":")`` separators) and ASCII escapes. Floats are
         written with Python's ``repr`` (the shortest string that round-trips,
         e.g. ``0.1``, ``1.0``, ``1e-05``) and ``-0.0`` as ``0.0``; integers
@@ -1288,7 +1569,9 @@ def canonical_json(config: ExperimentConfig) -> str:
         so ``1`` and ``1.0`` in a file give the same JSON. List order is
         content (scopes, objectives and constraints run in that order).
     """
-    payload = config.model_dump(mode="json", exclude=dict(CONFIG_HASH_EXCLUDED))
+    payload = _drop_absent(
+        config.model_dump(mode="json", exclude=dict(CONFIG_HASH_EXCLUDED))
+    )
     return json.dumps(
         _normalise(payload),
         sort_keys=True,
@@ -1317,13 +1600,24 @@ def config_hash(config: ExperimentConfig) -> str:
     -----
     Left out (:data:`CONFIG_HASH_EXCLUDED`): ``name``, ``description``,
     ``eventset.path``, ``output`` and ``sweeps``. Two configs that differ only
-    there have the same hash. ``eventset.checksum`` is included, so a run
-    pinned to a checksum has a hash that names its data. A config without a
-    checksum does not identify its data: the runner keys its cache on the
-    pair (config hash, ``EventSet.content_hash()``).
+    there have the same hash. An absent ``bootstrap`` section (None) is also
+    left out (:data:`OMITTED_WHEN_ABSENT`), so a config without it hashes
+    as if the section did not exist. A set ``bootstrap`` section is
+    hashed: the confidence intervals are part of the run's stored ``kpis``
+    table, so a run with other (or no) intervals is another cache entry.
+    ``eventset.checksum`` is included, so a run pinned to a checksum has a
+    hash that names its data. A config without a checksum does not identify
+    its data: the runner keys its cache on the pair (config hash,
+    ``EventSet.content_hash()``).
 
     Any change to the canonical form or the exclusions changes
-    :data:`CONFIG_HASH_DOMAIN`. Adding a schema field with a default changes
+    :data:`CONFIG_HASH_DOMAIN`. Omitting an optional field at its default
+    does not: an absent ``bootstrap``, a False ``cap_n_clusters``, a True
+    cluster ``joint``, a default ``evaluation.return_periods``, a ``"none"``
+    ``evaluation.allocation`` and a ``"first_bin"``
+    ``payout.below_attachment`` are left out of the canonical JSON, so a
+    config that doesn't use them has the canonical JSON it would have
+    without the fields. Adding a schema field with a default that is hashed changes
     the hash of every config, because defaults are hashed; that is a schema
     version change.
     """

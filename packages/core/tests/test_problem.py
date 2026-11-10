@@ -8,6 +8,7 @@ skeleton.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import ClassVar, cast
@@ -36,7 +37,7 @@ from parametric_insurance_design.interfaces import (
 )
 from parametric_insurance_design.objectives import MSE, ExpectedUncovered
 from parametric_insurance_design.payout import StepPayout
-from parametric_insurance_design.pricing import PurePremium
+from parametric_insurance_design.pricing import CostOfCapitalLoad, PurePremium
 from parametric_insurance_design.problem import (
     MIN_SCALE_LOSS,
     BuiltProblem,
@@ -237,6 +238,50 @@ def test_constraints_are_assembled_in_recipe_order(toy_eventset: EventSet) -> No
     assert len(cons) == len(family) + 2
     assert [type(c) for c in cons[: len(family)]] == [type(c) for c in family]
     assert all(type(c).__name__ == "Inequality" for c in cons[len(family) :])
+
+
+@pytest.mark.parametrize(
+    "pricing", [PurePremium(), CostOfCapitalLoad(rate=0.1, q=0.9)], ids=repr
+)
+def test_every_built_problem_carries_its_pricing(
+    toy_eventset: EventSet, pricing: PurePremium | CostOfCapitalLoad
+) -> None:
+    built = build_problems(
+        toy_eventset,
+        Individual(),
+        PAYOUT,
+        ExpectedUncovered(),
+        pricing,
+        (Budget(1.0),),
+        basis=BASIS,
+    )
+    assert len(built) == 2
+    # The very object passed in (MAR-171), so solve.solve can price with it.
+    assert all(b.pricing is pricing for b in built)
+
+
+def test_built_problem_pricing_defaults_to_none(toy_eventset: EventSet) -> None:
+    (built,) = build(toy_eventset)
+    # Assembled by hand from the same parts, without the new field: the
+    # constructor of the walking skeleton keeps working (pricing unknown).
+    bare = BuiltProblem(
+        context=built.context,
+        objective=built.objective,
+        premium=built.premium,
+        problem=built.problem,
+        build_seconds=built.build_seconds,
+    )
+    assert bare.pricing is None
+    assert isinstance(built.pricing, PurePremium)
+
+
+@pytest.mark.parametrize("pricing", ["pure", PurePremium, 1.0])
+def test_built_problem_refuses_a_pricing_that_is_not_one(
+    toy_eventset: EventSet, pricing: object
+) -> None:
+    (built,) = build(toy_eventset)
+    with pytest.raises(ComponentConfigError, match="pricing must be a Pricing or None"):
+        dataclasses.replace(built, pricing=pricing)
 
 
 def test_mse_is_assembled_as_a_quadratic_objective(toy_eventset: EventSet) -> None:

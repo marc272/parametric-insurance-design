@@ -17,8 +17,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
-import scipy
-from numpy.lib import NumpyVersion
 
 from parametric_insurance_design.errors import ConfigError
 from parametric_insurance_design.eventset import EventSet
@@ -34,8 +32,14 @@ from parametric_insurance_design.experiment.runner import (
     run_config,
     run_key,
 )
-from parametric_insurance_design.experiment.store import ResultStore, StoreError
+from parametric_insurance_design.experiment.store import (
+    MANIFESTS_DIR,
+    ResultStore,
+    StoreError,
+    run_file_stem,
+)
 from parametric_insurance_design.experiment.sweeps import (
+    DEGENERATE_TAIL_NOT_RECORDED,
     MEMBERSHIP_COLUMNS,
     SWEEP_MANIFEST_FORMAT,
     SWEEP_SOURCES,
@@ -60,15 +64,6 @@ GOLDEN_RESULTS = REPO_ROOT / "parity" / "golden" / "full_optimization_results.cs
 needs_fixture = pytest.mark.skipif(
     not (PARITY_EVENTSET.is_dir() and PARITY_CONFIG.is_file()),
     reason="the parity fixture is only in a repository checkout",
-)
-
-# As in test_runner.py: scipy 1.15.0/1.15.1 overflow int32 indices on the
-# weighted-CVaR LPs of the fixture.
-SCIPY_COO_RESHAPE_OVERFLOW = pytest.mark.xfail(
-    NumpyVersion(scipy.__version__) < "1.15.2",
-    reason="scipy < 1.15.2 overflows int32 indices in COO reshape",
-    raises=ValueError,
-    strict=True,
 )
 
 
@@ -542,6 +537,168 @@ def test_bad_manifests_are_errors(tmp_path: Path, content: str, message: str) ->
         read_sweep_manifests(ResultStore(tmp_path))
 
 
+# -- k-fold: the fold of every point (MAR-138) ---------------------------------
+
+
+def test_kfold_sweep_manifest_lists_the_fold_per_point(
+    toy_dir: Path, tmp_path: Path
+) -> None:
+    config = toy_config(
+        toy_dir,
+        tmp_path / "store",
+        sample={"kind": "kfold", "k": 3},
+        sweeps=[{"parameter": "alpha", "values": [0.5, 0.9]}],
+    )
+    store = ResultStore(tmp_path / "store")
+    result = run_sweep(config, "alpha", load_input(config), store)
+    assert result.ok, [p.outcome.failed for p in result.failed]
+    # value x scope (weighted_cvar only) x fold, folds next to each other.
+    assert [p.point.fold for p in result.points] == [0, 1, 2] * 4
+
+    (manifest,) = read_sweep_manifests(store)
+    entries = manifest["points"]
+    assert [e["fold"] for e in entries] == [0, 1, 2] * 4
+    assert len({e["run_id"] for e in entries}) == 12  # a run per fold
+
+    # The manifest's fold is the fold the run calibrated on.
+    runs = store.read("runs").drop_duplicates("run_id").set_index("run_id")
+    for entry in entries:
+        assert int(runs.at[entry["run_id"], "fold"]) == entry["fold"]
+        run = store.manifest(entry["run_id"])
+        assert run["config"]["sample"]["fold"] == entry["fold"]
+
+    membership = sweep_membership(store)
+    assert list(membership.columns) == list(MEMBERSHIP_COLUMNS)
+    assert membership["fold"].dtype == "Int64"
+    assert membership["fold"].tolist() == [0, 1, 2] * 4
+
+
+def test_other_samples_have_no_fold_in_the_manifest(
+    toy_dir: Path, tmp_path: Path
+) -> None:
+    config = toy_config(
+        toy_dir,
+        tmp_path / "store",
+        sample={"kind": "holdout", "train_fraction": 0.7},
+        sweeps=[{"parameter": "alpha", "values": [0.5]}],
+    )
+    store = ResultStore(tmp_path / "store")
+    result = run_sweep(config, "alpha", load_input(config), store)
+    assert all(p.point.fold is None for p in result.points)
+    (manifest,) = read_sweep_manifests(store)
+    assert not any("fold" in e for e in manifest["points"])
+    assert bool(sweep_membership(store)["fold"].isna().all())
+
+
+def test_membership_reads_manifests_without_the_fold(
+    toy_dir: Path, tmp_path: Path
+) -> None:
+    """A manifest written before MAR-138 (no ``fold`` key) still reads."""
+    config = toy_config(
+        toy_dir,
+        tmp_path / "store",
+        sample={"kind": "kfold", "k": 3},
+        sweeps=[{"parameter": "alpha", "values": [0.9]}],
+    )
+    store = ResultStore(tmp_path / "store")
+    result = run_sweep(config, "alpha", load_input(config), store)
+    manifest = json.loads(result.manifest_path.read_text())
+    for entry in manifest["points"]:
+        del entry["fold"]
+    result.manifest_path.write_text(json.dumps(manifest))
+
+    membership = sweep_membership(store)
+    assert len(membership) == 6
+    assert membership["fold"].dtype == "Int64"
+    assert bool(membership["fold"].isna().all())
+
+
+# -- degenerate tail objectives (MAR-207) --------------------------------------
+
+# On the toy EventSet, event_conditional basis: P(L_o = 0) is 1/3 for A (ev1
+# has no loss at A) and 0 for B; each event has probability 1/3, so the CVaR
+# tail holds (1 - beta) * 3 outcomes.
+INDIVIDUAL_WCVAR: dict[str, Any] = {
+    "scopes": [{"kind": "individual"}],
+    "objectives": [{"kind": "weighted_cvar", "alpha": 0.5, "beta": 0.5}],
+}
+
+
+def test_the_sweep_manifest_summarises_degenerate_tails(
+    toy_dir: Path, tmp_path: Path
+) -> None:
+    config = toy_config(
+        toy_dir,
+        tmp_path / "store",
+        **INDIVIDUAL_WCVAR,
+        sweeps=[{"parameter": "beta", "values": [0.3, 0.5, 0.8]}],
+    )
+    store = ResultStore(tmp_path / "store")
+    result = run_sweep(config, "beta", load_input(config), store)
+    assert result.ok
+    manifest = json.loads(result.manifest_path.read_text())
+    entries = manifest["points"]
+    assert [e["value"] for e in entries] == [0.3, 0.5, 0.8]
+    # beta 0.3 <= P(L_o = 0) = 1/3 at A only: weighted CVaR is E[U] there.
+    assert entries[0]["degenerate_tail"] == {"A": "expected_uncovered"}
+    # beta 0.5: above both P(L_o = 0), a tail of 1.5 outcomes; not flagged.
+    assert entries[1]["degenerate_tail"] == {}
+    # beta 0.8: a tail of 0.6 outcomes, the worst outcome, at A and B.
+    assert entries[2]["degenerate_tail"] == {
+        "A": "single_outcome",
+        "B": "single_outcome",
+    }
+    assert manifest["degenerate_tail"] == {
+        "expected_uncovered": [0],
+        "single_outcome": [2],
+        DEGENERATE_TAIL_NOT_RECORDED: [],
+    }
+    # Read from the run manifests, never recomputed.
+    for entry in entries:
+        problems = store.manifest(entry["run_id"])["problems"]
+        flagged = {
+            p["problem_id"]: p["degenerate_tail"]
+            for p in problems
+            if p["degenerate_tail"] is not None
+        }
+        assert entry["degenerate_tail"] == flagged
+    # The summary is not part of the sweep's identity.
+    assert result.sweep_id == sweep_id(
+        "beta", [(p.point, p.outcome.run_id) for p in result.points]
+    )
+
+
+def test_a_run_manifest_without_the_record_is_not_recorded(
+    toy_dir: Path, tmp_path: Path
+) -> None:
+    """A run solved before the runner recorded the flags is listed as such."""
+    config = toy_config(
+        toy_dir,
+        tmp_path / "store",
+        **INDIVIDUAL_WCVAR,
+        sweeps=[{"parameter": "beta", "values": [0.3, 0.5]}],
+    )
+    store = ResultStore(tmp_path / "store")
+    data = load_input(config)
+    first = run_sweep(config, "beta", data, store)
+    old = first.points[0].outcome.run_id
+    path = store.root / MANIFESTS_DIR / f"{run_file_stem(old)}.json"
+    run_manifest = json.loads(path.read_text())
+    for problem in run_manifest["problems"]:
+        for key in ("p_zero_loss", "tail_outcomes", "degenerate_tail"):
+            del problem[key]
+    path.write_text(json.dumps(run_manifest))
+
+    again = run_sweep(config, "beta", data, store)  # cache hits
+    manifest = json.loads(again.manifest_path.read_text())
+    assert [e["degenerate_tail"] for e in manifest["points"]] == [None, {}]
+    assert manifest["degenerate_tail"] == {
+        "expected_uncovered": [],
+        "single_outcome": [],
+        DEGENERATE_TAIL_NOT_RECORDED: [0],
+    }
+
+
 # -- acceptance: the thesis grid ------------------------------------------------
 
 # Thesis optimisation sweeps: (scope, objective) of our config -> thesis
@@ -633,7 +790,6 @@ def test_thesis_n_assets_points_follow_the_thesis_subsets(
 
 
 @needs_fixture
-@SCIPY_COO_RESHAPE_OVERFLOW
 @pytest.mark.filterwarnings("ignore:Solution may be inaccurate")
 def test_reduced_thesis_grid_runs(tmp_path: Path) -> None:
     # Every kind of sweep on the parity fixture, two scopes, a few values.

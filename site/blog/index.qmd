@@ -1,0 +1,11 @@
+---
+title: "Posts"
+listing:
+  contents: posts
+  sort: "date desc"
+  type: default
+  categories: true
+  feed: true
+---
+
+No posts yet. Posts will appear here, newest first, with an [RSS feed](index.xml).

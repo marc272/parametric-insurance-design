@@ -1,6 +1,6 @@
-"""Run executor with a content-hashed cache (SPEC §4.2, thesis issues C3, C5).
+"""Run executor with a content-hashed cache.
 
-Owner: MAR-64. Executes one configured run end to end and persists it in a
+Executes one configured run end to end and persists it in a
 :class:`~parametric_insurance_design.experiment.store.ResultStore`:
 
 1. **Input.** :func:`load_input` reads the EventSet at ``eventset.path`` and
@@ -16,17 +16,35 @@ Owner: MAR-64. Executes one configured run end to end and persists it in a
    threshold filter (``EventSet.filter_threshold``).
 4. **Samples.** ``full``: calibrate and evaluate on every row. ``holdout``:
    calibrate on the training years, evaluate on both samples
-   (``splits.holdout``, MAR-22). ``kfold`` is refused (see below).
+   (``splits.holdout``). ``kfold``: one run per fold (see below);
+   calibrate on the fold's training years, evaluate on its training and
+   test samples (``splits.year_block_kfold``).
 5. **Build, solve, evaluate.** ``problem.build_problems``, then
-   ``solve.solve`` for every design problem, then ``evaluate.kpis`` and
-   ``evaluate.exceedance_curves`` when every design problem was solved.
+   ``solve.solve`` for every design problem, which carries the run's pricing
+   (``BuiltProblem.pricing``), so the recorded premium is
+   ``pricing.premium_value`` of the realised payout, then ``evaluate.kpis``
+   and ``evaluate.exceedance_curves`` (at ``evaluation.return_periods``)
+   when every design problem was solved. Both (and ``bootstrap.bootstrap_kpis``
+   below, which then bounds the location rows too) get the config's
+   ``evaluation.allocation``: under ``"value"`` or ``"loss"`` the
+   stored tables add per-location rows (``level = "location_by_value"`` or
+   ``"location_by_loss"``); under the default ``"none"`` they have none.
+   An allocation rule is part of the config hash, so such a run is a cache
+   entry of its own (``EvaluationConfig``, Notes).
+   With a ``bootstrap`` config section, ``bootstrap.bootstrap_kpis``
+   replaces ``evaluate.kpis``: the same point values plus block-bootstrap
+   confidence intervals in the ``ci_*`` columns, with a fresh generator
+   ``BootstrapConfig.rng()`` per evaluation sample. The manifest's
+   ``bootstrap`` entry records the settings, the time per sample and the
+   KPIs whose bounds are null because some replicate is undefined.
 6. **Persist.** One row per design problem in ``runs``, entity membership in
    ``entities``, the fitted levels in ``payouts``, the KPI and exceedance
    tables, and a provenance manifest.
 
 A *run* is one scope with one objective: one of
 ``ExperimentConfig.single_runs()``. :func:`run_config` runs every one of
-them; sweeps (MAR-65) call :func:`run_single` per sweep point with a shared
+them; sweeps (:mod:`~parametric_insurance_design.experiment.sweeps`) call
+:func:`run_single` per sweep point with a shared
 :class:`RunInput`, so the EventSet is read and hashed once per sweep.
 
 Cache key
@@ -50,14 +68,14 @@ convention: the run's content hash is its cache key).
   ``content_hash()`` is recorded in the manifest (``prepared_eventset``).
 * ``package_version`` is the installed ``parametric-insurance-design``
   version. **Any version bump invalidates every cached run**, with or
-  without noise. MAR-88 and MAR-92 found that ``TransformRecord.version``
-  makes the ``content_hash()`` of noisy and location-subset EventSets change
-  with the package version; this key makes that conservative behaviour
-  uniform, because the builder, the solver policy defaults and the
-  evaluation also change with the code. Versions of third-party packages
-  (cvxpy, the solvers, numpy) are recorded in the manifest but are **not**
-  part of the key: upgrading them reuses cached runs. Run with
-  ``force=True``, or into a new store, to recompute after such an upgrade.
+  without noise. ``TransformRecord.version`` makes the ``content_hash()`` of
+  noisy and location-subset EventSets change with the package version; this
+  key makes that conservative behaviour uniform, because the builder, the
+  solver policy defaults and the evaluation also change with the code.
+  Versions of third-party packages (cvxpy, the solvers, numpy) are recorded
+  in the manifest but are **not** part of the key: upgrading them reuses
+  cached runs. Run with ``force=True``, or into a new store, to recompute
+  after such an upgrade.
 * ``solver_policy`` is the policy's fields (:func:`policy_fingerprint`), so
   a run with another solver order or acceptance rule is a different run.
 
@@ -86,10 +104,50 @@ No silent failures
 * Any other exception (an input or configuration error, or a bug) propagates
   and nothing is written for that run.
 
-k-fold samples are refused with :class:`ConfigError`: they calibrate once
-per fold, but the ``runs`` key is ``(run_id, problem_id)`` without the fold,
-so a k-fold run needs either a ``run_id`` per fold or an ADR 0002 amendment.
-That decision belongs to the out-of-sample work (MAR-22/MAR-23).
+Degenerate tail objectives
+--------------------------
+Every design problem's manifest entry (``problems``) records, on the
+calibration measure (the problem's ``OutcomeMeasure``, which carries the
+basis and the calibration sample):
+
+* ``p_zero_loss``: ``P(L_o = 0)``, the probability of the outcomes in which
+  the design problem has no loss. It depends on the data, not on the design.
+* ``tail_outcomes`` (weighted-CVaR runs; ``None`` otherwise):
+  ``(1 - beta) / p_min``, with ``p_min`` the smallest positive outcome
+  probability: how many outcomes the CVaR tail holds if each has the
+  smallest probability. On a measure whose outcomes are equally likely (the
+  annual basis always) it is ``(1 - beta) * n_outcomes``.
+* ``degenerate_tail`` (:data:`DEGENERATE_TAILS`; ``None`` when not
+  degenerate, and for other objectives):
+
+  - ``"expected_uncovered"`` when ``beta <= p_zero_loss``. Then
+    ``VaR_beta(U) = 0`` for every design, so the weighted-CVaR objective is
+    ``(alpha / (1 - beta) + 1 - alpha) * E[U]``: an E[U] run, with the same
+    minimisers.
+  - ``"single_outcome"`` when ``tail_outcomes <= 1``. Then ``1 - beta`` is at
+    most every outcome's probability, so ``CVaR_beta(U)`` is the single worst
+    outcome and the objective a minimax over outcomes. If both hold,
+    the flag is ``"expected_uncovered"``.
+
+  Both comparisons allow :data:`DEGENERATE_TAIL_ATOL` for the rounding of
+  summed probabilities. The flags concern the CVaR term; with ``alpha = 0``
+  the objective is E[U] by construction, which the config already says.
+
+The flags are recorded, not raised: the runs are valid, only their reading
+changes. The manifest is not part of the cache key, so run ids and config
+hashes are unchanged. A failed build (``problem_id = "*"``) records ``None``
+for all three.
+
+k-fold: a run per fold
+----------------------
+A k-fold experiment calibrates once per fold, and the ``runs`` key is
+``(run_id, problem_id)`` without the fold. Each fold is therefore a run of
+its own: ``ExperimentConfig.single_runs()`` expands a k-fold sample
+into one config per fold (``sample.fold`` set), so the fold is part of the
+config hash and hence of the ``run_id``. ``runs.fold``, ``kpis.fold`` and
+``exceedance.fold`` carry the fold number; the KPI rows of a fold are its
+``train`` (in-sample) and ``test`` (out-of-sample) evaluations. A config
+whose k-fold sample has no ``fold`` is refused with :class:`ConfigError`.
 """
 
 from __future__ import annotations
@@ -107,9 +165,12 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Final
 
+import numpy as np
 import pandas as pd
 
 from parametric_insurance_design import splits
+from parametric_insurance_design.basis import PROBABILITY_ATOL
+from parametric_insurance_design.bootstrap import bootstrap_kpis, resample_years
 from parametric_insurance_design.errors import (
     ConfigError,
     InputMismatchError,
@@ -125,12 +186,14 @@ from parametric_insurance_design.experiment.config import (
 )
 from parametric_insurance_design.experiment.store import ResultStore, RunTables
 from parametric_insurance_design.interfaces import (
+    Objective,
     Sample,
     SolverAttempt,
     SolveResult,
     SolveStatus,
 )
 from parametric_insurance_design.noise import add_noise
+from parametric_insurance_design.objectives import WeightedCVaR
 from parametric_insurance_design.problem import BuiltProblem, build_problems
 from parametric_insurance_design.records import (
     ALL_PROBLEMS,
@@ -143,6 +206,10 @@ from parametric_insurance_design.records import (
 from parametric_insurance_design.solve import DEFAULT_POLICY, SolverPolicy, solve
 
 __all__ = [
+    "DEGENERATE_TAILS",
+    "DEGENERATE_TAIL_ATOL",
+    "DEGENERATE_TAIL_EXPECTED_UNCOVERED",
+    "DEGENERATE_TAIL_SINGLE_OUTCOME",
     "MANIFEST_FORMAT",
     "PACKAGE",
     "PROVENANCE_PACKAGES",
@@ -192,6 +259,24 @@ PROVENANCE_PACKAGES: Final[tuple[str, ...]] = (
     "highspy",
 )
 """Distributions whose versions every manifest records (None if absent)."""
+
+DEGENERATE_TAIL_EXPECTED_UNCOVERED: Final[str] = "expected_uncovered"
+"""``degenerate_tail`` of a weighted-CVaR problem with ``beta <= P(L_o = 0)``:
+its objective is a positive multiple of E[U]."""
+
+DEGENERATE_TAIL_SINGLE_OUTCOME: Final[str] = "single_outcome"
+"""``degenerate_tail`` of a weighted-CVaR problem whose CVaR tail is the
+single worst outcome, ``tail_outcomes <= 1``."""
+
+DEGENERATE_TAILS: Final[tuple[str, ...]] = (
+    DEGENERATE_TAIL_EXPECTED_UNCOVERED,
+    DEGENERATE_TAIL_SINGLE_OUTCOME,
+)
+"""Values of a manifest problem entry's ``degenerate_tail`` besides None."""
+
+DEGENERATE_TAIL_ATOL: Final[float] = PROBABILITY_ATOL
+"""Tolerance of the ``degenerate_tail`` comparisons, for the rounding of
+summed probabilities: the outcome measure's own ``PROBABILITY_ATOL``."""
 
 
 class ChecksumMismatchError(InputMismatchError):
@@ -466,6 +551,26 @@ def run_parameters(config: ExperimentConfig, eventset: EventSet) -> dict[str, An
     that name, so a sweep's ``runs`` rows can be read without parsing the
     config. A key is present only when its component is configured.
 
+    ``below_attachment`` is present only when the payout's mode is not the
+    default ``"first_bin"``, i.e. for ``"zero"``, so that readers of the
+    ``runs`` table, such as the viz payout figures, can tell what the payout
+    pays below the attachment. A run without the key pays the first bin's
+    level there. The parameters are not part of :func:`run_key`, so the key
+    changes no run id either way.
+
+    ``allocation`` follows the same pattern: present only when
+    ``evaluation.allocation`` is ``"value"`` or ``"loss"``, so readers of the
+    ``runs`` table can tell which runs hold per-location KPI rows and under
+    which rule. A ``"none"`` run has no ``allocation`` key.
+
+    ``cluster_joint`` follows it too: ``False``, present only for a cluster
+    scope with ``joint: false`` (one design problem per cluster).
+    ``runs.scope`` reads ``"cluster"`` for both cluster settings
+    (``Cluster.name`` is a class constant), so this key is what tells readers
+    of the ``runs`` table, such as the viz scope keys and labels, that a
+    cluster run was calibrated cluster by cluster. A joint cluster run has no
+    ``cluster_joint`` key.
+
     Parameters
     ----------
     config : ExperimentConfig
@@ -477,9 +582,12 @@ def run_parameters(config: ExperimentConfig, eventset: EventSet) -> dict[str, An
     -------
     dict
         ``attachment``, ``limit``, ``n_bins``, ``n_assets``,
-        ``evaluation_beta``, ``sample``; ``train_fraction`` (holdout), ``k``
-        (k-fold); ``n_clusters``, ``beta_tail``, ``linkage`` (cluster scope);
-        ``scope_index`` (if set); ``alpha``, ``beta`` (weighted CVaR);
+        ``evaluation_beta``, ``sample``; ``below_attachment`` (``"zero"``
+        payout); ``allocation`` (an allocation rule other than ``"none"``);
+        ``train_fraction`` (holdout);
+        ``k``, ``fold`` (k-fold); ``n_clusters``, ``beta_tail``, ``linkage``
+        (cluster scope); ``cluster_joint`` (a cluster scope with ``joint:
+        false``); ``scope_index`` (if set); ``alpha``, ``beta`` (weighted CVaR);
         ``pricing_rate``, ``pricing_q`` (cost of capital); ``budget_loading``
         (budget); ``noise_kind``, ``noise_level``, ``n_copies``,
         ``noise_seed``, ``noise_low``, ``noise_high`` (noise); ``threshold``,
@@ -494,11 +602,16 @@ def run_parameters(config: ExperimentConfig, eventset: EventSet) -> dict[str, An
         "evaluation_beta": config.evaluation.beta,
         "sample": config.sample.kind,
     }
+    if payout.below_attachment != "first_bin":
+        params["below_attachment"] = payout.below_attachment
+    if config.evaluation.allocation != "none":
+        params["allocation"] = config.evaluation.allocation
     sample = config.sample
     if sample.kind == "holdout":
         params["train_fraction"] = sample.train_fraction
     elif sample.kind == "kfold":
         params["k"] = sample.k
+        params["fold"] = sample.fold
     for scope in config.scopes:
         if scope.index is not None:
             params["scope_index"] = scope.index
@@ -506,6 +619,8 @@ def run_parameters(config: ExperimentConfig, eventset: EventSet) -> dict[str, An
             params["n_clusters"] = scope.n_clusters
             params["beta_tail"] = scope.strategy.beta_tail
             params["linkage"] = scope.strategy.linkage
+            if not scope.joint:
+                params["cluster_joint"] = False
     for objective in config.objectives:
         if objective.kind == "weighted_cvar":
             params["alpha"] = objective.alpha
@@ -637,6 +752,22 @@ class RunOutcome:
         )
 
 
+def _evaluation_entry(config: ExperimentConfig, skipped: str | None) -> dict[str, Any]:
+    """Return the manifest's ``evaluation`` entry.
+
+    ``allocation`` is written only for a rule other than ``"none"``, so a
+    ``"none"`` run's entry has no ``allocation`` key.
+    """
+    entry: dict[str, Any] = {
+        "evaluated": skipped is None,
+        "skipped_reason": skipped,
+        "beta": config.evaluation.beta,
+    }
+    if config.evaluation.allocation != "none":
+        entry["allocation"] = config.evaluation.allocation
+    return entry
+
+
 def _check_single(config: ExperimentConfig) -> None:
     """Refuse a config with several scopes or objectives."""
     if len(config.scopes) != 1 or len(config.objectives) != 1:
@@ -658,10 +789,27 @@ def _samples(
     if sample.kind == "holdout":
         train, test = splits.holdout(eventset, train_fraction=sample.train_fraction)
         return train, (train, test)
-    raise ConfigError(
-        "k-fold samples are not supported by the runner yet: the runs table is "
-        "keyed by (run_id, problem_id) without the fold (see the runner docstring)"
-    )
+    if sample.fold is None:
+        raise ConfigError(
+            "a k-fold run needs sample.fold: each fold is a run of its own "
+            "(use ExperimentConfig.single_runs() or run_config())"
+        )
+    train, test = splits.year_block_kfold(eventset, k=sample.k)[sample.fold]
+    return train, (train, test)
+
+
+def _undefined_counts(table: pd.DataFrame) -> dict[str, int]:
+    """``{"level/subject_id/kpi": n_undefined}`` of ``KpiBootstrap.n_undefined``."""
+    return {
+        f"{level}/{subject}/{kpi}": int(n)
+        for level, subject, kpi, n in zip(
+            table["level"],
+            table["subject_id"],
+            table["kpi"],
+            table["n_undefined"],
+            strict=True,
+        )
+    }
 
 
 def _attempts(attempts: tuple[SolverAttempt, ...]) -> list[dict[str, Any]]:
@@ -675,6 +823,54 @@ def _attempts(attempts: tuple[SolverAttempt, ...]) -> list[dict[str, Any]]:
         }
         for a in attempts
     ]
+
+
+_NO_TAIL_RECORD: Final[Mapping[str, Any]] = {
+    "p_zero_loss": None,
+    "tail_outcomes": None,
+    "degenerate_tail": None,
+}
+"""Tail record of a run-level failure (``problem_id = "*"``): no measure."""
+
+
+def _tail_record(problem: BuiltProblem, objective: Objective) -> dict[str, Any]:
+    """Return a design problem's ``p_zero_loss``, ``tail_outcomes`` and flag.
+
+    See the module docstring, "Degenerate tail objectives".
+
+    Parameters
+    ----------
+    problem : BuiltProblem
+        The design problem, built on the calibration sample.
+    objective : Objective
+        The run's objective.
+
+    Returns
+    -------
+    dict
+        ``p_zero_loss`` (float), ``tail_outcomes`` (float, or None if the
+        objective is not :class:`~parametric_insurance_design.objectives.WeightedCVaR`)
+        and ``degenerate_tail`` (one of :data:`DEGENERATE_TAILS`, or None).
+    """
+    measure = problem.context.measure
+    # Unscaled losses are >= 0, so an outcome sum is 0 only if every row is 0.
+    outcome_loss = measure.aggregate(problem.context.problem.loss)
+    p_zero = float(measure.probability[outcome_loss == 0.0].sum())
+    record: dict[str, Any] = {
+        "p_zero_loss": p_zero,
+        "tail_outcomes": None,
+        "degenerate_tail": None,
+    }
+    if not isinstance(objective, WeightedCVaR):
+        return record
+    positive = measure.probability[measure.probability > 0.0]
+    tail = (1.0 - objective.beta) / float(positive.min())
+    record["tail_outcomes"] = tail
+    if objective.beta <= p_zero + DEGENERATE_TAIL_ATOL:
+        record["degenerate_tail"] = DEGENERATE_TAIL_EXPECTED_UNCOVERED
+    elif tail <= 1.0 + DEGENERATE_TAIL_ATOL:
+        record["degenerate_tail"] = DEGENERATE_TAIL_SINGLE_OUTCOME
+    return record
 
 
 def execute(
@@ -707,7 +903,8 @@ def execute(
     Raises
     ------
     ConfigError
-        If the config has several scopes or objectives, or a k-fold sample.
+        If the config has several scopes or objectives, or a k-fold sample
+        without ``fold``.
     ChecksumMismatchError
         If the config pins a checksum that ``data`` does not have.
     EventSetError
@@ -773,13 +970,31 @@ def execute(
         _log.warning("run %s: building failed: %s", run_id, exc)
         runs.append(_failure_row(base, ALL_PROBLEMS, SolveStatus.ERROR, exc, seconds))
         problems.append(
-            _problem_log(ALL_PROBLEMS, SolveStatus.ERROR, exc=exc, build=seconds)
+            _problem_log(
+                ALL_PROBLEMS,
+                SolveStatus.ERROR,
+                tail=_NO_TAIL_RECORD,
+                exc=exc,
+                build=seconds,
+            )
         )
     build_seconds = time.perf_counter() - build_start
 
     solve_start = time.perf_counter()
     for problem in built:
         spec = problem.spec
+        tail = _tail_record(problem, objective)
+        if tail["degenerate_tail"] is not None:
+            _log.info(
+                "run %s, problem %s: degenerate tail (%s): beta %s, "
+                "P(L_o = 0) %.6g, tail outcomes %.6g",
+                run_id,
+                spec.problem_id,
+                tail["degenerate_tail"],
+                getattr(objective, "beta", None),
+                tail["p_zero_loss"],
+                tail["tail_outcomes"],
+            )
         entity_rows.extend(
             {
                 "run_id": run_id,
@@ -791,6 +1006,8 @@ def execute(
             for location_id in entity.location_ids
         )
         try:
+            # The problem carries the run's pricing, so the premium is
+            # pricing.premium_value of the realised payout.
             result = solve(problem, policy)
         except SolveError as exc:
             _log.warning("run %s: %s", run_id, exc)
@@ -801,13 +1018,19 @@ def execute(
             )
             problems.append(
                 _problem_log(
-                    spec.problem_id, exc.status, exc=exc, build=problem.build_seconds
+                    spec.problem_id,
+                    exc.status,
+                    tail=tail,
+                    exc=exc,
+                    build=problem.build_seconds,
                 )
             )
             continue
         results.append(result)
         runs.append(_success_row(base, result))
-        problems.append(_problem_log(spec.problem_id, result.status, result=result))
+        problems.append(
+            _problem_log(spec.problem_id, result.status, tail=tail, result=result)
+        )
         lower, upper = result.payout_structure.parameter_bounds()
         payout_rows.extend(
             {
@@ -828,6 +1051,7 @@ def execute(
     kpi_frames: list[pd.DataFrame] = []
     curve_frames: list[pd.DataFrame] = []
     skipped: str | None = None
+    bootstrap_log: list[dict[str, Any]] = []
     if not built:
         skipped = "building the design problems failed"
     elif len(results) != len(built):
@@ -837,18 +1061,51 @@ def execute(
         )
     else:
         for sample in evaluation_samples:
-            kpi_frames.append(
-                kpis(
+            if config.bootstrap is None:
+                kpi_frames.append(
+                    kpis(
+                        prepared,
+                        scope,
+                        results,
+                        basis=components.basis,
+                        beta=config.evaluation.beta,
+                        run_id=run_id,
+                        sample=sample,
+                        pricing=components.pricing,
+                        allocation=config.evaluation.allocation,
+                    )
+                )
+            else:
+                boot_start = time.perf_counter()
+                boot = bootstrap_kpis(
                     prepared,
                     scope,
                     results,
                     basis=components.basis,
                     beta=config.evaluation.beta,
                     run_id=run_id,
+                    resample=resample_years(
+                        sample.years,
+                        config.bootstrap.n_bootstrap,
+                        config.bootstrap.rng(),
+                    ),
                     sample=sample,
                     pricing=components.pricing,
+                    level=config.bootstrap.level,
+                    allocation=config.evaluation.allocation,
                 )
-            )
+                kpi_frames.append(boot.table)
+                bootstrap_log.append(
+                    {
+                        "sample": sample.name,
+                        "fold": sample.fold,
+                        "n_without_bounds": int(
+                            np.isnan(boot.table["ci_low"].to_numpy(np.float64)).sum()
+                        ),
+                        "n_undefined": _undefined_counts(boot.n_undefined),
+                        "seconds": time.perf_counter() - boot_start,
+                    }
+                )
             curve_frames.append(
                 exceedance_curves(
                     prepared,
@@ -856,7 +1113,9 @@ def execute(
                     results,
                     basis=components.basis,
                     run_id=run_id,
+                    return_periods=config.evaluation.return_periods,
                     sample=sample,
+                    allocation=config.evaluation.allocation,
                 )
             )
     evaluate_seconds = time.perf_counter() - evaluate_start
@@ -914,11 +1173,17 @@ def execute(
             "packages": package_versions(),
         },
         "problems": problems,
-        "evaluation": {
-            "evaluated": skipped is None,
-            "skipped_reason": skipped,
-            "beta": config.evaluation.beta,
-        },
+        "evaluation": _evaluation_entry(config, skipped),
+        "bootstrap": (
+            None
+            if config.bootstrap is None
+            else {
+                "seed": config.bootstrap.seed,
+                "n_bootstrap": config.bootstrap.n_bootstrap,
+                "level": config.bootstrap.level,
+                "samples": bootstrap_log,
+            }
+        ),
         "timings": {
             "load_seconds": data.load_seconds,
             "prepare_seconds": prepare_seconds,
@@ -979,11 +1244,16 @@ def _problem_log(
     problem_id: str,
     status: SolveStatus,
     *,
+    tail: Mapping[str, Any],
     result: SolveResult | None = None,
     exc: Exception | None = None,
     build: float | None = None,
 ) -> dict[str, Any]:
-    """Manifest entry of one design problem: status, attempts, diagnostics."""
+    """Manifest entry of one design problem: status, attempts, diagnostics.
+
+    ``tail`` (:func:`_tail_record`) adds ``p_zero_loss``, ``tail_outcomes``
+    and ``degenerate_tail``.
+    """
     if result is not None:
         return {
             "problem_id": problem_id,
@@ -1000,6 +1270,7 @@ def _problem_log(
             },
             "error_type": None,
             "error_message": None,
+            **tail,
         }
     attempts = _error_attempts(exc)
     return {
@@ -1015,6 +1286,7 @@ def _problem_log(
         "diagnostics": {},
         "error_type": type(exc).__name__,
         "error_message": str(exc),
+        **tail,
     }
 
 
@@ -1105,7 +1377,8 @@ def run_config(
     Parameters
     ----------
     config : ExperimentConfig
-        The config; its ``sweeps`` are ignored (MAR-65 runs them).
+        The config; its ``sweeps`` are ignored (``sweeps.run_sweeps`` runs
+        them).
     store : ResultStore, optional
         Default: ``ResultStore(config.output.directory)``.
     data : RunInput, optional

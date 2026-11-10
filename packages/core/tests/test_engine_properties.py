@@ -17,9 +17,11 @@ does not depend on the thesis numbers, through the public API only:
 * Scaling invariance: losses times ``c`` give payouts times ``c``.
 
 Every check recomputes the quantity in numpy from the EventSet and the
-fitted ``theta``, independently of the cvxpy expressions. Only the
-``event_conditional`` basis is implemented so far (``event`` and ``annual``
-come with MAR-24), so every test uses it.
+fitted ``theta``, independently of the cvxpy expressions. Every test here
+uses the ``event_conditional`` basis; the same properties on the ``event``
+and ``annual`` bases are in ``test_engine_properties_bases.py`` (MAR-24).
+The EventSet maker and strategies, the numpy objectives and the tolerances
+are shared with the sibling files in ``_properties.py`` (MAR-177).
 
 Determinism: hypothesis runs with ``derandomize=True`` and no example
 database, so CI draws the same examples every run. The analytical tests draw
@@ -30,38 +32,16 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
 
 import numpy as np
-import pandas as pd
 import pytest
-from numpy.typing import NDArray
-
-# hypothesis is locked in the uv workspace's test group, so this skip never
-# fires there. The CLIMADA pixi env (packages/climada) also runs the core
-# tests and has no hypothesis yet; the skip reason names that gap.
-pytest.importorskip(
-    "hypothesis",
-    reason=(
-        "hypothesis is not installed: the CLIMADA pixi env lacks it "
-        "(MAR-15 follow-up: add it to packages/climada/pixi.toml)"
-    ),
-)
-
-from hypothesis import HealthCheck, given, settings
+from hypothesis import given, settings
 from hypothesis import strategies as st
+from numpy.typing import NDArray
 
 from parametric_insurance_design.basis import Basis
 from parametric_insurance_design.constraints import Budget
-from parametric_insurance_design.evaluate import var_cvar
-from parametric_insurance_design.eventset import (
-    EventSet,
-    EventSetMetadata,
-    HazardSource,
-    IndexDefinition,
-    LossDefinition,
-    Provenance,
-)
+from parametric_insurance_design.eventset import EventSet
 from parametric_insurance_design.interfaces import (
     Constraint,
     DesignProblem,
@@ -77,141 +57,26 @@ from parametric_insurance_design.objectives import (
 from parametric_insurance_design.payout import StepPayout
 from parametric_insurance_design.pricing import PurePremium
 from parametric_insurance_design.problem import build_problems
-from parametric_insurance_design.scopes import Individual, Portfolio
+from parametric_insurance_design.scopes import Individual
 from parametric_insurance_design.solve import solve
 
-ATTACHMENT = 20.0
-LIMIT = 70.0
-TOL_INTERIOR_POINT = 1e-6
-"""Tolerance in scaled units (losses divided by the problem's scale, so <= 1)
-for interior-point solvers (Clarabel, HiGHS): measured violations are about
-3e-9 on these EventSets."""
-TOL_FIRST_ORDER = 1e-4
-"""Tolerance in scaled units for first-order solvers (OSQP for MSE, SCS).
-cvxpy runs OSQP with ``eps_abs = eps_rel = 1e-5``; measured constraint
-violations reach 1.5e-5 when polishing does not succeed. Real violations
-would be of the order of the losses themselves, i.e. near 1."""
-FIRST_ORDER_SOLVERS = frozenset({"OSQP", "SCS"})
-
-
-def solver_tol(solver: str) -> float:
-    """Tolerance in scaled units for a solver's accuracy."""
-    return TOL_FIRST_ORDER if solver in FIRST_ORDER_SOLVERS else TOL_INTERIOR_POINT
-
-
-PROPERTY_SETTINGS = settings(
-    derandomize=True,
-    database=None,
-    deadline=None,
-    print_blob=True,
-    suppress_health_check=[HealthCheck.too_slow],
+from ._properties import (
+    ATTACHMENT,
+    LIMIT,
+    PROPERTY_SETTINGS,
+    budgets,
+    eventsets,
+    homogeneity,
+    make_eventset,
+    objective_value,
+    objectives,
+    scopes,
+    solver_tol,
+    step_payouts,
+    with_scaled_losses,
 )
-"""Reproducible hypothesis profile: fixed examples, no example database."""
-
 
 # --- EventSets ---------------------------------------------------------------
-
-
-def make_eventset(
-    index: NDArray[np.float64],
-    loss: NDArray[np.float64],
-    rates: NDArray[np.float64],
-) -> EventSet:
-    """EventSet with one event per simulation year (row ``i`` is year ``i``)."""
-    n_rows, n_locations = index.shape
-    events = pd.DataFrame(
-        {
-            "event_id": [f"e{i}" for i in range(n_rows)],
-            "year": np.arange(n_rows),
-            "rate": rates,
-            "draw_id": np.zeros(n_rows, dtype=np.int64),
-            "scenario_id": ["prop"] * n_rows,
-        }
-    )
-    locations = pd.DataFrame(
-        {
-            "location_id": [f"L{j}" for j in range(n_locations)],
-            "lat": np.full(n_locations, 25.0),
-            "lon": np.linspace(-81.0, -80.0, n_locations),
-            "value": np.full(n_locations, 100.0),
-            "name": [f"Asset {j}" for j in range(n_locations)],
-        }
-    )
-    metadata = EventSetMetadata(
-        hazard=HazardSource(name="synthetic", release="1"),
-        index=IndexDefinition(definition="wind at the asset", unit="m/s"),
-        loss=LossDefinition(unit="USD", currency="USD"),
-        n_years=n_rows,
-        scenario="property tests",
-        provenance=Provenance(
-            producer="tests",
-            producer_version="0",
-            created_at=datetime(2026, 10, 25, tzinfo=UTC),
-        ),
-        licence="CC0-1.0",
-    )
-    return EventSet(
-        events=events,
-        locations=locations,
-        index=np.asarray(index, dtype=np.float64),
-        loss=np.asarray(loss, dtype=np.float64),
-        metadata=metadata,
-    )
-
-
-def with_scaled_losses(eventset: EventSet, factor: float) -> EventSet:
-    """The same EventSet with every loss multiplied by ``factor``."""
-    return make_eventset(eventset.index, eventset.loss * factor, eventset.rates)
-
-
-@st.composite
-def eventsets(draw: st.DrawFn, max_rows: int = 8, max_locations: int = 3) -> EventSet:
-    """Small random EventSets: 2-8 rows, 1-3 locations.
-
-    Index values lie on a 0.5 grid in ``[0, 90]``, so they fall below the
-    attachment, inside ``[ATTACHMENT, LIMIT)`` and at or above the limit.
-    Losses are integers in ``[0, 100]`` (zero rows included), rates are
-    positive and unequal.
-    """
-    n_rows = draw(st.integers(2, max_rows))
-    n_locations = draw(st.integers(1, max_locations))
-    size = n_rows * n_locations
-    index = draw(st.lists(st.integers(0, 180), min_size=size, max_size=size))
-    loss = draw(st.lists(st.integers(0, 100), min_size=size, max_size=size))
-    weights = draw(st.lists(st.integers(1, 4), min_size=n_rows, max_size=n_rows))
-    return make_eventset(
-        np.reshape(np.array(index, dtype=np.float64) / 2.0, (n_rows, n_locations)),
-        np.reshape(np.array(loss, dtype=np.float64), (n_rows, n_locations)),
-        np.array(weights, dtype=np.float64) / n_rows,
-    )
-
-
-def step_payouts() -> st.SearchStrategy[StepPayout]:
-    """Uniform step payouts on ``[ATTACHMENT, LIMIT]`` with 1-6 bins."""
-    return st.integers(1, 6).map(lambda n: StepPayout(ATTACHMENT, LIMIT, n))
-
-
-def scopes() -> st.SearchStrategy[Scope]:
-    """The individual and the portfolio scope."""
-    return st.sampled_from([Individual(), Portfolio()])
-
-
-def budgets() -> st.SearchStrategy[Budget | None]:
-    """No budget, a binding budget, a zero budget or a slack one."""
-    return st.sampled_from([None, Budget(0.0), Budget(0.3), Budget(1.0), Budget(5.0)])
-
-
-def objectives() -> st.SearchStrategy[Objective]:
-    """MSE, E[U] and weighted CVaR with a range of alpha and beta."""
-    return st.one_of(
-        st.just(MSE()),
-        st.just(ExpectedUncovered()),
-        st.builds(
-            WeightedCVaR,
-            alpha=st.sampled_from([0.0, 0.3, 0.7, 1.0]),
-            beta=st.sampled_from([0.5, 0.8, 0.95]),
-        ),
-    )
 
 
 # --- Independent numpy evaluation -------------------------------------------
@@ -257,31 +122,8 @@ class Outcome:
 
     def objective_tol(self, objective: Objective) -> float:
         """Tolerance for objective values in loss units."""
-        homogeneity = 2 if isinstance(objective, MSE) else 1
-        return solver_tol(self.result.solver) * self.result.scale**homogeneity
-
-
-def objective_value(
-    objective: Objective,
-    loss: NDArray[np.float64],
-    payout: NDArray[np.float64],
-    probability: NDArray[np.float64],
-) -> float:
-    """SPEC §6 objective on the event-conditional basis, in numpy.
-
-    The weighted CVaR uses ``evaluate.var_cvar``, the exact discrete CVaR,
-    which equals the Rockafellar-Uryasev minimum over ``zeta``.
-    """
-    if isinstance(objective, MSE):
-        return float(probability @ (loss - payout) ** 2)
-    uncovered = np.maximum(loss - payout, 0.0)
-    expected = float(probability @ uncovered)
-    if isinstance(objective, ExpectedUncovered):
-        return expected
-    if isinstance(objective, WeightedCVaR):
-        _, cvar = var_cvar(uncovered, probability, objective.beta)
-        return objective.alpha * cvar + (1.0 - objective.alpha) * expected
-    raise AssertionError(f"no numpy evaluation for {objective!r}")
+        degree = homogeneity(objective)
+        return solver_tol(self.result.solver) * self.result.scale**degree
 
 
 def design(
@@ -549,7 +391,7 @@ def test_scaling_losses_scales_payouts(
     scaled = design(
         with_scaled_losses(eventset, factor), scope, payout, objective, constraints
     )
-    homogeneity = 2 if isinstance(objective, MSE) else 1
+    degree = homogeneity(objective)
     for a, b in zip(base, scaled, strict=True):
         tol = factor * a.tol
         np.testing.assert_allclose(b.result.theta, factor * a.result.theta, atol=tol)
@@ -558,6 +400,6 @@ def test_scaling_losses_scales_payouts(
         )
         assert b.result.premium == pytest.approx(factor * a.result.premium, abs=tol)
         assert b.result.objective_value == pytest.approx(
-            factor**homogeneity * a.result.objective_value,
-            abs=factor**homogeneity * a.objective_tol(objective),
+            factor**degree * a.result.objective_value,
+            abs=factor**degree * a.objective_tol(objective),
         )
