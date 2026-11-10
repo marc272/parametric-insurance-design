@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-10-25
 - Decision issues: MAR-5 (D1 name, D3 licence)
-- Amendments: 1 (2026-10-25, MAR-79), 2 (2026-11-06, MAR-251) and 3 (2026-11-06, MAR-273), at the end
+- Amendments: 1 (2026-10-25, MAR-79), 2 (2026-11-06, MAR-251), 3 (2026-11-06, MAR-273) and 4 (2026-11-10, MAR-310), at the end
 
 ## Context
 
@@ -98,3 +98,14 @@ The golden fixtures of the CRC module are JSON cases in `parity/crc/cases/` (MAR
 - **`thesis`: CC-BY-4.0**, with the IRIS attribution. These cases hold draws of the parity fixture `parity/tests/data/thesis_eventset/`, which is IRIS-derived and CC-BY-4.0 (amendment 1, MAR-94). The attribution that a copy keeps is in `parity/crc/README.md`.
 - **Copies keep their case's licence.** The crc-sdk fork (AGPL-3.0-or-later) copies cases into `tests/fixtures/parametric/cases/`. Each copy keeps CC0-1.0 or CC-BY-4.0 by its data set, and the `thesis` copies keep the attribution. The fork's `tests/fixtures/parametric/README.md` states these terms. The same holds for any further copy.
 - **Unchanged:** the table's rows and amendments 1 and 2. The export script and its test stay BSD-3-Clause, like the rest of the `parity/` code (`parity/LICENSE`, amendment 1).
+
+## Amendment 4 (2026-11-10, MAR-310): the CLIMADA golden fixtures
+
+Decided by the owner, Marc Prinzing, on 2026-11-10, by accepting ADR 0006 (D12, MAR-48), whose §12 sets the licence. Applied in K-13 (MAR-312) and recorded here in K-11 (MAR-310).
+
+The golden fixtures of the CLIMADA module `climada_petals.engine.parametric` are the JSON samples and cases in `parity/climada/` (MAR-312). The export script `parity/scripts/export_climada_fixtures.py` generates them with the core, and K-18 and K-19 copy them into the module's test data in the fork `marc272/climada_petals`, which is GPL v3. This amendment records their licence.
+
+- **The script and its test, `parity/tests/test_climada_fixtures.py`: BSD-3-Clause**, like the rest of the `parity/` code (`parity/LICENSE`, amendment 1).
+- **The samples in `parity/climada/samples/` and the cases in `parity/climada/cases/`: CC0-1.0.** The owner dedicates them to the public domain under CC0 1.0 Universal, by accepting ADR 0006 on 2026-11-10. They hold no third-party data: every sample comes from the script's seeded generator or was chosen by hand. Every sample records `"licence": "CC0-1.0"`, and `parity/climada/README.md` ("Licence"), `parity/README.md` and `docs/data-sources.md` record it too.
+- **Copies in the fork.** CC0 is compatible with GPL v3, so the copies carry no attribution duty. Unlike the CRC cases of amendment 3, no case here follows a third-party data set.
+- **Unchanged:** the table's rows and amendments 1 to 3.
