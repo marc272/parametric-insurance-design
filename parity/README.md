@@ -9,7 +9,8 @@ Thesis golden data and the parity tests that check the new core reproduces the t
   - the code under `parity/` is BSD-3-Clause (`LICENSE`);
   - the thesis result tables in `golden/`, the simulation-sweep tables in `golden/simulation_sweeps/` included, are CC-BY-4.0 (`golden/LICENSE`). They were computed from IRIS-derived losses, so they follow the IRIS treatment below (owner decision of 2026-10-27; it supersedes the earlier CC0-1.0);
   - the fixture data in `tests/data/thesis_eventset/` is CC-BY-4.0, recorded in its `metadata.json`. It is derived from IRIS, whose licence records differ (CC0 on the figshare items, CC BY 4.0 on the collection's DataCite record); IRIS-derived data is treated as CC BY 4.0, the stricter of the two (`docs/data-sources.md`);
-  - the CRC golden fixtures in `crc/cases/` follow their data set (owner decision of 2026-11-06): CC0-1.0 for the `synthetic`, `synthetic52` and `handmade` cases, and CC-BY-4.0, with the IRIS attribution, for the `thesis` cases, which hold draws of the fixture above. A copy keeps its case's licence. The table by case id and the attribution are in `crc/README.md` ("Licence").
+  - the CRC golden fixtures in `crc/cases/` follow their data set (owner decision of 2026-11-06): CC0-1.0 for the `synthetic`, `synthetic52` and `handmade` cases, and CC-BY-4.0, with the IRIS attribution, for the `thesis` cases, which hold draws of the fixture above. A copy keeps its case's licence. The table by case id and the attribution are in `crc/README.md` ("Licence");
+  - the CLIMADA golden fixtures in `climada/samples/` and `climada/cases/` are CC0-1.0 (owner decision: ADR 0006 §12, accepted 2026-11-10; MAR-312). They are synthetic or hand-made, so their copies in the fork, which is GPL v3, carry no attribution duty. Details are in `climada/README.md` ("Licence").
 
 ## Contents
 
@@ -41,6 +42,7 @@ Thesis golden data and the parity tests that check the new core reproduces the t
 | `REPORT.md` | The parity report (generated; do not edit by hand) |
 | `configs/thesis.yaml` | The thesis experiment config, migrated by `scripts/migrate_thesis_config.py` |
 | `crc/`, `scripts/export_crc_fixtures.py` | The golden fixtures of the CRC module `crc_sdk.parametric` (MAR-245, MAR-255, MAR-264, MAR-269): one JSON case per file in `crc/cases/`, the format in `crc/README.md`, and the script that writes them from the core. `tests/test_crc_fixtures.py` regenerates them and reads them as the module's tests do |
+| `climada/`, `scripts/export_climada_fixtures.py` | The golden fixtures of the CLIMADA module `climada_petals.engine.parametric` (MAR-312): shared samples in `climada/samples/`, one JSON case per file in `climada/cases/`, the format in `climada/README.md`, and the script that writes them from the core. `tests/test_climada_fixtures.py` regenerates them, enforces the 200 KB limit and reads them as the module's tests do |
 | `tests/` | Checks the committed files against the manifest and fixed checksums; with a thesis checkout, also recomputes the source checksums and regenerates the fixture |
 
 ## The parity report
