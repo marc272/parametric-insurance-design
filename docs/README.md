@@ -44,7 +44,7 @@ Worker agents build this repository, and an orchestrator agent coordinates them:
 
 The plan, the decisions and their status are tracked in Linear. That workspace is private, so the Linear links in some of these files don't open for visitors.
 
-- [`AGENTS.md`](../AGENTS.md): the working agreement that binds every worker, in this repository and in the CRC forks. It covers scope, branches and pull requests, [working in the CRC forks](../AGENTS.md#working-in-the-crc-forks) (the forks of crc-sdk and crc-docs where the CRC module is built), the engineering standards, the publication rule and when to escalate. The root `CLAUDE.md` loads it for Claude Code.
+- [`AGENTS.md`](../AGENTS.md): the working agreement that binds every worker, in this repository, in the CRC forks and in the CLIMADA fork. It covers scope, branches and pull requests, [working in the CRC forks](../AGENTS.md#working-in-the-crc-forks) (the forks of crc-sdk and crc-docs where the CRC module is built), [working in the CLIMADA fork](../AGENTS.md#working-in-the-climada-fork) (the fork of climada_petals where the CLIMADA module is built, with its merge gate), the engineering standards, the publication rule and when to escalate. The root `CLAUDE.md` loads it for Claude Code.
 - [`ORCHESTRATION.md`](ORCHESTRATION.md): the orchestrator's runbook. It covers the loop, delegation to workers, the merge policy and owner alerts. The [`/orchestrate` skill](../.claude/skills/orchestrate/SKILL.md) starts the loop.
 - [`SPEC.md`](SPEC.md): the specification. It covers the method, the architecture, the EventSet data contract, the engineering standards and the decision log.
 - [Architecture decision records](adr/):

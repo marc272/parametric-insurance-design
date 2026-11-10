@@ -5,12 +5,13 @@ You coordinate the **parametric-insurance-design** program. You plan, delegate i
 ## Operating model
 
 - **Autonomous.** Marc starts an orchestrator session by hand, in auto mode, with `/orchestrate` (or `/loop /orchestrate` to keep it waking up while it waits on him). From then on the orchestrator runs the loop below on its own: it dispatches, reviews, merges and keeps Linear current. It contacts Marc only for hard blocks and Human work (see "Owner alerts").
-- **Three repositories** (D9, Marc, 2026-11-05):
-  - `marc272/parametric-insurance-design`, this repository: the reference implementation and test oracle, the design record (ADR 0005), the CLIMADA prototype and the paused tracks. Branches from `main`.
+- **Four repositories** (D9, Marc, 2026-11-05; the CLIMADA fork, K-10, MAR-309, 2026-11-08):
+  - `marc272/parametric-insurance-design`, this repository: the reference implementation and test oracle, the design records (ADR 0005, ADR 0006), the parity fixtures for both modules, the CLIMADA prototype and the paused tracks. Branches from `main`.
   - `marc272/crc-sdk`, a fork of `RiskThinking/crc-sdk`: where `crc_sdk.parametric` is built. Branches from, and PRs into, `parametric`.
   - `marc272/crc-docs`, a fork of `RiskThinking/crc-docs`: the showcase notebook. Branches from, and PRs into, `parametric`.
+  - `marc272/climada_petals`, a fork of `CLIMADA-project/climada_petals`: where `climada_petals.engine.parametric`, its tutorial and its API docs are built (ADR 0006). Branches from, and PRs into, `parametric`, which was cut from upstream `develop`.
 
-  Each fork's `main` mirrors upstream and is never pushed to. Nothing goes to RiskThinking's repositories: the upstream PRs are Marc's (MAR-249). Workers in the forks follow `AGENTS.md`, "Working in the CRC forks".
+  Each fork's `main` mirrors upstream and is never pushed to. The CLIMADA fork's `develop` mirrors upstream too, and is never pushed to either. Nothing goes to RiskThinking's or CLIMADA-project's repositories: the upstream PRs are Marc's (MAR-249 for CRC, K-05 for CLIMADA). Workers in the CRC forks follow `AGENTS.md`, "Working in the CRC forks", and workers in the CLIMADA fork follow "Working in the CLIMADA fork".
 - **Stateless and resumable.** Everything needed to continue lives in Linear (statuses, dispatch records, status updates), git and GitHub, never in one conversation. After a usage-limit reset or a crash, `continue` in the same session, or `/orchestrate` in a new one, resumes the work (see "Resuming after an interruption").
 - **One orchestrator at a time.** Don't start a second orchestrator session while one is active.
 
@@ -25,13 +26,14 @@ These steps are done by Marc, because agents may not change their own permission
      "environment": [
        "$defaults",
        "Organization: Marc Prinzing, solo owner. Primary use: building the open-source parametric-insurance-design program, run by an orchestrator agent that delegates to worker subagents",
-       "Source control: github.com/marc272 (the owner's own GitHub account). marc272/parametric-insurance-design is a public repository the owner created for this work. marc272/crc-sdk and marc272/crc-docs are the owner's forks of RiskThinking/crc-sdk and RiskThinking/crc-docs, where agents build the CRC module on the branch `parametric`",
+       "Source control: github.com/marc272 (the owner's own GitHub account). marc272/parametric-insurance-design is a public repository the owner created for this work. marc272/crc-sdk and marc272/crc-docs are the owner's forks of RiskThinking/crc-sdk and RiskThinking/crc-docs, where agents build the CRC module on the branch `parametric`. marc272/climada_petals is the owner's fork of CLIMADA-project/climada_petals, where agents build the CLIMADA module on the branch `parametric`",
        "Key services: the owner's Linear workspace 'Marc prinzing' (team MAR), reached through the Linear connector, is the program's tracker. Agents create and update issues, comments and project status updates there as part of the documented workflow (docs/ORCHESTRATION.md)"
      ],
      "allow": [
        "$defaults",
        "Agent PR merges in marc272/parametric-insurance-design: on 2026-10-25 the owner, Marc Prinzing, authorised the orchestrator agent to squash-merge PRs (`gh pr merge <n> --squash`) without a human approval, after it has reviewed the PR and all CI checks are green (see the repository's CLAUDE.md and docs/ORCHESTRATION.md 'Merge policy'). This does not cover admin merges, force pushes, direct pushes to main, or a worker merging its own PR",
-       "Agent PR merges in the forks marc272/crc-sdk and marc272/crc-docs: on 2026-11-05 the owner authorised the orchestrator agent to squash-merge PRs into the branch `parametric` (`gh pr merge <n> --repo marc272/<fork> --squash`) under the same conditions, and to keep `parametric` current by merging upstream `main` into it through a sync PR merged with `--merge`. This does not cover admin merges, force pushes, pushes to any main, or any action on RiskThinking's repositories"
+       "Agent PR merges in the forks marc272/crc-sdk and marc272/crc-docs: on 2026-11-05 the owner authorised the orchestrator agent to squash-merge PRs into the branch `parametric` (`gh pr merge <n> --repo marc272/<fork> --squash`) under the same conditions, and to keep `parametric` current by merging upstream `main` into it through a sync PR merged with `--merge`. This does not cover admin merges, force pushes, pushes to any main, or any action on RiskThinking's repositories",
+       "Agent PR merges in the fork marc272/climada_petals: on 2026-11-08 the owner authorised the orchestrator agent to squash-merge PRs into the branch `parametric` (`gh pr merge <n> --repo marc272/climada_petals --squash`) under the same conditions, the fork's checks re-run by the orchestrator standing for CI because Actions are off there; and on 2026-11-10 (MAR-310) to keep `parametric` current by merging upstream `develop` into it through a sync PR merged with `--merge`. This does not cover admin merges, force pushes, pushes to `main`, `develop` or `parametric`, or any action on CLIMADA-project's repositories"
      ]
    }
    ```
@@ -79,13 +81,13 @@ These steps are done by Marc, because agents may not change their own permission
 ## Session start
 
 1. Read the Program hub description and its latest status update.
-2. List the team's issues that are **In Progress** and **In Review**. Reconcile each with git and PR state, in this repository and in both forks:
+2. List the team's issues that are **In Progress** and **In Review**. Reconcile each with git and PR state, in this repository and in the three forks:
    - is a PR merged without the issue being Done?
    - is a worker gone while its issue is still In Progress?
 
    Fix Linear first. Resume or re-dispatch interrupted work as described in "Resuming after an interruption".
 3. Read new comments since the last status update, especially on Human issues: the owner may have answered.
-4. In each fork, check whether upstream `main` has moved past `parametric` (see "Keeping `parametric` current").
+4. In each fork, check whether upstream `main` (in `climada_petals`, upstream `develop`) has moved past `parametric` (see "Keeping `parametric` current").
 5. Rebuild the ready set (see "The loop") and decide this session's dispatches.
 
 ## Session end
@@ -150,7 +152,7 @@ The Program hub sets these rules (from 2026-11-05):
 
 1. **Sync.** Do the session-start steps, then move Backlog → Todo for every issue whose blockers are all Done.
 2. **Pick.** Leaf issues in Todo without the Human label, outside the paused projects, ordered by the scheduling rules above, then priority, then milestone. Constraints:
-   - at most **3 workers** at once (4 when the lanes are clearly independent), counted across all three repositories;
+   - at most **3 workers** at once (4 when the lanes are clearly independent), counted across all four repositories;
    - no two concurrent issues may own the same module (ADR 0002 ownership map; in crc-sdk, the module layout in ADR 0005);
    - serialise anything that touches `pyproject.toml`, lockfiles (`uv.lock`, `packages/climada/pixi.lock`) or CI config, in each repository. A change to the core's dependencies must also run `pixi lock` in `packages/climada` and commit `pixi.lock`, because the climada CI job installs with `--locked` (ADR 0002 §10, MAR-71).
 3. **Check size.** If an issue is clearly more than one PR (several modules, or more than about a day of work), first split it into sub-issues with goal, scope, acceptance and blockers. The original becomes a container. Don't pre-split far-future work; split when it becomes ready.
@@ -173,6 +175,14 @@ The Program hub sets these rules (from 2026-11-05):
    - no breaking change to anything exported in `__all__`;
    - the fork's own `AGENTS.md` rules hold (crc-sdk: no I/O in builders or `explain()`, atomic writes, licence and provenance for every source).
 
+   For a PR in `marc272/climada_petals`, check instead (`AGENTS.md`, "Working in the CLIMADA fork"):
+   - the base is `parametric`, and the merge gate passes in your own re-run on the head you merge, with the worker's summary in the PR body;
+   - no file of the diff imports `parametric_insurance_design` or `parametric_insurance_design_climada`, and nothing is read, copied or ported from crc-sdk;
+   - no MAR IDs or Linear links in code or docs (the same `grep` as above prints nothing); commit subjects follow CLIMADA's guide, each commit with a `Refs: MAR-<n>` trailer;
+   - no new dependency beyond ADR 0006: `pyproject.toml` and `requirements/` unchanged unless the issue says otherwise;
+   - no data beyond small test files; the module's unit tests are offline and each at most 2 s;
+   - the diff stays within the files ADR 0006 §2 and §14 give the issue, and other petals files are not reformatted.
+
    Request changes from the same worker, which keeps its context. After two failed rounds, escalate to the human. For core numerical code, an independent reviewer subagent is worth the cost.
 6. **Merge.** Follow the "Merge policy" below: squash-merge agent PRs that pass review, in dependency order, updating dependent branches when needed. Shared branches (`main`, `parametric`) are never rebased. Set the issue to Done, comment with the PR link, and file the reported follow-ups.
 7. **Repeat** from step 1. End the session with the session-end steps.
@@ -190,9 +200,9 @@ For an issue in a fork, see "Worker worktrees in the forks" below. Workers may n
 
 The `Agent` tool's `isolation: "worktree"` makes worktrees of this repository only. For an issue in a fork, you create the worktree in the fork clone yourself and spawn the worker without isolation. The session needs the forks folder as a working directory ("One-time setup", step 2).
 
-The fork clones (R-10, MAR-242) are `/Users/marcprinzing/Parametric_Insurance/forks/crc-sdk` and `/Users/marcprinzing/Parametric_Insurance/forks/crc-docs`. Worker worktrees go next to them, at `/Users/marcprinzing/Parametric_Insurance/forks/worktrees/<fork>-mar-<n>`, so they sit outside both clones.
+The fork clones (R-10, MAR-242; K-10, MAR-309) are `/Users/marcprinzing/Parametric_Insurance/forks/crc-sdk`, `/Users/marcprinzing/Parametric_Insurance/forks/crc-docs` and `/Users/marcprinzing/Parametric_Insurance/forks/climada_petals`. Worker worktrees go next to them, at `/Users/marcprinzing/Parametric_Insurance/forks/worktrees/<fork>-mar-<n>` (for the CLIMADA fork, `/Users/marcprinzing/Parametric_Insurance/forks/worktrees/climada_petals-mar-<n>`), so they sit outside the clones.
 
-1. **Check the clone, once per session.** In each clone, `git -C <clone> remote get-url --push upstream` prints `DISABLED`, and `gh repo set-default --view`, run in the clone, prints `marc272/<fork>`. If either fails, dispatch no fork work: R-10's set-up is Marc's, so alert him.
+1. **Check the clone, once per session.** In each clone, `git -C <clone> remote get-url --push upstream` prints `DISABLED`, and `gh repo set-default --view`, run in the clone, prints `marc272/<fork>`. If either fails, dispatch no work in that fork: the set-up is Marc's (R-10 for the CRC forks, K-10 for the CLIMADA fork), so alert him.
 2. **Create the worktree:**
 
    ```bash
@@ -206,7 +216,9 @@ The fork clones (R-10, MAR-242) are `/Users/marcprinzing/Parametric_Insurance/fo
 
 Every `gh pr` command on fork work, yours and the workers', passes `--repo marc272/<fork>` explicitly: in a fork clone, `gh` without it can resolve to RiskThinking's repository. Read upstream only through `git fetch upstream`; `gh` commands that name a RiskThinking repository are denied.
 
-Agents never create tags or run workflows by hand in the forks. crc-sdk's workflows are enabled (Marc, 2026-11-05), and its `release.yaml` ("Package release") runs on any pushed `v*` tag and on `workflow_dispatch`, with `id-token: write`. A tag or a manual run could publish a release. crc-docs' Actions are off, and stay off (see "Fork PRs").
+Agents never create tags or run workflows by hand in the forks. crc-sdk's workflows are enabled (Marc, 2026-11-05), and its `release.yaml` ("Package release") runs on any pushed `v*` tag and on `workflow_dispatch`, with `id-token: write`. A tag or a manual run could publish a release. crc-docs' Actions are off, and stay off (see "Fork PRs"). Actions are off on `climada_petals` too (K-10), and stay off: its `ci.yml` runs on every push and checks out CLIMADA-project's repositories, and its other workflows are release steps that need secrets.
+
+**The CLIMADA fork.** A worker there also builds its own environment in `<worktree>-notes/`, from a read-only clone of CLIMADA core's `develop` in the same folder (`AGENTS.md`, "Working in the CLIMADA fork", "The merge gate"). It takes about 2 minutes once conda's package cache is warm, and the orchestrator's re-run before a merge uses that environment. The guardrails under "One-time setup" name RiskThinking and the CRC forks: extending them to `CLIMADA-project` and to this fork's Actions setting is MAR-361. Until it lands, the rules in `AGENTS.md` are the only control, and every `gh` command there still names `--repo marc272/climada_petals` literally, as the hook's fork-path rule requires.
 
 ### Briefs
 
@@ -262,6 +274,36 @@ Report back: PR link, summary, anything unverified, follow-ups you discovered, o
 Don't change Linear; the orchestrator keeps it current. Never merge.
 ```
 
+**CLIMADA fork brief template.** For an issue in `marc272/climada_petals`. It differs from the CRC fork brief in the rules section, the commit style, the dependency rule and the gate.
+
+```text
+You are a worker on the parametric-insurance-design program, in the fork marc272/climada_petals.
+AGENTS.md of parametric-insurance-design is binding. Read "Working in the CLIMADA fork" in it first:
+it carries CLIMADA's rules and the merge gate, because petals has no AGENTS.md.
+
+Issue: MAR-<n>, <title> (<Linear URL>)
+Why it matters: <one line linking it to the output it unblocks>
+
+--- Issue description (verbatim) ---
+<goal, scope, acceptance criteria>
+---
+
+Repository: marc272/climada_petals. Worktree: <absolute path>, on branch <gitBranchName>, cut from origin/parametric.
+Work only in that worktree: absolute paths, git -C <worktree> for git, cd <worktree> && … for the checks.
+Edit nothing else: not parametric-insurance-design, not the fork clone's own checkout.
+Read first: docs/adr/0006 in parametric-insurance-design (§2 layout, §12 tests, §14 your issue); <merged PRs of the blockers>
+You own: <files from ADR 0006 §2 and §14>. Import anything except parametric_insurance_design and parametric_insurance_design_climada; read nothing from crc-sdk; edit nothing else.
+Commits: CLIMADA's style (imperative, capitalised, at most 50 characters, no period), no MAR IDs or Linear links in code, docs or subjects, and a "Refs: MAR-<n>" trailer in the final paragraph, with any Co-Authored-By line next to it and no blank line between them.
+Push early: git -C <worktree> push -u origin <gitBranchName>, then
+gh pr create --repo marc272/climada_petals --base parametric --head <gitBranchName> --draft --body-file <file>, titled "[MAR-<n>] <subject>".
+Every gh pr command passes --repo marc272/climada_petals. Never push to upstream, main, develop or parametric; never contact CLIMADA's maintainers; never set credentials.
+Environment and checks: AGENTS.md, "Working in the CLIMADA fork", "The merge gate". Build the environment in <worktree>-notes/, and paste the gate's summary on the final head into the PR body.
+Keep logs and PR-body drafts in <worktree>-notes/, never in the worktree or the shared session scratchpad.
+Done means: PR open (marked ready), the merge gate passing on the final head, every acceptance criterion evidenced in the PR body.
+Report back: PR link, summary, anything unverified, follow-ups you discovered, open questions.
+Don't change Linear; the orchestrator keeps it current. Never merge.
+```
+
 **Resume brief.** Use this when a worker is gone but its branch or draft PR exists. Put this before the normal brief:
 
 ```text
@@ -280,7 +322,7 @@ Every dispatch, re-dispatch or resume posts one comment on the issue, so that a 
 ```text
 Dispatch record
 - worker: <agent ID or session link>, started <ISO time>
-- repository: <marc272/parametric-insurance-design | marc272/crc-sdk | marc272/crc-docs>
+- repository: <marc272/parametric-insurance-design | marc272/crc-sdk | marc272/crc-docs | marc272/climada_petals>
 - branch: <gitBranchName>   worktree: <path, if known>
 - PR: <link, or "none yet">
 - notes: <resume of …, review round n, anything a successor needs>
@@ -290,7 +332,7 @@ Update the record with a new comment when the PR opens, and at each review round
 
 ## Merge policy
 
-Marc authorised agent merges on 2026-10-25 ("PR should be merged automatically in general", MAR-80). On 2026-11-05 he extended this to PRs into `parametric` in the forks `marc272/crc-sdk` and `marc272/crc-docs`, under the same conditions. **The orchestrator**, and never a worker, squash-merges a PR with `gh pr merge <n> --squash` (in a fork, see "Fork PRs" below) when all of the following hold:
+Marc authorised agent merges on 2026-10-25 ("PR should be merged automatically in general", MAR-80). On 2026-11-05 he extended this to PRs into `parametric` in the forks `marc272/crc-sdk` and `marc272/crc-docs`, under the same conditions, and on 2026-11-08 to PRs into `parametric` in `marc272/climada_petals` (K-10, MAR-309, answer 2). **The orchestrator**, and never a worker, squash-merges a PR with `gh pr merge <n> --squash` (in a fork, see "Fork PRs" below) when all of the following hold:
 
 - the orchestrator reviewed it against the checklist in "The loop", step 5;
 - every CI check is green: none failing, none pending (in crc-docs, the fork's own checks, see "Fork PRs");
@@ -313,12 +355,20 @@ The merge gate differs by fork (crc-sdk checked 2026-11-05, crc-docs 2026-11-08)
   - **The one exception so far to "never connect to RiskThinking's services"** is MAR-299 (Marc, 2026-11-08): agents may download the public CRC Open release for the primer notebook, with no credentials and only for that notebook.
   - **The skills check, by hand.** When a PR changes a path that `validate-skills.yml` watches (`.agents/skills/**`, `.claude/skills`, `.mcp.json`, `AGENTS.md`, `CLAUDE.md` or the workflow itself), run that workflow's steps on the final head as part of the gate: `.claude/skills` is a symlink to `../.agents/skills`, `CLAUDE.md` is the single line `@AGENTS.md`, `uv run python -m json.tool .mcp.json` succeeds, `.agents/skills/` holds at least one skill, and every skill there passes `uvx --from "skills-ref==0.1.1" agentskills validate <skill>` and is named in `AGENTS.md`; a sync PR is exempt when those paths at its head are identical to `upstream/main` (`git -C <worktree> diff --quiet upstream/main HEAD -- <paths>` succeeds), because the steps read only those paths, so their result would be upstream's own.
 - Both forks carry upstream's `rebase-dependabot.yml`, which has no job in a fork.
+- **climada_petals:** Actions are off on `marc272/climada_petals` (K-10; `gh api repos/marc272/climada_petals/actions/permissions --jq .enabled` prints `false`), and they stay off. Upstream's main CI is Jenkins on an ETH server, which the fork can't use. So the gate is local, as in crc-docs: the worker pastes the summary of the merge gate in `AGENTS.md` ("Working in the CLIMADA fork", "The merge gate") on the final head, and you re-run it in the PR's worktree, with the worker's environment in `<worktree>-notes/env`, on the head you are about to merge. Merge only if your run passes. The full `make integ_test` is not part of the gate: it needs services beyond CLIMADA's Data API, some with credentials, and running it is Marc's decision.
 
 Merge a fork PR so that the commit on `parametric` reads like upstream's history, with no MAR ID in its subject:
 
 ```bash
 gh pr merge <n> --repo marc272/<fork> --squash \
   --subject "<conventional-commit subject> (#<n>)" --body "Refs: MAR-<issue>"
+```
+
+In `climada_petals` the subject follows CLIMADA's commit style instead of the conventional one:
+
+```bash
+gh pr merge <n> --repo marc272/climada_petals --squash \
+  --subject "<subject> (#<n>)" --body "Refs: MAR-<issue>"
 ```
 
 ### Keeping `parametric` current
@@ -332,6 +382,8 @@ Marc (2026-11-05): the orchestrator keeps each fork's `parametric` current by me
 5. When the gate passes, merge it with a merge commit: `gh pr merge <n> --repo marc272/<fork> --merge`. Never `--squash` or `--rebase` here: either would drop upstream's history from `parametric`, and the upstream PR would then show upstream's own changes as ours. A sync PR carried by a MAR-issue branch, as crc-docs#2 was, also needs `--subject "<conventional-commit subject> (#<n>)" --body "Refs: MAR-<issue>"`: the default merge message holds the branch name and the PR title, and both have the MAR ID.
 
 A sync PR on a `sync/…` branch has no Linear issue. List it in the next Program hub status update, like Dependabot PRs.
+
+**In `climada_petals`, upstream `develop`** (Marc's approval, 2026-11-10, MAR-310). Petals' PRs go to `develop`, and the fork's `parametric` was cut from it (K-10), so there the same steps merge upstream `develop`, never by a rebase: the check is `git -C <clone> merge-base --is-ancestor upstream/develop origin/parametric`, the branch is `sync/upstream-develop-<YYYY-MM-DD>`, the merge is `git -C <worktree> merge --no-edit upstream/develop`, the checks are the merge gate of `AGENTS.md` ("Working in the CLIMADA fork"), in an environment built for that worktree, and the PR is `gh pr create --repo marc272/climada_petals --base parametric --head sync/upstream-develop-<YYYY-MM-DD> --title "Merge upstream develop into parametric" --body-file <file>`, merged with `gh pr merge <n> --repo marc272/climada_petals --merge`. Do it before Marc opens the upstream PR (K-05) too.
 
 ### Dependabot PRs
 
@@ -410,17 +462,17 @@ The CRC plan, in milestone order (SPEC §8; the CRC Contribution project in Line
 3. **R3, the notebook and the upstream PRs:** MAR-46 R-19 the notebook in crc-docs → MAR-249 R-20 the contribution route and the upstream PRs (Human).
 4. **R4, the Phase 2 extensions:** MAR-45 R-21 portfolio approach · MAR-250 R-22 multi-hazard covers · MAR-44 R-23 scenario analysis · MAR-41 VELO assets.
 
-Everything in the forks waits on MAR-242 (the forks) and MAR-244 (Marc's approval of ADR 0005). The CLIMADA prototype (MAR-168) takes a slot when CRC has no ready agent work. The Foundation start sequence of 2026-10-25 (bootstrap, contract, core lanes, parity, core v1 features) is done; its record is in Linear and git.
+Everything in the forks waits on MAR-242 (the forks) and MAR-244 (Marc's approval of ADR 0005). The CLIMADA plan is ADR 0006 §14, accepted on 2026-11-10 (SPEC §8): K-13 the parity fixtures and K-11 these rules, then K-14 the port into the fork `marc272/climada_petals`, K-15 to K-23 the module, K-04 the tutorial and K-05 the upstream PR (Human). Its issues take a slot when CRC has no ready agent work. The prototype (MAR-168) is frozen after K-14. The Foundation start sequence of 2026-10-25 (bootstrap, contract, core lanes, parity, core v1 features) is done; its record is in Linear and git.
 
 ## Reference material (absolute paths on the owner's machine)
 
 - Workspace guide: `/Users/marcprinzing/Parametric_Insurance/CLAUDE.md`.
 - Thesis code (parity source, read-only): `/Users/marcprinzing/Parametric_Insurance/parametric-insurance-framework`.
-- Fork clones (R-10): `/Users/marcprinzing/Parametric_Insurance/forks/crc-sdk` and `/Users/marcprinzing/Parametric_Insurance/forks/crc-docs`. Never edit their own checkouts: fork work happens in worktrees under `/Users/marcprinzing/Parametric_Insurance/forks/worktrees/` ("Worker worktrees in the forks").
+- Fork clones (R-10, K-10): `/Users/marcprinzing/Parametric_Insurance/forks/crc-sdk`, `/Users/marcprinzing/Parametric_Insurance/forks/crc-docs` and `/Users/marcprinzing/Parametric_Insurance/forks/climada_petals`. Never edit their own checkouts: fork work happens in worktrees under `/Users/marcprinzing/Parametric_Insurance/forks/worktrees/` ("Worker worktrees in the forks").
 
 ## You never
 
-- Do anything on the "Never" list in `AGENTS.md`. In particular, never act on RiskThinking's repositories or contact RiskThinking: the upstream PRs and every contact are Marc's (MAR-249).
+- Do anything on the "Never" list in `AGENTS.md`. In particular, never act on RiskThinking's or CLIMADA-project's repositories, and never contact RiskThinking or CLIMADA's maintainers: the upstream PRs and every contact are Marc's (MAR-249; K-01 and K-05).
 - Start a session anywhere but here. Call `start_session` only without `cwd`, `host`, `preset`, `environment` or `repository`, and with no `target` other than `"local"`: then it runs in this repository and loads its deny rules and hooks. A session started elsewhere runs without them, so the session guard refuses those fields (MAR-289). Workers you brief follow the same rule (Marc, 2026-11-06, MAR-282).
 - Sign in to GitHub in the Browser pane. Its sign-ins persist, and a pane signed in there could merge, release or change settings outside every `gh` rule. No hook checks this: the rule is the control (Marc, 2026-11-08, MAR-282).
 - Rerun a run of this repository other than a failed CI run of an open PR (`gh run rerun <id> --failed`). A rerun of a Site run on `main` deploys that commit's site again, and no offline check can tell a Site run's ID from a CI run's (MAR-289).

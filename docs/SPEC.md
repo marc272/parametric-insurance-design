@@ -37,7 +37,7 @@ The module is built in forks of crc-sdk and crc-docs (D9, §11). Its design is A
 | Output | Linear project | Status |
 |---|---|---|
 | A generic parametric insurance module in crc-sdk and a showcase notebook in crc-docs, contributed upstream | CRC Contribution | **Main priority** |
-| A CLIMADA parametric insurance module and its tutorial, motivated by the thesis, carrying both ideas (the objective and the calibration scope), with no CRC code or data | CLIMADA Contribution | Second priority, "to a lesser degree". The prototype (MAR-168) continues when CRC has no ready agent work |
+| A CLIMADA parametric insurance module and its tutorial, motivated by the thesis, carrying both ideas (the objective and the calibration scope), with no CRC code or data | CLIMADA Contribution | Second priority, "to a lesser degree". Built in the fork `marc272/climada_petals` as `climada_petals.engine.parametric` (ADR 0006, D12; plan in §8). Its issues take a slot when CRC has no ready agent work |
 | The core library `parametric-insurance-design` (0.1.0 on main, not on PyPI) | Foundation | Paused. The CRC module's reference implementation and test oracle |
 | Website v1 and blog/LinkedIn posts | Website & Blog | Paused |
 | Peer-reviewed paper plus preprint | Paper | Paused |
@@ -82,7 +82,7 @@ The core is the thesis code reworked into a tested, installable library (Foundat
 |---|---|---|
 | **Program hub** | Entry point and ground truth: mission, priorities, scheduling and publication rules, decision index, program status updates | — |
 | **CRC Contribution: parametric insurance module** (main priority; renamed from "CRC Showcase" on 2026-11-05) | The module `crc_sdk.parametric` in the fork `marc272/crc-sdk` and the showcase notebook in the fork `marc272/crc-docs`, contributed by upstream PRs. Milestones R0 (the collaboration scan, done) to R4. Plan in §8, design in ADR 0005 | The forks (R-10, Human), ADR 0005 (R-12, D10), the golden fixtures from the core (R-13) |
-| **CLIMADA Contribution** (second priority) | A parametric insurance module motivated by the thesis, and its tutorial. The module is hazard-agnostic, carries both ideas (the objective and the calibration scope) and targets `climada_petals` (location to be agreed with maintainers). The prototype in this repository (MAR-168) takes a slot when CRC has no ready agent work | Parity gate, F-10, F-12, maintainer alignment |
+| **CLIMADA Contribution** (second priority; started 2026-11-08) | A generic parametric insurance module for CLIMADA, `climada_petals.engine.parametric`, and a detailed tutorial, built in the fork `marc272/climada_petals` and contributed by one upstream PR to `develop`. The module is hazard-agnostic and carries both ideas (the objective and the calibration scope). Milestones K1 to K4. Plan in §8, design in ADR 0006. The prototype in this repository (MAR-168) is frozen after the port (K-14) | The fork (K-10, Human), ADR 0006 (K-02, D12), the parity fixtures from the core (K-13). The maintainers gate only the upstream PR (K-01, ADR 0006 D1) |
 | **Foundation** (paused) | New repository, core library, data contract, CLIMADA hazard pipeline, thesis parity, core v1 features (F5), public-ready repository (F6, §7). The core is the CRC module's reference implementation and test oracle | — |
 | **Website & Blog** (paused) | v1: explorers and posts 1–2. v2: robustness explorer, post 3, relaunch with the preprint | v1: F-09, F-10, the F6 repository clean-up. v2: Paper |
 | **Paper** (paused) | Scientific basis, long track: checkpoint C1, portfolio and scenarios, robust design, manuscript | Core v1 features |
@@ -104,8 +104,8 @@ Labels: Human, Gate, Decision, Spike, Research, Chore (plus Linear's Feature). C
 - Issues in paused projects (Foundation, Website & Blog, Paper) are not dispatched, even in Todo, until Marc resumes a project.
 - The CRC module never imports `parametric_insurance_design`. Parity with the core is checked through golden fixtures (MAR-245).
 - Nothing new goes into crc-sdk's base install. The solver is an optional extra, chosen in ADR 0005.
-- The CLIMADA stream stays CRC-free.
-- Work in the forks follows `AGENTS.md`, "Working in the CRC forks", together with each fork's own `AGENTS.md`.
+- The CLIMADA stream stays CRC-free. The CLIMADA module never imports `parametric_insurance_design` or the CLIMADA adapter; parity with the core goes through K-13's fixtures (`parity/climada/`).
+- Work in the CRC forks follows `AGENTS.md`, "Working in the CRC forks", together with each fork's own `AGENTS.md`. Work in the CLIMADA fork follows `AGENTS.md`, "Working in the CLIMADA fork", which carries CLIMADA's rules and the merge gate.
 
 ---
 
@@ -147,7 +147,7 @@ parametric-insurance-design/
 │   ├── viz/             # parametric-insurance-design-viz: matplotlib figures, reading the result store and the runs' content-hashed input EventSets; never solving or re-optimising (C6)
 │   ├── crc/             # parametric-insurance-design-crc: dormant AGPL adapter skeleton (py>=3.12); the CRC data path lives in crc_sdk.parametric
 │   └── climada/         # parametric-insurance-design-climada: tracks → CLIMADA → EventSet (own pixi env, NOT a uv member)
-│       └── src/petals_parametric/  # prototype of a climada_petals parametric module (MAR-168); imports none of this repository's packages
+│       └── src/petals_parametric/  # prototype of a climada_petals parametric module (MAR-168); imports none of this repository's packages; frozen after the port to the fork (K-14)
 ├── examples/            # runnable scripts on the public API (core and viz only), smoke-tested in CI; BSD (ADR 0004 Q6)
 ├── research/            # paper: configs, run scripts, figure scripts, manuscript
 │   └── configs/         # research run configs; climada/ holds the research-only CLIMADA build configs (ADR 0004 Q5)
@@ -320,7 +320,7 @@ Uncertainty is represented as scenario EventSets S_0 (reference) … S_K. Each i
   - **Single risk owner:** a government whose loss is the modelled LitPop asset loss in its territory, stated as a documented proxy.
   - **Index for an aggregated unit:** wind at the value-weighted centroid, plus cat-in-a-circle around it. Both are already in §6.3.
   - **Publication constraints:** CC BY 4.0 attribution on every output, no anonymisation, and the derived EventSet recorded as `CC-BY-4.0`.
-  - **K-04 tutorial:** reuses the paper portfolio (the same data).
+  - **K-04 tutorial:** reuses the paper portfolio (the same data). Superseded for the CLIMADA tutorial by ADR 0006, D15 (accepted 2026-11-10): Jamaica for tropical cyclones and Luxembourg for windstorm, from CLIMADA's Data API. Florida stays with the paper.
   - **Fallback:** Puerto Rico's 78 municipalities.
 - The thesis 9-asset Miami portfolio stays as the illustrative and parity case.
 
@@ -396,13 +396,18 @@ The paper reports both research questions and their combination (§1), each with
 
 Positioning: Steinmann et al. 2023 (CLIMADA parametric framework), Maier & Scherer 2025/2026 (expectile payouts, single risk), arXiv 2409.16599 (diversification).
 
-**CLIMADA Contribution** (second priority; a parametric insurance module motivated by the thesis, carrying both ideas: the objective and the calibration scope. The prototype in this repository, MAR-168, continues when CRC has no ready agent work)
-- K-01 Open a maintainer discussion (GitHub Discussion/issue) early, after F-03. Agree location (petals vs. core), solver dependency (cvxpy vs. scipy-HiGHS) and API style
-- K-02 Module design ADR: works on `Hazard`, `Exposures`, `Impact` and `TCTracks`; index builders (centroid intensity, cat-in-a-circle); step payout; objectives; calibration scope (individual, cluster, portfolio); basis-risk metrics
-- K-03 Implementation in a `climada_petals` fork: unit and integration tests, CLIMADA `.pylintrc`, AUTHORS entry. Starts after the parity gate, F-10 (annual basis), F-12 (cat-in-a-circle) and the accepted ADR. It does not wait for the paper
-- K-04 Tutorial on open data only (LitPop plus synthetic tracks), showing both ideas: the tail objective and the calibration scope
-- K-05 PR to `develop` and the review cycle
-- Excludes: CRC, VELO, robust-design research code (unless the maintainers ask for it), paper experiments
+**CLIMADA Contribution** (second priority, started by Marc on 2026-11-08: a generic parametric insurance module for CLIMADA, `climada_petals.engine.parametric`, and a detailed tutorial, carrying both ideas: the objective and the calibration scope)
+
+The module's design is ADR 0006 (K-02, D12, accepted 2026-11-10), and its §14, the issue map, is the plan; the CLIMADA Contribution project in Linear holds the issues. The module is built in the fork `marc272/climada_petals` (K-10), under `AGENTS.md`, "Working in the CLIMADA fork", which also holds the merge gate (K-11). Its issues take a slot when CRC has no ready agent work.
+
+- **K1, setup and module design:** K-10 the fork and its authorisations (Human, MAR-309) · K-11 the program rules and the merge gate (MAR-310) · K-12 the design facts (MAR-311, `docs/climada/k12-design-facts.md`) · K-02 ADR 0006 (D12, MAR-48) · K-13 the parity fixtures, `parity/climada/` (MAR-312) · K-01 the maintainer discussion (Human, MAR-47), on hold until Marc lifts it. It gates only the upstream PR (ADR 0006, D1)
+- **K2, Phase 1: the module.** K-03 (MAR-49) is the container. K-14 the port of the prototype (MAR-313) → K-15 covers and payout families (MAR-314) → K-16 the index and insured units (MAR-315) → K-17 outcomes (MAR-316) → K-18 evaluation and comparison (MAR-317) → K-19 design (MAR-318) → K-20 basis risk (MAR-319), K-21 scenarios (MAR-320) and K-22 `cat_bonds` (MAR-321) → K-23 review readiness (MAR-322). ADR 0006 §14 gives each issue's files and what it starts after
+- **K3, Phase 1: the tutorial and the upstream PR.** K-04 the tutorial (MAR-50) → K-05 the PR to `develop` and its review (Human, MAR-51)
+- **K4, Phase 2** (continuous; each refined with Marc before it starts): K-30 multi-hazard covers (MAR-323), K-31 cluster scope (MAR-324), K-32 robust design and trajectories (MAR-325), K-33 `unsequa` (MAR-326), K-34 the cover as an adaptation option (MAR-327), K-35 a bridge to cat bonds (MAR-328). ADR 0006 §13 gives their extension points
+- The prototype in this repository, `packages/climada/src/petals_parametric` (K-03a to K-03e: MAR-168, MAR-257 to MAR-260), is frozen after K-14. Its isolation rules stay
+- Excludes: CRC and VELO code or data, robust-design research code (unless the maintainers ask for it), paper experiments
+
+This plan replaces the list K-01 to K-05 that stood here until 2026-11-08, which planned a thesis-shaped module with step payouts and the maintainer discussion first.
 
 **Website & Blog** (paused)
 
@@ -441,7 +446,7 @@ v2, after the paper:
 | Tail advantage disappears out of sample or under loaded pricing | C1 checkpoint. A negative or nuanced result is still publishable ("when does tail-optimisation pay?") |
 | Joint-calibration advantage disappears out of sample (RQ2) | The in-sample joint gain may not carry over out of sample (C1 §6b), so the Florida rerun (MAR-152 item 4, MAR-202) is the real test. Neither the joint designs (MAR-100) nor the individual designs (MAR-198) are unique, so Florida's contrasts are read with their ranges across optimal designs (MAR-203). A conditions-based result ("when does joint calibration pay?", C1 §8) is still publishable. External outputs follow the RQ2 rule (§1), which the owner revisits after the Florida rerun |
 | Parity can't be reached exactly (degenerate LPs, solver versions) | Compare objective values and KPIs rather than payout vectors. Document the gaps |
-| CLIMADA maintainers decline the module or ask for big changes | Talk to them early (K-01). The paper and core don't depend on acceptance |
+| CLIMADA maintainers decline the module or ask for big changes | Talk to them early (K-01, on hold until Marc lifts it; the build doesn't wait, ADR 0006 D1, so an answer can change a built section). The paper and core don't depend on acceptance |
 | VELO/CDT assets lack values, or publishing them is sensitive | Value proxy plus anonymisation. LitPop fallback |
 | Environment clash (CLIMADA vs. CRC) | Separate envs. Parquet contract as the only interface |
 | Scope creep | §9 is binding. New ideas go to the backlog unless C1 calls for them |
@@ -465,7 +470,9 @@ Each decision's status and outcome is recorded on its **Linear issue**, which is
 | D7 | Second hazard catalogue: none (revisited 2026-10-31, because STORM is unavailable; R1 covers vulnerability and climate scenarios only, and hazard-model uncertainty is a stated limitation; §6.5). First decided 2026-10-25 as STORM, present climate v4, North Atlantic, CC0 (note in `research/notes/d7-second-hazard-catalogue.md`) | MAR-62 |
 | D8 | Repository structure for external presentation: as recommended for all seven questions (decided 2026-11-01; ADR 0004). The agent files stay at the root, signposted in the README (1A); the stories' components and `pid.design` at the top level, `robust` and `noise` off it (2B + 2D); flat modules (3A); a docs index, `docs/concepts/` and `docs/reviews/`, with quartodoc in the Quarto site (4A + R1); the radius configs move to `research/configs/climada/`, the STORM configs are removed and the loader kept (5b); `examples/` at the root, smoke-tested in CI (6A); 0.1.0 for core and viz, a root CHANGELOG at release time, PyPI at website v1, published by the owner (7a, P1) | MAR-162 |
 | D9 | CRC contribution home and build location (decided 2026-11-05 by Marc): the module goes in crc-sdk, as `crc_sdk.parametric`, with the notebook in crc-docs. Both are built in marc272 forks (`marc272/crc-sdk` and `marc272/crc-docs`, integration branch `parametric`), with agent pushes and orchestrator merges into `parametric` allowed. Each phase ends in an upstream PR, which is Marc's (MAR-249). Everything else is paused. This repository holds the reference implementation and test oracle (the core, and golden fixtures for the module, MAR-245), the design record (ADR 0005), the CLIMADA prototype and the paused tracks | MAR-242 |
-| D10 | CRC module design: ADR 0005, prepared by agents. Pending Marc's approval | MAR-244 |
+| D10 | CRC module design (decided 2026-11-06 by Marc): ADR 0005 for `crc_sdk.parametric`, prepared by agents, accepted with all eleven recommendations of its "Decisions for the owner" | MAR-244 |
+| D11 | CRC calibration data route (decided 2026-11-06 by Marc; recorded on MAR-249 and MAR-271): curves first. The first release leads with CRC's fitted hazard curves, Monte Carlo of simulated years from each asset's curve, through `ParametricPlan.for_evaluation(request)`, and `PortfolioEvaluation.asset_curves()` is built in the fork and proposed upstream. Per-year series (ERA5, CMIP6 and NEX-GDDP-CMIP6, stations) are the second step. ADR 0005, Amendment 1; Amendment 2 (D-25.1) carries them in the Phase 1 upstream PR as the secondary route | MAR-275 |
+| D12 | CLIMADA module design (decided 2026-11-10 by Marc): ADR 0006 for `climada_petals.engine.parametric`, accepted with all 18 recommendations and the items beyond them. Among them: the build doesn't wait for the maintainers (K-01 gates only the upstream PR); no new package (scipy's HiGHS for the LPs, `SLSQP` for MSE); `develop` of both repositories, declaring `climada>=6.1`; several exposures, joint calibration and scenarios in Phase 1. Built in the fork `marc272/climada_petals` (K-10), under `AGENTS.md`, "Working in the CLIMADA fork" | MAR-48 |
 
 ---
 
@@ -479,10 +486,10 @@ The build is delegated to worker agents coordinated by an orchestrator agent, wi
   - CRC Contribution first, in milestone order R1 → R4;
   - CLIMADA Contribution only when CRC has no ready agent work;
   - no dispatches from the paused projects (Foundation, Website & Blog, Paper).
-- **Three repositories:** this one, and the forks `marc272/crc-sdk` and `marc272/crc-docs` (D9). Workers in the forks branch from `parametric` and open PRs into it; the orchestrator merges them. Agents never act on RiskThinking's repositories.
+- **Four repositories:** this one, the forks `marc272/crc-sdk` and `marc272/crc-docs` (D9), and the fork `marc272/climada_petals` (K-10). Workers in the forks branch from `parametric` and open PRs into it; the orchestrator merges them. Agents never act on RiskThinking's or CLIMADA-project's repositories.
 
-- **Worker agreement:** [`AGENTS.md`](../AGENTS.md). Covers sources of truth, one issue = one PR, file ownership, the rules for working in the CRC forks, definition of done, escalation, and what agents never do.
-- **Orchestrator runbook:** [`docs/ORCHESTRATION.md`](ORCHESTRATION.md). Covers status semantics (Todo = all blockers Done), the dispatch/review/merge loop across the three repositories, WIP limits, gates, the human queue and the plan.
+- **Worker agreement:** [`AGENTS.md`](../AGENTS.md). Covers sources of truth, one issue = one PR, file ownership, the rules for working in the CRC forks and in the CLIMADA fork (with its merge gate), definition of done, escalation, and what agents never do.
+- **Orchestrator runbook:** [`docs/ORCHESTRATION.md`](ORCHESTRATION.md). Covers status semantics (Todo = all blockers Done), the dispatch/review/merge loop across the four repositories, WIP limits, gates, the human queue and the plan.
 - Both were drafted in the workspace's `repo-seed/` folder and live in this repository since the bootstrap (MAR-6), together with `CLAUDE.md` (`@AGENTS.md`).
 - Linear labels:
   - **Human:** never completed by agents; only its "Agent may prepare" part may be delegated;
