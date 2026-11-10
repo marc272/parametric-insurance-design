@@ -16,7 +16,7 @@ All state lives in Linear, git and GitHub, never in this conversation, so this s
 - The main checkout is on `main` with a clean tree. Never do worker edits in it: workers get their own worktrees.
 - The session runs in this repository, with `/Users/marcprinzing/Parametric_Insurance/forks` added as a working directory (runbook "One-time setup", step 2). Started elsewhere, it lacks this repository's deny rules.
 
-**Fork preconditions.** If one fails, stop fork work only and alert Marc; the other lanes go on. For each fork clone, `/Users/marcprinzing/Parametric_Insurance/forks/crc-sdk` and `/Users/marcprinzing/Parametric_Insurance/forks/crc-docs`:
+**Fork preconditions.** If one fails, stop work in that fork only and alert Marc; the other lanes go on. For each fork clone, `/Users/marcprinzing/Parametric_Insurance/forks/crc-sdk`, `/Users/marcprinzing/Parametric_Insurance/forks/crc-docs` and `/Users/marcprinzing/Parametric_Insurance/forks/climada_petals`:
 
 - `git -C <clone> fetch origin` and `git -C <clone> fetch upstream` work;
 - `git -C <clone> remote get-url --push upstream` prints `DISABLED`;
@@ -26,7 +26,7 @@ All state lives in Linear, git and GitHub, never in this conversation, so this s
 
 1. Read the Program hub description and its **latest status update**.
 2. `git fetch --prune`, then `git switch main && git pull --ff-only`.
-3. Collect the facts, for each of the three repositories. `<repo>` is `marc272/parametric-insurance-design`, `marc272/crc-sdk` or `marc272/crc-docs`; always pass `--repo`:
+3. Collect the facts, for each of the four repositories. `<repo>` is `marc272/parametric-insurance-design`, `marc272/crc-sdk`, `marc272/crc-docs` or `marc272/climada_petals`; always pass `--repo`, written out:
    - `gh pr list --repo <repo> --state open --json number,title,headRefName,baseRefName,isDraft,statusCheckRollup`;
    - `gh pr list --repo <repo> --state merged --limit 20 --json number,headRefName,mergedAt`;
    - `git worktree list` here, and `git -C <clone> worktree list` in each fork clone;
@@ -45,7 +45,7 @@ All state lives in Linear, git and GitHub, never in this conversation, so this s
    **Resuming a worker.** First try `SendMessage` to the agent ID in the dispatch record ("continue: <what is left>"). This only works if the agent still exists in this session. Otherwise, dispatch a **new** worker on the **existing branch**, with the resume brief from the runbook, and post a new dispatch record.
 5. Read comments on Human, Gate and Decision issues since the last status update. Marc may have answered. Record each answer on its issue, then act on it.
 6. Clean up: `git worktree remove` (in a fork, `git -C <clone> worktree remove`) the worktrees whose PR is merged and that have no uncommitted changes. Never delete branches or data.
-7. **Keep `parametric` current.** In each fork, if upstream `main` has moved past `parametric`, merge it in through a sync PR (runbook "Keeping `parametric` current"). Never rebase `parametric`.
+7. **Keep `parametric` current.** In each fork, if upstream `main` has moved past `parametric`, merge it in through a sync PR (runbook "Keeping `parametric` current"). In `climada_petals` it is upstream `develop`, petals' PR target. Never rebase `parametric`.
 
 ## 2. The loop (runbook "The loop")
 
@@ -57,7 +57,7 @@ Repeat until no step can make progress:
    - CLIMADA Contribution only when CRC has no ready agent work;
    - nothing from the paused projects (Foundation, Website & Blog, Paper), even in Todo, until Marc resumes one. Their open PRs get no rebases and no merges. Fixing a red `main` is still allowed.
 
-   Respect the limits: at most 3 workers across the three repositories, no two on the same module, and anything touching a `pyproject.toml`, `uv.lock`, `pixi.*` or `.github/` runs one at a time in its repository.
+   Respect the limits: at most 3 workers across the four repositories, no two on the same module, and anything touching a `pyproject.toml`, `uv.lock`, `pixi.*` or `.github/` runs one at a time in its repository.
 3. **Split** issues that are too big into sub-issues before dispatching them.
 4. **Dispatch** each pick:
    - **in this repository:** spawn a worker with `Agent`, `isolation: "worktree"`, `run_in_background: true`, using the runbook brief template;
@@ -69,18 +69,19 @@ Repeat until no step can make progress:
        /Users/marcprinzing/Parametric_Insurance/forks/worktrees/<fork>-mar-<n> origin/parametric
      ```
 
-     Then spawn the worker with `Agent`, `run_in_background: true` and **no** `isolation`, using the runbook's fork brief template with that path;
+     Then spawn the worker with `Agent`, `run_in_background: true` and **no** `isolation`, using the runbook's fork brief template with that path (for `climada_petals`, the CLIMADA fork brief template);
    - set the issue to **In Progress**;
    - post a **Dispatch record** comment on it, with the repository and the worktree path.
 
    Then keep working on other steps. You are notified when a worker finishes; don't poll.
-5. **Review** each PR a worker reports, against the runbook checklist, with the fork checks for a fork PR. Wait for CI with `gh pr checks <n> --repo <repo> --watch` (in the background if it's slow). In crc-docs, Actions are off and must stay off, so there is no CI to wait for: re-run the fork's checks (`uv sync --locked`, `uv run pytest -q`, `uv run ruff check pipelines tests tools`, `uv run ruff format --check pipelines tests tools`, never with `CRC_DOCS_LIVE=1`) in the PR's worktree, on the head you are about to merge. They are the merge gate (runbook "Fork PRs"). While Actions minutes are exhausted, follow the runbook's "Fallback: local CI": check the worker's pasted `scripts/ci_local.sh` summary and re-run the relevant jobs in the PR's worktree before merging. If the review fails, send the findings to the same worker. After two failed rounds, escalate to Marc.
+5. **Review** each PR a worker reports, against the runbook checklist, with the fork checks for a fork PR. Wait for CI with `gh pr checks <n> --repo <repo> --watch` (in the background if it's slow). In crc-docs, Actions are off and must stay off, so there is no CI to wait for: re-run the fork's checks (`uv sync --locked`, `uv run pytest -q`, `uv run ruff check pipelines tests tools`, `uv run ruff format --check pipelines tests tools`, never with `CRC_DOCS_LIVE=1`) in the PR's worktree, on the head you are about to merge. They are the merge gate (runbook "Fork PRs"). In `climada_petals`, Actions are off and must stay off too, so the merge gate is local: re-run the gate of `AGENTS.md` ("Working in the CLIMADA fork", "The merge gate") in the PR's worktree, with the worker's environment in `<worktree>-notes/env`, on the head you are about to merge, and check it against the worker's pasted summary (runbook "Fork PRs"). Never run petals' full `make integ_test`: that is Marc's decision. While Actions minutes are exhausted, follow the runbook's "Fallback: local CI": check the worker's pasted `scripts/ci_local.sh` summary and re-run the relevant jobs in the PR's worktree before merging. If the review fails, send the findings to the same worker. After two failed rounds, escalate to Marc.
 6. **Merge** the PRs that pass review, in dependency order (runbook "Merge policy"):
    - in this repository: `gh pr merge <n> --repo marc272/parametric-insurance-design --squash`, then `git pull --ff-only` on `main`;
-   - in a fork: `gh pr merge <n> --repo marc272/<fork> --squash --subject "<conventional-commit subject> (#<n>)" --body "Refs: MAR-<issue>"`, then `git -C <clone> fetch origin`;
+   - in a CRC fork: `gh pr merge <n> --repo marc272/<fork> --squash --subject "<conventional-commit subject> (#<n>)" --body "Refs: MAR-<issue>"`, then `git -C <clone> fetch origin`;
+   - in the CLIMADA fork: `gh pr merge <n> --repo marc272/climada_petals --squash --subject "<subject> (#<n>)" --body "Refs: MAR-<issue>"`, with the subject in CLIMADA's commit style, then `git -C /Users/marcprinzing/Parametric_Insurance/forks/climada_petals fetch origin`;
    - set the issue to Done, comment with the PR link, and file the reported follow-ups.
 
-   Update dependent branches if needed; never rebase `main` or `parametric`. **Never merge** a Human or Gate output, a PR with red or pending CI (except billing-only red, per the runbook's "Fallback: local CI"), a PR that changes a spec decision without Marc's recorded answer, or a PR of a paused project (except a fix for a red `main`). Never merge anything upstream: the upstream PRs are Marc's (MAR-249).
+   Update dependent branches if needed; never rebase `main` or `parametric`. **Never merge** a Human or Gate output, a PR with red or pending CI (except billing-only red, per the runbook's "Fallback: local CI"), a PR that changes a spec decision without Marc's recorded answer, or a PR of a paused project (except a fix for a red `main`). Never merge anything upstream: the upstream PRs are Marc's (MAR-249 for CRC, K-05 for CLIMADA).
 7. **Prepare** "Agent may prepare" parts of Human issues when a worker slot is free and nothing on the critical path is ready. Then set the issue to In Review, assign it to Marc, and alert him (step 3).
 
 While workers run, stay responsive. End your turn only when you're waiting on workers, because their completion wakes you.
