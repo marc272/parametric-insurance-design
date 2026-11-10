@@ -157,7 +157,7 @@ A binary payout with a fixed trigger t and a free amount A, and a linear payout 
 Who computes them:
 
 - A binary cover is a step payout with one breakpoint, t, so the core designs it (its one-bin step from t on the severity), and the script checks the core against the closed form.
-- The core has no linear payout. The script designs a linear cover in closed form, in exact rational arithmetic, and writes that (`source: "closed_form"`). The core designs every candidate too, given a linear payout structure of this script (one basis column, the clipped share), and must agree: the objective within 1e-7, and the same `unique` from ADR 0005 §5.4's tests. The written premium and metrics are exact at the written limit, every column of §6, as in the closed-form evaluation cases.
+- The core has no linear payout. The script designs a linear cover in closed form, in exact rational arithmetic, and writes that (`source: "closed_form"`). The core designs every candidate too, given a linear payout structure of this script (one basis column, the clipped share), and must agree: the objective within 1e-7, and the same `unique` from ADR 0005 §5.4's tests. The written premium and metrics are exact at the written limit, every column of §6 but `payout_frequency` and `unidentified_share`, as in the closed-form evaluation cases.
 
 A **grid-route case** (`binary-upper-grid-…`, `linear-upper-grid-…`) is ADR 0005 §5.3's grid route: the template's shape parameters are `Free` on grids and its amount `Free`. At each candidate the amount is designed as above; the best candidate wins.
 
@@ -300,7 +300,7 @@ The core cases carry the metrics the core computes, in sample and out of sample.
 | `loss_rp<T>`, `payout_rp<T>`, `uncovered_rp<T>` | `evaluate.exceedance_curves`, the AEP curves |
 | `net_loss_rp<T>` | `riskmeasures.lower_quantile` of loss − payout + premium |
 
-The closed-form cases carry every column of ADR 0005 §6. The new metrics (`coverage_ratio`, `tail_coverage_b<β>`, `cvar_uncovered_to_loss_b<β>`, `false_negative_rate_l<ℓ>`, `false_positive_rate_l<ℓ>`) are only there: one case has one source, and the core has none of them. On the realistic data they are in the four closed-form cases of the `synthetic` sample and the `-options` case of `synthetic52`. The script computes every value in exact rational arithmetic; the columns that are also core quantities must agree with the core's risk measures to 1e-12 (VaR and CVaR at every β, the return-period quantiles at every T), and a binary or step payout must equal the core's step payout (one bin from the trigger; on the severity for the lower tail).
+The closed-form cases carry every column of ADR 0005 §6 but `payout_frequency` and `unidentified_share`, which its Amendment 6 added after them. The new metrics (`coverage_ratio`, `tail_coverage_b<β>`, `cvar_uncovered_to_loss_b<β>`, `false_negative_rate_l<ℓ>`, `false_positive_rate_l<ℓ>`) are only there: one case has one source, and the core has none of them. On the realistic data they are in the four closed-form cases of the `synthetic` sample and the `-options` case of `synthetic52`. The script computes every value in exact rational arithmetic; the columns that are also core quantities must agree with the core's risk measures to 1e-12 (VaR and CVaR at every β, the return-period quantiles at every T), and a binary or step payout must equal the core's step payout (one bin from the trigger; on the severity for the lower tail).
 
 ## Beyond ADR 0005 §8
 
