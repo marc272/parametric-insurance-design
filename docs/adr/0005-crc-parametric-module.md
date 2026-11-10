@@ -406,6 +406,8 @@ Amendment 6 (F2) adds `HazardNoise(sigma)` to this table, a model in which the h
 
 **Splits.** `holdout(sample, train_fraction=0.7)` and `year_block_kfold(sample, k)` split by contiguous blocks of `period`, as the core's `splits.py` does. For per-year samples the test block is the latest years. Monte Carlo draws are i.i.d., so a fresh sample with another seed (`fresh_draws`) is the plainer out-of-sample test; the plan offers both. Evaluating a design out of sample on a sample that shares a period with its design sample from the same source raises `LeakageError`.
 
+(Erratum 15, 2026-11-10, MAR-359: this note is new. MAR-354 (R-35) settled in marc272/crc-sdk#35 what "the same source" means in the sentence above. Each source a sample holds is compared by the lineage it has alone, whichever kind of sample holds it: a run of a pool (a plain per-year sample counts as one run), the hazard or index series of a per-year sample, a component of a sample of several hazards, per-year or from curves, or an asset of a joined or drawn sample. So a design on one series, read out of sample on a sample of several hazards or a join that holds the same years of that series, raises `LeakageError`, and the error names the shared sources and the years. The same holds for a one-asset table and a table of several assets with one stated source. Before MAR-354 the check compared whole lineages, so such a pair raised nothing. Disjoint years still pass. A per-year series or a table with no stated source is identified by its data, so two windows of that series, or a one-asset and a several-asset table, aren't linked. A table and an `AnnualSeries` have no comparable identity, and the same series at another asset id is another source. §7 has the record. No decision changes.)
+
 #### 4.5 Dimensions reserved for Phase 2
 
 Amendment 2 (D-25.5) lets a per-year sample state its `scenario` label.
@@ -593,6 +595,8 @@ Amendment 6 adds the record of `HazardNoise`, the pooled entries of `setup.evalu
 - **Cover:** `definition_hash` (§3).
 - **Sample:** `content_hash`, the SHA-256 of the canonical bytes of the long table (sorted by period and asset), with the units, the semantics and the scenario.
 - **Design:** `design_id`, the SHA-256 of the canonical JSON of the template hash, the objective, the pricing, the budget, the limit, the design options and the design sample's hash. The solver's identity and the time go into the record, not into the id.
+
+**Lineages** (erratum 15, 2026-11-10, MAR-359: this paragraph is new, and §4.4 has the rule). MAR-354 (R-35) added `SampleProvenance.source_lineages` in marc272/crc-sdk#35. On a sample whose rows read several series or streams of draws, it maps each source's name to the lineage that source has in a sample of its own: a component's name on a sample of several hazards, per-year or from curves, and `"hazard"` and `"index"` on a per-year sample with an index series. A component's view keeps the sources it reads. It is `None` on every other sample and left out of `to_document()` when `None`, so the document of a sample that reads one source doesn't change. The lineages have to be recorded: a series with no stated source is identified by a hash of its data, which no provenance document holds, so they can't be rebuilt at check time, and a component's view drops `components`. Tables need no such record, as an asset's lineage is rebuilt from the table's stated source. `content_hash` leaves the provenance out, and `sample.lineage` doesn't change. No decision changes.
 
 **The Parquet metadata** under `crc.parametric.evaluation` is one JSON document, validated by a pydantic model (`EvaluationMetadata`) and written with sorted keys:
 
@@ -1504,11 +1508,12 @@ to_drift(table, *, reference=None) -> pyarrow.Table
 | `horizon` | The canonical row's `horizon` | `(first + last) // 2` of its members' horizons | `(first + last) // 2` of the series' whole window, `details.years`, as `TemporalWindow.horizon` | The same, on the pool's years | Null |
 | `product` | `metadata.source.provider` | The same | The series' `source.provider` | The runs' provider | Its source's `provider`, else null |
 
-- **`pathway`** keeps the source's spelling and is checked with `crc_sdk.pathways.resolve_pathway(label, strict=True)`. An unknown label raises `ScenarioError`, and `register_pathway` adds a private one. Comparisons use `pathways_equivalent`, so `historic` and `historical` are one.
+- **`pathway`** keeps the source's spelling. A strict read (below) checks it with `crc_sdk.pathways.resolve_pathway(label, strict=True)`: an unknown label raises `ScenarioError`, and `register_pathway` adds a private one. Comparisons use `pathways_equivalent`, so `historic` and `historical` are one.
 - **`horizon`** on a per-year sample is the window's centre, not the block's: `details.years` survives a split, so a scenario's blocks have one horizon. 1985–2014 reads 1999 and 2041–2070 reads 2055. Under `LinearTrend` the values are at the reference year's level, which the setup text states, and the column still gives the centre. On a window of curves it is the centre of the members, and the members are in the record ("A window of horizons").
 - **`product`** is the record's `provider` as written, so a CRC Open row reads `crc_open`, an ERA5 row `era5`, and a native CMIP6 row `cmip6`. On the plan route a per-year source's provider is the caller's `SourceProvenance.provider`; the docs use `nex-gddp-cmip6` for NEX.
 - **Nothing interpolates.** A scenario is a horizon the dataset holds, or several of them. Between two horizons there is no row. A window is a mixture, not an interpolation: every row is a draw from a curve the dataset holds, and no parameter, return level or value is computed between two curves. Its `horizon` column names the centre, and no row need be read there.
-- **Several sources in one sample** (several assets; Amendment 5's components) must agree on `pathway`, `horizon` and `product`, or `ScenarioError` says which. Amendment 5 may relax this for `product`.
+- **Several sources in one sample** (several assets; Amendment 5's components) must agree on `pathway`, `horizon` and `product` on a strict read, or `ScenarioError` says which. Amendment 5 may relax this for `product`.
+- **A strict read** (erratum 17, 2026-11-10, MAR-359). MAR-331 (R-23a) settled which reads are strict, in marc272/crc-sdk#39. `compare`, `evaluate`, `payout_breakdown`, `compare_pooled` and `bootstrap_intervals` read a sample strictly when a caller gave it a `scenario=` label other than the default, `"baseline"`. `ScenarioSet` and `compare_scenarios` read every sample strictly, whatever its label. Any other read keeps what this amendment's opening says of a call without scenarios: the pathway stands as spelled, and a field the sources disagree on is null. A window is checked at its builder, whatever its label ("A window of horizons"). The `pathway` bullet first read "**`pathway`** keeps the source's spelling and is checked with `crc_sdk.pathways.resolve_pathway(label, strict=True)`. An unknown label raises `ScenarioError`, and `register_pathway` adds a private one." The bullet on several sources first read "must agree on `pathway`, `horizon` and `product`, or `ScenarioError` says which." No decision changes.
 
 ### What is refused (D-23.5)
 
@@ -1534,11 +1539,13 @@ Each `ScenarioError` names the two scenarios and the field.
 | A window's members | Hazard, cell and dataset must be one, and `horizon` must differ, member by member | Each window |
 | A window's draws | `n_draws`, and `FreshDraws(n)`, a whole multiple of the number of members | Each window |
 | A bound cover | The table below | Each cover and scenario |
-| Two products | The `product` strings, unless `mixed_products=True` | All, the reference included |
+| Two products | The `product` strings, a null beside a string counting as two, unless `mixed_products=True` | All, the reference included |
 | Draws not shared | `period` and the generator records (below) | Curve scenarios |
-| Dependence | The `dependence` document | Curve scenarios |
+| Dependence | The `dependence` document, without an `EmpiricalCopula`'s `k` | Curve scenarios |
 
 A set of CRC Open windows has one product, and needs no flag. The reference is no exception: a second product beside it needs the flag too.
+
+(Erratum 18, 2026-11-10, MAR-359: MAR-332 (R-23b) settled three readings of this table in marc272/crc-sdk#41. "Dependence" first read "The `dependence` document". An `EmpiricalCopula`'s `k` counts one member's draws per reference year, so a window beside a single horizon on the same draws records two values of it, and comparing the documents whole would refuse what "Overlaps and widths" allows. So `k` is left out, of `dependence` and of Amendment 5's `hazard_dependence`, and the rest is compared, so another reference still raises. "Two products" first read "The `product` strings, unless `mixed_products=True`". A null `product` beside a string counts as two products, so a scenario whose source states no provider needs `mixed_products=True` beside one that does. A per-year series beside a table is one kind of scenario, so "One kind of scenario" passes the pair, and "Loss model" refuses it, because a table states none. No decision changes.)
 
 | A cover read at | Is evaluated on a scenario whose index is |
 |---|---|
@@ -1561,7 +1568,7 @@ A set of CRC Open windows has one product, and needs no flag. The reference is n
 - **Spelling.** A product that spells one hazard differently is refused: a station plan's `recipe` is `temperature_max`, ERA5's `txx`. Its table, passed without the source plan, is silent, so it takes a stated name.
 - **Only a set requires a name.** `hazard_name=None` is the default everywhere, so a sample without one stays valid, and a call or a plan without scenarios doesn't change.
 - **When it is known.** A source plan states its name before anything is read, so `explain()` shows it and raises on a difference. A table's or a file's is known at execution.
-- **The record.** `SampleProvenance` gains `hazard`, with a default: `{"name": name, "from": "curve_row" | "source_plan" | "table_column" | "stated"}`. It stays out of `content_hash`, `design_id` and the lineage, so §4.4's check sees through it. Every asset of a sample and every run of a pool must agree.
+- **The record.** `SampleProvenance` gains `hazard`, with a default: `{"name": name, "from": "curve_row" | "source_plan" | "table_column" | "stated"}`. It stays out of `content_hash`, `design_id` and the lineage, so §4.4's check sees through it. On a sample with a `scenario=` label other than the default, every asset and every run of a pool must agree, and two names raise `ScenarioError` at the builder. With the default label such a sample records none. (Erratum 17, 2026-11-10, MAR-359, in "What a row says it read": the last two sentences first read "Every asset of a sample and every run of a pool must agree.")
 - **Which series.** The name is that of the series the loss reads, the source with role `"hazard"`. A separate index series may read another hazard on purpose (D-25.4), so it isn't compared, and the setup text names it.
 
 ### What is shared (D-23.2)
@@ -1581,7 +1588,7 @@ A scenario's *evaluation block* is the rows its out-of-sample metrics are taken 
 
 **Separate from the design's.** §4.4's leakage check (`_check_out_of_sample`) gains a rule: two Monte Carlo samples share a draw when a `hazard` step of one has the generator record of a `hazard` step of the other and they have a period in common, whatever the curve. That raises `LeakageError`. Today such a pair passes, since another curve has another lineage, and the setup text says "on fresh Monte Carlo draws". The blocks of one `holdout` still pass: their periods are disjoint. It sits in the shared check, so it holds in `evaluate` and `compare` too, and a hand-built loop that reuses one generator state raises `LeakageError` (S6).
 
-**The split method.** `setup.evaluations[*].method` gains `"other_scenario"`, used when the design sample's label differs from the block's. It takes precedence over the block's own split step, because today a held-out block of another source reads `"holdout"`. For a cover given as is the design sample is the reference's design block. `details` records the block's own split, under `block`.
+**The split method.** `setup.evaluations[*].method` gains `"other_scenario"`, used by `compare_scenarios` when the design sample's label differs from the block's. It takes precedence over the block's own split step, because today a held-out block of another source reads `"holdout"`. For a cover given as is the design sample is the reference's design block. `details` records the block's own split, under `block`. (Erratum 19, 2026-11-10, MAR-359, in "The metadata": the first sentence first read "`setup.evaluations[*].method` gains `"other_scenario"`, used when the design sample's label differs from the block's.")
 
 **Cross rows.**
 
@@ -1616,7 +1623,7 @@ sample_curves(curves, *, ...)
     # each asset's curve: the same, with the same horizons for every asset
 ```
 
-- **The members** are one asset's curves of one hazard, cell, pathway and dataset, and differ in `horizon` alone. They are canonical rows, because a bare distribution states no pathway or horizon. They are sorted by horizon, so the order they are given in doesn't matter.
+- **The members** are one asset's curves of one hazard, cell, pathway and dataset, and differ in `horizon` alone. They are canonical rows, because a bare distribution states no pathway or horizon. They are sorted by horizon, so the order they are given in doesn't matter. The dataset is the call's one `metadata=`. A row's `source_id` isn't compared: it names a source pixel, and one cell may hold a different one at each horizon. At the builder, whatever the label, a member whose pathway `crc_sdk.pathways` doesn't know, members under two pathways, and assets or components whose windows differ raise `ScenarioError`. (Erratum 17, 2026-11-10, MAR-359, in "What a row says it read": the last three sentences are new.)
 - **The rows.** The asset's generator draws `n_draws` uniforms once, as for one curve. With m members, row d reads member d mod m at its uniform u_d. So `period` is still the draw number, `n_draws` the number of rows and 1/n_draws the probability, and the sample has the one `hazard` generator record of a single curve. The basis-risk model draws after the uniforms, as in §4.4.
 - **`n_draws`** must be a whole multiple of m, so every member holds exactly n_draws/m rows. Otherwise `ScenarioError` names the two nearest valid counts, as `EmpiricalCopula` does. The same holds for `FreshDraws(n)`, and on a plan `explain()` checks every window.
 - **Blocks.** `holdout` and `year_block_kfold` cut contiguous periods, so the cycle leaves every member within one row of the others on every block, and each block is a mixture of all the horizons. Their probabilities are rescaled as for any block. With 30,000 draws, three members and `Holdout(0.7)`, the design block holds 7,000 rows of each and the held-out block 3,000 of each.
@@ -1674,6 +1681,11 @@ sample_curves(curves, *, ...)
 - Each entry of `setup.evaluations` gains `scenario` and `design_scenario`, so a block has one entry per design scenario. `method` gains `"other_scenario"` and `leakage_check` gains `"different_sources"`, which appears on `"other_scenario"` entries only, so plain comparisons read as before.
 - Each entry of `setup.samples` gains `pathway`, `horizon`, `product` and, for a window, `members`. `columns` gains `premium_repriced`. A plan's `source_records` and `sources` hold one entry per dataset or per-year source, each with its scenario's label, and `licences` every input's terms.
 - `to_drift`'s table keeps the metadata and adds `drift`, with the reference used. A document without these keys reads as before, and `schema_version` stays `"1.0"`.
+- **Beyond this list** (erratum 19, 2026-11-10, MAR-359: this bullet is new, and no decision changes). MAR-333 (R-23c) settled four details in marc272/crc-sdk#42.
+  - `compare_scenarios` writes keys this list doesn't name, which the setup text reads. Each of its entries of `setup.evaluations` has `premium_bases`, the `cover_hash`, `cover_label`, `level` and `premium_basis` of each row (statement 6). Each scenario of `setup.scenarios` has `index_read`, where it reads the index (statement 5), and `blocks`, one per fold, each with `fold`, `sample_hash`, `n_rows`, `made` (how the block was made), `member_rows` (a window's rows per member, null otherwise) and `short_block_columns` (statements 1 and 9).
+  - A scenario's `n_rows` is the sum over its `blocks`. `merge` compares the rest of `setup.scenarios` and combines the `blocks` without repeats.
+  - `setup.scenarios` and `setup.drift` are left out of a document when null, and read as null, so the document of a table without them stays byte for byte.
+  - `compare` doesn't write `"other_scenario"`. Only `compare_scenarios` does, so a plain `compare` of a labelled pair keeps its method and plain comparisons read as before.
 
 ### What the other sections now mean
 
@@ -2390,6 +2402,8 @@ intervals = bootstrap_intervals([designs], folds, rng=numpy.random.default_rng(7
 | Interval | The percentile interval: the (1 − `ci_level`)/2 and (1 + `ci_level`)/2 quantiles of the replicates (`numpy.quantile`, linear interpolation). `n_bootstrap=1000` and `ci_level=0.9`, the core's and SPEC's defaults |
 | An undefined replicate | A metric undefined in some replicate (no expected loss, no variance) gets null bounds, counted in `n_undefined`. `ci_level` and `n_bootstrap` are on every row, so a null bound means "resampled, undefined" |
 
+(Erratum 16, 2026-11-10, MAR-359: this note is new, and "The metadata" below has the rest of the erratum. This amendment left `premiums=` of `bootstrap_intervals` to Amendment 4's text. MAR-348 (R-29) settled it in marc272/crc-sdk#38, and `compare_scenarios` (marc272/crc-sdk#42) reads `premiums=` through the same code. `premiums=` maps a `cover_label` to a stated premium, for covers given as is on one block. A set of covers or a package is stated whole or not at all, or `EvaluationError` says so, and its `"total"` or `"package"` row holds the sum, with `premium_basis` `"stated"`. A key that matches no cover given as is raises `EvaluationError`, and so does `premiums=` with folds, as `compare_pooled` has none. A stated premium is a fixed price, so its interval is the value itself. No decision changes.)
+
 **The table.** One row per wide row and metric column, in a separate table with `to_long`'s columns and these. `value` is the wide table's number: resampling never changes a point estimate. It holds §7's metadata under the same key, and `write_comparison` writes it.
 
 | Column | Type | Meaning |
@@ -2450,7 +2464,7 @@ frontier = design_frontier(template, train, objective, budgets=[Budget(ratio=r) 
                            evaluate_on=test, split="out_of_sample")
 ```
 
-**One row per budget, in the order given.** Each row is exactly `design(template, sample, objective, pricing=pricing, budget=b, limit=limit, options=design_options)`, read by `compare([result], evaluate_on, split=split, fold=fold, options=metric_options)`. It has `compare`'s columns and these, beside the identity columns, which `to_long` keeps:
+**One row per budget, in the order given.** Each row is exactly `design(template, sample, objective, pricing=pricing, budget=b, limit=limit, options=design_options)`, read by `compare([result], evaluate_on, split=split, fold=fold, pricing=pricing, options=metric_options)`. (Erratum 20, 2026-11-10, MAR-359, in "The metadata": the `compare` call first read `compare([result], evaluate_on, split=split, fold=fold, options=metric_options)`. The frontier's `pricing` also goes to `compare`, as a plan's does. It can't change a row, because a design keeps its design premium. It keeps the evaluation's `pricing` record and the `Pricing` line in step with the designs.) It has `compare`'s columns and these, beside the identity columns, which `to_long` keeps:
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -2522,8 +2536,8 @@ Both sit beside the identity columns, which `to_long` keeps. They are not metric
 
 - **`SampleProvenance`.** `basis_risk` holds `{"kind": "hazard_noise", "sigma": σ}`, and `details.basis_risk` gains `hazard_mean_ratio` and `impact_mean_ratio` on a model with `apply_hazard`. `hazard` is part of `content_hash` as today, and the lineage doesn't change.
 - **`setup.evaluations`.** A pooled entry has `fold` null, `method` `"kfold_pooled"`, and `details` with k and the held-out blocks' hashes in fold order. `setup.samples` holds each block and one entry for the pooled rows.
-- **`setup.intervals`** (new, null otherwise): `{"method": "percentile", "unit": "year", "n_bootstrap": B, "ci_level": ℓ}`. `rng` gains a `bootstrap` step with the generator's state at entry.
-- **`setup.frontier`** (new, null otherwise): the template's hash, the objective and the list of budgets.
+- **`setup.intervals`** (new, null otherwise): `{"method": "percentile", "unit": "year", "n_bootstrap": B, "ci_level": ℓ, "short_block_columns": [...]}`. `unit` is `"row"` on an `EmpiricalCopula` block, and `"year"` otherwise. `short_block_columns` names the columns with `short_block` true. `rng` gains a `bootstrap` step with the generator's state at entry. (Erratum 16, 2026-11-10, MAR-359: the record first read `{"method": "percentile", "unit": "year", "n_bootstrap": B, "ci_level": ℓ}`, and the two sentences after it are new. MAR-348 (R-29) settled both in marc272/crc-sdk#38. "Intervals" above says an `EmpiricalCopula` block is resampled by row, so `unit` records what was done. Item 3 of `setup_text` below names the columns with `short_block` true, and `setup_text(metadata)` has no table to read them from. Given a table, the text uses the rows it still holds. No decision changes.)
+- **`setup.frontier`** (new, null otherwise): a list with one entry per call of `design_frontier`, each holding the template's hash, the objective, the list of budgets, `design_ids` (one per budget), `design_sample`, `sample_hash`, `split` and `fold`. It is left out of a document when null, and reads as null. (Erratum 20, 2026-11-10, MAR-359: this bullet first read "**`setup.frontier`** (new, null otherwise): the template's hash, the objective and the list of budgets." MAR-350 (R-31) settled the rest in marc272/crc-sdk#44. It is a list because several templates and objectives go through `merge`, so a merged table holds several entries. The setup text needs the new keys to name the blocks and to state only the budgets that filtered rows still hold. Left out when null, it leaves every other table's document as it was. No decision changes.)
 - **`columns`** gains `payout_frequency` and `unidentified_share`.
 - **`designs`** holds one record per fold's or budget's design. A pooled row's `design_id` has an entry that lists the designs. `covers` likewise, as a package's does in Amendment 5.
 - A document without these keys reads as before, and `schema_version` stays `"1.0"`.
