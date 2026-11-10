@@ -6,8 +6,9 @@ The fork gh guard, ``fork_gh_guard.py``, refuses a repo-scoped ``gh`` command
 ``REPO_FLAG_SUBCOMMANDS``) that may run in a CRC fork path without
 ``--repo marc272/<fork>``, and a ``gh api`` call there that uses the
 ``{owner}``/``{repo}`` placeholders (MAR-261). Wherever it runs, it refuses
-the gh commands that the deny rules deny, in every spelling (MAR-263), and
-git commands that make or push tags (MAR-289). The session guard,
+the gh commands that the deny rules deny, in every spelling (MAR-263), git
+commands that make or push tags (MAR-289), and git commands that reach every
+branch or change git's settings through the environment (MAR-343). The session guard,
 ``session_guard.py``, refuses a ``start_session`` that would run somewhere
 else, and fails closed on bad input (``SESSION_CASES``, MAR-289). This
 script runs them the way Claude Code does, one process per case with the
@@ -886,16 +887,210 @@ CASES: list[tuple[str, str, str]] = [
     ),
     # MAR-289: the boundaries of the new checks. A remote is no refspec, a flag's
     # value is no refspec, git after gh is gh's argument, an unknown program
-    # with an expansion after it passes, and only crc-docs' Actions are guarded.
+    # with an expansion after it passes. MAR-343: crc-sdk's Actions are guarded
+    # too (allowed until then).
     ("allow", REPO, "git push vfork marcprinzing/x"),
     ("allow", REPO, "git push origin -o v1 marcprinzing/x"),
     ("allow", REPO, "gh pr comment 3 --body-file notes.md git tag"),
     ("allow", WT, '$UV run "$SCRIPT"'),
     (
-        "allow",
+        "deny",
         REPO,
         "gh api -X PUT repos/marc272/crc-sdk/actions/permissions -F enabled=true",
     ),
+    # MAR-343 item 1: every branch at once, and deleting the remote's branches.
+    ("deny", REPO, "git push --all origin"),
+    ("deny", REPO, "git push origin --all"),
+    ("deny", REPO, "git push --all"),
+    ("deny", SDK, "git push --all origin"),
+    ("deny", REPO, f"git -C {SDK} push --all origin"),
+    ("deny", REPO, "git push --branches origin"),
+    ("deny", REPO, "git push origin --branches"),
+    ("deny", REPO, f"git -C {DOCS} push --branches origin"),
+    ("deny", REPO, "git push --prune origin"),
+    ("deny", REPO, "git push origin --prune marcprinzing/x"),
+    ("deny", REPO, f"git -C {WT} push --prune origin marcprinzing/x"),
+    # Abbreviated as git accepts them: --a and --pr are ambiguous, so git refuses.
+    ("deny", REPO, "git push --al origin"),
+    ("deny", REPO, "git push --b origin"),
+    ("deny", REPO, "git push --bran origin"),
+    ("deny", REPO, "git push --pru origin"),
+    ("deny", REPO, "git push --prun origin"),
+    # The other spellings the hook reads.
+    ("deny", REPO, "/usr/bin/git push --all origin"),
+    ("deny", REPO, '"git" push --branches origin'),
+    ("deny", REPO, "git -c user.name=x push --all origin"),
+    ("deny", REPO, "bash -c 'git push --prune origin'"),
+    ("deny", REPO, "timeout 60 git push --all origin"),
+    ("deny", REPO, "$GIT push --all origin"),
+    ("deny", REPO, "git push --all origin 'unterminated"),
+    ("deny", REPO, "git push --branches origin 'unterminated"),
+    ("deny", REPO, "git push --prune origin 'unterminated"),
+    # The same effect by other words: the matching refspec, a glob, a flag
+    # from a variable, and push.default=matching.
+    ("deny", REPO, "git push origin :"),
+    ("deny", REPO, "git push origin +:"),
+    ("deny", REPO, "git push origin 'refs/heads/*:refs/heads/*'"),
+    ("deny", REPO, "git push --$X origin"),
+    ("deny", REPO, "git -c push.default=matching push origin"),
+    ("deny", REPO, "git config push.default matching"),
+    ("deny", REPO, "git config --global push.default matching"),
+    # Not a problem: the opposite flags, other flags that share a prefix, and
+    # the same words on commands that don't push. The orchestrate skill
+    # prescribes git fetch --prune.
+    ("allow", REPO, "git push --no-prune -u origin marcprinzing/x"),
+    ("allow", REPO, "git push --atomic -u origin marcprinzing/x"),
+    ("allow", REPO, "git push --porcelain --progress origin marcprinzing/x"),
+    ("allow", REPO, "git push origin marcprinzing/mar-1-fix-all"),
+    ("allow", REPO, "git push origin HEAD:marcprinzing/x"),
+    ("allow", REPO, "git push origin :marcprinzing/mar-1-x"),
+    ("allow", REPO, "git fetch --prune"),
+    ("allow", SDK, "git fetch --all --prune"),
+    ("allow", REPO, f"git -C {SDK} fetch --prune origin"),
+    ("allow", REPO, "git remote prune origin && git worktree prune"),
+    ("allow", REPO, "git log --all --oneline -5 && git branch --all"),
+    ("allow", REPO, "git config --get push.default"),
+    ("allow", REPO, 'git commit -m "explain git push --all and --prune"'),
+    # MAR-343 item 2: changing or deleting a gist, in every spelling.
+    ("deny", REPO, "gh gist edit abc123 --add notes.md"),
+    ("deny", REPO, "gh gist rename abc123 old.md new.md"),
+    ("deny", REPO, "gh gist delete abc123 --yes"),
+    ("deny", SDK, "gh gist edit abc123"),
+    ("deny", REPO, "/opt/homebrew/bin/gh gist delete abc123"),
+    ("deny", REPO, "bash -c 'gh gist edit abc123'"),
+    ("deny", REPO, "$GH gist rename abc123 a b"),
+    ("deny", REPO, "gh gist edit abc123 'unterminated"),
+    ("deny", REPO, "gh gist delete abc123 'unterminated"),
+    ("deny", REPO, "gh gist rename abc123 a 'unterminated"),
+    ("allow", REPO, "gh gist view abc123 --files"),
+    ("allow", REPO, "gh gist clone abc123"),
+    # MAR-343 item 3: signing in, and changing the account or credential.
+    ("deny", REPO, "gh auth login --with-token < token.txt"),
+    ("deny", REPO, "gh auth login -h github.com -p https"),
+    ("deny", REPO, "gh auth logout -u marc272"),
+    ("deny", REPO, "gh auth refresh -s delete_repo"),
+    ("deny", REPO, "gh auth switch -u someone"),
+    ("deny", REPO, "gh auth setup-git"),
+    ("deny", REPO, "gh auth git-credential get"),
+    ("deny", SDK, "gh auth login"),
+    ("deny", REPO, "/opt/homebrew/bin/gh auth logout"),
+    ("deny", REPO, "bash -c 'gh auth switch'"),
+    ("deny", REPO, '"$GH" auth refresh'),
+    ("deny", REPO, 'gh auth "$c"'),
+    ("deny", REPO, "gh auth login 'unterminated"),
+    ("deny", REPO, "gh auth setup-git 'unterminated"),
+    ("allow", REPO, "gh auth status --hostname github.com"),
+    ("allow", REPO, "gh --version && gh auth status"),
+    ("allow", REPO, 'git commit -m "explain gh auth login"'),
+    # MAR-343 item 4: Actions on crc-sdk, as on crc-docs; reading passes.
+    (
+        "deny",
+        REPO,
+        "gh api --method PUT repos/marc272/crc-sdk/actions/permissions"
+        " -F enabled=false",
+    ),
+    (
+        "deny",
+        REPO,
+        "gh api --method=PUT repos/marc272/crc-sdk/actions/permissions/workflow"
+        " -f default_workflow_permissions=read",
+    ),
+    (
+        "deny",
+        REPO,
+        "gh api -XPUT repos/marc272/crc-sdk/actions/permissions -F enabled=false",
+    ),
+    ("deny", REPO, "gh api repos/marc272/crc-sdk/actions/permissions -F enabled=false"),
+    ("deny", REPO, "gh api repos/marc272/crc-sdk/actions/permissions --input b.json"),
+    ("deny", REPO, 'gh api -X "$M" repos/marc272/crc-sdk/actions/permissions'),
+    (
+        "deny",
+        SDK,
+        "gh api -X PUT repos/{owner}/{repo}/actions/permissions -F enabled=false",
+    ),
+    ("allow", REPO, "gh api -X GET repos/marc272/crc-sdk/actions/permissions"),
+    (
+        "allow",
+        REPO,
+        "gh api -X PUT repos/marc272/parametric-insurance-design/actions/permissions"
+        " -F enabled=true",
+    ),
+    # MAR-343 item 5: git settings through the environment.
+    (
+        "deny",
+        REPO,
+        "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=push.followTags GIT_CONFIG_VALUE_0=true"
+        " git push origin marcprinzing/x",
+    ),
+    ("deny", REPO, "env GIT_CONFIG_COUNT=1 git push origin marcprinzing/x"),
+    ("deny", REPO, "export GIT_CONFIG_COUNT=1; git push origin marcprinzing/x"),
+    ("deny", REPO, "GIT_CONFIG_PARAMETERS=\"'alias.p=push'\" git p"),
+    ("deny", REPO, "GIT_CONFIG_GLOBAL=/tmp/c git push origin marcprinzing/x"),
+    ("deny", REPO, "GIT_CONFIG_SYSTEM=/tmp/c git status"),
+    ("deny", REPO, "GIT_CONFIG=/tmp/c git config --list"),
+    ("deny", REPO, "GIT_CONFIG_KEY_0=alias.p git status"),
+    ("deny", REPO, "GIT_CONFIG_VALUE_12=x git status"),
+    ("deny", REPO, 'env "GIT_CONFIG_COUNT=1" git status'),
+    ("deny", REPO, "bash -c 'GIT_CONFIG_COUNT=1 git push origin marcprinzing/x'"),
+    ("deny", REPO, "timeout 60 env GIT_CONFIG_COUNT=1 git status"),
+    ("deny", REPO, "if GIT_CONFIG_COUNT=1 git status; then true; fi"),
+    ("deny", REPO, "GIT_CONFIG_COUNT=1 git status 'unterminated"),
+    ("allow", REPO, "GIT_CONFIG_NOSYSTEM=1 git status"),
+    ("allow", REPO, "grep -rn GIT_CONFIG_COUNT=1 docs/"),
+    ("allow", REPO, "echo GIT_CONFIG_PARAMETERS=x"),
+    ("allow", REPO, 'git commit -m "GIT_CONFIG_COUNT=1 sets git config"'),
+    ("allow", REPO, "MY_GIT_CONFIG_COUNT=1 git status"),
+    # MAR-343 item 5: git submodule foreach runs a shell string.
+    ("deny", REPO, "git submodule foreach 'git push origin v1.0.0'"),
+    ("deny", REPO, "git submodule --quiet foreach true"),
+    ("deny", REPO, f"git -C {SDK} submodule foreach --recursive true"),
+    ("deny", REPO, "/usr/bin/git submodule foreach true"),
+    ("deny", REPO, 'git submodule "$c" true'),
+    ("deny", REPO, "git submodule foreach 'unterminated"),
+    ("allow", REPO, "git submodule status"),
+    ("allow", REPO, "git submodule update --init --recursive"),
+    # MAR-343 item 6: gh from a variable gets the fork-path check.
+    ("refuse", SDK, "$GH pr list"),
+    ("refuse", SDK, '"$GH" issue create --title t'),
+    ("refuse", SDK, "${GH} label list"),
+    ("refuse", SDK, "$(which gh) pr view 3"),
+    ("refuse", SDK, "`which gh` pr view 3"),
+    ("refuse", WT, "timeout 60 $GH pr checks 3"),
+    ("refuse", SDK, "env A=1 $GH pr list"),
+    ("refuse", SDK, "for n in 1 2; do $GH pr view $n; done"),
+    ("refuse", SDK, "$GH run view 3"),
+    ("refuse", SDK, "$GH run list"),
+    ("refuse", SDK, "$GH cache list"),
+    ("refuse", SDK, "$GH repo view"),
+    ("refuse", SDK, "$GH repo read-file README.md"),
+    ("refuse", SDK, "$GH api repos/{owner}/{repo}/pulls"),
+    ("refuse", SDK, '$GH pr list --repo "$FORK"'),
+    ("refuse", REPO, f"cd {SDK} && $GH pr list"),
+    ("refuse", REPO, f"git -C {SDK} status && $GH label list"),
+    ("deny", SDK, "$GH run rerun 123"),
+    ("deny", REPO, "$GH run rerun 123 --repo marc272/crc-sdk"),
+    # What it must leave alone. A literal repository, outside a fork path, and
+    # other programs from a variable: uv's own run and cache, in a fork path.
+    ("allow", SDK, "$GH pr list --repo marc272/crc-sdk"),
+    ("allow", SDK, "$GH api repos/marc272/crc-sdk/pulls"),
+    ("allow", REPO, "$GH pr list"),
+    ("allow", REPO, "$GH run view 3"),
+    ("allow", WT, "$UV run --locked pytest -q"),
+    ("allow", WT, "$UV run --locked --all-extras mypy"),
+    ("allow", WT, "$UV cache clean"),
+    ("allow", SDK, "$PIP cache dir"),
+    ("allow", SDK, "$UV sync --locked --all-extras"),
+    ("allow", SDK, '"$PY" -m pytest -q'),
+    # A variable that isn't the program, and what the hook can't see through.
+    ("allow", SDK, 'grep -n "$PATTERN" pr list'),
+    ("allow", SDK, 'echo "$X" pr list'),
+    ("allow", SDK, 'X="$Y" pr list'),
+    ("allow", SDK, "$X $Y pr list"),
+    ("allow", SDK, '"$CMD"'),
+    # MAR-343 item 1: ambiguous abbreviations, which git itself refuses (--a is
+    # --all or --atomic, --pr is --prune or --progress).
+    ("allow", REPO, "git push --a origin"),
+    ("allow", REPO, "git push --pr origin"),
 ]
 
 # --- The deny rules (MAR-263) ----------------------------------------------
@@ -1529,6 +1724,112 @@ RULE_CASES: list[tuple[str, str, str]] = [
         "allow",
         'gh pr merge "$N" --repo marc272/crc-sdk --squash --subject "$S" --body "$B"',
     ),
+    # MAR-343 item 1: every branch at once, in the usual forms, -C included.
+    ("deny", "deny", "git push --all origin"),
+    ("deny", "deny", "git push origin --all"),
+    ("deny", "deny", f"git -C {SDK} push --all origin"),
+    ("deny", "deny", f"git -C {SDK} push origin --all"),
+    ("deny", "deny", "git push --branches origin"),
+    ("deny", "deny", "git push origin --branches"),
+    ("deny", "deny", f"git -C {DOCS} push --branches origin"),
+    ("deny", "deny", f"git -C {DOCS} push origin --branches"),
+    ("deny", "deny", "git push --prune origin"),
+    ("deny", "deny", "git push origin --prune"),
+    ("deny", "deny", f"git -C {WT} push --prune origin"),
+    ("deny", "deny", f"git -C {WT} push origin --prune"),
+    # What only the hook sees.
+    ("pass", "deny", "git push --al origin"),
+    ("pass", "deny", "git push --pru origin"),
+    ("pass", "deny", "/usr/bin/git push --all origin"),
+    ("pass", "deny", "git -c user.name=x push --all origin"),
+    ("pass", "deny", "git push origin :"),
+    ("pass", "deny", "git -c push.default=matching push origin"),
+    # The prescribed push, and the same words where nothing is pushed.
+    (
+        "pass",
+        "allow",
+        "git push -u origin marcprinzing/mar-343-r-11l-guard-follow-ups-after-mar-289",
+    ),
+    ("pass", "allow", "git push --no-prune -u origin marcprinzing/x"),
+    ("pass", "allow", "git fetch --prune"),
+    ("pass", "allow", f"git -C {SDK} fetch --all --prune"),
+    ("pass", "allow", "git remote prune origin"),
+    ("pass", "allow", "git log --all --oneline -5"),
+    # MAR-343 item 2: gists, and the REST route to them (reads too, text only).
+    ("deny", "deny", "gh gist edit abc123 --add notes.md"),
+    ("deny", "deny", "gh gist rename abc123 old.md new.md"),
+    ("deny", "deny", "gh gist delete abc123 --yes"),
+    ("deny", "allow", "gh api -X PATCH gists/abc123 -f description=x"),
+    ("deny", "allow", "gh api -X DELETE gists/abc123"),
+    ("deny", "allow", "gh api gists -f description=x"),
+    ("pass", "deny", "/opt/homebrew/bin/gh gist delete abc123"),
+    ("pass", "allow", "gh gist view abc123"),
+    # MAR-343 item 3: gh auth.
+    ("deny", "deny", "gh auth login --with-token"),
+    ("deny", "deny", "gh auth logout -u marc272"),
+    ("deny", "deny", "gh auth refresh -s delete_repo"),
+    ("deny", "deny", "gh auth switch -u someone"),
+    ("deny", "deny", "gh auth setup-git"),
+    ("deny", "deny", "gh auth git-credential get"),
+    ("pass", "deny", "bash -c 'gh auth login'"),
+    ("pass", "allow", "gh auth status --hostname github.com"),
+    # MAR-343 item 4: Actions on crc-sdk, and a single workflow's switch, which
+    # gh workflow enable and disable already deny by name (text only).
+    (
+        "deny",
+        "deny",
+        "gh api -X PUT repos/marc272/crc-sdk/actions/permissions -F enabled=false",
+    ),
+    (
+        "deny",
+        "deny",
+        "gh api repos/marc272/crc-sdk/actions/permissions -X PUT -F enabled=false",
+    ),
+    (
+        "deny",
+        "deny",
+        "gh api --method PUT repos/marc272/crc-sdk/actions/permissions/workflow"
+        " -f default_workflow_permissions=read",
+    ),
+    (
+        "deny",
+        "allow",
+        "gh api -X PUT repos/marc272/crc-sdk/actions/workflows/1/disable",
+    ),
+    (
+        "deny",
+        "allow",
+        "gh api -X PUT repos/marc272/crc-docs/actions/workflows/1/enable",
+    ),
+    (
+        "pass",
+        "deny",
+        "gh api repos/marc272/crc-sdk/actions/permissions -F enabled=false",
+    ),
+    (
+        "pass",
+        "allow",
+        "gh api repos/marc272/crc-sdk/actions/permissions --jq .enabled",
+    ),
+    ("pass", "allow", "gh api repos/marc272/crc-sdk/actions/workflows/1 --jq .state"),
+    (
+        "pass",
+        "allow",
+        "gh api repos/marc272/crc-sdk/actions/workflows/enable-x.yml/runs",
+    ),
+    # MAR-343 item 5: the text rules cover submodule foreach. Assignments are
+    # the hook's: the rules strip them, and the command left is an ordinary one.
+    ("deny", "deny", "git submodule foreach true"),
+    ("deny", "deny", f"git -C {SDK} submodule foreach true"),
+    ("pass", "deny", "git submodule --quiet foreach true"),
+    ("pass", "deny", "GIT_CONFIG_COUNT=1 git status"),
+    ("pass", "deny", "env GIT_CONFIG_PARAMETERS=x git status"),
+    ("pass", "allow", "git submodule status"),
+    ("pass", "allow", "GIT_CONFIG_NOSYSTEM=1 git status"),
+    # MAR-343 item 6: only the hook reads a variable; prescribed tools pass.
+    ("pass", "deny", "$GH run rerun 123 --repo marc272/crc-sdk"),
+    ("pass", "allow", "$GH pr list"),
+    ("pass", "allow", "$UV run --locked pytest -q"),
 ]
 
 # --- The deny rules on other tools (MAR-282) ----------------------------------
@@ -2609,6 +2910,83 @@ def input_cases() -> list[tuple[str, str, object, str | None, bool]]:
             "refuse",
             "internal error: git update-ref refs/tags/v1 HEAD, this repo",
             bash_input(REPO, "git update-ref refs/tags/v1 HEAD"),
+            None,
+            True,
+        ),
+        (
+            "refuse",
+            "Monitor, forks/crc-sdk: $GH pr list",
+            monitor_input(SDK, "$GH pr list"),
+            None,
+            False,
+        ),
+        (
+            "deny",
+            "Monitor, this repo: GIT_CONFIG_COUNT=1 git status",
+            monitor_input(REPO, "GIT_CONFIG_COUNT=1 git status"),
+            None,
+            False,
+        ),
+        (
+            "refuse",
+            "internal error: GIT_CONFIG_COUNT=1 git status, this repo",
+            bash_input(REPO, "GIT_CONFIG_COUNT=1 git status"),
+            None,
+            True,
+        ),
+        (
+            "refuse",
+            "internal error: git submodule foreach true, this repo",
+            bash_input(REPO, "git submodule foreach true"),
+            None,
+            True,
+        ),
+        (
+            "allow",
+            "internal error: GIT_CONFIG_NOSYSTEM=1 git status, this repo",
+            bash_input(REPO, "GIT_CONFIG_NOSYSTEM=1 git status"),
+            None,
+            True,
+        ),
+        (
+            "refuse",
+            "internal error: gh gist delete abc123, this repo",
+            bash_input(REPO, "gh gist delete abc123"),
+            None,
+            True,
+        ),
+        (
+            "refuse",
+            "internal error: gh auth login, this repo",
+            bash_input(REPO, "gh auth login"),
+            None,
+            True,
+        ),
+        (
+            "allow",
+            "internal error: gh auth status, this repo",
+            bash_input(REPO, "gh auth status"),
+            None,
+            True,
+        ),
+        (
+            "refuse",
+            "internal error: git push --all origin, this repo",
+            bash_input(REPO, "git push --all origin"),
+            None,
+            True,
+        ),
+        (
+            "refuse",
+            "internal error: git push --prune origin, this repo",
+            bash_input(REPO, "git push --prune origin"),
+            None,
+            True,
+        ),
+        (
+            "allow",
+            "internal error: git fetch --all --prune, this repo",
+            bash_input(REPO, "git fetch --all --prune"),
             None,
             True,
         ),
