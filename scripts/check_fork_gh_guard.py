@@ -1202,7 +1202,11 @@ CASES: list[tuple[str, str, str]] = [
     ("deny", REPO, f"git -C {SDK} credential fill"),
     ("deny", REPO, "/usr/bin/git credential fill"),
     ("deny", REPO, "git -c k=v credential fill"),
-    ("deny", REPO, "printf 'protocol=https\\nhost=github.com\\n\\n' | git credential fill"),
+    (
+        "deny",
+        REPO,
+        "printf 'protocol=https\\nhost=github.com\\n\\n' | git credential fill",
+    ),
     ("deny", REPO, "bash -c 'git credential fill'"),
     ("deny", REPO, "$GIT credential fill"),
     ("deny", REPO, "git credential-osxkeychain get"),
@@ -1257,6 +1261,43 @@ CASES: list[tuple[str, str, str]] = [
     ("deny", REPO, "git filter-branch HEAD 'unterminated"),
     ("allow", REPO, "git log --grep filter-branch"),
     ("allow", REPO, 'git commit -m "explain git filter-branch"'),
+    # MAR-355 item 4: HOME and XDG_CONFIG_HOME move git's per-user settings.
+    ("deny", REPO, "HOME=/tmp/x git push origin marcprinzing/x"),
+    ("deny", REPO, "XDG_CONFIG_HOME=/tmp/x git push origin marcprinzing/x"),
+    ("deny", REPO, "HOME=/tmp/x git status"),
+    ("deny", REPO, "XDG_CONFIG_HOME=/tmp/x git status"),
+    ("deny", REPO, "A=1 HOME=/tmp/x git status"),
+    ("deny", REPO, "HOME=$(mktemp -d) git status"),
+    ("deny", REPO, "env HOME=/tmp/x git status"),
+    ("deny", REPO, "env -i HOME=/tmp/x git status"),
+    ("deny", REPO, "env XDG_CONFIG_HOME=/tmp/x /usr/bin/git status"),
+    ("deny", REPO, "timeout 60 env HOME=/tmp/x git status"),
+    ("deny", REPO, "if HOME=/tmp/x git status; then true; fi"),
+    ("deny", REPO, "HOME=/tmp/x bash -c 'git status'"),
+    ("deny", REPO, 'bash -c "HOME=/tmp/x git status"'),
+    # An assignment that stays in the shell reaches a later git.
+    ("deny", REPO, "HOME=/tmp/x; git status"),
+    ("deny", REPO, "XDG_CONFIG_HOME=/tmp/x; git status"),
+    ("deny", REPO, "export HOME=/tmp/x; git push origin marcprinzing/x"),
+    ("deny", REPO, "export XDG_CONFIG_HOME=/tmp/x && git status"),
+    ("deny", REPO, "declare -x HOME=/tmp/x; git status"),
+    ("deny", REPO, "HOME=/tmp/x git status 'unterminated"),
+    ("deny", REPO, "XDG_CONFIG_HOME=/tmp/x git status 'unterminated"),
+    # Other programs may set them, and the names may appear as plain words.
+    ("allow", REPO, "HOME=/tmp/x uv run pytest -q"),
+    ("allow", REPO, "XDG_CONFIG_HOME=/tmp/x uv sync --locked"),
+    ("allow", REPO, "HOME=/tmp/x gh auth status"),
+    ("allow", REPO, "export HOME=/tmp/x; uv run pytest -q"),
+    ("allow", REPO, "HOME=/tmp/x uv run pytest -q; git status"),
+    ("allow", REPO, "env HOME=/tmp/x; git status"),
+    ("allow", REPO, "HOME=/tmp/x grep git notes.md"),
+    ("allow", REPO, "echo HOME=/tmp/x git status"),
+    ("allow", REPO, "grep -rn XDG_CONFIG_HOME= docs/"),
+    ("allow", REPO, "MY_HOME=/tmp/x git status"),
+    ("allow", REPO, "HOMEBREW_NO_AUTO_UPDATE=1 git status"),
+    ("allow", REPO, 'git commit -m "HOME=/tmp/x git status"'),
+    ("allow", REPO, "cd $HOME && git status"),
+    ("allow", REPO, f"cd {HOME} && git status"),
 ]
 
 # --- The deny rules (MAR-263) ----------------------------------------------
@@ -2021,15 +2062,19 @@ RULE_CASES: list[tuple[str, str, str]] = [
     ("pass", "allow", f"git -C {SDK} fetch upstream main"),
     ("pass", "allow", f"git -C {SDK} fetch origin parametric"),
     ("pass", "allow", f"git -C {SDK} fetch --all --prune"),
-    # MAR-355 item 2.
+    # MAR-355 item 2. Under -C the rule names fill alone, so that a commit
+    # message with the word credential isn't denied; the hook reads the rest.
     ("deny", "deny", "git credential fill"),
+    ("deny", "deny", "git credential approve"),
     ("deny", "deny", "git credential-osxkeychain get"),
     ("deny", "deny", f"git -C {SDK} credential fill"),
-    ("deny", "deny", f"git -C {SDK} credential-osxkeychain get"),
+    ("pass", "deny", f"git -C {SDK} credential approve"),
+    ("pass", "deny", f"git -C {SDK} credential-osxkeychain get"),
     ("pass", "deny", "/usr/bin/git credential fill"),
     ("pass", "deny", "git -c k=v credential fill"),
     ("pass", "allow", "git config --get credential.helper"),
     ("pass", "allow", f"git -C {SDK} config --get credential.helper"),
+    ("pass", "allow", f'git -C {WT} commit -m "docs: the credential is never used"'),
     # MAR-355 item 3.
     ("deny", "deny", "git rebase --exec true origin/main"),
     ("deny", "deny", "git rebase origin/main --exec true"),
@@ -2049,6 +2094,14 @@ RULE_CASES: list[tuple[str, str, str]] = [
     ("pass", "allow", "git rebase --no-exec origin/main"),
     ("pass", "allow", "git rebase --reschedule-failed-exec origin/main"),
     ("pass", "allow", f"git -C {WT} rebase origin/parametric"),
+    # MAR-355 item 4: hook only, as GIT_CONFIG_* is. The rules strip a leading
+    # assignment, and a text rule can't tell which program it is for.
+    ("pass", "deny", "HOME=/tmp/x git status"),
+    ("pass", "deny", "XDG_CONFIG_HOME=/tmp/x git status"),
+    ("pass", "deny", "env HOME=/tmp/x git status"),
+    ("pass", "deny", "export HOME=/tmp/x; git status"),
+    ("deny", "deny", "HOME=/tmp/x git push origin main"),
+    ("pass", "allow", "HOME=/tmp/x uv run pytest -q"),
 ]
 
 # --- The deny rules on other tools (MAR-282) ----------------------------------
@@ -3283,6 +3336,20 @@ def input_cases() -> list[tuple[str, str, object, str | None, bool]]:
             "allow",
             "internal error: git config --get credential.helper, this repo",
             bash_input(REPO, "git config --get credential.helper"),
+            None,
+            True,
+        ),
+        (
+            "refuse",
+            "internal error: HOME=/tmp/x git status, this repo",
+            bash_input(REPO, "HOME=/tmp/x git status"),
+            None,
+            True,
+        ),
+        (
+            "allow",
+            "internal error: HOME=/tmp/x uv run pytest -q, this repo",
+            bash_input(REPO, "HOME=/tmp/x uv run pytest -q"),
             None,
             True,
         ),

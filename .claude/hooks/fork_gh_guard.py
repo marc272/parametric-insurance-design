@@ -37,6 +37,9 @@ hide it (``GitInvocation.denied``). It refuses:
   ``GIT_CONFIG_KEY_<n>``, ``GIT_CONFIG_VALUE_<n>``, ``GIT_CONFIG_PARAMETERS``,
   ``GIT_CONFIG_GLOBAL``, ``GIT_CONFIG_SYSTEM`` or ``GIT_CONFIG``, and ``git
   submodule foreach``, which runs a shell string the hook doesn't read;
+- ``HOME`` or ``XDG_CONFIG_HOME`` set for a git command (MAR-355), which picks
+  git's per-user settings file as ``GIT_CONFIG_GLOBAL`` does
+  (``_moves_git_settings``); other programs may set them;
 - ``git credential`` and the ``git credential-<helper>`` commands (MAR-355),
   which can print the token that ``gh auth token`` would;
 - ``git rebase --exec`` (``-x``, abbreviated or in a cluster too) and ``git
@@ -377,6 +380,9 @@ _PRECOMMANDS = frozenset({"builtin", "command", "nocorrect", "noglob"})
 _ENVIRONMENT_SETTERS = frozenset(
     {"env", "export", "declare", "typeset", "readonly", "local"}
 )
+# Those whose assignment stays in the shell (MAR-355): env's lasts for the
+# program it runs.
+_SHELL_SETTERS = _ENVIRONMENT_SETTERS - {"env"}
 # Commands that run the words after them, and a timeout's duration (MAR-343).
 _WRAPPERS = frozenset(
     {*ARGUMENT_FEEDERS, "env", "exec", "nice", "nohup", "stdbuf", "timeout"}
@@ -523,6 +529,9 @@ _GH_DENIED = re.compile(
 _GIT_CONFIG_VARIABLE = re.compile(
     r"GIT_CONFIG(?:_(?:COUNT|PARAMETERS|GLOBAL|SYSTEM|KEY_[0-9]+|VALUE_[0-9]+))?"
 )
+# Variables that move git's per-user settings file (MAR-355). Other programs
+# read them too, so they count only for git (_moves_git_settings).
+_GIT_HOME_VARIABLE = re.compile(r"HOME|XDG_CONFIG_HOME")
 # The same, for the git commands that make or push tags (MAR-289) or reach
 # every branch, and those variables (MAR-343): git and its options, then the
 # subcommand, so that a commit message saying "tag" doesn't count. Only for a
@@ -540,7 +549,8 @@ _GIT_DENIED = re.compile(
     r"|\stag\s|[\s:+\"']v[^\s:]*"
     r"|[\s:+\"'](?:(?:refs/)?heads/)?(?:main|parametric)(?:[\s\"']|$))"
     r")"
-    r"|\b" + _GIT_CONFIG_VARIABLE.pattern + "=",
+    r"|\b" + _GIT_CONFIG_VARIABLE.pattern + "="
+    r"|\b(?:" + _GIT_HOME_VARIABLE.pattern + r")=[^;&|\n]*\bgit\b",
     re.IGNORECASE,
 )
 _FORKISH = re.compile(
@@ -1583,18 +1593,20 @@ def _rebase_problem(args: list[str]) -> str | None:
     return None
 
 
-def _git_config_assignment(words: list[str]) -> str | None:
-    """Return the word that sets git's configuration in the environment, if any.
+def _environment_assignment(words: list[str], variables: re.Pattern[str]) -> str | None:
+    """Return the word that sets one of ``variables`` in the environment, if any.
 
-    A word counts when it assigns a variable of ``_GIT_CONFIG_VARIABLE`` and
-    stands where the shell or ``env`` takes it as one: among a command's
-    leading assignments, or after ``env``, ``export`` and the like. So
-    ``grep GIT_CONFIG_COUNT=1 notes.md`` doesn't count.
+    A word counts when it assigns one of them and stands where the shell or
+    ``env`` takes it as one: among a command's leading assignments, or after
+    ``env``, ``export`` and the like. So ``grep GIT_CONFIG_COUNT=1 notes.md``
+    doesn't count.
 
     Parameters
     ----------
     words
         The words of one simple command.
+    variables
+        Matches the whole name of a variable that counts.
 
     Returns
     -------
@@ -1605,7 +1617,7 @@ def _git_config_assignment(words: list[str]) -> str | None:
         assignment = _ASSIGNMENT.fullmatch(word)
         if assignment is None:
             continue
-        if not _GIT_CONFIG_VARIABLE.fullmatch(assignment.group(1)):
+        if not variables.fullmatch(assignment.group(1)):
             continue
         before = words[:k]
         if all(w in _KEYWORDS or _ASSIGNMENT.fullmatch(w) for w in before) or any(
@@ -1645,6 +1657,52 @@ def _at_program_position(words: list[str], k: int) -> bool:
         or _DURATION.fullmatch(word)
         for word in words[:k]
     )
+
+
+def _runs_git(words: list[str]) -> bool:
+    """Whether ``git`` stands where a program does in one simple command."""
+    return any(
+        _basename(word) == "git" and _at_program_position(words, k)
+        for k, word in enumerate(words)
+    )
+
+
+def _moves_git_settings(words: list[str], commands: list[list[str]]) -> bool:
+    """Whether a simple command points git at other settings files (MAR-355).
+
+    ``HOME`` and ``XDG_CONFIG_HOME`` pick git's per-user settings file, as
+    ``GIT_CONFIG_GLOBAL`` does. Other programs read them too, so they count
+    only when git would see them: this command runs git, itself or in a ``sh
+    -c`` string, or the assignment stays in the shell (it has no program of
+    its own, or is an ``export``) and a command of the same text runs git.
+    Whatever a script runs can't be read.
+
+    Parameters
+    ----------
+    words
+        The words of one simple command.
+    commands
+        Every simple command of the shell text.
+
+    Returns
+    -------
+    bool
+        Whether the command is refused.
+    """
+    if _environment_assignment(words, _GIT_HOME_VARIABLE) is None:
+        return False
+    program = next(
+        (w for w in words if w not in _KEYWORDS and not _ASSIGNMENT.fullmatch(w)),
+        None,
+    )
+    if program is None or _basename(program) in _SHELL_SETTERS:
+        return any(map(_runs_git, commands))
+    scripts = [
+        command
+        for script in _inner_scripts(words)
+        for command in split_commands(script, 1)
+    ]
+    return any(map(_runs_git, [words, *scripts]))
 
 
 def parse_git(args: list[str]) -> GitInvocation | None:
@@ -1864,7 +1922,7 @@ class _Context:
 
     def inspect(self, words: list[str]) -> None:
         """Record the fork signals and the gh invocation of one command."""
-        if _git_config_assignment(words) is not None:
+        if _environment_assignment(words, _GIT_CONFIG_VARIABLE) is not None:
             self.git_invocations.append(
                 GitInvocation(words, "", [], [], from_environment=True)
             )
@@ -1972,6 +2030,10 @@ def evaluate(command: str, starts: list[str], home: str) -> str | None:
         context.change_directory(words)
     for words in commands:
         context.inspect(words)
+        if _moves_git_settings(words, commands):
+            context.git_invocations.append(
+                GitInvocation(words, "", [], [], from_environment=True)
+            )
     for invocation in [*context.invocations, *context.git_invocations]:
         kind = invocation.denied()
         if kind is not None:
@@ -2198,8 +2260,9 @@ _DENIALS = {
         "a variable that sets git's configuration or picks its files:",
         "GIT_CONFIG_COUNT, GIT_CONFIG_KEY_<n>, GIT_CONFIG_VALUE_<n>,",
         "GIT_CONFIG_PARAMETERS, GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM and",
-        "GIT_CONFIG. They can make a plain git push carry tags, or add a git",
-        "command, past the git -c and git config checks.",
+        "GIT_CONFIG, and HOME or XDG_CONFIG_HOME set for a git command. They can",
+        "make a plain git push carry tags, or add a git command, past the git -c",
+        "and git config checks.",
     ),
     "git-submodule": (
         "git submodule foreach. It runs a shell string in each submodule, which",
@@ -2297,7 +2360,7 @@ def _when_in_doubt(command: str, starts: list[str], problem: str) -> str | None:
                 "every branch (--all, --branches, --prune) or to main or parametric,",
                 "git submodule foreach, git credential, git rebase --exec, git",
                 "filter-branch, or a variable that sets git's configuration",
-                "(GIT_CONFIG_*).",
+                "(GIT_CONFIG_*, or HOME or XDG_CONFIG_HOME on a git command).",
                 'Those are Marc\'s (docs/ORCHESTRATION.md, "One-time setup",',
                 "step 4). If it is none of them, split it into simpler commands.",
             ]
