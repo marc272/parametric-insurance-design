@@ -8,7 +8,7 @@
   - crc-framework 0.6.0: [`838c295`][fw] (tag `v0.6.0`; the later head changes only the release workflow);
   - crc-docs: [`7691f5f`][docs] (2026-11-04).
 - Revised on 2026-11-05, before the owner's decision, to match the golden fixtures of MAR-245 (PR #183). The end of "Decisions for the owner" lists what changed.
-- Amendments, at the end: 1 (2026-11-06, MAR-275), which records the owner's decision D11, curves first; 2 (2026-11-08, MAR-291), which records the owner's decisions D-25.1 to D-25.5, the per-year route; 3 (2026-11-08, MAR-292), which records the owner's decisions D-21.1 to D-21.6, the portfolio approach; 5 (2026-11-08, MAR-330), which records the owner's decisions D-22.1 to D-22.8, multi-hazard covers; and 6 (2026-11-09, MAR-346), which fixes the public API of the additions the owner accepted in the design review of 2026-11-09 (MAR-344).
+- Amendments, at the end: 1 (2026-11-06, MAR-275), which records the owner's decision D11, curves first; 2 (2026-11-08, MAR-291), which records the owner's decisions D-25.1 to D-25.5, the per-year route; 3 (2026-11-08, MAR-292), which records the owner's decisions D-21.1 to D-21.6, the portfolio approach; 4 (2026-11-08, MAR-329; revised 2026-11-09 on the owner's decisions after the design review MAR-344: ERA5 leaves scenario sets, and a scenario may be a window of horizons), which records the owner's decisions D-23.1 to D-23.6, scenario analysis; 5 (2026-11-08, MAR-330), which records the owner's decisions D-22.1 to D-22.8, multi-hazard covers; and 6 (2026-11-09, MAR-346), which fixes the public API of the additions the owner accepted in the design review of 2026-11-09 (MAR-344).
 
 The section "Decisions for the owner" lists what Marc decides. Every other choice below is the agent's recommendation, with the alternatives named where a choice is open.
 
@@ -112,6 +112,8 @@ Naming rules:
 To sample from curves the plan needs each asset's curve, and the join that finds it is private (U3). **Recommendation:** R-18 adds one public execution point to crc-sdk, `PortfolioEvaluation.asset_curves() -> pyarrow.Table`, with one row per asset, hazard, horizon and pathway, the curve columns and `spatial_match`, built on the existing join. It is additive. RiskThinking confirms the name and the place (Q1). A chaining method on `PortfolioEvaluation` (for example `.parametric(...)`) is the alternative; it edits their class, so it is their choice (Q2). (Amendment 1, D11: `asset_curves()` is built in the fork now, by MAR-271, and proposed to RiskThinking in the upstream PR. Q2 stays open.)
 
 Amendment 2 (the per-year route) adds to both outlines below: `trend=`, `scenario=`, `pool=`, `cell=`, `.index(...)` and `sample_annual_pool`.
+
+Amendment 4 (scenario analysis) adds `ScenarioSet`, `compare_scenarios`, `to_drift`, `.scenarios(...)`, and `scenario=` and windows of horizons on `sample_curve`.
 
 Amendment 5 (multi-hazard covers) adds to both outlines below: `CompositeIndex`, `IndexComponent`, `.component()`, `SumOf`, `MaxOf`, `StepGrid`, `CappedSum`, `CompoundDamage`, `sample_annual_hazards`, `sample_curve_hazards`, `GaussianCopula`, `CoverPackage`, `split_budget`, `payout_breakdown`, `.hazard`, `.combine` and `.package`.
 
@@ -339,6 +341,8 @@ Amendment 1 (D11) sets the order of release: Monte Carlo from a fitted curve fir
 
 Amendment 2 (the per-year route) adds a stated trend option, pooled model-years and a `scenario` label to the per-year source, and says what of the route goes in the Phase 1 upstream PR.
 
+Amendment 4 (scenario analysis) adds `scenario=` and windows of horizons to `sample_curve`.
+
 Amendment 5 adds `sample_annual_hazards`, `sample_curve_hazards` and a user table with several index columns.
 
 | Source | Function | One draw is | Probability | Semantics required |
@@ -384,6 +388,8 @@ Amendment 5 (D-22.3) adds a stated rule for the combined loss of several impacts
 
 Amendment 2 (D-25.4) brings the `index=` series of this table into the plan, as `.index(...)`.
 
+Amendment 4 extends the leakage check below to Monte Carlo samples that reuse one generator record, whatever the curve.
+
 | Model | What it does | Sources |
 |---|---|---|
 | `NoBasisRisk()` | index = hazard at the asset, loss = impact(hazard) × value. It warns with `ComonotoneIndexWarning`: index and loss move together, so a cover can track the loss almost exactly | all |
@@ -403,6 +409,8 @@ Amendment 6 (F2) adds `HazardNoise(sigma)` to this table, a model in which the h
 #### 4.5 Dimensions reserved for Phase 2
 
 Amendment 2 (D-25.5) lets a per-year sample state its `scenario` label.
+
+Amendment 4 (scenario analysis) adds `scenario=` on curves and the `ScenarioSet` this section reserves.
 
 Amendment 5 (D-22.1) fills the hazards item below: each component has a name, a unit and a tail.
 
@@ -545,6 +553,8 @@ A smoke check by the agent on 2026-11-05 (synthetic step payouts, one machine, m
 
 Amendment 3 (D-21.3) changes this table: it adds the `scope` column and the levels `"total"`, `"asset_by_value"` and `"asset_by_loss"`, and makes `asset_id` and `premium_basis` nullable.
 
+Amendment 4 (D-23.2 to D-23.4) adds the columns `design_scenario`, `pathway`, `horizon`, `product`, `n_rows` and `premium_repriced`, and the premium basis `"reference"`.
+
 Amendment 5 adds the level `"package"`, the columns `components` and `design_budget`, and D-22.7's separate table, `payout_breakdown`.
 
 Amendment 6 adds the metric columns `payout_frequency` and `unidentified_share`, the columns of the rank-block flag, the pooled rows of `compare_pooled` and the separate table of `bootstrap_intervals`.
@@ -571,6 +581,8 @@ Amendment 6 adds the metric columns `payout_frequency` and `unidentified_share`,
 ### 7. Provenance
 
 Amendment 2 (the per-year route) describes the per-year source records as merged, and adds the records of the trend, the pool and the index series.
+
+Amendment 4 (scenario analysis) adds `setup.scenarios`, the split method `"other_scenario"` and the leakage result `"different_sources"`.
 
 Amendment 5 adds `hazard_dependence`, `combine` and `components` to a sample's provenance, and a package's entry to `covers`.
 
@@ -717,6 +729,7 @@ Phase 1 exports only what it implements. Each name below is added to `__all__` w
   - External text presents joint calibration as a method only (publication rule).
 - **Multi-hazard covers (R-22, MAR-250).** Amendment 5 (D-22.1 to D-22.8) settles this item. `CompositeIndex` (named `IndexDefinition`s), payouts with several `index_names`, `OutcomeSample.index_components`, and the combinator families of §3. Two hazards at one site need a joint distribution; for per-year samples it is the data's own.
 - **Scenarios (R-23, MAR-44).** A `ScenarioSet` maps scenario labels to samples with the same assets. `compare` fills the `scenario` column. Robust design (min–max over scenarios, as SPEC §6.5 R1) becomes an objective wrapper, `Robust(objective)`, over a `ScenarioSet`.
+  - Amendment 4 (D-23.1 to D-23.6) settles this item: a `ScenarioSet` holds one sample per scenario, `compare_scenarios` fills the `scenario` and `design_scenario` columns, and `Robust(objective)` stays for later.
 - **Also reserved:** the semantics value `"event"` (several events per year); a local refinement after the grid; block-bootstrap intervals and pooled k-fold metrics; a second solver backend in `_solver.py`.
   - Amendment 6 (F3) settles the block-bootstrap intervals and the pooled k-fold metrics. The other items stay reserved.
 
@@ -725,6 +738,8 @@ Phase 1 exports only what it implements. Each name below is added to `__all__` w
 The split into R-14 to R-18 holds, with four adjustments (marked "adjusted"). Amendment 1 (D11) splits R-18 into MAR-42 and MAR-271, and adds R-25 (MAR-274).
 
 Amendment 3 (the portfolio approach) adds the rows of R-21: MAR-298 and MAR-301 to MAR-305, with R-21g deferred.
+
+Amendment 4 (scenario analysis) adds the rows of R-23: MAR-331 to MAR-335.
 
 Amendment 5 (multi-hazard covers) adds the rows of R-22: MAR-336 to MAR-342.
 
@@ -1335,6 +1350,416 @@ The six decisions don't determine these. The text above settles each as the agen
 - How long §5.4's ranges take on a large block basis: four LPs per amount.
 - No ERA5 or CRC Open data was read for this amendment.
 
+## Amendment 4 (2026-11-08, revised 2026-11-09, MAR-329): scenario analysis
+
+On 2026-11-08 the owner, Marc Prinzing, decided D-23.1 to D-23.6 (in chat; recorded on MAR-44 and MAR-329). They fix the public API of scenario analysis (R-23, MAR-44), which the owner calls a core capability of CRC, so this amendment comes before any R-23 issue starts, and the owner approves it before it merges. It builds on Amendments 2 and 3 and on errata 11 and 12. Amendment 5 (multi-hazard, MAR-330) follows it.
+
+**Revised on 2026-11-09, before it merged.** The owner's design review of that day (MAR-344) and his answer on MAR-329, "Accept all", changed this amendment, and he approves the revised text before it merges. ERA5 leaves scenario sets, which reverses his steer of 2026-11-08 ("ERA5 should be a first-class reference") and changes D-23.5 and D-23.6. A scenario may now be a window of horizons, which extends D-23.1 and D-23.4. Five smaller points that were open are settled.
+
+| | Decided on 2026-11-09 | Section |
+|---|---|---|
+| E1 | ERA5 leaves scenario sets. The reference stays required and named, and the docs use each product's earliest period. A set holds all curves or all per-year series, and two products need `mixed_products=True`, the reference included | "Why ERA5 left the sets", "`ScenarioSet`", "What is refused" |
+| F1 | Several (pathway, horizon) pairs under one label form one scenario, an equal-weight mixture of those horizons' draws on the same uniforms. The docs and the notebook lead with windows, and a single horizon stays allowed | "A window of horizons" |
+| S2 | `design_on="each"` is the default | "The plan" |
+| S3 | A given cover is priced once on the reference's design block | "The premium" |
+| S4 | The `n_rows` column stays | "One table" |
+| S5 | The check that every scenario in a set reads the same hazard stays | "What is refused" |
+| S6 | The new leakage rule sits in the shared check, `_check_out_of_sample`, so a hand-built loop that reuses one generator state raises `LeakageError` | "What is shared" |
+
+The rest of the ADR stands. §2, §4.2, §4.4, §4.5, §6, §7, §9 and §10 keep their text and each carries a one-sentence pointer here, and this amendment says what they now mean, as Amendment 1 did. Every addition has a default, so a call or a plan without scenarios gives the same rows and hashes, with the new columns beside them. The one exception is a Layer 1 call that reuses one generator state across curves out of sample, which now raises (below). The publication rule applies: this amendment presents the options and what each one records, nothing here says that a product, a pathway, a horizon or a design is better than another, and joint designs are described as a method only.
+
+### The six decisions
+
+All six are option (A) of the refinement on MAR-44, as the owner adjusted them. D-23.1, D-23.4, D-23.5 and D-23.6 read as he revised them on 2026-11-09.
+
+| | Decision |
+|---|---|
+| D-23.1 | Scenarios are a dimension of the module: `ParametricPlan.scenarios(ScenarioSet(...))`, with no separate `ScenarioPlan`. `for_evaluation` accepts several horizons or pathways once scenarios are stated, so `select(horizons=…, pathways=…)` is the way in. Layer 1: `ScenarioSet`, `compare_scenarios`, `to_drift`; the plan equals them row for row. Both routes, pools, individual and joint designs (owner-total rows). A scenario may be a window of horizons of one pathway. Min-max robust design stays for later |
+| D-23.2 | One table: every cover or design on every scenario's evaluation block, out of sample only, the reference included. `scenario` says where a row is evaluated and `design_scenario` where it was designed. Terms, loss model, values, basis-risk model, pricing and metric options stay fixed. Curves share one set of evaluation draws, separate from the design's. `to_drift(table, reference=)` adds differences and ratios, with no ranking column |
+| D-23.3 | `premium` and the net-loss columns stay at the contract price: a design's premium, or a given cover's stated premium or its premium priced once on the reference (`premium_basis="reference"`). A new `premium_repriced` prices the same payouts on each scenario |
+| D-23.4 | `scenario` stays a free label (D-25.5). New columns `pathway` (the source's spelling, checked with `strict=True`), `horizon` (the curve's year, or the centre of a window, of horizons or of a per-year series) and `product` come from the source record, never the label, and are null where it states none. Nothing interpolates between horizons: a window is a mixture, not an interpolation |
+| D-23.5 | `ScenarioError` for scenarios that differ in anything but the hazard (assets, units, loss or basis-risk model, trend option, a pool's models); a stated pathway the source contradicts; two scenarios with one pathway, horizon and product; equal curves at several horizons (CRC Open's cyclone); a horizon outside the dataset's window; a cover bound to a location a scenario's index doesn't read; a set that holds both curves and per-year series; several pathways in one window; and two products in a set, the reference included, unless `mixed_products=True`. The setup text says the difference includes the products wherever a row's product differs from the reference's |
+| D-23.6 | The reference is required and named, and the module chooses none. The docs and the notebook use the earliest window (or the earliest horizon, where a single horizon is used) on CRC Open and the same models' `historical` years on NEX. ERA5 is not a first-class reference |
+
+### Why ERA5 left the sets (E1, 2026-11-09)
+
+D-23.6 first read "The reference is required and named. ERA5 is a first-class reference on both routes. Otherwise the earliest horizon on CRC Open and the same models' `historical` years on NEX". D-23.5 first ended "and two products among the non-reference scenarios unless `mixed_products=True`. ERA5 as the reference beside model output needs no flag, and the setup text always says the difference includes the products".
+
+The owner changed both after an internal check at one site, and not on a judgment of ERA5's quality. The ratio of expected payouts against ERA5 moved with the block of years used and always includes the products, while the ratio between two horizons of one product doesn't include them. A design on a short record left its upper amounts to the fill rule. The evidence and its setup are on MAR-329 and MAR-344. One site, one hazard and one cover can't say that any product, pathway or design is better, and this paragraph doesn't.
+
+ERA5 keeps its other jobs: the back-test on real years, the per-year route (D-25.1), the dependence source for `EmpiricalCopula` (D-21.5, D-22.2), the index read elsewhere (`.index(...)`, D-25.4), and comparing indices on one loss. None of them needs a scenario set.
+
+### `ScenarioSet` (D-23.1, D-23.6, §4.5, §9)
+
+```text
+# scenarios (R-23b); frozen; no I/O
+ScenarioSet(entries=(), *, reference, labels=None, mixed_products=False)
+    # entries: one OutcomeSample per scenario (Layer 1), or what a plan reads (Layer 2, below)
+    # reference: required, the label of one scenario
+    # labels: Layer 2 only, a mapping from a label to its (pathway, horizon) pairs
+    .reference -> str
+    .labels -> tuple[str, ...]           # Layer 1 only: the reference first, then as given
+    .sample(label) -> OutcomeSample      # Layer 1 only
+ScenarioError                            # a SampleError, so also a ValueError
+```
+
+- **Built or described.** A set holds built samples or a plan's descriptions, never both, and `compare_scenarios` and `.scenarios(...)` each refuse the other kind with a `TypeError`.
+- **All curves or all years (D-23.5).** Every scenario of a set is read from curves, one horizon or a window of them, or every scenario is read from per-year rows: a series, a pool or a table. A sample's `provenance.source_kind` says which: `"monte_carlo"` is curves, and `"annual"` and `"table"` are per-year rows. Years beside draws raise `ScenarioError`.
+- **At Layer 1** each entry is one scenario's evaluation block, a one-asset or multi-asset `OutcomeSample`. Its label is the sample's own `scenario` (D-25.5), so a sample keeps one name, which is in its hash. Two samples with one label raise, and the error names `scenario=`, which R-23a adds to `sample_curve`, `sample_curves` and `OutcomeSample.from_table`.
+- **The reference** has no default and must be one of the labels (D-23.6). It prices a given cover (D-23.3), and it is the default reference of `to_drift`. The module doesn't choose one. `docs/parametric.md` and the notebook use the earliest window on CRC Open, which has no historical baseline, and the same models' `historical` years on NEX.
+- **One scenario is allowed**, the reference alone. Then `compare_scenarios` gives `compare`'s rows on that block, except that a cover given as is takes D-23.3's premium.
+- **The refusals** that need the samples run at construction on a Layer 1 set and at execution on a plan, through one function. Those that need only the labels run at construction on both.
+
+### The plan (D-23.1, §2, Layer 2)
+
+```text
+ParametricPlan
+    .for_annual_extremes(..., hazard_name=None)                   # the hazard its own source reads
+    .scenarios(scenarios, *, design_on="each", premiums=None)     # R-23d
+    .scenario_samples() -> Mapping[str, Mapping[str, OutcomeSample]]    # execution; label, then asset
+
+# what a plan reads, beside its own source: AnnualScenario on a per-year plan, CurveScenario on a plan on curves
+AnnualScenario(label, source, *, provenance, unit=None, location=None, year_column=None, hazard_column=None,
+               years=None, missing=None, trend=None, pool=None, pathway=None, hazard_name=None)
+CurveScenario(label, dataset, *, pathway=None, horizon=None)         # horizon: one year, or several for a window
+```
+
+- **The way in, on the curve route.** `for_evaluation(request)` keeps refusing several hazards, but no longer several horizons or pathways. `.scenarios(...)` comes after it, so that check moves: `explain()` and every execution point raise today's `ValueError` when several horizons or pathways are selected and no scenarios are stated.
+  - With `.scenarios(...)`, the request's `select(...)` must state exactly one hazard in `hazard_names`, and `horizons` and `pathways`, so `explain()` can list the scenarios and their hazard without reading anything.
+  - Without `labels=`, every selected (pathway, horizon) is one curve scenario, labelled `<pathway>_<horizon>`.
+  - `labels=` maps a label to its pairs. `labels={"2050s": [("ssp585", 2045), ("ssp585", 2050), ("ssp585", 2055)]}` is a window ("A window of horizons", below), and `labels={"mid-century": [("ssp585", 2050)]}` a single horizon. When given it lists exactly the pairs used, because a dataset need not hold every pair of the product, and every pair it lists must be selected.
+  - One `.monte_carlo(n_draws, seed=...)` serves every curve scenario.
+  - With nothing else to read, `ScenarioSet(reference="2030s", labels=...)`, or `ScenarioSet(reference="ssp585_2030")` for single horizons, is the whole statement: `entries` stays empty on a plan whose scenarios all come from the selection. An empty set raises at Layer 1.
+- **`AnnualScenario`** is a scenario read from per-year values on a per-year plan, such as another pathway's years. `source` takes what `for_annual_extremes` takes. On a plan on curves it raises `ValueError`.
+  - The plan's own source is one scenario, under its `scenario=` label, and a field left `None` takes the plan's value. `impact`, `value_column`, `context`, `cell` and `seed` are the plan's, so they are not options.
+  - `pool=None` takes the plan's `pool=`, `pool=False` states a series that is not pooled, and a `ModelPool` states one.
+  - `pathway=` states a pathway. It fills the column where the source states none, and must agree with the source where it does (D-23.5).
+  - `hazard_name=` states the hazard it reads, as "What is refused" sets out.
+- **`CurveScenario`** is a scenario read from another local canonical dataset with the plan's assets. It reads the plan's selected hazard. `pathway` and `horizon` pick its curves and are required if it holds several, and several years in `horizon` make a window of that pathway. On a per-year plan it raises `ValueError`.
+- **A second product (D-23.5).** It needs `mixed_products=True`, the reference included, and the docs don't lead with it. Two forms stay possible. On a plan on curves, a `CurveScenario` of another product's curve, such as ERA5's own fitted curve (`HazardDataset.era5(recipe)…canonicalize(...).materialize(path)`). On a per-year plan, an `AnnualScenario` with `pool=False`, such as ERA5's years beside NEX pools.
+- **`design_on`.** `"each"`, the default, designs every template under every objective on every scenario's design block, which makes "drift" and "a design per scenario" slices of one table. `"reference"` designs on the reference's only.
+- **`premiums=`** maps a `cover_label` to a stated premium, for covers given as is (D-23.3). A key that matches no such cover raises `EvaluationError`.
+- **`.split(...)` is required**, because the rows are out of sample only (D-23.2): without it `explain()` and every execution point raise `ValueError`. One rule makes each scenario's design and evaluation blocks:
+
+  | `.split(...)` | Curve scenarios | Per-year scenarios |
+  |---|---|---|
+  | `FreshDraws(n, seed=)` | Design on the plan's draws, evaluate on the fresh draws | `TypeError`, as today |
+  | `Holdout(f)` | First share of the draws, then the rest | First share of the years, then the rest |
+  | `KFold(k)` | One block per fold | One block per fold |
+- **Execution.** For each asset (or, under `Joint()`, once) and each fold, the plan builds every scenario's blocks, designs on them, and calls `compare_scenarios` with the reference's design block, so the rows equal the function route's. `.designs()` is in scenario, asset, fold, cover, objective order. `.samples()` and `ParametricResult.samples` hold the reference's samples, and `.scenario_samples()` and `ParametricResult.scenario_samples` every scenario's; `ParametricResult.scenario_fresh_samples` holds the curve scenarios' fresh draws. One Parquet file is written, atomically. `explain()` lists the scenarios, their sources, the reference and `design_on`, without I/O.
+
+### One table (D-23.2, §6)
+
+```text
+# comparison across scenarios (R-23c)
+compare_scenarios(covers, scenarios, *, fold=0, pricing=PurePremium(), premiums=None, options=MetricOptions(),
+                  design_sample=None, allocation=None, values=None) -> pyarrow.Table
+to_drift(table, *, reference=None) -> pyarrow.Table
+```
+
+- **`covers`** takes what `compare` takes on the set's samples: resolved covers and designs, and on multi-asset samples a `JointDesignResult` or a mapping (Amendment 3). Every entry is evaluated on every scenario's block, one row per entry and scenario, reference first. Every row has `split="out_of_sample"`, so the function has no `split=`.
+- **`design_sample`** is the reference's design block, and is required when an entry is a cover given as is. Its label must be the reference. A design brings its own, and the label of that sample must be one of the set's, or `ScenarioError` says so. That label is the row's `design_scenario`. The designs of one mapping must share a label, which is their `"total"` row's.
+- **`fold`.** Layer 1 takes one fold at a time. Folds are concatenated with `EvaluationMetadata.merge`, as for `compare`.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `scenario` | string | Where the row is evaluated, as in §6 |
+| `design_scenario` (new, after `scenario`) | string, nullable | The label of the design's own design sample. Null for a cover given as is, which wasn't designed on any scenario |
+| `pathway`, `horizon`, `product` (new, after it) | string, int32, string; nullable | D-23.4, below |
+| `n_rows` (new, after `sample_hash`) | int32 | The number of rows of the evaluation block |
+| `premium_repriced` (new metric, after `premium`) | float64, nullable | D-23.3, below. Only in tables `compare_scenarios` writes |
+
+`compare` and `evaluate` fill `design_scenario`, `pathway`, `horizon`, `product` and `n_rows` too, and a table without them reads as null. The key of §6 gains `design_scenario`. A design's `design_id` already holds its design sample's hash, and with it the label. But the `"total"` row of a set of individual designs has a null `design_id` (Amendment 3), and two such sets, designed on two scenarios, can resolve to the same covers.
+
+**`to_drift(table, reference=None)`** returns a long table, one row per metric. It has `to_long`'s columns and `reference_scenario`, `reference_product`, `reference_n_rows`, `reference_value`, `difference` (`value − reference_value`) and `ratio` (`value / reference_value`, in unit `"1"`). Both are null where either value is null, and `ratio` too where `reference_value` is 0.
+
+- A row is paired with the row of the same (`cover_hash`, `design_id`, `design_scenario`, `asset_id`, `level`, `split`, `fold`) on the reference. A key without a reference row raises `EvaluationError`. So `to_drift` compares one cover or design with itself across scenarios, never two covers, two designs or two scopes.
+- Rows on the reference itself are left out: their differences are 0.
+- `reference=None` takes the set's reference, from the metadata. Any label in the table may be stated instead, so differences can be taken from another scenario than the set's reference.
+- It has no rank, no best flag and no ordering by a metric.
+
+### The premium (D-23.3, §6)
+
+| Entry | `premium` and the net-loss columns | `premium_basis` | `premium_repriced` |
+|---|---|---|---|
+| A design | Its design premium | `"design"` | `pricing` on this block's payouts |
+| A cover given as is, with `premiums=` | The stated premium | `"stated"` | The same |
+| Another cover given as is | `pricing` once, on the reference's design block | `"reference"` | The same |
+| The `"total"` row of a set of individual covers | The sum of the asset rows' | Theirs, as in Amendment 3 | The sum of the asset rows' |
+| The `"total"` row of a joint design | Its design premium, on the total | `"design"` | `pricing` on this block's total payout |
+| An allocated row | Null | Null | Null |
+
+- `premium` is what a contract in force costs, and `premium_repriced` what a renewal on this block would cost. Under `PurePremium`, `premium_repriced` equals `expected_payout`.
+- **Priced on the reference's design block,** not its evaluation block: that is where a design is priced, so a given cover and a design on the reference stand on one footing, no held-out row enters the price, and a short per-year block doesn't set it.
+- `premium_basis` gains the value `"reference"`.
+- A budget is the design's. `Budget(ratio=κ)` is a share of each design block's expected loss, so it moves with the scenario. `Budget(amount=B)` doesn't. The setup text says which.
+
+### What a row says it read (D-23.4)
+
+`pathway`, `horizon` and `product` come from a sample's source records, never from its label.
+
+| Column | A curve | A window of curves | A per-year series | A pool | A table |
+|---|---|---|---|---|---|
+| `pathway` | The canonical row's `pathway` | The members' one `pathway` | As `setup_text` reads it (Amendment 2): the source's or the series' `pathway`, or the one-valued `scenario` column of a table with `model`, `member` and `scenario` | The runs' one pathway (D-25.3) | Its source's `pathway`, else null |
+| `horizon` | The canonical row's `horizon` | `(first + last) // 2` of its members' horizons | `(first + last) // 2` of the series' whole window, `details.years`, as `TemporalWindow.horizon` | The same, on the pool's years | Null |
+| `product` | `metadata.source.provider` | The same | The series' `source.provider` | The runs' provider | Its source's `provider`, else null |
+
+- **`pathway`** keeps the source's spelling and is checked with `crc_sdk.pathways.resolve_pathway(label, strict=True)`. An unknown label raises `ScenarioError`, and `register_pathway` adds a private one. Comparisons use `pathways_equivalent`, so `historic` and `historical` are one.
+- **`horizon`** on a per-year sample is the window's centre, not the block's: `details.years` survives a split, so a scenario's blocks have one horizon. 1985–2014 reads 1999 and 2041–2070 reads 2055. Under `LinearTrend` the values are at the reference year's level, which the setup text states, and the column still gives the centre. On a window of curves it is the centre of the members, and the members are in the record ("A window of horizons").
+- **`product`** is the record's `provider` as written, so a CRC Open row reads `crc_open`, an ERA5 row `era5`, and a native CMIP6 row `cmip6`. On the plan route a per-year source's provider is the caller's `SourceProvenance.provider`; the docs use `nex-gddp-cmip6` for NEX.
+- **Nothing interpolates.** A scenario is a horizon the dataset holds, or several of them. Between two horizons there is no row. A window is a mixture, not an interpolation: every row is a draw from a curve the dataset holds, and no parameter, return level or value is computed between two curves. Its `horizon` column names the centre, and no row need be read there.
+- **Several sources in one sample** (several assets; Amendment 5's components) must agree on `pathway`, `horizon` and `product`, or `ScenarioError` says which. Amendment 5 may relax this for `product`.
+
+### What is refused (D-23.5)
+
+Each `ScenarioError` names the two scenarios and the field.
+
+| Refusal | What is compared | Between |
+|---|---|---|
+| Assets | `asset_ids`, in order | All |
+| One kind of scenario | `source_kind`: curve draws, or per-year rows | All |
+| Hazard (an addition to D-23.5, below) | The name of the hazard each scenario reads, exactly | All |
+| No hazard named (the same addition) | A scenario whose record states none | Each scenario |
+| Units | `index_unit`, `loss_unit`, exactly | All |
+| Loss model | The `loss_model` document per asset (`parts` on a multi-asset sample) | All |
+| Basis-risk model | The `basis_risk` document | All |
+| Trend option | `trend`'s kind, with `n` or with `method` and `min_years`. A reference year or the fitted slopes may differ | Per-year scenarios |
+| A pool's models | The (model, member) pairs | Pools; and a series that isn't a pool beside a pool, unless `mixed_products=True` |
+| A contradicted pathway | A stated `pathway=` against the source's, by `pathways_equivalent` | Each scenario |
+| One pathway, horizon and product | The three values, null equal to null; for a window of curves, its members instead of its centre | All |
+| Equal curves | The curve documents of any one asset, each distinct (pathway, horizon) of the set once, a window's members included | Curve scenarios |
+| A horizon outside the window | Each selected horizon, and each member of a window, against `temporal_window`, the test of `warn_if_outside_window(strict=True)`, a warning today | Each curve scenario |
+| A pair the dataset doesn't hold | Every selected (pathway, horizon), and every member of a window, for every asset | Each curve scenario |
+| A window's pathway | The members' `pathway`, by `pathways_equivalent` | Each window |
+| A window's members | Hazard, cell and dataset must be one, and `horizon` must differ, member by member | Each window |
+| A window's draws | `n_draws`, and `FreshDraws(n)`, a whole multiple of the number of members | Each window |
+| A bound cover | The table below | Each cover and scenario |
+| Two products | The `product` strings, unless `mixed_products=True` | All, the reference included |
+| Draws not shared | `period` and the generator records (below) | Curve scenarios |
+| Dependence | The `dependence` document | Curve scenarios |
+
+A set of CRC Open windows has one product, and needs no flag. The reference is no exception: a second product beside it needs the flag too.
+
+| A cover read at | Is evaluated on a scenario whose index is |
+|---|---|
+| `AtAsset()` | Any: each scenario reads its own index at the asset, and `product` says which |
+| `AtPoint(p)` | A per-year series whose matched cell is centred at p, compared as `.index(...)` compares a bound location |
+| `AtStation(id)` | A per-year series of that station |
+| `AtCell(c)` | A curve at H3 cell c |
+
+**Which hazard a scenario reads (an addition to D-23.5, which the owner kept on 2026-11-09, S5).** D-23.5's list would let a set put one source's `rx1day` beside another's `rx5day` when their units agree, because a per-year sample records no hazard name. So every scenario of a set names the hazard its loss reads, and two that differ raise `ScenarioError`, naming the two scenarios and `hazard_name`. Names are compared exactly: crc-sdk has no crosswalk of hazard names, as `crc_sdk.pathways` is of pathways, and this amendment adds none.
+
+| A scenario that is | Its name comes from | `hazard_name=` | If nothing states one |
+|---|---|---|---|
+| One of the plan's selected curves | The canonical row's `hazard_name`, which `select(hazard_names=[name])` picks | None. `.scenarios(...)` requires exactly one selected hazard, so `explain()` names it without I/O | Can't happen: a canonical row holds one |
+| A `CurveScenario` | The same column of its own dataset, read for the plan's selected hazard | None. It reads the plan's hazard, so it needs no argument | A dataset with no curve of that hazard raises `ScenarioError`, naming the hazards it holds |
+| An `AnnualScenario`, or a per-year plan's own source | The source plan's `explain()`, its `recipe` (ERA5 and CMIP6 canonicalization plans, station plans) and otherwise its `hazard_name`; or a one-valued `recipe` column of the table (NEX-GDDP-CMIP6) | `AnnualScenario(hazard_name=)` and `for_annual_extremes(hazard_name=)`. Optional where the source states a name, and then the two must agree. Required where it doesn't: a plain table or file, NOAA water levels, or a `recipe` column with several values | `ScenarioError` at execution, naming the scenario and `hazard_name`. The plan's own hazard is not a default |
+| A curve sample at Layer 1 | The canonical row passed as `curve` | `sample_curve(..., hazard_name=None)` and `sample_curves`. Required for a distribution or `CurveParameters`, which hold no row | `ScenarioSet` raises |
+| A per-year, pool or table sample at Layer 1 | Its `source=` document's `recipe` or `hazard_name`, or the one-valued `recipe` column | `sample_annual`, `sample_annual_pool` and `OutcomeSample.from_table`, under the same rule | `ScenarioSet` raises |
+
+- **A stated name never overrides the record.** A `hazard_name=` the source contradicts raises `ScenarioError` at the builder, naming the scenario and both names, as a stated pathway does. A name stated for a source that is silent is the caller's statement, and the setup text says so.
+- **Spelling.** A product that spells one hazard differently is refused: a station plan's `recipe` is `temperature_max`, ERA5's `txx`. Its table, passed without the source plan, is silent, so it takes a stated name.
+- **Only a set requires a name.** `hazard_name=None` is the default everywhere, so a sample without one stays valid, and a call or a plan without scenarios doesn't change.
+- **When it is known.** A source plan states its name before anything is read, so `explain()` shows it and raises on a difference. A table's or a file's is known at execution.
+- **The record.** `SampleProvenance` gains `hazard`, with a default: `{"name": name, "from": "curve_row" | "source_plan" | "table_column" | "stated"}`. It stays out of `content_hash`, `design_id` and the lineage, so §4.4's check sees through it. Every asset of a sample and every run of a pool must agree.
+- **Which series.** The name is that of the series the loss reads, the source with role `"hazard"`. A separate index series may read another hazard on purpose (D-25.4), so it isn't compared, and the setup text names it.
+
+### What is shared (D-23.2)
+
+A scenario's *evaluation block* is the rows its out-of-sample metrics are taken on: fresh or held-out draws for a curve, held-out years for a per-year series or a pool.
+
+| | Curves beside curves | Years beside years |
+|---|---|---|
+| Terms, loss model, values, basis-risk model, pricing, metric options | The same | The same |
+| The rows of the blocks | The same uniforms, row by row | Each scenario's own held-out years |
+| The number of rows | Equal | Each scenario's own |
+| Noise factors of a model that draws | The same, row by row | From the asset's generator, the same start in every scenario |
+| What the leakage check compares | (generator record, draw number) | (lineage, year); (run lineage, year) on a pool |
+| `leakage_check` on a cross row | `"passed"` | `"passed"` if a lineage or run is in common, else `"different_sources"` |
+
+**Curves share one set of evaluation draws.** Every Monte Carlo block of a set must hold the same `period` values and the same generator record for each `hazard` step of each asset (`provenance.rng`, or `parts` on a multi-asset sample). So each asset's row d holds one uniform in every curve scenario, and, since the basis-risk model draws after the uniforms (§4.4), one noise factor. The dependence models reorder by the ranks of the uniforms and a stated reference only, so the reordering is the same in every curve scenario of one width too ("A window of horizons"). Otherwise `ScenarioSet` raises `ScenarioError`, naming `rng` or `period`. A Layer 1 caller builds each block with a new generator from one seed sequence. Reusing one `Generator` object advances it, and the check refuses that. The plan rebuilds each asset's child generator per scenario, from the plan's seed for the design draws and from `FreshDraws.seed` for the evaluation draws.
+
+**Separate from the design's.** §4.4's leakage check (`_check_out_of_sample`) gains a rule: two Monte Carlo samples share a draw when a `hazard` step of one has the generator record of a `hazard` step of the other and they have a period in common, whatever the curve. That raises `LeakageError`. Today such a pair passes, since another curve has another lineage, and the setup text says "on fresh Monte Carlo draws". The blocks of one `holdout` still pass: their periods are disjoint. It sits in the shared check, so it holds in `evaluate` and `compare` too, and a hand-built loop that reuses one generator state raises `LeakageError` (S6).
+
+**The split method.** `setup.evaluations[*].method` gains `"other_scenario"`, used when the design sample's label differs from the block's. It takes precedence over the block's own split step, because today a held-out block of another source reads `"holdout"`. For a cover given as is the design sample is the reference's design block. `details` records the block's own split, under `block`.
+
+**Cross rows.**
+
+- **`design_scenario` and `scenario` name blocks.** They don't say that the two are comparable. The terms are the resolved design's, in index units. A threshold set on one scenario's values is read on another's as it stands, and nothing rescales it. A cross row says what the same terms would pay on that block.
+- **`"different_sources"`** is recorded on a cross row between per-year sources with no lineage or run in common, such as `historical` and `ssp585` pools. It says that no row could be compared, not that the sources are independent. Two runs may share a history or a calibration, and the module can't see that.
+- **Short blocks.** On a block of n rows, CVaR at β with (1 − β)·n ≤ 1 is the block's worst row, and a return period above n reads its largest value. On 14 held-out years that holds for β = 0.95 and 0.99 and for T = 25 and above of the default options. `n_rows` shows the count and the setup text names the columns concerned.
+
+**What the setup text says.** `setup_text` states, next to the numbers:
+
+1. Every scenario: its label, whether it is the reference, the hazard it reads and whether the caller stated that name, its product, pathway and horizon, its rows (years with their range, or draws), and how the block was made. For a curve scenario, whether it is a single horizon or a window. For a window, its members, that they are mixed with equal weight on one set of uniforms, that `horizon` is the centre, and each member's rows on the block.
+2. What stays fixed, and that a cross row is a cover or design from one scenario on another's block, naming both.
+3. For curve scenarios, that they share one set of evaluation draws, separate from the design's.
+4. Where a row's product differs from the reference's, that the difference includes the products: resolution, method and pooling differ, so it can't be attributed to the scenario alone.
+5. Where each scenario reads the index: the nearest cell or the station, or the asset's H3 cell.
+6. The premium basis of every cover, and that `premium_repriced` prices the same payouts on each block.
+7. Whether a design's budget moves with the scenario (`ratio`) or not (`amount`).
+8. For `product` `cmip6`, crc-sdk's own caveat: results are change signals, not design values.
+9. That β is the same on every scenario while the tail's loss level isn't, and the short-block columns above.
+10. Where a set holds windows of different widths, or a window beside a single horizon, that the difference includes the width.
+
+### A window of horizons (D-23.1, D-23.4; F1, 2026-11-09)
+
+**Why.** A single horizon can be noisy. On the same internal check, adjacent 5-year horizons of one product could move a cover's expected payout by more than the trend between them, at one site, on one hazard and one cover. The evidence is on MAR-344. RiskThinking's `how_hard_will_it_rain` in crc-docs averages several horizons for the same reason: three on its CDT route, four or five on its CRC Open route. So several (pathway, horizon) pairs under one label form one scenario, a *window*. `docs/parametric.md` and the notebook lead with windows. A single horizon stays allowed, and the setup text says it is one.
+
+**What it is.** A window is an equal-weight mixture of its horizons' curves: one simulated year of the window is a draw from one of its members, each member equally likely. It holds one pathway, and a second raises `ScenarioError`. Each row is a draw from a curve the dataset holds, so a window interpolates nothing.
+
+```text
+# a window of horizons (R-23a); no new public name
+sample_curve(curve, *, ..., scenario="baseline", hazard_name=None)
+    # curve: what §4.2 takes, or a sequence of two or more canonical rows, the members
+sample_curves(curves, *, ...)
+    # each asset's curve: the same, with the same horizons for every asset
+```
+
+- **The members** are one asset's curves of one hazard, cell, pathway and dataset, and differ in `horizon` alone. They are canonical rows, because a bare distribution states no pathway or horizon. They are sorted by horizon, so the order they are given in doesn't matter.
+- **The rows.** The asset's generator draws `n_draws` uniforms once, as for one curve. With m members, row d reads member d mod m at its uniform u_d. So `period` is still the draw number, `n_draws` the number of rows and 1/n_draws the probability, and the sample has the one `hazard` generator record of a single curve. The basis-risk model draws after the uniforms, as in §4.4.
+- **`n_draws`** must be a whole multiple of m, so every member holds exactly n_draws/m rows. Otherwise `ScenarioError` names the two nearest valid counts, as `EmpiricalCopula` does. The same holds for `FreshDraws(n)`, and on a plan `explain()` checks every window.
+- **Blocks.** `holdout` and `year_block_kfold` cut contiguous periods, so the cycle leaves every member within one row of the others on every block, and each block is a mixture of all the horizons. Their probabilities are rescaled as for any block. With 30,000 draws, three members and `Holdout(0.7)`, the design block holds 7,000 rows of each and the held-out block 3,000 of each.
+- **Common random numbers.** Row d holds the same uniform in every curve scenario, whatever its number of members, and two windows of equal width read the same position of their members. So "Draws not shared" reads the same fields as for single horizons and passes unchanged.
+- **`horizon`** is the centre, `(first + last) // 2` of the members' horizons, the formula of a per-year window and of `TemporalWindow.horizon`. (2045, 2050, 2055) reads 2050 and (2045, 2050, 2055, 2060) reads 2052. The centre need not be a horizon the dataset holds.
+- **The record.** `provenance.sources` holds one `hazard` entry per member, in horizon order, each with its row and curve document, and `details.window` holds the members as (pathway, horizon) pairs and `"assignment": "cycle"`. A row's member is its `period` modulo m, so a block needs no record of its own. The support, outside-support, atom and tabulated counts of `details` are kept per member. The lineage holds every member's source. `setup.scenarios` repeats the members, and `explain()` lists them without I/O.
+- **Several assets or hazards.** A row is one simulated year at one horizon for every asset and every component, so a dependence model reorders within each member's rows. `Independent()`, which keeps draw order, already holds one horizon per row. Applied across the pooled rows, `Comonotonic()` would leave about 1/m of the rows reading one horizon for both assets. `EmpiricalCopula` then needs `n_draws` to be a multiple of m times the reference's years.
+- **Overlaps and widths.** Two windows may share members, and a set may hold windows of different widths (numbers of members), or a window beside a single horizon. The setup text says the difference includes the width.
+- **One pair under a label** is a single horizon, and a plain `sample_curve` of that curve: nothing about it changes.
+
+| How `n_draws` divides | Rows | Weights | On a 70 % holdout | Assessment |
+|---|---|---|---|---|
+| **The cycle: one stream of `n_draws` uniforms, row d reads member d mod m** (chosen) | `n_draws` | Exact when m divides `n_draws` | Every block holds every member, within one row | No more random numbers, one generator record as for one curve |
+| Every uniform at every member | `n_draws` · m | Exact | Every block holds every member | m times the rows, and the LP with them. On synthetic windows the standard error of E[π] fell by 4 % against the cycle at 3× the rows, and that of CVaR at β = 0.95 by 23 % |
+| `n_draws`/m uniforms, each at every member | `n_draws` | Exact | Every block holds every member | The same rows from fewer uniforms. On synthetic windows the standard error of E[π] was 1.65× the cycle's, and that of CVaR at β = 0.95 1.31× |
+| Consecutive blocks of `n_draws`/m rows | `n_draws` | Exact | The held-out block reads the last member only | A holdout no longer tests the window |
+| A random member per row | `n_draws` | In expectation only | Within sampling error | A second stream, which the shared-draws check would have to compare |
+| A quantile of the mixture at each uniform | `n_draws` | Exact on any block | Every block holds the mixture | Needs a numerical inverse of the mean CDF for every kind of curve, and a row is no longer a draw from a stated curve |
+
+**A mixture, not an average of metrics.** The alternative is to run each horizon as its own scenario and average each metric across them.
+
+| Form | What it gives | Assessment |
+|---|---|---|
+| **A mixture** (chosen) | One sample, one row per scenario, one design per scenario | Every metric, CVaR included, is that metric of one distribution |
+| Averaging each metric across the horizons | m rows per window, and a mean of each column | Expected payout and a pure premium agree with the mixture, because expectations are linear. CVaR doesn't: an average of CVaRs is the CVaR of no distribution, and CVaR is concave in the distribution, so the average is at most the mixture's and leaves out the spread between horizons. A design would have no one sample to be made on |
+| Averaging the curves' return levels into one curve, as `how_hard_will_it_rain` does for a return-level statement | One curve the dataset doesn't hold | The module would compute a curve between the horizons, so "nothing interpolates" would no longer hold, and it too leaves out the spread between horizons |
+
+**The refusals, for a window.**
+
+| Refusal | For a window |
+|---|---|
+| One pathway, horizon and product | Compares the members, not the centre. Two labels with the same members raise. Two windows with one centre and different members pass, and so does a single horizon at a window's centre |
+| Equal curves | Each distinct (pathway, horizon) of the set counts once, for any one asset. So a window over a time-invariant layer raises, and two windows don't raise for the horizons they share |
+| A horizon outside the window, a pair the dataset doesn't hold, a contradicted pathway | Every member. A window never shrinks to the members it finds |
+| Hazard, units, loss model, basis-risk model | As for a single horizon: a window reads one hazard through one loss model |
+| Two products | A window reads one dataset, so it has one product |
+| Draws not shared, dependence | Unchanged: a window's `period` and generator record are those of a single curve |
+| A bound cover | `AtCell(c)`: every member at cell c |
+
+### With Amendments 2, 3 and 5
+
+- **`scenario=` (D-25.5)** is the label. The lineage still leaves it out, so §4.4's check sees through a relabelling.
+- **`trend=`.** One option for every per-year scenario, and each scenario's fit is on its own design years. `reference_year=None` is each series' last year, so two windows have two reference years, and the setup text states each.
+- **Pools.** A pool holds one pathway (D-25.3), so `historical` and each SSP are separate scenarios with the same (model, member) pairs. Their blocks are years, and §4.4's check compares (run lineage, year). `FreshDraws` stays refused.
+- **`.index(...)`** applies to every per-year scenario, on that scenario's hazard years, under `missing=`. A station index has no future years, so a future scenario beside it raises. Covers are bound as in D-25.4, and a bound cover follows the table in "What is refused".
+- **Several assets.** A set's samples may hold several assets, and all must hold the same ones. Rows have Amendment 3's `level` and `scope`.
+- **Joint designs.** Under `Joint()`, each scenario has one multi-asset sample per block, and a `JointDesignResult` gets one `"total"` row per scenario, and allocated rows under `.allocation(...)`. `design_on` applies as for `Individual()`.
+- **Dependence.** `.dependence(...)` applies on a plan on curves, as in Amendment 3, and a window reorders within each member. A per-year plan keeps the data's own. An `EmpiricalCopula` set uses `FreshDraws`.
+- **D-21.4.** The `scope` column keeps the scopes apart. `to_drift` pairs a row only with the same cover or design, so it never sets one scope against the other. The docs and the notebook run `Joint()` alone until the owner revisits the RQ2 rule (MAR-152 item 4).
+- **Amendment 5.** Nothing above assumes one asset or one hazard. A set compares its samples' fields, the generator check covers every `hazard` step, and the three columns read every hazard source. `sample_curve_hazards` takes a window per component under the same rule: a row reads one member for every component, and every member must exist for every hazard. Amendment 5 adds a multi-hazard sample's component names, units and hazard names to the compared fields.
+
+### The metadata (§7)
+
+- `setup.scenarios` (new, null without scenarios): the reference, the labels, `mixed_products`, `design_on` and, per scenario, its source kind, `hazard`, `n_rows`, `pathway`, `horizon`, `product` and `members`: its (pathway, horizon) pairs in horizon order, one pair for a single horizon, null for a per-year scenario. It records which scenarios share draws and the generator record they share. `EvaluationMetadata.merge` requires one `setup.scenarios` across folds.
+- Each entry of `setup.evaluations` gains `scenario` and `design_scenario`, so a block has one entry per design scenario. `method` gains `"other_scenario"` and `leakage_check` gains `"different_sources"`, which appears on `"other_scenario"` entries only, so plain comparisons read as before.
+- Each entry of `setup.samples` gains `pathway`, `horizon`, `product` and, for a window, `members`. `columns` gains `premium_repriced`. A plan's `source_records` and `sources` hold one entry per dataset or per-year source, each with its scenario's label, and `licences` every input's terms.
+- `to_drift`'s table keeps the metadata and adds `drift`, with the reference used. A document without these keys reads as before, and `schema_version` stays `"1.0"`.
+
+### What the other sections now mean
+
+- **§2.** The outlines gain the entries above. The module layout gains `scenarios.py` (R-23b, R-23c: `ScenarioSet`, `AnnualScenario`, `CurveScenario`, `compare_scenarios`, `to_drift`). `errors.py` gains `ScenarioError`. `for_evaluation`'s refusal of several horizons or pathways moves as above.
+- **§4.2.** `sample_curve` gains `scenario="baseline"` and takes a sequence of canonical rows for a window of horizons. Every sample builder gains `hazard_name=None`, and `SampleProvenance` gains `hazard`.
+- **§4.4.** "Evaluating a design out of sample on a sample that shares a period with its design sample from the same source raises `LeakageError`" now also holds for two Monte Carlo samples that reuse one generator record, whatever the curve.
+- **§4.5.** "Phase 2 adds a `ScenarioSet`" is this amendment.
+- **§6.** "The premium used" gains the case above and the value `"reference"`. The table gains the columns above, and its key gains `design_scenario`.
+- **§7.** `setup` gains the entries above.
+- **§9, scenarios.** "`compare` fills the `scenario` column" now reads: `compare_scenarios` fills it, with `design_scenario`. `Robust(objective)` stays for later (D-23.1).
+
+### The issue map (§10)
+
+R-23 is split as below (each about one PR). The other rows stand.
+
+| Issue | Covers | Files (§2) | Starts after |
+|---|---|---|---|
+| MAR-331 (R-23a) | `scenario=` on `sample_curve`, `sample_curves` and `from_table`; a window of horizons on `sample_curve` (the cycle, `n_draws` as a multiple of the members, the record, a window's own refusals); `hazard_name=` on every sample builder and `SampleProvenance.hazard`; the columns `design_scenario`, `pathway`, `horizon`, `product` and `n_rows`, with the strict pathway check and a window's centre; `design_scenario` in the key; a table without them reads as null | `sources`, `sample`, `evaluate`, `metadata` | This amendment, MAR-295, MAR-303 |
+| MAR-332 (R-23b) | `ScenarioSet`, `ScenarioError`, the refusals of D-23.5 as revised and the hazard check added to them, one test each and one for how each reads on a window; all curves or all years; two products need `mixed_products=True`, the reference included; the shared-draws check; `reference` required | `scenarios` (new), `errors`, `__init__` | R-23a, MAR-296 |
+| MAR-333 (R-23c) | `compare_scenarios`, `to_drift`, `premium_repriced`; the premium basis `"reference"`; the split method `"other_scenario"`, and `"different_sources"` for years beside years; the generator-record rule of the leakage check, in `_check_out_of_sample`; the setup text, windows included | `scenarios`, `sample`, `evaluate`, `metrics`, `metadata` | R-23b |
+| MAR-334 (R-23d) | `.scenarios`, `AnnualScenario` on per-year plans, `CurveScenario`, `for_annual_extremes(hazard_name=)`, `design_on`, `.scenario_samples`; windows through `labels=`; the moved `for_evaluation` check; results equal the function route; the scenario section of `docs/parametric.md`, the method only, leading with windows and saying that a single horizon is allowed and that β is the same in each scenario while the tail's loss level isn't | `plan`, `scenarios`; `docs/parametric.md` | R-23c, MAR-304 |
+| MAR-335 (R-23e) | The notebook section in crc-docs: heavy rain in Toronto, in two sets, one per product. CRC Open `rx1day` in three-horizon windows around 2030, 2050 and 2080, the earliest window the reference, stating SSP5-8.5 only and no historical baseline. NEX pools of the same models for `historical` and two SSPs, `historical` the reference. No ERA5 as the reference. How one fixed cover ages by window. Every number out of sample next to `setup_text`, and each drift a measurement of that setup | crc-docs fork | R-23d, MAR-299 |
+
+`scenario=` and a window on `sample_curves`, and the shared-draws check of a multi-asset curve set, land with the later of MAR-302 and the issue above that owns them.
+
+### Beyond the six decisions
+
+The six decisions don't determine these. The text above settles each as the agent recommends, and the owner's approval of this amendment covers them. On 2026-11-09 he settled S2 to S6 and accepted the others as recommended, except those that existed only because of ERA5 beside curves, which went. The PR lists the alternatives of each.
+
+1. A cross row between per-year sources with no lineage or run in common records `leakage_check="different_sources"`, not `"passed"`.
+2. A `ScenarioSet` takes built samples, whose own labels name them, or a plan's descriptions.
+3. A selected curve is labelled `<pathway>_<horizon>` unless `labels=` names it, and `labels=` lists the pairs used.
+4. `.scenarios(...)` needs `select(...)` to state both `horizons` and `pathways`.
+5. `AnnualScenario`, on per-year plans, and `CurveScenario`, on plans on curves, are the plan's descriptions of other sources, and `pool=False` states a series beside pools.
+6. `design_on="each"` is the default, so drift and a design per scenario are slices of one table (S2, settled by the owner).
+7. A plan with scenarios must state a split.
+8. A given cover's `design_scenario` is null, and the key of §6 gains `design_scenario`.
+9. "Priced once on the reference" means on the reference's design block (S3, settled by the owner).
+10. A stated premium is `premiums=`, keyed by `cover_label`.
+11. The generator-record rule sits in `_check_out_of_sample`, so `evaluate` and `compare` get it too, and a hand-built loop that reuses one generator state raises `LeakageError` (S6, settled by the owner).
+12. `to_drift` returns a long table, leaves the reference's own rows out, and takes any label as `reference=`.
+13. `n_rows` is a column, not only metadata (S4, settled by the owner).
+14. A per-year `horizon` is the centre of the series' whole window, not the block's.
+15. `product` is the record's `provider`.
+16. The dependence model joins the fields that must match among curve scenarios.
+17. Equal curves are refused if any one asset's curves are equal, so a time-invariant layer can't read as a measured absence of drift.
+18. A pool's models are compared as (model, member) pairs, and a series that isn't a pool beside pools needs `mixed_products=True`.
+19. A selected (pathway, horizon) the dataset doesn't hold raises, where `asset_curves()` returns no row and no error.
+20. `ScenarioError` is a `SampleError`.
+21. `.samples()` holds the reference's samples, and `.scenario_samples()` all of them.
+22. An addition to D-23.5: a set compares the hazard each scenario reads, by exact name, with no crosswalk (S5, settled by the owner).
+23. A source that states no hazard name needs `hazard_name=`, and the plan's hazard is not a default.
+24. A stated `hazard_name=` must agree with the source's, and never overrides it.
+25. `CurveScenario` takes no `hazard_name=`: it reads the plan's selected hazard, and `.scenarios(...)` requires exactly one.
+26. The name compared is that of the series the loss reads, not a separate index series or a cover's `index.hazard_name`.
+27. A window divides `n_draws` by the cycle: one stream of uniforms, row d reads member d mod m. The table above has the options.
+28. `n_draws` and `FreshDraws(n)` must be whole multiples of a window's members, while a block of a holdout may leave them one row apart.
+29. At Layer 1 a window is a sequence of canonical rows passed as `curve`, with no new public name. A bare distribution can't be a member.
+30. `labels=` maps a label to its (pathway, horizon) pairs.
+31. A window's `horizon` is `(first + last) // 2` of its members.
+32. A window's members are in `details.window` and `setup.scenarios`, not in a column.
+33. A dependence model reorders within each member's rows, so a row is one horizon for every asset and component.
+34. Windows may overlap and may differ in width, and the setup text says the difference includes the width.
+35. `"One pathway, horizon and product"` compares a window's members, not its centre, and the equal-curves check counts each distinct (pathway, horizon) once.
+
+### Not verified
+
+- No R-23 code exists. A throwaway check (2026-11-08, not committed; script and output in the PR) ran the rules on synthetic numbers, the fork's `parametric` at `edcb8b0` and numpy, without any CRC, ERA5 or NEX data:
+  - today, the same seed on another curve gives identical uniforms, lineages that differ, method `"fresh_draws"` and `leakage_check="passed"`; one cover on two `"baseline"` samples repeats a row key; two equal curves give equal rows;
+  - a held-out block of another curve, or of another source, reads `"holdout"` today;
+  - blocks of one `holdout` keep the generator record and have disjoint periods, the basis-risk step's record is equal when the hazard step's is, and `details.years` survives a split;
+  - two windows of one series share a lineage, and disjoint windows pass;
+  - the arithmetic above: the centres 1999 and 2055, and on 14 rows CVaR at β = 0.95 and 0.99 is the largest value and T ≥ 15 reads it.
+- A second throwaway check (2026-11-09, not committed; script and output in the PR) ran the window rules on synthetic Gumbel curves, numpy and the fork's `sample_curve`, `holdout` and dependence models at `ed4c6ee` (a working branch on `parametric` `08975e7`), without any CRC, ERA5 or NEX data:
+  - rows taken by the cycle from three members' samples on one generator state equal Q_j(u_d), and the members share their `hazard` and basis-risk generator records;
+  - at 9,000 rows and 1,500 seeds, the standard error of E[π] was 1,161 for the cycle, 1,176 for a random member and 1,920 for 3,000 uniforms at each member, and 1,111 for every uniform at every member, at 27,000 rows; that of CVaR at β = 0.95 was 3,020, 3,070, 3,943 and 2,328;
+  - under a 70 % holdout of 30,000 rows the cycle held out 3,000 rows of each member and consecutive blocks 9,000 of the last;
+  - the mean of the members' CVaR was below the mixture's at β = 0.9, 0.95 and 0.99, and E[π] agreed;
+  - `Comonotonic()` on the pooled rows of three members left 33.5 % of the rows at one horizon for both assets, and within each member 100 %.
+- The grid route was run for `design_id` and `premium_basis`. No LP or QP design ran, because that environment has no `highspy`.
+- The internal check that "Why ERA5 left the sets" and "A window of horizons" refer to is the orchestrator's, of 2026-11-09, on cached CRC Open and ERA5 data at one site. Its results and setup are on MAR-329 and MAR-344. This agent read them there and did not rerun them, and whether they hold at other sites or for other hazards is unknown.
+- No CRC Open catalogue, NEX or CMIP6 table or ERA5 data was read for this amendment. So whether the cyclone files declare themselves time-invariant is unknown, hence the refusal on equal curves. How many NEX models share `historical` and each SSP at a site is unknown, and that decides how often the refusal on a pool's models fires. Whether every horizon of a window exists at every site is unknown, hence the refusal of a missing member.
+- The sources of a hazard name were checked at `parametric` `68f551c`, by reading the code and running builders and `explain()` on synthetic tables, without reading data: ERA5's canonicalization plan states `recipe`, NEX-GDDP-CMIP6's table carries a `recipe` column and its plan has no `explain()`, NOAA water levels state neither, and a bare distribution holds no row. How many of CRC Open's 59 indices share their spelling with the ERA5, CMIP6 and NEX recipes was not checked; `rx1day` does in their docs.
+- A name can only say what a source calls its hazard. A statement for a silent source is taken as given.
+- The cost of `design_on="each"` on a large set was not measured.
+
 ## Amendment 5 (2026-11-08, MAR-330): multi-hazard covers
 
 On 2026-11-08 the owner, Marc Prinzing, decided D-22.1 to D-22.8 (in chat; recorded on MAR-250 and MAR-330). They fix the public API of covers and samples over several hazards (R-22, MAR-250), so this amendment comes before any R-22 issue starts, and the owner approves it before it merges. It builds on Amendments 2 and 3 and on errata 11 and 12, and it follows Amendment 4 (scenario analysis, MAR-329), which is recorded separately. "With Amendments 2, 3 and 4" below says where they meet.
@@ -1713,7 +2138,7 @@ ParametricPlan
   - **Hazard names.** Amendment 4's check of the hazard a scenario reads applies per component. A component's record is in `components`, stated through `hazard_names=` under Amendment 4's rule where its source is silent, and `SampleProvenance.hazard` is null on a multi-hazard sample, which has several. A component's name isn't taken for a hazard name. A component with no impact reads no loss, so, like a separate index series, it needs no name.
   - **`pathway` and `horizon`** must agree across a sample's components, or `ScenarioError` says which. **`product`** is the one Amendment 4 left open, and it is relaxed: a multi-hazard sample may read several products, and the column holds the distinct providers, sorted, joined by `+`. The two-products check compares those strings.
   - **Premiums.** A package's `premium`, `premium_repriced` and basis are the sum of its cover rows', as for the `"total"` row of Amendment 4's table.
-  - **Years beside draws.** Amendment 4's setup statement 11 also covers `hazard_dependence`: the data's own on one side and the stated model on the other.
+  - **Years beside draws** no longer arise: a set holds all curves or all per-year series. (Erratum 13, 2026-11-09, MAR-329: this bullet first read "Amendment 4's setup statement 11 also covers `hazard_dependence`: the data's own on one side and the stated model on the other." Amendment 4, as the owner revised it on 2026-11-09, removes years beside draws and that statement, so a set never holds both. No other decision changes.)
   - **The plan.** `AnnualScenario` and `CurveScenario` each describe one source, so on a plan with `.hazard(...)` their `source` or `dataset`, and the per-source keywords, take a mapping by component name. Every selected (pathway, horizon) must exist for every hazard. `design_on` applies per design block, and a package is built from the designs on that block.
 
 ### The publication rule
