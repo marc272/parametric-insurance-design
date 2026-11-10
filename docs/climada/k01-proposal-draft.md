@@ -7,7 +7,7 @@
 
 ## 1. Proposal text
 
-For petals Discussions, category "Ideas" (see P2 below). The body is about 930 words without the collapsible sketch, of which the ten questions are 250. Copy from the raw file, between the markers. The text between the markers carries no issue IDs.
+For petals Discussions, category "Ideas" (see P2 below). The body is about 940 words without the collapsible sketch, of which the ten questions are 250. Copy from the raw file, between the markers. The text between the markers carries no issue IDs.
 
 <!-- BEGIN PASTE: title -->
 Proposal: a module for parametric insurance covers (`climada_petals.engine.parametric`)
