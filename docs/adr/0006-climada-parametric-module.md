@@ -1,12 +1,12 @@
 # ADR 0006: Design of the `climada_petals.engine.parametric` module
 
-- Status: **Proposed**, for the owner's decision D12 (MAR-48). A worker agent prepared it under the issue's "Agent may prepare" part. Nothing here is decided until Marc Prinzing accepts it.
+- Status: **Accepted** (2026-11-10). The owner, Marc Prinzing, accepted all 18 recommendations of "Decisions for the owner" as written, and the items under "Beyond the eighteen decisions" (D12, recorded on MAR-48). A worker agent prepared it under the issue's "Agent may prepare" part.
 - Date: 2026-11-09
 - Decision issue: MAR-48 (K-02). It feeds K-13 (MAR-312), K-15 to K-23 (MAR-314 to MAR-322), K-04 (MAR-50) and the questions of K-01 (MAR-47). It absorbs `docs/adr/climada-module.md`, the feedback skeleton on the branch of PR #39 (§15).
 - Prepared from `main` at `98f184b`. The evidence is K-12 ([`docs/climada/k12-design-facts.md`](../climada/k12-design-facts.md), MAR-311), the prototype (`packages/climada/src/petals_parametric`, MAR-168) and the design review of 2026-11-09 (MAR-344, whose inputs Marc accepted). The sources of CLIMADA 6.2.0 and of `cat_bonds` in petals 6.2.0 were read at their tags, read-only.
 - Boundary: this stream stays free of CRC code and data. [ADR 0005](0005-crc-parametric-module.md)'s text was read for its concepts and metric definitions only. No crc-sdk code or data was read, copied or ported: crc-sdk is AGPL and petals is GPL v3.
 
-**How to read it.** The table below is the short version. "Decisions for the owner" gives the options and one recommendation for each of the 18 decisions: the 16 of MAR-48, and the two that K-12 says the list lacks. §1 to §15 say what the module looks like if the recommendations are accepted. Everything in those sections is the agent's recommendation.
+**How to read it.** The table below is the short version. "Decisions for the owner" gives the options and one recommendation for each of the 18 decisions: the 16 of MAR-48, and the two that K-12 says the list lacks. §1 to §15 say what the module looks like under those decisions.
 
 This is a design record. It presents the method and the options. It makes no statement that a tail objective does better than another objective, and none about how joint calibration does against calibrating each unit alone.
 
@@ -100,7 +100,7 @@ The prototype has one payout family (`StepPayout`), two objectives as LPs and MS
 - No data committed. Tests are offline, on small synthetic objects.
 - The publication rule (`AGENTS.md`) binds the module's docs and the tutorial: every number with its setup, external numbers from out-of-sample runs on the annual basis, tail statements only conditional on a stated setup, joint calibration as a method only.
 
-## The design, if the recommendations are accepted
+## The design
 
 ### 1. Concepts and names
 
