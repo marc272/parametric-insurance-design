@@ -3,19 +3,25 @@
 
 The fork gh guard, ``fork_gh_guard.py``, refuses a repo-scoped ``gh`` command
 (``gh pr``, ``issue``, ``release``, ``workflow`` and the other groups of its
-``REPO_FLAG_SUBCOMMANDS``) that may run in a CRC fork path without
+``REPO_FLAG_SUBCOMMANDS``) that may run in a fork path without
 ``--repo marc272/<fork>``, and a ``gh api`` call there that uses the
 ``{owner}``/``{repo}`` placeholders (MAR-261). Wherever it runs, it refuses
 the gh commands that the deny rules deny, in every spelling (MAR-263), git
 commands that make or push tags (MAR-289), git commands that reach every
-branch or change git's settings through the environment (MAR-343), and git
-pushes to ``main`` or ``parametric`` in every spelling (MAR-355). The session
+branch or change git's settings through the environment (MAR-343), git
+pushes to ``main`` or ``parametric`` in every spelling (MAR-355), and, for
+the CLIMADA fork, gh commands that name a CLIMADA-project repository, pushes
+to ``develop`` and its Actions setting (MAR-361). The session
 guard, ``session_guard.py``, refuses a ``start_session`` that would run somewhere
 else, and fails closed on bad input (``SESSION_CASES``, MAR-289). This
 script runs them the way Claude Code does, one process per case with the
 ``PreToolUse`` JSON on stdin, and checks the exit status: 0 allows with no
 output, 2 refuses with a message on stderr that says what to do. It also
 checks that:
+
+- the hook's messages name the fork a path belongs to, and the CLIMADA fork
+  and CLIMADA-project where they list the forks and upstream owners
+  (``MESSAGE_CASES``, MAR-361);
 
 - the Bash deny rules of ``.claude/settings.json`` deny the ``gh -R <repo>
   <group>`` forms and other spellings of the denied gh writes, and don't deny
@@ -157,11 +163,18 @@ DOCS = f"{FORKS}/crc-docs"
 WT = f"{FORKS}/worktrees/crc-sdk-mar-260"
 REPO = f"{WS}/parametric-insurance-design"
 AGENT_WT = f"{REPO}/.claude/worktrees/agent-a1b2"
+# The CLIMADA fork's clone, a worker worktree and its notes folder (MAR-361).
+PETALS = f"{FORKS}/climada_petals"
+PETALS_WT = f"{FORKS}/worktrees/climada_petals-mar-313"
+PETALS_NOTES = f"{PETALS_WT}-notes"
 
 CWD_LABELS = {
     SDK: "forks/crc-sdk",
     DOCS: "forks/crc-docs",
     WT: "forks/worktrees/crc-sdk-mar-260",
+    PETALS: "forks/climada_petals",
+    PETALS_WT: "forks/worktrees/climada_petals-mar-313",
+    PETALS_NOTES: "forks/worktrees/climada_petals-mar-313-notes",
     FORKS: "forks",
     REPO: "this repo",
     AGENT_WT: "this repo's agent worktree",
@@ -175,6 +188,49 @@ BODY_MENTIONS_FORK = (
     "1) an unbalanced paren\n"
     "EOF\n"
     ")"
+)
+# The CLIMADA fork's merge gate as AGENTS.md prescribes it ("Working in the
+# CLIMADA fork", "The merge gate"), each block as one Bash call (MAR-361): the
+# environment, which clones CLIMADA core from CLIMADA-project with git, and
+# the checks, shortened where they only repeat a form.
+PETALS_ENV = "\n".join(
+    [
+        f"WT={PETALS_WT}",
+        "NOTES=$WT-notes",
+        "git clone --depth 1 --branch develop"
+        " https://github.com/CLIMADA-project/climada_python.git"
+        ' "$NOTES/climada_python"',
+        '~/miniforge3/bin/mamba create -y -p "$NOTES/env"'
+        ' -f "$NOTES/climada_python/requirements/env_climada.yml"'
+        ' python=3.12 make "gfortran>=13"',
+        '~/miniforge3/bin/mamba env update -y -p "$NOTES/env"'
+        ' -f "$WT/requirements/env_climada.yml"',
+        '"$NOTES/env/bin/python" -m pip install "$NOTES/climada_python[dev]" -e "$WT"'
+        ' "black[jupyter]==24.4.2" "isort==5.13.2" "pytest-socket==0.7.0"',
+        "git -C \"$NOTES/climada_python\" log -1 --format='core develop %h %cs'",
+    ]
+)
+PETALS_GATE = "\n".join(
+    [
+        'cd "$WT"',
+        'export PATH="$NOTES/env/bin:$PATH" MPLBACKEND=Agg'
+        ' DYLD_FALLBACK_LIBRARY_PATH="$NOTES/env/lib"',
+        "MOD=climada_petals/engine/parametric",
+        "GIT_ALLOW_PROTOCOL=file PIP_NO_INDEX=1 python -m pytest -q"
+        " -p no:cacheprovider \\\n"
+        "  --allow-hosts=climada.ethz.ch,data.iac.ethz.ch --allow-unix-socket \\\n"
+        "  --ignore=climada_petals/test climada_petals/",
+        "python -m pytest -q -p no:cacheprovider --disable-socket --allow-unix-socket"
+        ' --cov="$MOD" --cov-config=.coveragerc --cov-fail-under=100 "$MOD"',
+        'python -m pylint "$MOD" > "$NOTES/pylint.log"',
+        'grep -E "^$MOD/" "$NOTES/pylint.log"',
+        "git ls-files -z -- \"$MOD/*.py\" 'climada_petals/test/test_parametric*.py'"
+        " | xargs -0 python -m black --check --diff",
+        'git -C "$WT" diff --check origin/parametric...HEAD',
+        "git -C \"$WT\" diff origin/parametric... | grep -nE 'MAR-[0-9]+|linear\\.app'",
+        'git -C "$WT" log --format=%s origin/parametric..HEAD'
+        " | grep -nE 'MAR-[0-9]+|.{51,}'",
+    ]
 )
 
 # (expected, cwd, command). Exactly as an agent would write them.
@@ -1298,6 +1354,391 @@ CASES: list[tuple[str, str, str]] = [
     ("allow", REPO, 'git commit -m "HOME=/tmp/x git status"'),
     ("allow", REPO, "cd $HOME && git status"),
     ("allow", REPO, f"cd {HOME} && git status"),
+    # MAR-361 gap 1: a CLIMADA-project repository in gh's arguments, denied
+    # wherever it runs and in any case, as a RiskThinking one is (MAR-263).
+    (
+        "deny",
+        REPO,
+        "gh pr create --repo CLIMADA-project/climada_petals --base develop"
+        " --head marc272:parametric --title t --body-file b.md",
+    ),
+    ("deny", REPO, "gh issue create --repo CLIMADA-project/climada_petals --title t"),
+    ("deny", REPO, "gh -R CLIMADA-project/climada_petals pr list"),
+    ("deny", REPO, "gh pr list -RCLIMADA-project/climada_petals"),
+    ("deny", REPO, "gh pr list -R=CLIMADA-project/climada_petals"),
+    ("deny", REPO, "gh pr list --repo=CLIMADA-project/climada_python"),
+    (
+        "deny",
+        REPO,
+        "gh pr view 3 --repo https://github.com/CLIMADA-project/climada_petals",
+    ),
+    ("deny", REPO, "gh pr list -R climada-project/climada_petals"),
+    ("deny", REPO, "gh pr list -R CLIMADA-PROJECT/climada_petals"),
+    ("deny", REPO, "gh issue list -R Climada-Project/climada_python"),
+    ("deny", REPO, "gh repo view CLIMADA-project/climada_petals"),
+    ("deny", REPO, "gh repo view https://github.com/CLIMADA-project"),
+    ("deny", REPO, "gh repo clone CLIMADA-project/climada_python"),
+    ("deny", REPO, "gh discussion list -R CLIMADA-project/climada_python"),
+    ("deny", REPO, "gh browse -n -R CLIMADA-project/climada_petals"),
+    ("deny", REPO, "gh api repos/CLIMADA-project/climada_petals/pulls"),
+    (
+        "deny",
+        REPO,
+        "gh api -X POST repos/CLIMADA-project/climada_petals/issues -f title=t",
+    ),
+    ("deny", REPO, "gh api orgs/climada-project"),
+    (
+        "deny",
+        REPO,
+        "gh api graphql -F owner=CLIMADA-project -F name=climada_petals -f query=x",
+    ),
+    (
+        "deny",
+        REPO,
+        "gh pr comment 3 --repo marc272/climada_petals"
+        ' --body "port of CLIMADA-project/climada_petals#12"',
+    ),
+    (
+        "deny",
+        REPO,
+        "/opt/homebrew/bin/gh pr create --repo CLIMADA-project/climada_petals"
+        " --title t",
+    ),
+    ("deny", REPO, '"gh" pr list --repo CLIMADA-project/climada_petals'),
+    (
+        "deny",
+        REPO,
+        "bash -c 'gh issue create --repo CLIMADA-project/climada_petals --title t'",
+    ),
+    ("deny", REPO, "timeout 60 gh pr list -R CLIMADA-project/climada_petals"),
+    ("deny", REPO, "$GH -R CLIMADA-project/climada_petals pr list"),
+    ("deny", PETALS, "gh pr list --repo CLIMADA-project/climada_petals"),
+    (
+        "deny",
+        PETALS_WT,
+        "gh pr view 3 -R marc272/climada_petals -R CLIMADA-project/climada_petals",
+    ),
+    ("deny", REPO, "gh pr list -R CLIMADA-project/climada_petals 'unterminated"),
+    ("deny", REPO, "gh repo clone CLIMADA-project/climada_python 'unterminated"),
+    ("deny", REPO, "gh repo view https://github.com/CLIMADA-project 'unterminated"),
+    # Reading upstream through git passes, and so do the fork's prescribed gh
+    # commands, a read of the fork's parent, and the name as plain text.
+    ("allow", REPO, f"git -C {PETALS} fetch upstream"),
+    ("allow", PETALS, "git fetch upstream && git log --oneline -1 upstream/develop"),
+    ("allow", REPO, f"git -C {PETALS} ls-remote upstream"),
+    (
+        "allow",
+        REPO,
+        "git ls-remote https://github.com/CLIMADA-project/climada_petals.git develop",
+    ),
+    ("allow", REPO, f"git -C {PETALS} remote get-url --push upstream"),
+    ("allow", PETALS, "gh repo set-default --view"),
+    (
+        "allow",
+        PETALS_WT,
+        "gh pr create --repo marc272/climada_petals --base parametric"
+        " --head marcprinzing/mar-313-k-14-port --draft"
+        ' --title "[MAR-313] Port the prototype to engine.parametric"'
+        f" --body-file {PETALS_NOTES}/pr-body.md",
+    ),
+    ("allow", PETALS_WT, "gh pr view 3 --repo marc272/climada_petals --json state"),
+    ("allow", PETALS_WT, "gh pr checks 3 --repo marc272/climada_petals"),
+    ("allow", PETALS_WT, "gh pr ready 3 --repo marc272/climada_petals"),
+    (
+        "allow",
+        PETALS_WT,
+        "gh pr edit 3 --repo marc272/climada_petals"
+        f" --body-file {PETALS_NOTES}/pr-body.md",
+    ),
+    (
+        "allow",
+        REPO,
+        "gh pr merge 3 --repo marc272/climada_petals --squash"
+        ' --subject "Add StepPayout to engine.parametric (#3)"'
+        ' --body "Refs: MAR-313"',
+    ),
+    ("allow", PETALS, "gh pr merge 4 --repo marc272/climada_petals --merge"),
+    ("allow", REPO, "gh repo view marc272/climada_petals --json parent"),
+    ("allow", REPO, "gh api repos/marc272/climada_petals --jq .parent.full_name"),
+    (
+        "allow",
+        REPO,
+        "gh pr view 3 --repo marc272/climada_petals --json body -q .body"
+        " | grep -c CLIMADA-project",
+    ),
+    (
+        "allow",
+        REPO,
+        'git commit -m "MAR-361: deny gh on CLIMADA-project/climada_petals"',
+    ),
+    ("allow", REPO, 'grep -rn "CLIMADA-project/" docs/'),
+    ("allow", REPO, "$PY tools/x.py CLIMADA-project/climada_petals"),
+    ("allow", REPO, PETALS_ENV),
+    ("allow", PETALS_WT, PETALS_GATE),
+    # MAR-361 gap 2: develop is a shared branch, in every spelling the hook
+    # reads for main and parametric (MAR-355). The CLIMADA fork's develop
+    # mirrors upstream, and the upstream PR targets it.
+    ("deny", REPO, "git push origin develop"),
+    ("deny", PETALS, "git push origin develop"),
+    ("deny", REPO, f"git -C {PETALS} push origin develop"),
+    ("deny", REPO, f"git -C {PETALS_WT} push -u origin HEAD:develop"),
+    ("deny", REPO, "git push origin refs/heads/develop"),
+    ("deny", REPO, "git push origin heads/develop"),
+    ("deny", REPO, "git push origin HEAD:refs/heads/develop"),
+    ("deny", REPO, "git push origin develop:"),
+    ("deny", REPO, "git push origin +develop"),
+    ("deny", REPO, "git push origin :develop"),
+    ("deny", REPO, "git push --delete origin develop"),
+    ("deny", REPO, "git push origin upstream/develop:develop"),
+    ("deny", REPO, "git push origin develop --dry-run"),
+    ("deny", REPO, "git push https://github.com/marc272/climada_petals.git develop"),
+    ("deny", REPO, "git -c k=v push origin develop"),
+    ("deny", REPO, "/usr/bin/git push origin develop"),
+    ("deny", REPO, '"git" push origin develop'),
+    ("deny", REPO, "git push origin 'develop'"),
+    ("deny", REPO, "bash -c 'git push origin develop'"),
+    ("deny", REPO, "timeout 60 git push origin develop"),
+    ("deny", REPO, "$GIT push origin develop"),
+    ("deny", REPO, "git push origin develop 'unterminated"),
+    ("deny", REPO, "git push origin HEAD:refs/heads/develop 'unterminated"),
+    # The prescribed pushes and sync steps pass, and so do develop as a
+    # source, in a fetch, or as part of another name.
+    (
+        "allow",
+        PETALS_WT,
+        "git push -u origin marcprinzing/mar-313-k-14-port",
+    ),
+    (
+        "allow",
+        REPO,
+        f"git -C {PETALS_WT} push -u origin marcprinzing/mar-313-k-14-port",
+    ),
+    (
+        "allow",
+        REPO,
+        f"git -C {PETALS} worktree add --no-track -b sync/upstream-develop-2026-11-14"
+        f" {PETALS_WT} origin/parametric",
+    ),
+    (
+        "allow",
+        REPO,
+        f"git -C {PETALS} merge-base --is-ancestor upstream/develop origin/parametric",
+    ),
+    ("allow", REPO, f"git -C {PETALS_WT} merge --no-edit upstream/develop"),
+    (
+        "allow",
+        REPO,
+        f"git -C {PETALS_WT} push -u origin sync/upstream-develop-2026-11-14",
+    ),
+    (
+        "allow",
+        PETALS,
+        "gh pr create --repo marc272/climada_petals --base parametric"
+        " --head sync/upstream-develop-2026-11-14"
+        ' --title "Merge upstream develop into parametric" --body-file b.md',
+    ),
+    ("allow", REPO, f"git -C {PETALS} fetch upstream develop"),
+    (
+        "allow",
+        REPO,
+        f"git -C {PETALS} fetch origin develop:refs/remotes/origin/develop",
+    ),
+    ("allow", REPO, "git push origin develop:marcprinzing/x"),
+    ("allow", REPO, "git push origin marcprinzing/develop"),
+    ("allow", REPO, "git push origin develop-notes"),
+    ("allow", REPO, "git push origin refs/heads/developer"),
+    ("allow", REPO, "git log --oneline origin/develop"),
+    ("allow", REPO, 'git commit -m "Never push to develop"'),
+    (
+        "allow",
+        REPO,
+        "git push -u origin sync/upstream-develop-2026-11-14 'unterminated",
+    ),
+    # MAR-361 gap 3: Actions stay off on climada_petals, as on crc-docs
+    # (MAR-306); reading the setting passes. An unparseable command naming a
+    # fork's actions/permissions is refused, a read included (any fork).
+    (
+        "deny",
+        REPO,
+        "gh api -X PUT repos/marc272/climada_petals/actions/permissions"
+        " -F enabled=true",
+    ),
+    (
+        "deny",
+        REPO,
+        "gh api --method PUT repos/marc272/climada_petals/actions/permissions"
+        " -F enabled=true -f allowed_actions=all",
+    ),
+    (
+        "deny",
+        REPO,
+        "gh api --method=PUT repos/marc272/climada_petals/actions/permissions/workflow"
+        " -f default_workflow_permissions=write",
+    ),
+    (
+        "deny",
+        REPO,
+        "gh api -XPUT repos/marc272/climada_petals/actions/permissions -F enabled=true",
+    ),
+    (
+        "deny",
+        REPO,
+        "gh api repos/marc272/climada_petals/actions/permissions -F enabled=true",
+    ),
+    (
+        "deny",
+        REPO,
+        "gh api repos/marc272/climada_petals/actions/permissions --input body.json",
+    ),
+    ("deny", REPO, 'gh api -X "$M" repos/marc272/climada_petals/actions/permissions'),
+    (
+        "deny",
+        REPO,
+        "gh api -X PUT repos/marc272/Climada_Petals/actions/permissions"
+        " -F enabled=true",
+    ),
+    (
+        "deny",
+        PETALS,
+        "gh api -X PUT repos/{owner}/{repo}/actions/permissions -F enabled=true",
+    ),
+    (
+        "deny",
+        PETALS_WT,
+        "gh api -X PUT repos/:owner/:repo/actions/permissions -F enabled=true",
+    ),
+    (
+        "deny",
+        REPO,
+        "/opt/homebrew/bin/gh api -X PUT"
+        " repos/marc272/climada_petals/actions/permissions -F enabled=true",
+    ),
+    (
+        "deny",
+        REPO,
+        "bash -c 'gh api repos/marc272/climada_petals/actions/permissions"
+        " -F enabled=true'",
+    ),
+    (
+        "deny",
+        REPO,
+        "gh api -X PUT repos/marc272/climada_petals/actions/permissions"
+        " -F enabled=true 'unterminated",
+    ),
+    (
+        "deny",
+        REPO,
+        "gh api repos/marc272/crc-docs/actions/permissions -F enabled=true"
+        " 'unterminated",
+    ),
+    (
+        "allow",
+        REPO,
+        "gh api repos/marc272/climada_petals/actions/permissions --jq .enabled",
+    ),
+    ("allow", REPO, "gh api -X GET repos/marc272/climada_petals/actions/permissions"),
+    (
+        "allow",
+        PETALS_WT,
+        "gh api repos/marc272/climada_petals/actions/permissions --jq .enabled",
+    ),
+    # Reruns there, and the commands that were already denied everywhere.
+    ("deny", REPO, "gh run rerun 123 --repo marc272/climada_petals"),
+    ("deny", REPO, "gh run rerun 123 -R marc272/climada_petals --failed"),
+    ("deny", REPO, "gh -R marc272/climada_petals run rerun 123"),
+    ("deny", REPO, "gh run -R marc272/climada_petals rerun 123 --job 456"),
+    ("deny", PETALS, "gh run rerun 123"),
+    ("deny", PETALS_WT, "gh run rerun 123 --failed"),
+    (
+        "deny",
+        REPO,
+        "gh api -X POST repos/marc272/climada_petals/actions/runs/123/rerun",
+    ),
+    (
+        "deny",
+        REPO,
+        "gh api --method POST"
+        " repos/marc272/climada_petals/actions/runs/1/rerun-failed-jobs",
+    ),
+    ("deny", REPO, "gh api -X POST repos/marc272/climada_petals/actions/jobs/9/rerun"),
+    ("deny", PETALS, "gh api -X POST repos/{owner}/{repo}/actions/runs/1/rerun"),
+    ("deny", REPO, "$GH run rerun 123 --repo marc272/climada_petals"),
+    ("deny", REPO, "gh run rerun 3 -R marc272/climada_petals 'unterminated"),
+    ("deny", REPO, "gh workflow run ci.yml --repo marc272/climada_petals"),
+    ("deny", REPO, "gh workflow enable ci.yml -R marc272/climada_petals"),
+    ("deny", REPO, "gh -R marc272/climada_petals workflow disable ci.yml"),
+    ("deny", PETALS, "gh workflow run ci.yml --ref parametric"),
+    ("allow", REPO, "gh run list --repo marc272/climada_petals -L 5"),
+    ("allow", REPO, "gh run view 123 --repo marc272/climada_petals --log-failed"),
+    ("allow", REPO, "gh workflow list --repo marc272/climada_petals"),
+    (
+        "allow",
+        REPO,
+        "gh api repos/marc272/climada_petals/actions/runs --jq .total_count",
+    ),
+    # MAR-361 gap 4: the fork-path rule covers the CLIMADA clone, its worktrees
+    # and their notes folders. MESSAGE_CASES checks that the fix names it.
+    ("refuse", PETALS, "gh pr list"),
+    ("refuse", PETALS_WT, "gh pr checks 3"),
+    (
+        "refuse",
+        PETALS_WT,
+        "gh pr create --base parametric --head marcprinzing/x --title t",
+    ),
+    ("refuse", PETALS_NOTES, "gh issue list"),
+    ("refuse", PETALS_WT, "gh api repos/{owner}/{repo}/pulls"),
+    ("refuse", PETALS_WT, "gh repo view"),
+    ("refuse", PETALS_WT, 'gh pr view 3 --repo "$FORK"'),
+    ("refuse", REPO, f"cd {PETALS_WT} && gh pr view 3"),
+    ("refuse", REPO, f"git -C {PETALS} fetch origin && gh pr list"),
+]
+
+# (cwd, command, text): the hook refuses the command, and its message has the
+# text (MAR-361). The fork-path fix names the fork the path belongs to
+# (_guess_fork), and the denials name the CLIMADA fork and CLIMADA-project.
+MESSAGE_CASES: list[tuple[str, str, str]] = [
+    (PETALS, "gh pr list", "--repo marc272/climada_petals"),
+    (PETALS_WT, "gh pr checks 3", "gh pr checks <n> --repo marc272/climada_petals"),
+    (PETALS_NOTES, "gh issue list", "--repo marc272/climada_petals"),
+    (
+        PETALS_WT,
+        "gh api repos/{owner}/{repo}/pulls",
+        "gh api repos/marc272/climada_petals/pulls",
+    ),
+    (PETALS_WT, "gh repo view", "gh repo view marc272/climada_petals"),
+    (REPO, f"cd {PETALS} && gh run view 3", "--repo marc272/climada_petals"),
+    (PETALS_WT, "gh pr list", "RiskThinking's or CLIMADA-project's"),
+    (SDK, "gh pr list", "--repo marc272/crc-sdk"),
+    (DOCS, "gh pr list", "--repo marc272/crc-docs"),
+    (WT, "gh pr list", "--repo marc272/crc-sdk"),
+    (FORKS, "gh pr list", "--repo marc272/<fork>"),
+    (
+        REPO,
+        "gh pr create --repo CLIMADA-project/climada_petals --title t",
+        "names a CLIMADA-project repository",
+    ),
+    (
+        REPO,
+        "gh pr create --repo RiskThinking/crc-sdk --title t",
+        "names a RiskThinking repository",
+    ),
+    (
+        REPO,
+        "gh api -X PUT repos/marc272/climada_petals/actions/permissions"
+        " -F enabled=true",
+        "marc272/climada_petals or marc272/crc-sdk",
+    ),
+    (
+        REPO,
+        "gh run rerun 3 --repo marc272/climada_petals",
+        "crc-docs or climada_petals",
+    ),
+    (REPO, "git push origin develop", "main, parametric or develop"),
+    (
+        REPO,
+        "gh pr list -R CLIMADA-project/x 'unterminated",
+        "or CLIMADA-project repository",
+    ),
 ]
 
 # --- The deny rules (MAR-263) ----------------------------------------------
@@ -2102,6 +2543,202 @@ RULE_CASES: list[tuple[str, str, str]] = [
     ("pass", "deny", "export HOME=/tmp/x; git status"),
     ("deny", "deny", "HOME=/tmp/x git push origin main"),
     ("pass", "allow", "HOME=/tmp/x uv run pytest -q"),
+    # MAR-361 gap 1: the RiskThinking forms for CLIMADA-project, in the two
+    # spellings the text rules can name; the hook reads any case. Each case
+    # below matches one new rule alone.
+    ("deny", "deny", "gh pr create --repo CLIMADA-project/climada_petals --title t"),
+    ("deny", "deny", "gh pr list -R climada-project/climada_petals"),
+    (
+        "deny",
+        "deny",
+        "gh pr comment 3 --repo marc272/climada_petals"
+        ' --body "see github.com/CLIMADA-project"',
+    ),
+    (
+        "deny",
+        "deny",
+        "gh pr comment 3 --repo marc272/climada_petals"
+        ' --body "see github.com/climada-project"',
+    ),
+    ("deny", "deny", "gh api orgs/CLIMADA-project"),
+    ("deny", "deny", "gh api orgs/climada-project"),
+    # The issue's two forms and the other positions of the repo flag.
+    ("deny", "deny", "gh issue create --repo CLIMADA-project/climada_petals --title t"),
+    ("deny", "deny", "gh -R CLIMADA-project/climada_petals pr list"),
+    ("deny", "deny", "gh pr list --repo=CLIMADA-project/climada_petals"),
+    ("deny", "deny", "gh pr list -RCLIMADA-project/climada_petals"),
+    ("deny", "deny", "gh api repos/CLIMADA-project/climada_petals/pulls"),
+    (
+        "deny",
+        "deny",
+        "gh api graphql -F owner=CLIMADA-project -F name=climada_petals -f query=x",
+    ),
+    ("deny", "deny", "gh repo clone CLIMADA-project/climada_python"),
+    # What only the hook sees: another case, gh by path, sh -c.
+    ("pass", "deny", "gh pr list -R CLIMADA-PROJECT/climada_petals"),
+    ("pass", "deny", "gh pr list -R Climada-Project/climada_petals"),
+    (
+        "pass",
+        "deny",
+        "/opt/homebrew/bin/gh pr create --repo CLIMADA-project/climada_petals",
+    ),
+    ("pass", "deny", "bash -c 'gh issue create -R CLIMADA-project/climada_petals'"),
+    # Reading upstream through git, the fork's prescribed commands and its
+    # merge gate pass both layers.
+    ("pass", "allow", f"git -C {PETALS} fetch upstream"),
+    ("pass", "allow", f"git -C {PETALS} ls-remote upstream"),
+    (
+        "pass",
+        "allow",
+        "git ls-remote https://github.com/CLIMADA-project/climada_petals.git",
+    ),
+    (
+        "pass",
+        "allow",
+        "gh pr create --repo marc272/climada_petals --base parametric"
+        " --head marcprinzing/mar-313-k-14-port --draft"
+        ' --title "[MAR-313] Port the prototype to engine.parametric"'
+        f" --body-file {PETALS_NOTES}/pr-body.md",
+    ),
+    ("pass", "allow", "gh pr view 3 --repo marc272/climada_petals"),
+    ("pass", "allow", "gh pr checks 3 --repo marc272/climada_petals"),
+    (
+        "pass",
+        "allow",
+        "gh pr merge 3 --repo marc272/climada_petals --squash"
+        ' --subject "Add StepPayout to engine.parametric (#3)"'
+        ' --body "Refs: MAR-313"',
+    ),
+    ("pass", "allow", "gh pr merge 4 --repo marc272/climada_petals --merge"),
+    ("pass", "allow", PETALS_ENV),
+    ("pass", "allow", PETALS_GATE),
+    # MAR-361 gap 2: develop, as main and parametric (MAR-355). Each case
+    # matches one new rule alone.
+    ("deny", "deny", "git push origin develop"),
+    ("deny", "deny", "git push origin develop --dry-run"),
+    ("deny", "deny", "git push origin HEAD:develop"),
+    ("deny", "deny", "git push origin HEAD:develop --dry-run"),
+    ("deny", "deny", "git push origin HEAD:refs/heads/develop"),
+    ("deny", "deny", f"git -C {PETALS} push origin develop"),
+    ("deny", "deny", f"git -C {PETALS} push origin develop --dry-run"),
+    ("deny", "deny", f"git -C {PETALS} push origin HEAD:develop"),
+    ("deny", "deny", f"git -C {PETALS} push origin HEAD:develop --dry-run"),
+    ("deny", "deny", f"git -C {PETALS} push origin HEAD:refs/heads/develop"),
+    ("deny", "deny", "git push origin refs/heads/develop"),
+    ("deny", "deny", "git push origin refs/heads/develop --dry-run"),
+    ("deny", "deny", f"git -C {PETALS} push origin refs/heads/develop"),
+    ("deny", "deny", f"git -C {PETALS} push origin refs/heads/develop --dry-run"),
+    # What only the hook sees.
+    ("pass", "deny", "git -c k=v push origin develop"),
+    ("pass", "deny", "/usr/bin/git push origin develop"),
+    ("pass", "deny", "git push origin heads/develop"),
+    ("pass", "deny", "git push origin develop:"),
+    # The prescribed pushes and sync steps pass both layers.
+    (
+        "pass",
+        "allow",
+        f"git -C {PETALS_WT} push -u origin marcprinzing/mar-313-k-14-port",
+    ),
+    (
+        "pass",
+        "allow",
+        f"git -C {PETALS_WT} push -u origin sync/upstream-develop-2026-11-14",
+    ),
+    (
+        "pass",
+        "allow",
+        f"git -C {PETALS} merge-base --is-ancestor upstream/develop origin/parametric",
+    ),
+    ("pass", "allow", f"git -C {PETALS_WT} merge --no-edit upstream/develop"),
+    ("pass", "allow", f"git -C {PETALS} fetch upstream develop"),
+    (
+        "pass",
+        "allow",
+        "gh pr create --repo marc272/climada_petals --base parametric"
+        " --head sync/upstream-develop-2026-11-14"
+        ' --title "Merge upstream develop into parametric" --body-file b.md',
+    ),
+    ("pass", "allow", "git push origin develop:marcprinzing/x"),
+    ("pass", "allow", "git push origin refs/heads/developer"),
+    # A new false positive of the -C text rules, like main's and parametric's:
+    # a commit message with push and then develop. Reword it.
+    (
+        "deny",
+        "allow",
+        f'git -C {PETALS_WT} commit -m "Never push to develop by hand"',
+    ),
+    # MAR-361 gap 3: reruns and Actions writes on climada_petals. Each of the
+    # first six matches one new rule alone.
+    ("deny", "deny", "gh run rerun 123 --repo marc272/climada_petals"),
+    ("deny", "deny", "gh -R marc272/climada_petals run rerun 123"),
+    ("deny", "deny", "gh run -R marc272/climada_petals rerun 123"),
+    (
+        "deny",
+        "deny",
+        "gh api -X POST repos/marc272/climada_petals/actions/runs/123/rerun",
+    ),
+    (
+        "deny",
+        "deny",
+        "gh api -X PUT repos/marc272/climada_petals/actions/permissions"
+        " -F enabled=true",
+    ),
+    (
+        "deny",
+        "deny",
+        "gh api repos/marc272/climada_petals/actions/permissions -X PUT"
+        " -F enabled=true",
+    ),
+    ("deny", "deny", "gh run rerun 123 -R marc272/climada_petals --failed"),
+    ("deny", "deny", "gh --repo=marc272/climada_petals run rerun 123"),
+    (
+        "deny",
+        "deny",
+        "gh api --method POST"
+        " repos/marc272/climada_petals/actions/runs/1/rerun-failed-jobs",
+    ),
+    (
+        "deny",
+        "deny",
+        "gh api --method PUT repos/marc272/climada_petals/actions/permissions/workflow"
+        " -f default_workflow_permissions=write",
+    ),
+    # The commands the rules already denied everywhere: gh workflow run,
+    # enable and disable, dispatches and a single workflow's switch. The last
+    # two stay with the text rules, as for the CRC forks (PR 218).
+    ("deny", "deny", "gh workflow run ci.yml --repo marc272/climada_petals"),
+    ("deny", "deny", "gh workflow enable ci.yml -R marc272/climada_petals"),
+    ("deny", "deny", "gh -R marc272/climada_petals workflow disable ci.yml"),
+    (
+        "deny",
+        "allow",
+        "gh api -X POST repos/marc272/climada_petals/actions/workflows/ci.yml"
+        "/dispatches -f ref=parametric",
+    ),
+    (
+        "deny",
+        "allow",
+        "gh api -X POST repos/marc272/climada_petals/dispatches -f event_type=x",
+    ),
+    (
+        "deny",
+        "allow",
+        "gh api -X PUT repos/marc272/climada_petals/actions/workflows/1/enable",
+    ),
+    # What only the hook sees, and the reads.
+    (
+        "pass",
+        "deny",
+        "gh api repos/marc272/climada_petals/actions/permissions -F enabled=true",
+    ),
+    ("pass", "deny", "$GH run rerun 123 --repo marc272/climada_petals"),
+    (
+        "pass",
+        "allow",
+        "gh api repos/marc272/climada_petals/actions/permissions --jq .enabled",
+    ),
+    ("pass", "allow", "gh run view 123 --repo marc272/climada_petals --log-failed"),
+    ("pass", "allow", "gh run list --repo marc272/climada_petals -L 5"),
 ]
 
 # --- The deny rules on other tools (MAR-282) ----------------------------------
@@ -2515,6 +3152,39 @@ def check_cases(
             lines.append(f"FAIL {line}\n     got: {got}")
             failures.append(line)
     return lines, failures, results
+
+
+def check_message_cases(
+    python: str, env: dict[str, str]
+) -> tuple[list[str], list[str]]:
+    """Run every case of ``MESSAGE_CASES``; return the report and failures.
+
+    A case passes when the hook refuses the command (exit 2, nothing on
+    stdout) and its message on stderr contains the case's text.
+
+    Parameters
+    ----------
+    python
+        The interpreter to run the hook with.
+    env
+        The environment of the hook process.
+
+    Returns
+    -------
+    tuple of list of str
+        One report line per case, and the lines of the failed cases.
+    """
+    lines, failures = [], []
+    for n, (cwd, command, text) in enumerate(MESSAGE_CASES, 1):
+        proc = run_hook(python, bash_input(cwd, command), env)
+        line = f"M{n:<3d}{CWD_LABELS.get(cwd, cwd)}: {command} says {text!r}"
+        if proc.returncode == 2 and not proc.stdout and text in proc.stderr:
+            lines.append(f"ok   {line}")
+        else:
+            got = f"exit {proc.returncode}, stderr {proc.stderr!r}"
+            lines.append(f"FAIL {line}\n     got: {got}")
+            failures.append(line)
+    return lines, failures
 
 
 def session_verdict(proc: subprocess.CompletedProcess[str]) -> str:
@@ -3367,6 +4037,51 @@ def input_cases() -> list[tuple[str, str, object, str | None, bool]]:
             None,
             True,
         ),
+        # MAR-361: gh repo clone is no checked command, so only the
+        # CLIMADA-project pattern refuses it; develop is a shared branch.
+        (
+            "refuse",
+            "internal error: gh repo clone CLIMADA-project/climada_python, this repo",
+            bash_input(REPO, "gh repo clone CLIMADA-project/climada_python"),
+            None,
+            True,
+        ),
+        (
+            "allow",
+            "internal error: gh repo clone marc272/climada_petals, this repo",
+            bash_input(REPO, "gh repo clone marc272/climada_petals"),
+            None,
+            True,
+        ),
+        (
+            "refuse",
+            "internal error: git push origin develop, this repo",
+            bash_input(REPO, "git push origin develop"),
+            None,
+            True,
+        ),
+        (
+            "allow",
+            "internal error: git push -u origin sync/upstream-develop-2026-11-14,"
+            " this repo",
+            bash_input(REPO, "git push -u origin sync/upstream-develop-2026-11-14"),
+            None,
+            True,
+        ),
+        (
+            "allow",
+            "internal error: git -C <climada_petals> fetch upstream develop, this repo",
+            bash_input(REPO, f"git -C {PETALS} fetch upstream develop"),
+            None,
+            True,
+        ),
+        (
+            "refuse",
+            "internal error: gh pr list, the CLIMADA fork's worktree",
+            bash_input(PETALS_WT, "gh pr list"),
+            None,
+            True,
+        ),
     ]
 
 
@@ -3755,6 +4470,9 @@ def main() -> int:
     lines, failures, results = check_cases(args.python, env)
     elapsed = time.monotonic() - started
     print("\n".join(lines))
+    message_lines, message_failures = check_message_cases(args.python, env)
+    print("\n".join(message_lines))
+    failures += message_failures
     input_lines, input_failures, input_results = check_inputs(args.python, env)
     print("\n".join(input_lines))
     failures += input_failures
@@ -3789,7 +4507,8 @@ def main() -> int:
     per_case = 1000 * elapsed / len(CASES)
     print(
         f"check_fork_gh_guard: {len(CASES)} cases on {version},"
-        f" {per_case:.0f} ms per hook call; {len(RULE_CASES)} deny-rule cases"
+        f" {per_case:.0f} ms per hook call; {len(MESSAGE_CASES)} message cases;"
+        f" {len(input_results)} input cases; {len(RULE_CASES)} deny-rule cases"
         f" and {len(DOC_RULE_EXAMPLES)} docs examples; {len(TOOL_RULE_CASES)}"
         f" tool-rule cases and {len(TOOL_RULE_DOC_EXAMPLES)} docs examples;"
         f" {len(session_results)} session-guard cases"
