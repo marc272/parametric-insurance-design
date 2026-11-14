@@ -231,7 +231,9 @@ MOD=climada_petals/engine/parametric
    - `-k` stands in for `--deselect` there because `--deselect` matches by prefix, and would also drop `test_plot_warning_meteoswiss`, which needs no download;
    - the last, `test_load_topography`, calls petals' `setup_clawpack`, which pip-installs Clawpack from `github.com/clawpack` and builds it with gfortran. `GIT_ALLOW_PROTOCOL=file` and `PIP_NO_INDEX=1` make any such install fail instead (`fatal: transport 'https' not allowed`);
    - `--allow-hosts` lets a test reach only the Data API's two hosts. `test_warn.py`, `test_low_flow.py`, `test_tc_rainfield.py` and three files of `tc_surge_geoclaw/test/` download small test data sets from it, into `~/climada/data/`. pytest-socket guards each test's setup, call and teardown, not collection: two of those files download at import.
-2. **The module's unit tests**: offline, at most 2 s each, and 100 % line coverage. It passes when every test passes, the durations list after "slowest durations" is empty, and coverage is 100 %.
+2. **The module's tests**: its unit tests, then its integration tests.
+
+   *The unit tests*: offline, at most 2 s each, and 100 % line coverage. They pass when every test passes, the durations list after "slowest durations" is empty, and coverage is 100 %.
 
    ```bash
    python -m pytest -q -p no:cacheprovider --disable-socket --allow-unix-socket \
@@ -240,7 +242,15 @@ MOD=climada_petals/engine/parametric
      "$MOD"
    ```
 
-   Petals' `.coveragerc` leaves the `test/` folders out of the coverage. From K-23 on, the module's own integration tests (`climada_petals/test/test_parametric*.py`) run too, with the Data API as their only network: `python -m pytest -q -p no:cacheprovider --allow-hosts=climada.ethz.ch,data.iac.ethz.ch --allow-unix-socket climada_petals/test/test_parametric*.py`. K-23 confirms that command here.
+   Petals' `.coveragerc` leaves the `test/` folders out of the coverage.
+
+   *The integration tests* (`climada_petals/test/test_parametric*.py`), with CLIMADA's Data API as their only network. The command was confirmed on 2026-11-14, when the tests were merged as `98153074` (K-23b, MAR-391). They pass when every test passes: on `98153074`, 20 passed and 31 subtests passed. The 2 s limit and the coverage are the unit tests' only.
+
+   ```bash
+   python -m pytest -q -p no:cacheprovider --allow-hosts=climada.ethz.ch,data.iac.ethz.ch --allow-unix-socket climada_petals/test/test_parametric*.py
+   ```
+
+   They take about 17 s with the data cached and 31 s cold. A cold run downloads about 208 MB from the Data API into `~/climada/data/`, 164 MB of it STORM's Jamaica set. Every worktree shares that cache.
 3. **pylint with petals' `.pylintrc`** (read from the worktree root). It passes when the `grep` prints nothing: no message of any category on a file of the module.
 
    ```bash
@@ -249,6 +259,8 @@ MOD=climada_petals/engine/parametric
    ```
 
    CLIMADA treats high-priority warnings like test failures, allows no new medium ones, and doesn't let the number of low ones grow (developer guide, "Continuous Integration"). Its Jenkins reads pylint's letters as error for F, high for E, medium (normal) for W and low for C, R and I. Every file of the module is new, so the gate allows none. pylint's exit status is never 0 here: petals' `.pylintrc` disables 54 messages that pylint 4 no longer knows, and it reports them as `R0022` against `.pylintrc` itself, with a `UserWarning` on stderr. Those lines are petals' own and don't count. `make lint`, which lints the whole package into `pylint.log` and ends in `|| true`, gives the baseline: on `3f57dcf`, 940 messages in 47 modules (17 E, 77 W, 300 R, 546 C), rated 8.64/10, in 24 s.
+
+   Check 3 lints none of the module's tests, neither the unit tests in `$MOD/test/` nor the integration tests: petals' `.pylintrc` skips every file whose name matches `test.*?py` (`ignore-patterns`), even one named on the command line.
 4. **black and isort** on the module's files (`--check`: they change nothing). They pass with exit status 0. From K-04 on, add the tutorial's notebook to the black list: black formats notebooks too.
 
    ```bash
@@ -265,9 +277,9 @@ MOD=climada_petals/engine/parametric
 
    The first finds trailing whitespace and blank lines at the end of a file; a file that lacks its final newline shows as `\ No newline at end of file` in `git diff`. The last finds a MAR ID or more than 50 characters in a commit subject.
 
-*The summary* in the PR body gives the head commit, the core commit, Python and platform, and one line per check: the pytest counts and time of 1 and 2, the coverage and the durations list of 2, the number of the module's pylint lines (0), black's and isort's result, and that the three commands of 5 printed nothing.
+*The summary* in the PR body gives the head commit, the core commit, Python and platform, and one line per check, with 2's integration run on a line of its own: the pytest counts and time of 1, of 2's unit tests and of its integration run (warm or cold), the coverage and the durations list of 2's unit tests, the number of the module's pylint lines (0), black's and isort's result, and that the three commands of 5 printed nothing.
 
-*What the gate leaves out.* Petals' full suite (`make integ_test` and `make test`, on `climada_petals/test/`) is not run, and neither are `make data_test` and `make notebook_test`. Those 11 files test petals' other modules, and they reach services beyond CLIMADA's Data API: NASA's Black Marble imagery, Natural Earth, ECMWF's forecast FTP (with a login from petals' config), the MRIO databases through pymrio, and Clawpack from GitHub, among others (read from the code, not run). Running them needs network access to those services, and in places their logins, which agents never use. Whether to run them, and who runs them, is Marc's decision.
+*What the gate leaves out.* Petals' full suite (`make integ_test` and `make test`, on `climada_petals/test/`) is not run beyond the module's own `test_parametric*.py` (check 2), and neither are `make data_test` and `make notebook_test`. The other 11 files there test petals' other modules, and they reach services beyond CLIMADA's Data API: NASA's Black Marble imagery, Natural Earth, ECMWF's forecast FTP (with a login from petals' config), the MRIO databases through pymrio, and Clawpack from GitHub, among others (read from the code, not run). Running them needs network access to those services, and in places their logins, which agents never use. Whether to run them, and who runs them, is Marc's decision.
 
 **Branches and PRs**
 
