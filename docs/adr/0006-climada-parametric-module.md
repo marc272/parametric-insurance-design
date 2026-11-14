@@ -871,19 +871,19 @@ No decision changes.)
 **One horizon of one product can be noisy** (the design review, MAR-344, found this on the CRC module's curves). On CLIMADA's objects:
 
 - **Several samples under one label form one scenario**, an equal-weight mixture. `ScenarioSet({"rcp45, 2040 to 2080": [s_2040, s_2060, s_2080]})`. On the event basis each member's frequencies are divided by m; on an annual route each member's years get weight 1/(m·N_i). It adds no concept beyond a sequence in place of a sample. The members must have the same units.
-
-  (Errata 10, 12 and 14, 2026-11-14, MAR-386: this note is new. MAR-320 (K-21) settled the mixtures in marc272/climada_petals#10 (`65accaa8`):
-
-  - **a mixture is one `OutcomeSample`.** On the annual routes the 1/(m·N_i) weights use two private subclasses, `MixtureYears` and `MixtureCatalogue`. Members of different lengths are allowed, and `n_years` is their sum. With equal lengths the measure is exactly the plain route's. Catalogue years are interleaved by each year's relative position in its member;
-  - **members count as different hazard sets.** Mixture event ids are `-(m|e| + i + 1)` for the event e of member i, and blocks are `"<i>:<block>"`, so the same storm in two members is two blocks. Erratum 14's parent storms (MAR-393, K-23d; marc272/climada_petals#14, `bcd75c38`) link them: a split keeps a storm's blocks on one side, and an evaluation compares them;
-  - **splits:** `holdout`, `year_block_kfold` and `OutcomeSample.select` raise `ScenarioError` on a mixture on an annual route, and `ScenarioSet.holdout` splits each member and mixes the sides. On the event basis a mixture's split is the event basis's own. A set whose member is itself an annual mixture makes `ScenarioSet.holdout` raise;
-  - **leakage:** `evaluate_scenarios` checks a design against every scenario's sample, and every member of a mixture, that has the design sample's source token, whole or cut. This is erratum 12's rule (MAR-390, K-23a; marc272/climada_petals#12, `3c51e078`), which replaces K-21's check of every cut sample or cut member. A mixture's token hashes its members', so a design on a mixture is compared with the mixtures of the same members' sides, or of the whole members;
-  - **draws** in a mixture: §5.3's note.
-
-  No decision changes.)
 - **The docs and the tutorial lead with windows or members**, not with one file. The Data API offers them: `random_walk` for Jamaica at `ref_year` 2040, 2060 and 2080 (rcp 2.6, 4.5, 6.0; 2040 and 2060 at rcp 8.5), and STORM rcp 8.5 per GCM, four of them (listing read on 2026-11-09).
 - **A frequency-scaled set keeps the events,** so its difference from the baseline holds no sampling noise on the event basis.
 - **The `yearsets` route adds its own noise.** In K-12 Q4 (synthetic, non-uniform frequencies, 200 replicates, with replacement) the error of the annual CVaR at 99 % has an RMSE of about 16 % at 1,000 sampled years and 6 % at 10,000. So the docs ask for at least 10,000 sampled years on that route, and every scenario row records `n_years`. Robust design and CLIMADA's `trajectory` module are Phase 2 (K-32).
+
+(Errata 10, 12 and 14, 2026-11-14, MAR-386: this note is new, on the first bullet above. MAR-320 (K-21) settled the mixtures in marc272/climada_petals#10 (`65accaa8`):
+
+- **a mixture is one `OutcomeSample`.** On the annual routes the 1/(m·N_i) weights use two private subclasses, `MixtureYears` and `MixtureCatalogue`. Members of different lengths are allowed, and `n_years` is their sum. With equal lengths the measure is exactly the plain route's. Catalogue years are interleaved by each year's relative position in its member;
+- **members count as different hazard sets.** Mixture event ids are `-(m|e| + i + 1)` for the event e of member i, and blocks are `"<i>:<block>"`, so the same storm in two members is two blocks. Erratum 14's parent storms (MAR-393, K-23d; marc272/climada_petals#14, `bcd75c38`) link them: a split keeps a storm's blocks on one side, and an evaluation compares them;
+- **splits:** `holdout`, `year_block_kfold` and `OutcomeSample.select` raise `ScenarioError` on a mixture on an annual route, and `ScenarioSet.holdout` splits each member and mixes the sides. On the event basis a mixture's split is the event basis's own. A set whose member is itself an annual mixture makes `ScenarioSet.holdout` raise;
+- **leakage:** `evaluate_scenarios` checks a design against every scenario's sample, and every member of a mixture, that has the design sample's source token, whole or cut. This is erratum 12's rule (MAR-390, K-23a; marc272/climada_petals#12, `3c51e078`), which replaces K-21's check of every cut sample or cut member. A mixture's token hashes its members', so a design on a mixture is compared with the mixtures of the same members' sides, or of the whole members;
+- **draws** in a mixture: §5.3's note.
+
+No decision changes.)
 
 ### 10. Working with `cat_bonds`
 
