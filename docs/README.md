@@ -55,5 +55,6 @@ The plan, the decisions and their status are tracked in Linear. That workspace i
   - [ADR 0005](adr/0005-crc-parametric-module.md) (accepted): the design of the parametric insurance module `crc_sdk.parametric` for the Climate Risk Commons SDK.
   - [ADR 0006](adr/0006-climada-parametric-module.md): the design of the parametric insurance module `climada_petals.engine.parametric` for CLIMADA.
 - [CLIMADA design facts](climada/k12-design-facts.md) (K-12): measured facts behind the design of the parametric module for CLIMADA: environments, the Data API's event and year structure, `yearsets`, the scale of the design problem, the mean-squared-error route, the zero-basis-risk trap and `cat_bonds`. Observations only.
+- [CLIMADA module proposal](climada/k01-proposal-draft.md) (K-01, draft): the text proposed for a discussion with CLIMADA's maintainers, with the questions of ADR 0006 §15. It has not been posted.
 - [Reviews](reviews/):
   - [Core design review](reviews/core-design-review.md): the tail and portfolio formulations, checked against the spec and the thesis, with ranked findings and proposed follow-ups.
