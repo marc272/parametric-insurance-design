@@ -23,6 +23,10 @@ hide it (``GitInvocation.denied``). It refuses:
 - ``git push`` with ``--all``, ``--branches`` or ``--prune`` (abbreviated too)
   or the matching refspec (``:``, ``+:``), MAR-343: the first three kinds push
   a local ``main`` and ``parametric``, and ``--prune`` deletes remote branches;
+- ``git push`` whose destination is ``main`` or ``parametric`` (MAR-355), named
+  as the bare branch, ``heads/<name>``, ``refs/heads/<name>``, ``<src>:<name>``
+  or ``<name>:``, a force or a delete included. ``git push`` alone and ``git
+  push origin HEAD`` name no branch and pass (``_names_shared_branch``);
 - configuration that makes a plain push carry tags or every matching branch,
   or adds a git command: ``push.followTags``, ``push.default``,
   ``remote.<name>.push``, ``remote.<name>.mirror`` and ``alias.<name>``, set
@@ -33,9 +37,17 @@ hide it (``GitInvocation.denied``). It refuses:
   ``GIT_CONFIG_KEY_<n>``, ``GIT_CONFIG_VALUE_<n>``, ``GIT_CONFIG_PARAMETERS``,
   ``GIT_CONFIG_GLOBAL``, ``GIT_CONFIG_SYSTEM`` or ``GIT_CONFIG``, and ``git
   submodule foreach``, which runs a shell string the hook doesn't read;
-- a subcommand, configuration key, ``git update-ref`` ref, or ``git push``
-  operand or flag name that the shell expands. The prescribed ``git -C
-  <worktree> push -u origin <branch>`` passes, also with ``-C "$WT"``.
+- ``HOME`` or ``XDG_CONFIG_HOME`` set for a git command (MAR-355), which picks
+  git's per-user settings file as ``GIT_CONFIG_GLOBAL`` does
+  (``_moves_git_settings``); other programs may set them;
+- ``git credential`` and the ``git credential-<helper>`` commands (MAR-355),
+  which can print the token that ``gh auth token`` would;
+- ``git rebase --exec`` (``-x``, abbreviated or in a cluster too) and ``git
+  filter-branch`` (MAR-355), which run shell strings the hook doesn't read;
+- a subcommand, configuration key, ``git update-ref`` ref, ``git push``
+  operand or flag name, or ``git rebase`` flag name that the shell expands.
+  The prescribed ``git -C <worktree> push -u origin <branch>`` passes, also
+  with ``-C "$WT"``.
 
 **Denied gh commands, in every spelling, wherever they run** (MAR-263). The
 hook parses each ``gh`` command, so ``-R``/``--repo`` before or after the
@@ -327,6 +339,15 @@ GIT_PUSH_TAG_FLAGS = (("--mirror", 3), ("--tags", 4), ("--follow-tags", 5))
 # --all and --branches push a local main and parametric too, and --prune
 # deletes the remote's branches that have no local counterpart.
 GIT_PUSH_EVERY_BRANCH_FLAGS = (("--all", 4), ("--branches", 3), ("--prune", 5))
+# The branches that change only through merged PRs, as a git push destination
+# may name them (MAR-355): git takes heads/main for refs/heads/main.
+_SHARED_BRANCH = re.compile(r"(?:(?:refs/)?heads/)?(?:main|parametric)")
+# git rebase's flag that runs a shell string after each commit, abbreviated the
+# same way (MAR-355): --e is also --edit-todo and --empty.
+GIT_REBASE_EXEC_FLAGS = (("--exec", 4),)
+# -x in a cluster of short flags. Only flags that take no value may come before
+# it: -Xx is a strategy option, and -Sx, -sx, -Cx and -rx give those flags a value.
+_REBASE_SHORT_EXEC = re.compile(r"-[fikmnqv]*x")
 # The plumbing under git push: it takes refspecs and --mirror of its own.
 GIT_PUSH_PLUMBING = frozenset({"send-pack", "http-push"})
 # Commands that add operands the hook can't see to the command they run.
@@ -359,6 +380,9 @@ _PRECOMMANDS = frozenset({"builtin", "command", "nocorrect", "noglob"})
 _ENVIRONMENT_SETTERS = frozenset(
     {"env", "export", "declare", "typeset", "readonly", "local"}
 )
+# Those whose assignment stays in the shell (MAR-355): env's lasts for the
+# program it runs.
+_SHELL_SETTERS = _ENVIRONMENT_SETTERS - {"env"}
 # Commands that run the words after them, and a timeout's duration (MAR-343).
 _WRAPPERS = frozenset(
     {*ARGUMENT_FEEDERS, "env", "exec", "nice", "nohup", "stdbuf", "timeout"}
@@ -505,6 +529,9 @@ _GH_DENIED = re.compile(
 _GIT_CONFIG_VARIABLE = re.compile(
     r"GIT_CONFIG(?:_(?:COUNT|PARAMETERS|GLOBAL|SYSTEM|KEY_[0-9]+|VALUE_[0-9]+))?"
 )
+# Variables that move git's per-user settings file (MAR-355). Other programs
+# read them too, so they count only for git (_moves_git_settings).
+_GIT_HOME_VARIABLE = re.compile(r"HOME|XDG_CONFIG_HOME")
 # The same, for the git commands that make or push tags (MAR-289) or reach
 # every branch, and those variables (MAR-343): git and its options, then the
 # subcommand, so that a commit message saying "tag" doesn't count. Only for a
@@ -514,11 +541,16 @@ _GIT_DENIED = re.compile(
     r"tag\b"
     r"|update-ref\b[^;&|\n]*(?:refs/tags|--stdin)"
     r"|submodule\b[^;&|\n]*foreach\b"
+    r"|credential\b"
+    r"|filter-branch\b"
+    r"|rebase\b[^;&|\n]*(?:--ex|\s-[fikmnqv]*x)"
     r"|push\b[^;&|\n]*(?:--tags?\b|--follow-tags\b|--mirror\b|refs/tags"
     r"|--all\b|--branches\b|--prune\b"
-    r"|\stag\s|[\s:+\"']v[^\s:]*)"
+    r"|\stag\s|[\s:+\"']v[^\s:]*"
+    r"|[\s:+\"'](?:(?:refs/)?heads/)?(?:main|parametric)(?:[\s\"']|$))"
     r")"
-    r"|\b" + _GIT_CONFIG_VARIABLE.pattern + "=",
+    r"|\b" + _GIT_CONFIG_VARIABLE.pattern + "="
+    r"|\b(?:" + _GIT_HOME_VARIABLE.pattern + r")=[^;&|\n]*\bgit\b",
     re.IGNORECASE,
 )
 _FORKISH = re.compile(
@@ -1351,17 +1383,22 @@ class GitInvocation:
         -------
         str or None
             ``"git-expansion"`` if the subcommand, a configuration key, the
-            ref of ``git update-ref``, or an operand or flag name of ``git
-            push`` is a word the shell expands, or ``xargs`` or ``parallel``
-            supplies operands to either of those; ``"git-config"`` for
+            ref of ``git update-ref``, an operand or flag name of ``git
+            push``, or a flag name of ``git rebase`` is a word the shell
+            expands, or ``xargs`` or ``parallel`` supplies operands to ``git
+            push`` or ``update-ref``; ``"git-config"`` for
             configuration that adds a
             command or carries tags; ``"git-tag"`` for a command that makes a
             tag; ``"git-push"`` for one that pushes tags or everything;
             ``"git-push-all"`` for one that reaches every branch,
-            ``"git-environment"`` for configuration set through the
+            ``"git-push-shared"`` for one whose destination is a shared branch
+            (MAR-355), ``"git-environment"`` for configuration set through the
             environment and ``"git-submodule"`` for ``git submodule foreach``
-            (MAR-343); else ``None``. Local tags alone do nothing, so other
-            plumbing that writes a ref isn't checked: a tag has to be pushed.
+            (MAR-343), ``"git-credential"`` for ``git credential`` and its
+            helpers and ``"git-exec"`` for ``git rebase --exec`` and ``git
+            filter-branch`` (MAR-355); else ``None``. Local tags alone do
+            nothing, so other plumbing that writes a ref isn't checked: a tag
+            has to be pushed.
         """
         if self.from_environment:
             return "git-environment"
@@ -1386,6 +1423,12 @@ class GitInvocation:
             return _config_problem(self.args)
         if self.subcommand == "submodule":
             return _submodule_problem(self.args)
+        if self.subcommand == "credential" or self.subcommand.startswith("credential-"):
+            return "git-credential"
+        if self.subcommand == "filter-branch":
+            return "git-exec"
+        if self.subcommand == "rebase":
+            return _rebase_problem(self.args)
         if self.subcommand == "remote" and self.args[:1] == ["add"]:
             mirror = any(arg.startswith("--mirror") for arg in self.args)
             return "git-push" if mirror else None
@@ -1415,8 +1458,10 @@ def _push_problem(args: list[str]) -> str | None:
         ``"git-push"`` for a flag that sends tags (abbreviated too) or a
         refspec that names one, ``"git-push-all"`` for a flag that reaches
         every branch or the matching refspec (``:`` or ``+:``),
-        ``"git-expansion"`` for an operand or a flag name the shell expands,
-        as the hook can't tell what it would push, else ``None``.
+        ``"git-push-shared"`` for a refspec whose destination is ``main`` or
+        ``parametric``, ``"git-expansion"`` for an operand or a flag name the
+        shell expands, as the hook can't tell what it would push, else
+        ``None``.
     """
     operands: list[str] = []
     k = 0
@@ -1441,9 +1486,12 @@ def _push_problem(args: list[str]) -> str | None:
         k += 1
     if any(_EXPANSION.search(operand) for operand in operands):
         return "git-expansion"
-    if any(operand.lstrip("+") == ":" for operand in operands[1:]):
+    refspecs = operands[1:]  # the first operand is the remote
+    if any(refspec.lstrip("+") == ":" for refspec in refspecs):
         return "git-push-all"  # the matching refspec: every branch both sides have
-    return "git-push" if any(map(_names_tag, operands[1:])) else None
+    if any(map(_names_shared_branch, refspecs)):
+        return "git-push-shared"
+    return "git-push" if any(map(_names_tag, refspecs)) else None
 
 
 def _abbreviates(name: str, flags: tuple[tuple[str, int], ...]) -> bool:
@@ -1465,6 +1513,28 @@ def _names_tag(refspec: str) -> bool:
         side.startswith("v") or side.casefold().startswith("tags/")
         for side in refspec.lstrip("+").split(":")
     )
+
+
+def _names_shared_branch(refspec: str) -> bool:
+    """Whether a refspec of ``git push`` writes ``main`` or ``parametric``.
+
+    Only the destination counts (MAR-355): what follows the last colon, or the
+    source when that is empty or there is no colon. So ``git push origin
+    main:marcprinzing/x`` passes. ``HEAD`` names no branch: the hook reads the
+    command, not the checkout, so it can't tell what a push of ``HEAD`` writes.
+
+    Parameters
+    ----------
+    refspec
+        One refspec of ``git push``, with or without a leading ``+``.
+
+    Returns
+    -------
+    bool
+        Whether the destination is a shared branch.
+    """
+    source, _, destination = refspec.lstrip("+").rpartition(":")
+    return _SHARED_BRANCH.fullmatch(destination or source) is not None
 
 
 def _config_problem(args: list[str]) -> str | None:
@@ -1492,18 +1562,51 @@ def _submodule_problem(args: list[str]) -> str | None:
     return "git-expansion" if _EXPANSION.search(command) else None
 
 
-def _git_config_assignment(words: list[str]) -> str | None:
-    """Return the word that sets git's configuration in the environment, if any.
+def _rebase_problem(args: list[str]) -> str | None:
+    """Return why ``git rebase`` with these arguments is refused, if it is.
 
-    A word counts when it assigns a variable of ``_GIT_CONFIG_VARIABLE`` and
-    stands where the shell or ``env`` takes it as one: among a command's
-    leading assignments, or after ``env``, ``export`` and the like. So
-    ``grep GIT_CONFIG_COUNT=1 notes.md`` doesn't count.
+    ``--exec`` and ``-x`` run a shell string after each commit, which the hook
+    doesn't read. A flag name from an expansion could be either of them; a
+    commit from an expansion (``git rebase "$BASE"``) passes.
+
+    Parameters
+    ----------
+    args
+        The words after ``git rebase``.
+
+    Returns
+    -------
+    str or None
+        ``"git-exec"`` for the flag, in any spelling git accepts,
+        ``"git-expansion"`` for a flag name the shell expands, else ``None``.
+    """
+    for arg in args:
+        if arg == "--":
+            return None  # the rest are operands
+        if not arg.startswith("-"):
+            continue
+        name = arg.split("=", 1)[0]
+        if _EXPANSION.search(name):
+            return "git-expansion"
+        if _abbreviates(name, GIT_REBASE_EXEC_FLAGS) or _REBASE_SHORT_EXEC.match(arg):
+            return "git-exec"
+    return None
+
+
+def _environment_assignment(words: list[str], variables: re.Pattern[str]) -> str | None:
+    """Return the word that sets one of ``variables`` in the environment, if any.
+
+    A word counts when it assigns one of them and stands where the shell or
+    ``env`` takes it as one: among a command's leading assignments, or after
+    ``env``, ``export`` and the like. So ``grep GIT_CONFIG_COUNT=1 notes.md``
+    doesn't count.
 
     Parameters
     ----------
     words
         The words of one simple command.
+    variables
+        Matches the whole name of a variable that counts.
 
     Returns
     -------
@@ -1514,7 +1617,7 @@ def _git_config_assignment(words: list[str]) -> str | None:
         assignment = _ASSIGNMENT.fullmatch(word)
         if assignment is None:
             continue
-        if not _GIT_CONFIG_VARIABLE.fullmatch(assignment.group(1)):
+        if not variables.fullmatch(assignment.group(1)):
             continue
         before = words[:k]
         if all(w in _KEYWORDS or _ASSIGNMENT.fullmatch(w) for w in before) or any(
@@ -1554,6 +1657,52 @@ def _at_program_position(words: list[str], k: int) -> bool:
         or _DURATION.fullmatch(word)
         for word in words[:k]
     )
+
+
+def _runs_git(words: list[str]) -> bool:
+    """Whether ``git`` stands where a program does in one simple command."""
+    return any(
+        _basename(word) == "git" and _at_program_position(words, k)
+        for k, word in enumerate(words)
+    )
+
+
+def _moves_git_settings(words: list[str], commands: list[list[str]]) -> bool:
+    """Whether a simple command points git at other settings files (MAR-355).
+
+    ``HOME`` and ``XDG_CONFIG_HOME`` pick git's per-user settings file, as
+    ``GIT_CONFIG_GLOBAL`` does. Other programs read them too, so they count
+    only when git would see them: this command runs git, itself or in a ``sh
+    -c`` string, or the assignment stays in the shell (it has no program of
+    its own, or is an ``export``) and a command of the same text runs git.
+    Whatever a script runs can't be read.
+
+    Parameters
+    ----------
+    words
+        The words of one simple command.
+    commands
+        Every simple command of the shell text.
+
+    Returns
+    -------
+    bool
+        Whether the command is refused.
+    """
+    if _environment_assignment(words, _GIT_HOME_VARIABLE) is None:
+        return False
+    program = next(
+        (w for w in words if w not in _KEYWORDS and not _ASSIGNMENT.fullmatch(w)),
+        None,
+    )
+    if program is None or _basename(program) in _SHELL_SETTERS:
+        return any(map(_runs_git, commands))
+    scripts = [
+        command
+        for script in _inner_scripts(words)
+        for command in split_commands(script, 1)
+    ]
+    return any(map(_runs_git, [words, *scripts]))
 
 
 def parse_git(args: list[str]) -> GitInvocation | None:
@@ -1773,7 +1922,7 @@ class _Context:
 
     def inspect(self, words: list[str]) -> None:
         """Record the fork signals and the gh invocation of one command."""
-        if _git_config_assignment(words) is not None:
+        if _environment_assignment(words, _GIT_CONFIG_VARIABLE) is not None:
             self.git_invocations.append(
                 GitInvocation(words, "", [], [], from_environment=True)
             )
@@ -1881,6 +2030,10 @@ def evaluate(command: str, starts: list[str], home: str) -> str | None:
         context.change_directory(words)
     for words in commands:
         context.inspect(words)
+        if _moves_git_settings(words, commands):
+            context.git_invocations.append(
+                GitInvocation(words, "", [], [], from_environment=True)
+            )
     for invocation in [*context.invocations, *context.git_invocations]:
         kind = invocation.denied()
         if kind is not None:
@@ -2097,16 +2250,34 @@ _DENIALS = {
         "branch, a local main and parametric included; --prune deletes the",
         "remote's branches that have no local counterpart.",
     ),
+    "git-push-shared": (
+        "a git push whose destination is main or parametric, in any spelling: the",
+        "bare name, heads/<name>, refs/heads/<name>, <src>:<name> or <name>:, to",
+        "any remote, a force or a delete included. Those branches change only",
+        "through merged PRs (AGENTS.md).",
+    ),
     "git-environment": (
         "a variable that sets git's configuration or picks its files:",
         "GIT_CONFIG_COUNT, GIT_CONFIG_KEY_<n>, GIT_CONFIG_VALUE_<n>,",
         "GIT_CONFIG_PARAMETERS, GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM and",
-        "GIT_CONFIG. They can make a plain git push carry tags, or add a git",
-        "command, past the git -c and git config checks.",
+        "GIT_CONFIG, and HOME or XDG_CONFIG_HOME set for a git command. They can",
+        "make a plain git push carry tags, or add a git command, past the git -c",
+        "and git config checks.",
     ),
     "git-submodule": (
         "git submodule foreach. It runs a shell string in each submodule, which",
         "neither the deny rules nor this hook read.",
+    ),
+    "git-credential": (
+        "git credential and the git credential-<helper> commands. git credential",
+        "fill can print the token that gh auth token would, and approve and",
+        "reject change what is stored; agents never use or store credentials",
+        "(AGENTS.md).",
+    ),
+    "git-exec": (
+        "git rebase --exec (-x, abbreviated or in a cluster such as -ix too) and",
+        "git filter-branch. Each runs a shell string that neither the deny rules",
+        "nor this hook read. git rebase without them passes.",
     ),
     "git-config": (
         "git config and git -c on push.followTags, push.default,",
@@ -2116,9 +2287,9 @@ _DENIALS = {
     ),
     "git-expansion": (
         "a git command whose subcommand, configuration key, git update-ref ref,",
-        "git push operand or flag name is a word the shell expands ($var, $(...),",
-        "backticks, a glob or braces), and git push or update-ref run by xargs or",
-        "parallel.",
+        "git push operand or flag name, or git rebase flag name is a word the",
+        "shell expands ($var, $(...), backticks, a glob or braces), and git push",
+        "or update-ref run by xargs or parallel.",
         "Neither the deny rules nor this hook can tell what it would do, or which",
         "refs it would push.",
     ),
@@ -2185,9 +2356,11 @@ def _when_in_doubt(command: str, starts: list[str], problem: str) -> str | None:
                 "logout/refresh/switch/setup-git/git-credential, a rerun in a fork,",
                 "gh followed by an expansion, a gh command that names a RiskThinking",
                 "repository,",
-                "git tag, git update-ref on refs/tags, or a git push of tags or of",
-                "every branch (--all, --branches, --prune), git submodule foreach,",
-                "or a variable that sets git's configuration (GIT_CONFIG_*).",
+                "git tag, git update-ref on refs/tags, or a git push of tags, of",
+                "every branch (--all, --branches, --prune) or to main or parametric,",
+                "git submodule foreach, git credential, git rebase --exec, git",
+                "filter-branch, or a variable that sets git's configuration",
+                "(GIT_CONFIG_*, or HOME or XDG_CONFIG_HOME on a git command).",
                 'Those are Marc\'s (docs/ORCHESTRATION.md, "One-time setup",',
                 "step 4). If it is none of them, split it into simpler commands.",
             ]
@@ -2311,8 +2484,9 @@ def fail_closed_for_gh(text: str, problem: str) -> int:
         f"fork_gh_guard failed internally ({problem});",
         f"refusing this repo-scoped or denied gh command (gh {_CHECKED_LIST},",
         "or a gh write that .claude/settings.json denies), or a git command that",
-        "makes or pushes a tag, pushes every branch, or changes git's settings",
-        "through the environment. Other commands pass.",
+        "makes or pushes a tag, pushes every branch or a shared branch, reads a",
+        "credential, runs a shell string this hook can't read, or changes git's",
+        "settings through the environment. Other commands pass.",
         "Fix: report the error to the orchestrator, so that the hook is fixed and",
         "a case added to scripts/check_fork_gh_guard.py. Meanwhile a simpler form",
         f"may get through: one gh command per Bash call, with --repo {OWNER}/<repo>.",
