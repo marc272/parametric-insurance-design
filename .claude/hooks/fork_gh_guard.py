@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Refuse repo-scoped ``gh`` commands in the CRC forks without ``--repo marc272/``.
+"""Refuse repo-scoped ``gh`` commands in the forks without ``--repo marc272/``.
 
 A Claude Code ``PreToolUse`` hook (MAR-253, MAR-261, MAR-263, MAR-282,
-MAR-289), wired in ``.claude/settings.json`` on the tools that run shell
-commands: ``Bash``, ``Monitor`` and the desktop app's terminal tool
+MAR-289, MAR-361), wired in ``.claude/settings.json`` on the tools that run
+shell commands: ``Bash``, ``Monitor`` and the desktop app's terminal tool
 (``mcp__terminal__run_in_terminal``). It adds three checks to the deny rules
 in ``.claude/settings.json``, which match the command text and so miss some
 spellings.
@@ -23,8 +23,9 @@ hide it (``GitInvocation.denied``). It refuses:
 - ``git push`` with ``--all``, ``--branches`` or ``--prune`` (abbreviated too)
   or the matching refspec (``:``, ``+:``), MAR-343: the first three kinds push
   a local ``main`` and ``parametric``, and ``--prune`` deletes remote branches;
-- ``git push`` whose destination is ``main`` or ``parametric`` (MAR-355), named
-  as the bare branch, ``heads/<name>``, ``refs/heads/<name>``, ``<src>:<name>``
+- ``git push`` whose destination is ``main`` or ``parametric`` (MAR-355), or
+  ``develop``, which mirrors upstream in the CLIMADA fork (MAR-361), named as
+  the bare branch, ``heads/<name>``, ``refs/heads/<name>``, ``<src>:<name>``
   or ``<name>:``, a force or a delete included. ``git push`` alone and ``git
   push origin HEAD`` name no branch and pass (``_names_shared_branch``);
 - configuration that makes a plain push carry tags or every matching branch,
@@ -73,8 +74,10 @@ group (``gh -R <repo> release create``, ``gh release -R <repo> create``),
 - ``gh pr merge`` with ``--admin`` or ``--admin=<value>``;
 - any ``gh`` command with ``riskthinking/`` or ``github.com/riskthinking`` in
   an argument, in any case, and ``gh api`` with ``riskthinking`` anywhere in
-  its arguments (the deny rules' RiskThinking forms). An inline PR body that
-  names a RiskThinking repository counts: pass bodies with ``--body-file``;
+  its arguments (the deny rules' RiskThinking forms); and the same for
+  ``climada-project`` (MAR-361), the owner of ``climada_petals``' parent. An
+  inline PR body that names a RiskThinking or CLIMADA-project repository
+  counts: pass bodies with ``--body-file``;
 - a ``gh`` command whose subcommand, or the command of a group in
   ``LITERAL_COMMAND_GROUPS``, is a word the shell expands (``gh $c …``,
   ``gh release "$x" …``, ``gh release cre{ate,} …``): neither the rules nor
@@ -83,22 +86,24 @@ group (``gh -R <repo> release create``, ``gh release -R <repo> create``),
 - ``gh`` itself from an expansion, when the words after it are a denied
   command (``$GH release create v1``), and an expansion among ``gh pr
   merge``'s flags (``gh pr merge 3 $X``), which could be ``--admin`` (MAR-289);
-- ``gh run rerun`` of a run in a fork (a repo flag that names ``crc-sdk`` or
-  ``crc-docs`` or isn't literal, or none in a fork path), and a ``gh api``
-  rerun endpoint there (MAR-282): a rerun of crc-sdk's release run publishes;
-- a ``gh api`` write to ``actions/permissions`` of crc-docs (MAR-306), where
-  Actions stay off, or of crc-sdk (MAR-343), where they are the merge gate.
-  Reading it passes.
+- ``gh run rerun`` of a run in a fork (a repo flag that names ``crc-sdk``,
+  ``crc-docs`` or ``climada_petals`` or isn't literal, or none in a fork
+  path), and a ``gh api`` rerun endpoint there (MAR-282, MAR-361): a rerun of
+  crc-sdk's release run publishes;
+- a ``gh api`` write to ``actions/permissions`` of crc-docs (MAR-306) or
+  climada_petals (MAR-361), where Actions stay off, or of crc-sdk (MAR-343),
+  where they are the merge gate. Reading it passes.
 
 The other ``gh api`` deny rules (``dispatches``, ``git/refs``, ``gists``,
 workflow ``enable`` and ``disable`` and the like) are left to the text rules:
 ``gh api`` takes no ``-R``.
 
 **Repo-scoped gh commands in a fork path.** In a clone of the forks
-``marc272/crc-sdk`` and ``marc272/crc-docs``, ``gh`` without ``--repo`` can
-resolve to the parent repository, RiskThinking's, where agents must never
-act. A command that may run in a fork path is refused, with a message that
-says how to fix it, if it runs:
+``marc272/crc-sdk``, ``marc272/crc-docs`` and ``marc272/climada_petals``,
+``gh`` without ``--repo`` can resolve to the parent repository,
+RiskThinking's or CLIMADA-project's, where agents must never act. A command
+that may run in a fork path is refused, with a message that says how to fix
+it, if it runs:
 
 - a command of a ``gh`` group that takes the repository from the clone
   unless ``--repo`` or ``-R`` names one (``REPO_FLAG_SUBCOMMANDS``: the groups
@@ -315,7 +320,9 @@ GH_GROUPS = frozenset(
         *(group for group, _ in DENIED_ACTIONS),
     }
 )
-FORK_REPOS = re.compile(r"crc-(?:sdk|docs)", re.IGNORECASE)
+# The forks' repository names (MAR-361 adds the CLIMADA fork). The group keeps
+# the alternation inside when the pattern is joined into another one.
+FORK_REPOS = re.compile(r"(?:crc-(?:sdk|docs)|climada_petals)", re.IGNORECASE)
 # git options before the subcommand that take a separate value (git --help,
 # git 2.50); -c and --config-env, which set configuration, are read apart.
 GIT_VALUE_OPTIONS = frozenset(
@@ -339,9 +346,10 @@ GIT_PUSH_TAG_FLAGS = (("--mirror", 3), ("--tags", 4), ("--follow-tags", 5))
 # --all and --branches push a local main and parametric too, and --prune
 # deletes the remote's branches that have no local counterpart.
 GIT_PUSH_EVERY_BRANCH_FLAGS = (("--all", 4), ("--branches", 3), ("--prune", 5))
-# The branches that change only through merged PRs, as a git push destination
-# may name them (MAR-355): git takes heads/main for refs/heads/main.
-_SHARED_BRANCH = re.compile(r"(?:(?:refs/)?heads/)?(?:main|parametric)")
+# The branches that change only through merged PRs (MAR-355), and develop,
+# which mirrors upstream in the CLIMADA fork (MAR-361), as a git push
+# destination may name them: git takes heads/main for refs/heads/main.
+_SHARED_BRANCH = re.compile(r"(?:(?:refs/)?heads/)?(?:main|parametric|develop)")
 # git rebase's flag that runs a shell string after each commit, abbreviated the
 # same way (MAR-355): --e is also --edit-todo and --empty.
 GIT_REBASE_EXEC_FLAGS = (("--exec", 4),)
@@ -363,6 +371,8 @@ GIT_CONFIG_READ_FLAGS = frozenset(
 )
 GIT_CONFIG_READ_VERBS = frozenset({"get", "list"})
 RISKTHINKING = "riskthinking"
+# The owner of climada_petals' parent (MAR-361), checked as RISKTHINKING is.
+CLIMADA_PROJECT = "climada-project"
 # The tools whose input carries a shell command (tool_input.command).
 SHELL_TOOLS = frozenset({"Bash", "Monitor"})
 TERMINAL_TOOL = "mcp__terminal__run_in_terminal"
@@ -487,8 +497,9 @@ _GH_CHECKED = re.compile(
     + ")"
 )
 # The same, for the denied gh commands (DENIED_COMMANDS, DENIED_GROUPS, an
-# admin merge, a rerun that names a fork, a RiskThinking repository), in any
-# case, and gh followed by an expansion.
+# admin merge, a rerun that names a fork, a fork's actions/permissions, a
+# RiskThinking or CLIMADA-project repository), in any case, and gh followed
+# by an expansion. A read of actions/permissions counts here too (MAR-361).
 _GH_DENIED = re.compile(
     r"\bgh\b"
     + _SAME_COMMAND
@@ -516,8 +527,11 @@ _GH_DENIED = re.compile(
             + r"--admin\b",
             r"(?<!\w)rerun\b" + _SAME_COMMAND + FORK_REPOS.pattern,
             FORK_REPOS.pattern + _SAME_COMMAND + r"(?<!\w)rerun\b",
+            FORK_REPOS.pattern + r"/actions/permissions",
             RISKTHINKING + "/",
             "github\\.com/" + RISKTHINKING,
+            CLIMADA_PROJECT + "/",
+            "github\\.com/" + CLIMADA_PROJECT,
         ]
     )
     + ")"
@@ -547,7 +561,7 @@ _GIT_DENIED = re.compile(
     r"|push\b[^;&|\n]*(?:--tags?\b|--follow-tags\b|--mirror\b|refs/tags"
     r"|--all\b|--branches\b|--prune\b"
     r"|\stag\s|[\s:+\"']v[^\s:]*"
-    r"|[\s:+\"'](?:(?:refs/)?heads/)?(?:main|parametric)(?:[\s\"']|$))"
+    r"|[\s:+\"'](?:(?:refs/)?heads/)?(?:main|parametric|develop)(?:[\s\"']|$))"
     r")"
     r"|\b" + _GIT_CONFIG_VARIABLE.pattern + "="
     r"|\b(?:" + _GIT_HOME_VARIABLE.pattern + r")=[^;&|\n]*\bgit\b",
@@ -1041,7 +1055,8 @@ class GhInvocation:
         -------
         str or None
             ``"riskthinking"`` if an argument names a RiskThinking repository
-            (any case; for ``gh api``, ``riskthinking`` anywhere);
+            (any case; for ``gh api``, ``riskthinking`` anywhere), and
+            ``"climada-project"`` the same for CLIMADA-project (MAR-361);
             ``"expansion"`` if the subcommand, the command of a group in
             ``LITERAL_COMMAND_GROUPS``, the operand of a ``DENIED_ACTIONS``
             command, or a flag of ``gh pr merge`` is a word the shell expands;
@@ -1052,11 +1067,12 @@ class GhInvocation:
             else ``None``.
         """
         args = [word.casefold() for word in self.words[1:]]
-        marks = (RISKTHINKING + "/", "github.com/" + RISKTHINKING)
-        if self.subcommand == "api":
-            marks = (RISKTHINKING,)
-        if any(mark in arg for arg in args for mark in marks):
-            return "riskthinking"
+        for owner in (RISKTHINKING, CLIMADA_PROJECT):
+            marks = (owner + "/", "github.com/" + owner)
+            if self.subcommand == "api":
+                marks = (owner,)
+            if any(mark in arg for arg in args for mark in marks):
+                return owner
         actions = DENIED_ACTIONS.get((self.subcommand, self.command), frozenset())
         if (
             _EXPANSION.search(self.subcommand)
@@ -1093,10 +1109,13 @@ class GhInvocation:
         """Whether it changes a fork's Actions permissions (MAR-306, MAR-343).
 
         Actions stay off on ``marc272/crc-docs``: with them on, upstream's
-        ``live`` job would reach RiskThinking's data. On ``marc272/crc-sdk``
-        they are the merge gate. It is true for a ``gh api`` call that isn't a
-        read and whose repository part, before ``actions/permissions``, names
-        a fork, isn't literal, or has placeholders in a fork path.
+        ``live`` job would reach RiskThinking's data. They stay off on
+        ``marc272/climada_petals`` too (MAR-361): its ``ci.yml`` runs on every
+        push and checks out CLIMADA-project's repositories. On
+        ``marc272/crc-sdk`` they are the merge gate. It is true for a ``gh
+        api`` call that isn't a read and whose repository part, before
+        ``actions/permissions``, names a fork, isn't literal, or has
+        placeholders in a fork path.
 
         Parameters
         ----------
@@ -1126,11 +1145,12 @@ class GhInvocation:
     def reruns_fork_run(self, fork_path: bool) -> bool:
         """Whether it reruns a workflow run or job of a fork (MAR-282).
 
-        ``gh run rerun`` does when a repo flag names ``crc-sdk`` or
-        ``crc-docs`` or isn't literal, or when it has no repo flag and may run
-        in a fork path. ``gh api`` does when the repository part of a rerun
-        endpoint (``…/actions/runs/<id>/rerun…``, ``…/actions/jobs/<id>/rerun``)
-        names a fork, isn't literal, or has placeholders in a fork path.
+        ``gh run rerun`` does when a repo flag names ``crc-sdk``, ``crc-docs``
+        or ``climada_petals`` (MAR-361) or isn't literal, or when it has no
+        repo flag and may run in a fork path. ``gh api`` does when the
+        repository part of a rerun endpoint (``…/actions/runs/<id>/rerun…``,
+        ``…/actions/jobs/<id>/rerun``) names a fork, isn't literal, or has
+        placeholders in a fork path.
 
         Parameters
         ----------
@@ -1458,10 +1478,10 @@ def _push_problem(args: list[str]) -> str | None:
         ``"git-push"`` for a flag that sends tags (abbreviated too) or a
         refspec that names one, ``"git-push-all"`` for a flag that reaches
         every branch or the matching refspec (``:`` or ``+:``),
-        ``"git-push-shared"`` for a refspec whose destination is ``main`` or
-        ``parametric``, ``"git-expansion"`` for an operand or a flag name the
-        shell expands, as the hook can't tell what it would push, else
-        ``None``.
+        ``"git-push-shared"`` for a refspec whose destination is ``main``,
+        ``parametric`` or ``develop``, ``"git-expansion"`` for an operand or a
+        flag name the shell expands, as the hook can't tell what it would
+        push, else ``None``.
     """
     operands: list[str] = []
     k = 0
@@ -1516,9 +1536,10 @@ def _names_tag(refspec: str) -> bool:
 
 
 def _names_shared_branch(refspec: str) -> bool:
-    """Whether a refspec of ``git push`` writes ``main`` or ``parametric``.
+    """Whether a refspec of ``git push`` writes a branch of ``_SHARED_BRANCH``.
 
-    Only the destination counts (MAR-355): what follows the last colon, or the
+    Those are ``main``, ``parametric`` and, since MAR-361, ``develop``. Only
+    the destination counts (MAR-355): what follows the last colon, or the
     source when that is empty or there is no colon. So ``git push origin
     main:marcprinzing/x`` passes. ``HEAD`` names no branch: the hook reads the
     command, not the checkout, so it can't tell what a push of ``HEAD`` writes.
@@ -2015,7 +2036,7 @@ def evaluate(command: str, starts: list[str], home: str) -> str | None:
         Why the command is refused and how to fix it, or ``None``. A denied
         gh or git command (``GhInvocation.denied``, ``GitInvocation.denied``)
         is refused wherever it runs, then a rerun of a fork's run
-        (``GhInvocation.reruns_fork_run``) and a write to crc-docs' Actions
+        (``GhInvocation.reruns_fork_run``) and a write to a fork's Actions
         permissions (``GhInvocation.writes_actions_permissions``), all before
         the fork-path check.
 
@@ -2059,7 +2080,7 @@ def _guess_fork(paths: list[str]) -> str:
                 continue
             rest = folded[at + len(root) :].strip("/").split("/")
             for part in rest[:2]:  # <fork>/... or worktrees/<fork>-mar-<n>
-                for fork in ("crc-sdk", "crc-docs"):
+                for fork in ("crc-sdk", "crc-docs", "climada_petals"):
                     if part.startswith(fork):
                         return fork
     return "<fork>"
@@ -2078,17 +2099,17 @@ def _refusal(invocation: GhInvocation, context: _Context) -> str:
     if invocation.subcommand == "api":
         values = ", ".join(repr(word) for word in invocation.placeholders[:3])
         lines += [
-            "may run in a CRC fork, and gh api fills in {owner}/{repo} (or",
+            "may run in a fork, and gh api fills in {owner}/{repo} (or",
             f":owner/:repo) from the clone's repository, in {values}.",
         ]
     elif repo_view:
         lines.append(
-            "may run in a CRC fork, and it doesn't name a literal"
+            "may run in a fork, and it doesn't name a literal"
             f" {OWNER}/<repo> as its argument."
         )
     else:
         lines.append(
-            f"may run in a CRC fork, and it doesn't pass --repo {OWNER}/<fork>"
+            f"may run in a fork, and it doesn't pass --repo {OWNER}/<fork>"
             f" (or -R {OWNER}/<fork>)."
         )
         bad = [repo for repo in invocation.repos if not _OWNER_REPO.fullmatch(repo)]
@@ -2102,7 +2123,7 @@ def _refusal(invocation: GhInvocation, context: _Context) -> str:
     lines += [f"  - {reason}" for reason in context.reasons[:3]]
     lines += [
         "In a fork clone, gh can take the clone's repository to be the parent,",
-        "RiskThinking's, where agents must never act.",
+        "RiskThinking's or CLIMADA-project's, where agents must never act.",
     ]
     if invocation.subcommand == "api":
         lines += [
@@ -2165,6 +2186,13 @@ _DENIALS = {
         "git fetch upstream. A PR body or comment that mentions one goes in a",
         "file, passed with --body-file.",
     ),
+    "climada-project": (
+        "any gh command that names a CLIMADA-project repository (MAR-361), the",
+        "owner of climada_petals' parent and of CLIMADA core. Agents never act",
+        "on CLIMADA-project's repositories, and read them only with git: git",
+        "fetch upstream in the clone, and core's read-only clone. A PR body or",
+        "comment that mentions one goes in a file, passed with --body-file.",
+    ),
     "alias": (
         "gh alias set and import. An alias is a new gh command, which the deny",
         "rules and this hook can't see through.",
@@ -2184,11 +2212,11 @@ _DENIALS = {
         "outside this project's deny rules and hooks.",
     ),
     "rerun": (
-        "gh run rerun of a run in a fork, crc-sdk or crc-docs (with its --repo,",
-        "or in a fork path), and the gh api rerun endpoints there. A rerun is a",
-        "manual run, and manual runs in the forks are Marc's: rerunning a",
-        "crc-sdk Package release run publishes again. To rerun a PR's CI, push",
-        "a commit to its branch.",
+        "gh run rerun of a run in a fork, crc-sdk, crc-docs or climada_petals",
+        "(with its --repo, or in a fork path), and the gh api rerun endpoints",
+        "there. A rerun is a manual run, and manual runs in the forks are Marc's:",
+        "rerunning a crc-sdk Package release run publishes again. To rerun a PR's",
+        "CI, push a commit to its branch.",
     ),
     "expansion": (
         "a gh command whose subcommand is a word the shell expands ($var, $(...),",
@@ -2227,10 +2255,12 @@ _DENIALS = {
         "agents never sign in, use or store credentials (AGENTS.md).",
     ),
     "actions-permissions": (
-        "a gh api write to actions/permissions of marc272/crc-docs or",
-        "marc272/crc-sdk (reading it is fine). Actions stay off on crc-docs: with",
-        "them on, upstream's live job would reach RiskThinking's data (runbook,",
-        "Fork PRs). On crc-sdk they are the merge gate. Changing either is Marc's.",
+        "a gh api write to actions/permissions of marc272/crc-docs,",
+        "marc272/climada_petals or marc272/crc-sdk (reading it is fine). Actions",
+        "stay off on crc-docs: with them on, upstream's live job would reach",
+        "RiskThinking's data (runbook, Fork PRs). They stay off on climada_petals",
+        "too: its ci.yml runs on every push and checks out CLIMADA-project's",
+        "repositories. On crc-sdk they are the merge gate. Changing any is Marc's.",
     ),
     "git-tag": (
         "git tag, and git update-ref on refs/tags or with --stdin. Tags are",
@@ -2251,10 +2281,11 @@ _DENIALS = {
         "remote's branches that have no local counterpart.",
     ),
     "git-push-shared": (
-        "a git push whose destination is main or parametric, in any spelling: the",
-        "bare name, heads/<name>, refs/heads/<name>, <src>:<name> or <name>:, to",
-        "any remote, a force or a delete included. Those branches change only",
-        "through merged PRs (AGENTS.md).",
+        "a git push whose destination is main, parametric or develop, in any",
+        "spelling: the bare name, heads/<name>, refs/heads/<name>, <src>:<name> or",
+        "<name>:, to any remote, a force or a delete included. main and parametric",
+        "change only through merged PRs, and the CLIMADA fork's develop mirrors",
+        "upstream (AGENTS.md).",
     ),
     "git-environment": (
         "a variable that sets git's configuration or picks its files:",
@@ -2355,9 +2386,10 @@ def _when_in_doubt(command: str, starts: list[str], problem: str) -> str | None:
                 "create, gh config set editor/pager/browser, gh auth token/login/",
                 "logout/refresh/switch/setup-git/git-credential, a rerun in a fork,",
                 "gh followed by an expansion, a gh command that names a RiskThinking",
-                "repository,",
+                "or CLIMADA-project repository, a fork's actions/permissions,",
                 "git tag, git update-ref on refs/tags, or a git push of tags, of",
-                "every branch (--all, --branches, --prune) or to main or parametric,",
+                "every branch (--all, --branches, --prune) or to main, parametric or",
+                "develop,",
                 "git submodule foreach, git credential, git rebase --exec, git",
                 "filter-branch, or a variable that sets git's configuration",
                 "(GIT_CONFIG_*, or HOME or XDG_CONFIG_HOME on a git command).",
@@ -2373,7 +2405,7 @@ def _when_in_doubt(command: str, starts: list[str], problem: str) -> str | None:
         [
             "Refused by the fork gh guard (.claude/hooks/fork_gh_guard.py, MAR-253):",
             f"the hook couldn't analyse this command ({problem}),",
-            "and it may run a repo-scoped gh command in a CRC fork (gh",
+            "and it may run a repo-scoped gh command in a fork (gh",
             f"{_CHECKED_LIST}).",
             "Fix: split it into simpler commands, pass"
             f" --repo {OWNER}/<fork> to every such gh command",
