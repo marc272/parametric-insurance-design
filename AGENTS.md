@@ -135,8 +135,13 @@ These rules apply to every issue whose work lands in `marc272/crc-sdk` or `marc2
 **No contact with RiskThinking**
 
 - Never open issues, PRs or discussions on RiskThinking's repositories, never push to the `upstream` remote, and never contact RiskThinking. Those steps are Marc's (MAR-249), and so are the upstream PRs.
-- Never connect to RiskThinking's services, such as the CDT Express MCP server in crc-docs' `.mcp.json`. Read upstream only through `git fetch upstream`. The one exception so far: agents may download the public CRC Open release for the primer notebook, MAR-299 (Marc, 2026-11-08), with no credentials and only for that notebook.
-- Never set `CRC_DOCS_LIVE=1` in crc-docs: it runs all of `tests/test_live.py`. This rule has no exception, MAR-299 included.
+- Never connect to RiskThinking's services, such as the CDT Express MCP server in crc-docs' `.mcp.json`. Read upstream only through `git fetch upstream`. The one exception is the downloads for the parametric notebooks in crc-docs (Marc, 2026-11-08 and 2026-11-12, MAR-377):
+  - the notebooks: the primer (MAR-299), notebook B on how the module works (MAR-375), and the showcases on how a cover ages (MAR-335), choosing the index (MAR-352), the budget frontier (MAR-353) and rain and heat (MAR-342). The downloads are for those notebooks only;
+  - the public CRC Open release, from `https://data.riskthinking.ai/crc-open`, as crc-docs' `pipelines/crc_open_pipeline.py` and crc-sdk's `crc_open` provider read it. It is RiskThinking's service, hence the exception;
+  - ERA5, as crc-docs reads it through crc-sdk's `era5` provider: Google Cloud's public Zarr copies (`gs://gcp-public-data-arco-era5` and `gs://weatherbench2`), read anonymously, with no CDS account. It is not a RiskThinking service, and it is named here so that the permission is explicit;
+  - no credentials, and nothing downloaded is committed;
+  - not covered: anything that needs `CRC_DOCS_LIVE=1`, a CDT API key, the `velo` extra or the CDT Express MCP server.
+- Never set `CRC_DOCS_LIVE=1` in crc-docs: it runs all of `tests/test_live.py`. This rule has no exception, the notebooks' downloads (MAR-377) included.
 - Never create tags or releases, never run workflows by hand, and never turn Actions back on in `marc272/crc-docs`. crc-sdk's release workflow runs on any pushed `v*` tag.
 - The publication rule applies to the module's docs and to the notebook. The CLIMADA stream stays CRC-free.
 
