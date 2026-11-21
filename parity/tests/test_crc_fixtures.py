@@ -1,7 +1,8 @@
 """Tests for the CRC module's golden fixtures, ``parity/crc/cases/``.
 
 The fixtures are MAR-245's, extended by MAR-255, MAR-264, MAR-269 and MAR-400
-(the cluster scope). Three groups:
+(the cluster scope); MAR-412 brought the cluster cases to the owner's answer
+on MAR-406. Three groups:
 
 - **Regeneration.** ``parity/scripts/export_crc_fixtures.py`` rebuilds every
   case in memory from the core, and the committed files must pass
@@ -29,7 +30,8 @@ The fixtures are MAR-245's, extended by MAR-255, MAR-264, MAR-269 and MAR-400
   cluster case is read the same way, from its assignment and asset values:
   the cluster index, each cluster's payout, the objective, premium and
   budget of each design problem, and the metrics of the total, of each
-  cluster and of each asset under both allocation rules.
+  cluster and of each asset under both allocation rules, each cluster's
+  payout shared over its own assets.
 """
 
 from __future__ import annotations
@@ -55,7 +57,7 @@ README = PARITY_DIR / "crc" / "README.md"
 MAX_TOTAL_BYTES = 2_200_000
 """The cases' total size. MAR-400 raised it from 1,000,000 bytes: its 24
 cluster cases hold about 1.1 MB (42 to 51 kB each, a third of it the rows
-allocated to assets under the core's two rules), and they are the cluster
+allocated to assets under the two allocation rules), and they are the cluster
 scope's parity contract (ADR 0005 Amendment 3, R-21g). A change that adds
 cases beyond it raises the limit again, with a reason."""
 
@@ -430,6 +432,64 @@ def test_cluster_cases_state_the_cores_clusters(
             gap = np.abs(written[:, j, None] - b[None, :])
             assert np.all(gap > 1e-9 * np.maximum(1.0, b)), (name, c)
     assert found == len(CLUSTER_OBJECTIVES) * len(PRICINGS) * 2 * len(DATA)
+
+
+def test_cluster_cases_follow_mar_406_where_it_departs_from_the_core(
+    cases: dict[str, dict[str, Any]],
+) -> None:
+    """Two values of the cluster cases follow the owner's answer, not the core.
+
+    ADR 0005 Amendment 3 (revised 2026-11-21, MAR-406 items 2 and 3) and the
+    README's "Cluster cases": under ``joint`` false the total's premium is
+    the sum of the clusters' premiums, where the core prices the total payout
+    as one contract; under ``joint`` true an allocation shares each cluster's
+    payout over that cluster's assets, where the core shares the total
+    payout over every asset.
+    """
+    found = {False: 0, True: 0}
+    for name, doc in cases.items():
+        if doc["scope"] != "cluster":
+            continue
+        e, cl = doc["expected"], doc["clusters"]
+        found[cl["joint"]] += 1
+        if not cl["joint"]:
+            total = math.fsum(b["premium"] for b in e["clusters"].values())
+            assert math.isclose(e["premium"], total, rel_tol=1e-10), name
+            continue
+        # Each cluster's assets share that cluster's payout: their allocated
+        # expected payouts add up to the cluster's, under both rules.
+        for rule, rows in e["allocation"].items():
+            for c in cl["cluster_ids"]:
+                shared = math.fsum(rows[a]["expected_payout"] for a in cl["members"][c])
+                own = e["clusters"][c]["metrics"]["expected_payout"]
+                assert math.isclose(shared, own, rel_tol=1e-10), (name, rule, c)
+    half = len(CLUSTER_OBJECTIVES) * len(PRICINGS) * len(DATA)
+    assert found == {False: half, True: half}
+
+    # Under a cost-of-capital load the core's price of the total payout as
+    # one contract is less than the sum (the README's and the ADR's figures).
+    doc = cases["step-mse-coc-cluster-separate-synthetic.json"]
+    ids, params = doc["clusters"]["cluster_ids"], doc["expected"]["parameters"]
+    index = _cluster_index(doc)
+    pay = sum(
+        _payout(cover, index[:, j], params[c])
+        for j, (c, cover) in enumerate(zip(ids, doc["cover"], strict=True))
+    )
+    p = np.asarray(doc["sample"]["probability"], dtype=float)
+    assert f"{_premium(doc['pricing'], pay, p):,.2f}" == "409,227.31"
+    assert f"{doc['expected']['premium']:,.2f}" == "413,140.22"
+
+    # Under joint true the core's value rule would give the one-asset
+    # cluster's asset its value share of the total payout, not its cluster's
+    # whole payout.
+    doc = cases["step-mse-pure-cluster-joint-synthetic.json"]
+    cl, e = doc["clusters"], doc["expected"]
+    (alone,) = cl["members"]["C2"]
+    share = cl["values"][alone] / math.fsum(cl["values"].values())
+    by_core = share * e["metrics"]["expected_payout"]
+    by_cluster = e["allocation"]["value"][alone]["expected_payout"]
+    assert by_cluster == e["clusters"]["C2"]["metrics"]["expected_payout"]
+    assert not math.isclose(by_core, by_cluster, rel_tol=1e-3)
 
 
 def test_out_of_sample_cases_use_the_design_premium(
@@ -1299,8 +1359,12 @@ def _check_cluster_case(doc: dict[str, Any]) -> None:
     losses, capped at that sum's largest value. ``joint`` true: one design
     problem, the objective, premium and budget on the total. ``joint``
     false: one per cluster, each with its own objective, premium and budget
-    in its block. Then the metrics of the total (premium priced on the total
-    payout), of each cluster and of each asset under both allocation rules.
+    in its block. Then the metrics of the total, of each cluster and of each
+    asset under both allocation rules. The total's premium is the design
+    premium under ``joint`` true and the sum of the clusters' premiums under
+    ``joint`` false, and an allocation shares each cluster's payout over its
+    own assets in both settings (ADR 0005 Amendment 3, MAR-406 items 2 and
+    3).
     """
     s, e, tol, cl = doc["sample"], doc["expected"], doc["tolerances"], doc["clusters"]
     assets, ids = s["asset_ids"], cl["cluster_ids"]
@@ -1360,10 +1424,12 @@ def _check_cluster_case(doc: dict[str, Any]) -> None:
     # The design problems: their objective, premium and budget.
     joint = cl["joint"]
     groups = [list(ids)] if joint else [[c] for c in ids]
+    premiums = []
     for group in groups:
         cols = [ids.index(c) for c in group]
         L_P, pi_P = cluster_loss[:, cols].sum(axis=1), pay[:, cols].sum(axis=1)
         premium = _premium(pricing, pi_P, p)
+        premiums.append(premium)
         value = _objective(objective, L_P, pi_P, p)
         assert premium <= doc["budget"]["ratio"] * float(p @ L_P) * (1 + tol["premium"])
         if joint:
@@ -1396,10 +1462,11 @@ def _check_cluster_case(doc: dict[str, Any]) -> None:
         assert e["objective_value"] is None
         assert e["unique"] == all(b["unique"] for b in e["clusters"].values())
 
-    # The total: every asset's loss against every cluster's payout, the
-    # premium priced on the total payout.
+    # The total: every asset's loss against every cluster's payout. Its
+    # premium is the design premium under joint true, and under joint false
+    # the sum of the clusters' premiums: each cluster is its own contract.
     L, pi = loss.sum(axis=1), pay.sum(axis=1)
-    premium = _premium(pricing, pi, p)
+    premium = math.fsum(premiums)
     assert _close(premium, e["premium"], tol["premium"], scale)
     checked = _check_metrics(
         e["metrics"], L, pi, p, premium, tol["metrics"], scale, options
@@ -1420,16 +1487,16 @@ def _check_cluster_case(doc: dict[str, Any]) -> None:
             )
             assert checked >= 35
 
-    # The allocated rows: each design problem's payout split across its
-    # assets, pro rata to value or to loss (the value shares in a draw
-    # without loss); no premium.
+    # The allocated rows: each cluster's payout split across its own assets,
+    # under both settings, pro rata to value or to loss (the value shares in
+    # a draw without loss); no premium.
     assert set(e["allocation"]) == {"value", "loss"}
     for rule, rows in e["allocation"].items():
         assert set(rows) == set(assets), rule
-        for group in groups:
-            members = [a for c in group for a in cl["members"][c]]
+        for j, c in enumerate(ids):
+            members = cl["members"][c]
             cols = [assets.index(a) for a in members]
-            pi_P = pay[:, [ids.index(c) for c in group]].sum(axis=1)
+            pi_P = pay[:, j]
             v = np.asarray([cl["values"][a] for a in members], dtype=float)
             shares = np.tile(v / v.sum(), (len(p), 1))
             if rule == "loss":
