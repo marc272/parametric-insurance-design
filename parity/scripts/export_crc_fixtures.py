@@ -148,6 +148,8 @@ from scipy.optimize import linprog
 import parametric_insurance_design as pid
 from parametric_insurance_design.basis import Basis
 from parametric_insurance_design.evaluate import (
+    Allocation,
+    Evaluation,
     evaluate_results,
     exceedance_curves,
     kpis,
@@ -1703,6 +1705,100 @@ def _check_atom(name: str, core: float, atoms: Sequence[float], scale: float) ->
         raise AssertionError(f"{name}: core {core!r} is none of {list(atoms)!r}")
 
 
+@dataclass(frozen=True, eq=False)
+class _CoreTables:
+    """The core's KPI tables of one run on one sample: what a metric is read from.
+
+    Attributes
+    ----------
+    kpis : tuple of pandas.DataFrame
+        ``evaluate.kpis`` at each level of :data:`BETAS`, in order.
+    evaluation : Evaluation
+        ``evaluate.evaluate_results``: the subjects and the measure.
+    curves : pandas.DataFrame
+        ``evaluate.exceedance_curves``, the AEP curves only.
+    years : int
+        The number of years of the sample (every year a draw).
+    """
+
+    kpis: tuple[pd.DataFrame, ...]
+    evaluation: Evaluation
+    curves: pd.DataFrame
+    years: int
+
+
+def _core_tables(
+    eventset: EventSet,
+    scope: Scope,
+    results: Sequence[SolveResult],
+    pricing: Pricing,
+    *,
+    sample: Sample | None = None,
+    allocation: Allocation = Allocation.NONE,
+) -> _CoreTables:
+    """Compute the core's KPI tables of a run (:data:`CORE_METRIC_SOURCES`).
+
+    Parameters
+    ----------
+    eventset : EventSet
+        The core's data.
+    scope : Scope
+        The scope of the results.
+    results : sequence of SolveResult
+        One result per design problem of the run.
+    pricing : Pricing
+        The pricing of the premium.
+    sample : Sample, optional
+        The core's evaluation sample (a holdout block); default all years.
+    allocation : Allocation, default ``Allocation.NONE``
+        The core's rule for per-location rows (``evaluate.kpis``).
+
+    Returns
+    -------
+    _CoreTables
+        The tables every subject's metrics are read from.
+    """
+    tables = tuple(
+        kpis(
+            eventset,
+            scope,
+            results,
+            basis=Basis.ANNUAL,
+            beta=beta,
+            run_id=RUN_ID,
+            sample=sample,
+            pricing=pricing,
+            allocation=allocation,
+        )
+        for beta in BETAS
+    )
+    ev = evaluate_results(
+        eventset,
+        scope,
+        results,
+        basis=Basis.ANNUAL,
+        sample=sample,
+        allocation=allocation,
+    )
+    curves = exceedance_curves(
+        eventset,
+        scope,
+        results,
+        basis=Basis.ANNUAL,
+        run_id=RUN_ID,
+        return_periods=RETURN_PERIODS,
+        sample=sample,
+        allocation=allocation,
+    )
+    years = eventset.metadata.n_years if sample is None else sample.years.size
+    return _CoreTables(
+        kpis=tables,
+        evaluation=ev,
+        curves=curves[curves["curve"] == "aep"],
+        years=int(years),
+    )
+
+
 def core_metrics(
     eventset: EventSet,
     scope: Scope,
@@ -1749,7 +1845,56 @@ def core_metrics(
     """
     if len(results) != 1:
         raise ValueError("one design problem per case")
-    problem_id = results[0].problem_id
+    tables = _core_tables(eventset, scope, results, pricing, sample=sample)
+    return subject_metrics(
+        tables, KpiLevel.PROBLEM, results[0].problem_id, draws, premium=premium
+    )
+
+
+def subject_metrics(
+    tables: _CoreTables,
+    level: KpiLevel,
+    subject_id: str,
+    draws: _Draws,
+    *,
+    premium: float | None = None,
+    priced: bool = True,
+) -> dict[str, Any]:
+    """Read the metrics of one subject of a run from the core's tables.
+
+    The subject is a row of the core's tables (``level``, ``subject_id``): a
+    design problem, a payout entity (a cluster), the portfolio, or a
+    location under an allocation rule. Every value comes from the core
+    (:data:`CORE_METRIC_SOURCES`); this script recomputes the plain ones and
+    the quantile atoms from ``draws`` and requires agreement (as
+    :func:`core_metrics`).
+
+    Parameters
+    ----------
+    tables : _CoreTables
+        The core's tables of the run (:func:`_core_tables`).
+    level : KpiLevel
+        The subject's level.
+    subject_id : str
+        The subject's id in the core's tables.
+    draws : _Draws
+        Loss and payout of the subject per draw of the sample.
+    premium : float, optional
+        A stated premium, as in :func:`core_metrics`.
+    priced : bool, default True
+        Whether the core prices the subject: a design problem or the
+        portfolio. Otherwise (an entity of a joint design, a location under
+        an allocation rule) the core reports no premium, so the ``premium``
+        column and the net-loss columns are null.
+
+    Returns
+    -------
+    dict
+        Column name -> value; ``None`` for an undefined value;
+        ``{"either": [lower, upper]}`` for a quantile on a step.
+    """
+    if not priced and premium is not None:
+        raise ValueError("a premium is stated for a subject the core does not price")
     loss, payout = draws.loss, draws.payout
     scale = max(1.0, float(loss.max(initial=0.0)))
     uncovered = np.maximum(loss - payout, 0.0)
@@ -1758,8 +1903,8 @@ def core_metrics(
 
     def kpi_row(table: pd.DataFrame, name: str) -> float | None:
         rows = table[
-            (table["level"] == KpiLevel.PROBLEM.value)
-            & (table["subject_id"] == problem_id)
+            (table["level"] == level.value)
+            & (table["subject_id"] == subject_id)
             & (table["kpi"] == name)
         ]
         if len(rows) != 1:
@@ -1768,17 +1913,7 @@ def core_metrics(
         return None if math.isnan(value) else value
 
     stated = premium
-    for i, beta in enumerate(BETAS):
-        table = kpis(
-            eventset,
-            scope,
-            results,
-            basis=Basis.ANNUAL,
-            beta=beta,
-            run_id=RUN_ID,
-            sample=sample,
-            pricing=pricing,
-        )
+    for i, (beta, table) in enumerate(zip(BETAS, tables.kpis, strict=True)):
         if i == 0:
             plain = {
                 "expected_loss": float(np.mean(loss)),
@@ -1795,17 +1930,19 @@ def core_metrics(
                 ("rmse", "rmse_residual"),
                 ("correlation", "correlation"),
             ):
-                value = (
-                    stated
-                    if name == "premium" and stated is not None
-                    else kpi_row(table, kpi)
-                )
+                if name == "premium" and not priced:
+                    value = None
+                elif name == "premium" and stated is not None:
+                    value = stated
+                else:
+                    value = kpi_row(table, kpi)
                 if name in plain:
                     if value is None:
                         raise AssertionError(f"{name} is undefined")
                     _check_close(name, value, plain[name], scale)
                 out_metrics[metric(name)] = None if value is None else out(value)
-            premium = stated if stated is not None else kpi_row(table, "premium")
+            if priced:
+                premium = stated if stated is not None else kpi_row(table, "premium")
         var = kpi_row(table, "var_uncovered")
         cvar = kpi_row(table, "cvar_uncovered")
         if var is None or cvar is None:
@@ -1814,45 +1951,46 @@ def core_metrics(
         _check_atom(f"var_uncovered at {beta}", var, atoms, scale)
         out_metrics[metric("var_uncovered", beta=beta)] = _metric_value(atoms)
         out_metrics[metric("cvar_uncovered", beta=beta)] = out(cvar)
-    if premium is None:
+    if priced and premium is None:
         raise AssertionError("the premium is always defined")
 
-    ev = evaluate_results(eventset, scope, results, basis=Basis.ANNUAL, sample=sample)
-    subject = next(s for s in ev.subjects if s.level is KpiLevel.PROBLEM)
+    ev = tables.evaluation
+    subject = next(
+        s for s in ev.subjects if s.level is level and s.subject_id == subject_id
+    )
     measure = ev.measure
     loss_o = measure.aggregate(subject.loss)
     payout_o = measure.aggregate(subject.payout)
-    net_o = loss_o - payout_o + premium
-    net = loss - payout + premium
-    for base, outcome, per_draw in (
-        ("loss", loss_o, loss),
-        ("net_loss", net_o, net),
-    ):
+    by_base: list[tuple[str, NDArray[np.float64], NDArray[np.float64]]] = [
+        ("loss", loss_o, loss)
+    ]
+    net_o: NDArray[np.float64] | None = None
+    net: NDArray[np.float64] | None = None
+    if premium is not None:
+        net_o = loss_o - payout_o + premium
+        net = loss - payout + premium
+        by_base.append(("net_loss", net_o, net))
+    for base, outcome, per_draw in by_base:
         for beta in BETAS:
             var, cvar = var_cvar(outcome, measure.probability, beta)
             atoms = quantile_atoms(per_draw.tolist(), _fraction(beta))
             _check_atom(f"var_{base} at {beta}", var, atoms, scale)
             out_metrics[metric(f"var_{base}", beta=beta)] = _metric_value(atoms)
             out_metrics[metric(f"cvar_{base}", beta=beta)] = out(cvar)
+    if net is None:
+        for beta in BETAS:
+            out_metrics[metric("var_net_loss", beta=beta)] = None
+            out_metrics[metric("cvar_net_loss", beta=beta)] = None
 
-    curves = exceedance_curves(
-        eventset,
-        scope,
-        results,
-        basis=Basis.ANNUAL,
-        run_id=RUN_ID,
-        return_periods=RETURN_PERIODS,
-        sample=sample,
-    )
-    curves = curves[
-        (curves["level"] == KpiLevel.PROBLEM.value)
-        & (curves["subject_id"] == problem_id)
-        & (curves["curve"] == "aep")
+    curves = tables.curves[
+        (tables.curves["level"] == level.value)
+        & (tables.curves["subject_id"] == subject_id)
     ]
-    x_net, p_net = discrete_distribution(net_o, measure.probability)
-    sorted_net, _, cdf_net = sorted_cdf(x_net, p_net)
+    if net_o is not None:
+        x_net, p_net = discrete_distribution(net_o, measure.probability)
+        sorted_net, _, cdf_net = sorted_cdf(x_net, p_net)
     for period in RETURN_PERIODS:
-        level = Fraction(int(period) - 1, int(period))
+        quantile_level = Fraction(int(period) - 1, int(period))
         for base, quantity, per_draw in (
             ("loss", "loss", loss),
             ("payout", "payout", payout),
@@ -1864,15 +2002,17 @@ def core_metrics(
             if len(rows) != 1:
                 raise AssertionError(f"expected one {quantity} curve value at {period}")
             core_value = float(np.asarray(rows["value"], dtype=np.float64)[0])
-            atoms = quantile_atoms(per_draw.tolist(), level)
+            atoms = quantile_atoms(per_draw.tolist(), quantile_level)
             _check_atom(f"{base}_rp{period}", core_value, atoms, scale)
             out_metrics[metric(base, period=period)] = _metric_value(atoms)
+        if net_o is None or net is None:
+            out_metrics[metric("net_loss", period=period)] = None
+            continue
         core_net = lower_quantile(sorted_net, cdf_net, 1.0 - 1.0 / period)
-        atoms = quantile_atoms(net.tolist(), level)
+        atoms = quantile_atoms(net.tolist(), quantile_level)
         _check_atom(f"net_loss_rp{period}", core_net, atoms, scale)
         out_metrics[metric("net_loss", period=period)] = _metric_value(atoms)
-    years = eventset.metadata.n_years if sample is None else sample.years.size
-    if n != years:
+    if n != tables.years:
         raise AssertionError("every year must be a draw")
     return out_metrics
 
@@ -2771,6 +2911,129 @@ def _check_piecewise_linear_standalone(
         raise AssertionError(f"{where}: unique, but the standalone levels differ")
 
 
+@dataclass(frozen=True, eq=False)
+class _Solved:
+    """One design problem solved and judged (:func:`_solve_design`).
+
+    Attributes
+    ----------
+    chosen : SolveResult
+        The solution written: Clarabel's for a QP and a non-unique LP,
+        HiGHS's vertex for a unique LP.
+    theta : numpy.ndarray
+        Its amounts as written, ``(n_entities, n_amounts)``: snapped,
+        rounded and filled (:func:`_snap`, :func:`out`, :func:`_fill_lowest`).
+    unique : bool
+        Whether the identified amounts of the optimum are unique.
+    qp : bool
+        Whether the problem is a QP (MSE).
+    ranges : _Ranges or None
+        LPs: the ranges of the identified amounts, scaled units.
+    scale : float
+        The core's scale of the problem.
+    """
+
+    chosen: SolveResult
+    theta: NDArray[np.float64]
+    unique: bool
+    qp: bool
+    ranges: _Ranges | None
+    scale: float
+
+    @property
+    def compare(self) -> str:
+        """The case's ``compare_parameters`` for this design."""
+        if self.unique:
+            return F.compare_exact
+        return F.compare_none if self.qp else F.compare_within_ranges
+
+
+def _solve_design(
+    build: Callable[[], BuiltProblem],
+    first: BuiltProblem,
+    design_data: Dataset,
+    identified: NDArray[np.bool_],
+    basis: BasisFunction,
+    settings: SolverSettings,
+    where: str,
+) -> _Solved:
+    """Solve one design problem of the core and decide whether it is unique.
+
+    The module docstring says how: a QP with Clarabel (written) and OSQP (a
+    check), uniqueness by ADR 0005 §5.4's rule for the MSE route; an LP with
+    HiGHS (a vertex) and Clarabel (an interior point), uniqueness by ranging
+    every identified amount. The core's default policy is a check too.
+
+    Parameters
+    ----------
+    build : callable
+        Builds the problem afresh (each solve gets its own cvxpy problem).
+    first : BuiltProblem
+        One build, solved first (the LP's ranging starts from its vertex).
+    design_data : Dataset
+        The design sample, one column per payout entity, with the entity
+        index as its index.
+    identified : numpy.ndarray of bool
+        Which amounts are identified, ``(n_entities, n_amounts)``.
+    basis : BasisFunction
+        The module's basis of the payout family.
+    settings : SolverSettings
+        The solver policies.
+    where : str
+        The case, for messages.
+
+    Returns
+    -------
+    _Solved
+        The solution written and its judgement.
+
+    Raises
+    ------
+    AssertionError
+        If the solvers disagree, or an interior solution lies outside the
+        ranges.
+    """
+    ranges: _Ranges | None = None
+    qp = is_qp(first.problem)
+    if qp:
+        accurate = solve(first, settings.accurate)
+        check = solve(build(), settings.qp_check)
+        unique = _mse_unique(design_data, identified, basis)
+        chosen = accurate
+    else:
+        check = solve(first, settings.vertex)
+        ranges = _lp_ranges(first, identified, settings.ranging)
+        accurate = solve(build(), settings.accurate)
+        unique = ranges.unique(identified)
+        interior = accurate.theta[identified] / accurate.scale
+        inside = (interior >= ranges.low[identified] - UNIQUE_WIDTH) & (
+            interior <= ranges.high[identified] + UNIQUE_WIDTH
+        )
+        if not np.all(inside):
+            raise AssertionError(f"{where}: Clarabel's solution is outside the ranges")
+        chosen = check if unique else accurate
+    default = solve(build(), DEFAULT_POLICY)
+    for other, rtol in (
+        (check, SOLVER_AGREEMENT_RTOL),
+        (default, DEFAULT_AGREEMENT_RTOL),
+    ):
+        if not _rel_close(accurate.objective_value, other.objective_value, rtol):
+            raise AssertionError(
+                f"{where}: solvers disagree: {accurate.objective_value!r} "
+                f"({accurate.solver}) vs {other.objective_value!r} ({other.solver})"
+            )
+    scale = chosen.scale
+    if unique:
+        gap = np.abs(accurate.theta - check.theta)[identified]
+        if np.any(gap > UNIQUE_WIDTH * scale):
+            raise AssertionError(f"{where}: unique, but the solvers' amounts differ")
+    theta = np.vectorize(out)(_snap(chosen.theta, scale)).astype(np.float64)
+    theta = _fill_lowest(theta, identified)
+    return _Solved(
+        chosen=chosen, theta=theta, unique=unique, qp=qp, ranges=ranges, scale=scale
+    )
+
+
 def design_case(
     data: Dataset,
     scope_name: str,
@@ -2883,7 +3146,6 @@ def design_case(
         return built
 
     first = build()
-    qp = is_qp(first.problem)
     identified = _identified(design_data, basis)
     rows = (Sample.full(eventset) if train is None else train).select(eventset)
     for j in range(len(data.asset_ids)):
@@ -2895,41 +3157,11 @@ def design_case(
         f"{data.name}/{family}/{scope_name}/{objective.token}/{pricing.token}"
         f"{split_token}"
     )
-    ranges: _Ranges | None = None
-    if qp:
-        accurate = solve(first, settings.accurate)
-        check = solve(build(), settings.qp_check)
-        unique = _mse_unique(design_data, identified, basis)
-        chosen = accurate
-    else:
-        check = solve(first, settings.vertex)
-        ranges = _lp_ranges(first, identified, settings.ranging)
-        accurate = solve(build(), settings.accurate)
-        unique = ranges.unique(identified)
-        interior = accurate.theta[identified] / accurate.scale
-        inside = (interior >= ranges.low[identified] - UNIQUE_WIDTH) & (
-            interior <= ranges.high[identified] + UNIQUE_WIDTH
-        )
-        if not np.all(inside):
-            raise AssertionError(f"{where}: Clarabel's solution is outside the ranges")
-        chosen = check if unique else accurate
-    default = solve(build(), DEFAULT_POLICY)
-    for other, rtol in (
-        (check, SOLVER_AGREEMENT_RTOL),
-        (default, DEFAULT_AGREEMENT_RTOL),
-    ):
-        if not _rel_close(accurate.objective_value, other.objective_value, rtol):
-            raise AssertionError(
-                f"{where}: solvers disagree: {accurate.objective_value!r} "
-                f"({accurate.solver}) vs {other.objective_value!r} ({other.solver})"
-            )
-    scale = chosen.scale
-    if unique:
-        gap = np.abs(accurate.theta - check.theta)[identified]
-        if np.any(gap > UNIQUE_WIDTH * scale):
-            raise AssertionError(f"{where}: unique, but the solvers' amounts differ")
-    theta = np.vectorize(out)(_snap(chosen.theta, scale)).astype(np.float64)
-    theta = _fill_lowest(theta, identified)
+    solved = _solve_design(
+        build, first, design_data, identified, basis, settings, where
+    )
+    qp, unique, ranges, chosen = solved.qp, solved.unique, solved.ranges, solved.chosen
+    scale, theta = solved.scale, solved.theta
     loss_draws = design_data.loss.sum(axis=1)
     caps = design_data.loss.max(axis=0)
     budget = BUDGET_RATIO * float(np.mean(loss_draws))
@@ -3051,11 +3283,7 @@ def design_case(
         [name for k, name in enumerate(names) if not identified[j, k]]
         for j in range(len(data.asset_ids))
     ]
-    compare = (
-        F.compare_exact
-        if unique
-        else (F.compare_none if qp else F.compare_within_ranges)
-    )
+    compare = solved.compare
     if joint:
         cover_doc: Any = covers
         parameters_doc: Any = dict(zip(data.asset_ids, parameters, strict=True))
