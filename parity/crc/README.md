@@ -1,10 +1,10 @@
 # parity/crc/: golden fixtures for `crc_sdk.parametric`
 
-The parametric insurance module `crc_sdk.parametric` is built in the fork `marc272/crc-sdk`. It never imports this repository's core, `parametric_insurance_design`. Where the two overlap, its results must match the core's, and the cases in `cases/` say what the core computes. The module's tests read them: the payout families (R-14, MAR-246), the splits (R-15, MAR-43), the metrics (R-17, MAR-247), the design (R-16, MAR-248) and, later, the joint designs (R-21, MAR-45). This page describes the format, so that those tests can read the cases without our code.
+The parametric insurance module `crc_sdk.parametric` is built in the fork `marc272/crc-sdk`. It never imports this repository's core, `parametric_insurance_design`. Where the two overlap, its results must match the core's, and the cases in `cases/` say what the core computes. The module's tests read them: the payout families (R-14, MAR-246), the splits (R-15, MAR-43), the metrics (R-17, MAR-247), the design (R-16, MAR-248), the joint designs (R-21, MAR-45) and, later, the cluster designs (R-21g, MAR-401). This page describes the format, so that those tests can read the cases without our code.
 
-- One case is one JSON document, `cases/<case_id>.json`. 76 cases, about 998 kB in total.
+- One case is one JSON document, `cases/<case_id>.json`. 100 cases, about 2.1 MB in total.
 - The format is the parity contract of ADR 0005 §8, accepted on 2026-11-06 (MAR-244). Its field names are defined in one place, the `_Fields` class of the script; a rename is made there and the cases are regenerated. Where the cases go beyond §8, the section [Beyond ADR 0005 §8](#beyond-adr-0005-8) says how.
-- The script is `parity/scripts/export_crc_fixtures.py` (MAR-245, MAR-255, MAR-264, MAR-269). The test is `parity/tests/test_crc_fixtures.py`.
+- The script is `parity/scripts/export_crc_fixtures.py` (MAR-245, MAR-255, MAR-264, MAR-269, MAR-400). The test is `parity/tests/test_crc_fixtures.py`.
 
 ## Licence
 
@@ -13,14 +13,14 @@ The parametric insurance module `crc_sdk.parametric` is built in the fork `marc2
 
   | Data set | Case ids | Cases | Licence (SPDX) |
   |---|---|---|---|
-  | `synthetic` | ending in `-synthetic` or `-synthetic-holdout` | 26 | `CC0-1.0` |
+  | `synthetic` | ending in `-synthetic` or `-synthetic-holdout` | 38 | `CC0-1.0` |
   | `synthetic52` | ending in `-synthetic52`, `-synthetic52-kfold5-fold<i>` (i = 0 … 4), `-synthetic52-fresh` or `-synthetic52-options`. The fresh draws of the two `-fresh` cases are included | 13 | `CC0-1.0` |
   | `handmade` | ending in `-handmade` or `-handmade-options` | 15 | `CC0-1.0` |
-  | `thesis` | ending in `-thesis` or `-thesis-holdout` | 22 | `CC-BY-4.0` |
+  | `thesis` | ending in `-thesis` or `-thesis-holdout` | 34 | `CC-BY-4.0` |
 
-- **CC0-1.0: the 54 cases of the `synthetic`, `synthetic52` and `handmade` data sets.** Their author, Marc Prinzing, dedicates them to the public domain under CC0 1.0 Universal, by his decision of 2026-11-06. To the extent possible under law, he waives all copyright and related or neighbouring rights to them. Legal code: <https://creativecommons.org/publicdomain/zero/1.0/legalcode>. They hold no third-party data: their draws come from this script's seeded generator or were chosen by hand, and so do the fresh draws of the `-fresh` cases. CC0 requires no attribution.
-- **CC-BY-4.0: the 22 cases of the `thesis` data set.** They hold draws taken from the parity fixture `parity/tests/data/thesis_eventset/`. It is derived from the IRIS event set and licensed CC-BY-4.0 (its `metadata.json`; `docs/data-sources.md`). Legal code: <https://creativecommons.org/licenses/by/4.0/legalcode>. A copy of these cases keeps the attribution:
-  - the draws: Marc Prinzing, parametric-insurance-design, `parity/tests/data/thesis_eventset/`, <https://github.com/marc272/parametric-insurance-design>, CC BY 4.0. Changes: a subsample of 160 years and 3 assets, described below;
+- **CC0-1.0: the 66 cases of the `synthetic`, `synthetic52` and `handmade` data sets.** Their author, Marc Prinzing, dedicates them to the public domain under CC0 1.0 Universal, by his decision of 2026-11-06. To the extent possible under law, he waives all copyright and related or neighbouring rights to them. Legal code: <https://creativecommons.org/publicdomain/zero/1.0/legalcode>. They hold no third-party data: their draws come from this script's seeded generator or were chosen by hand, and so do the fresh draws of the `-fresh` cases and the asset values of the cluster cases. CC0 requires no attribution.
+- **CC-BY-4.0: the 34 cases of the `thesis` data set.** They hold draws taken from the parity fixture `parity/tests/data/thesis_eventset/`, and the cluster cases also the three assets' values (its `locations.value`). It is derived from the IRIS event set and licensed CC-BY-4.0 (its `metadata.json`; `docs/data-sources.md`). Legal code: <https://creativecommons.org/licenses/by/4.0/legalcode>. A copy of these cases keeps the attribution:
+  - the draws: Marc Prinzing, parametric-insurance-design, `parity/tests/data/thesis_eventset/`, <https://github.com/marc272/parametric-insurance-design>, CC BY 4.0. Changes: a subsample of 160 years and 3 assets, described below, with the 3 assets' values;
   - the hazard data: Sparks, N. and Toumi, R. (2024). The Imperial College Storm Model (IRIS) Dataset. Scientific Data 11, 424, <https://doi.org/10.1038/s41597-024-03250-y>; dataset <https://doi.org/10.6084/m9.figshare.c.6724251.v1> (CC BY 4.0).
 - The cases may be copied into the fork, which is AGPL-3.0-or-later. A copy keeps its case's licence: CC0-1.0 or CC-BY-4.0 by the table above, with the attribution for the `thesis` cases.
 
@@ -35,7 +35,7 @@ uv run python parity/scripts/export_crc_fixtures.py --summary  # rewrite, print 
 uv run pytest parity/tests/test_crc_fixtures.py                # what CI runs
 ```
 
-The script takes about 15 seconds. CI runs the test in the parity step (`pytest parity/tests`). It regenerates every case in memory and judges the committed file against it:
+The script takes about 25 seconds. CI runs the test in the parity step (`pytest parity/tests`). It regenerates every case in memory and judges the committed file against it:
 
 - Everything but floats must be equal, except `generator.commit`. That includes `unique`, `unidentified`, `compare_parameters`, `split`, `metric_options` and the samples.
 - Floats must agree within 1e-6 relative for the values a solve produces (the `expected` block of a design case, `profile` included), and within 1e-12 relative elsewhere. The absolute floor is the same tolerance times the case's scale (below).
@@ -44,10 +44,11 @@ The script takes about 15 seconds. CI runs the test in the parity step (`pytest 
 - Only a unique design (`"exact"`) also has its identified levels, premium and metrics (out of sample too) compared with the regenerated ones. A non-unique design's are one solver's point of the optimal set; a solver on another platform can return another point, so they are not compared. Unidentified levels are never compared directly: they follow the fill rule from the identified ones (below).
 - In a grid-route case, the chosen shape parameters must equal the regenerated ones, whether or not the design is unique: they are grid values, and the best candidate is strictly best (below).
 - The closed-form design (the linear grid case) is compared as written: it is computed in exact arithmetic, so it gives the same values on every platform.
+- In a cluster case the same holds for each design problem: one under `joint` true, one per cluster under `joint` false, each with its own optimum and budget. The cluster rows and the allocated rows are compared as `metrics` are; a cluster's objective value, `unique` and `compare_parameters` are compared whether or not the design is unique ([Cluster cases](#cluster-cases)).
 
-So a change to the core's formulas, the data or the script that moves a value fails CI until the cases are regenerated. On one machine the regeneration is byte-identical. On another platform, a solver can return another point of the same optimal set, and the check above still holds. The test checks this with a regeneration under perturbed solvers (Clarabel without equilibration, HiGHS's primal simplex): it moves the solver's point in 9 cases, all non-unique joint designs, and passes.
+So a change to the core's formulas, the data or the script that moves a value fails CI until the cases are regenerated. On one machine the regeneration is byte-identical. On another platform, a solver can return another point of the same optimal set, and the check above still holds. The test checks this with a regeneration under perturbed solvers (Clarabel without equilibration, HiGHS's primal simplex): it moves the solver's point in 13 cases, all non-unique designs (9 joint and 4 cluster cases), and passes.
 
-The test also reads every case the way the module's tests do, with plain numpy and the rules on this page only. It recomputes the payouts of the written cover, the objective value, the premium, the budget, the constraints and the plain metrics (with the case's `metric_options`), in sample and out of sample, and compares them with `expected`. It solves every binary and linear design in closed form too, each grid candidate of `profile` included ([Binary and linear designs](#binary-and-linear-designs-and-the-grid-route)). It also solves the piecewise-linear designs again with the script's standalone computations ([Piecewise-linear designs](#piecewise-linear-designs)).
+The test also reads every case the way the module's tests do, with plain numpy and the rules on this page only. It recomputes the payouts of the written cover, the objective value, the premium, the budget, the constraints and the plain metrics (with the case's `metric_options`), in sample and out of sample, and compares them with `expected`. It solves every binary and linear design in closed form too, each grid candidate of `profile` included ([Binary and linear designs](#binary-and-linear-designs-and-the-grid-route)). It also solves the piecewise-linear designs again with the script's standalone computations ([Piecewise-linear designs](#piecewise-linear-designs)). A cluster case is read from its assignment and its asset values: the cluster index, each cluster's payout, each design problem's objective, premium and budget, and the metrics of the total, of each cluster and of each asset under both allocation rules ([Cluster cases](#cluster-cases)).
 
 The test also checks the [Licence](#licence) table against `cases/`: every case id ends in a suffix of exactly one row, its data set's, and each row's count is its number of cases; the counts by licence in the bullets and the total at the top of this page agree with the table. So a change that adds cases updates the counts and the total, and one that adds a data set gives it a row in the table, with its licence, before its cases are committed.
 
@@ -55,18 +56,19 @@ The test also checks the [Licence](#licence) table against `cases/`: every case 
 
 | Field | Value | Meaning |
 |---|---|---|
-| `case_id` | string | `<payout>-<objective or "fixed">-<pricing>-<scope>-<data>`, then a suffix: `-holdout`, `-kfold5-fold<i>` or `-fresh` for an out-of-sample case, `-options` for non-default metric options; the file name without `.json`. The payout is `step`, or the family and the tail: `step-lower`, `linear-upper`, `binary-lower`, `piecewise-linear-upper`, …; `binary-upper-grid` or `linear-upper-grid` for a cover whose shape parameters are free on grids |
+| `case_id` | string | `<payout>-<objective or "fixed">-<pricing>-<scope>-<data>`, then a suffix: `-holdout`, `-kfold5-fold<i>` or `-fresh` for an out-of-sample case, `-options` for non-default metric options; the file name without `.json`. The scope is `individual`, `joint`, `cluster-joint` or `cluster-separate` (the core's `Cluster` scope with `joint` true or false). The payout is `step`, or the family and the tail: `step-lower`, `linear-upper`, `binary-lower`, `piecewise-linear-upper`, …; `binary-upper-grid` or `linear-upper-grid` for a cover whose shape parameters are free on grids |
 | `kind` | `"design"` or `"evaluate"` | Design the cover from the template, or evaluate a fixed cover |
 | `source` | `"core"` or `"closed_form"` | Who computed `expected`: the core (for a piecewise-linear design, with a payout structure of this script: [Piecewise-linear designs](#piecewise-linear-designs)), or this script from the closed forms of ADR 0005 §3, §5 and §6 (evaluations, and the linear grid-route design) |
 | `sample` | object | The outcome sample (ADR 0005 §4.1). In an out-of-sample case, the design sample |
 | `split` | null or object | null: everything is in sample. Otherwise an out-of-sample case, in one of three kinds (below): `{"kind": "holdout", "train_fraction": 0.7}`, `{"kind": "kfold", "k": 5, "fold": i}` or `{"kind": "fresh_draws", "n_draws": 50, "seed": 20261106}` |
 | `evaluation_sample` | null or object | Out-of-sample cases: the held-out block or the fresh draws, in the form of `sample` |
-| `cover` | object; a list of objects in joint cases | The cover document (ADR 0005 §3) |
+| `cover` | object; a list of objects in joint and cluster cases | The cover document (ADR 0005 §3); in a cluster case one template per cluster ([Cluster cases](#cluster-cases)) |
 | `objective` | object or null | null in evaluate cases |
 | `pricing` | object | The pricing of the premium |
 | `budget` | object or null | null in evaluate cases |
 | `limit` | null | Always null here: the core's cap is the `Free` upper bound (below) |
-| `scope` | `"individual"` or `"joint"` | One asset; or several assets and an objective on their sum (Phase 2, R-21) |
+| `scope` | `"individual"`, `"joint"` or `"cluster"` | One asset; or several assets and an objective on their sum (Phase 2, R-21); or several assets in clusters, one cover per cluster (R-21g) |
+| `clusters` | object, cluster cases only | The assignment, the clusters, the asset values, the weights, the cluster index and the setting `joint` ([Cluster cases](#cluster-cases)). No other case has the field |
 | `expected` | object | The values the module must reproduce |
 | `metric_options` | null or object | The metric columns' parameters, ADR 0005 §6's `MetricOptions`. null: its defaults. Otherwise `{"betas": […], "return_periods": […], "loss_thresholds": […], "payout_threshold": ε}` ([Metric options](#metric-options)) |
 | `compare_parameters` | `"exact"`, `"within_ranges"` or `"none"` | How a design's parameters are compared |
@@ -75,7 +77,7 @@ The test also checks the [Licence](#licence) table against `cases/`: every case 
 
 ### `sample` and `evaluation_sample`
 
-- `asset_ids`: one asset in individual cases, three in joint cases.
+- `asset_ids`: one asset in individual cases, three in joint and cluster cases.
 - `period`: integer year labels, strictly increasing. One draw is one year. The fresh draws are numbered `0 .. n_draws − 1`, as a Monte Carlo sample's draws are (ADR 0005 §4.1).
 - `probability`: `1 / n` for each of the `n` draws of the block.
 - `index`, `loss`: `n` rows with one value per asset, in `asset_ids` order. `numpy.asarray(sample["index"])` has the shape `(n, n_assets)` of ADR 0005 §4.1.
@@ -93,7 +95,7 @@ The cover document of ADR 0005 §3: `asset_id`, `index` (the index definition), 
 - In design cases every amount (the levels of a step or piecewise-linear cover, a binary's `amount`, a linear cover's `limit`) is a template marker, `{"free": {"grid": null, "lower": 0.0, "upper": <cap>}}`. The cap is the asset's largest loss on the (design) sample. The core caps every amount at it, so the module solves the same problem with `Free(lower=0, upper=cap)` and no `Limit`.
 - In a grid-route case the shape parameters are free on grids too, a binary's `trigger` or a linear cover's `attachment` and `exhaustion`: `{"free": {"grid": [30.0, 33.0, …], "lower": 30.0, "upper": 51.0}}`, in index units, the grid's explicit values in increasing order and its bounds (ADR 0005 §3, shape parameters).
 - Every other threshold is a number. In evaluate cases the amounts are numbers too.
-- Joint cases have one cover per asset, as a list in `asset_ids` order.
+- Joint cases have one cover per asset, as a list in `asset_ids` order. Cluster cases have one per cluster, in `clusters.cluster_ids` order ([Cluster cases](#cluster-cases)).
 
 ### `objective`, `pricing`, `budget`
 
@@ -101,22 +103,24 @@ The cover document of ADR 0005 §3: `asset_id`, `index` (the index definition), 
 - `pricing`: `{"kind": "pure"}` (P = E[π]) or `{"kind": "cost_of_capital", "rate": r, "q": q}` (P = (1 − r)·E[π] + r·CVaR_q(π)).
 - `budget`: `{"ratio": 0.8}`: the premium is at most 0.8·E[L] on the (design) sample.
 
-In a joint case the objective, the premium and the budget are on the sums over the assets of the loss and of the payout of each draw.
+In a joint case the objective, the premium and the budget are on the sums over the assets of the loss and of the payout of each draw. In a cluster case they are on the sums over a design problem's clusters ([Cluster cases](#cluster-cases)).
 
 ### `expected`
 
 | Field | Design cases | Evaluate cases |
 |---|---|---|
-| `objective_value` | The objective at `parameters`, on the sample | null |
-| `premium` | The premium of the cover at `parameters`, on the sample, with `pricing` (the design premium) | The premium of the fixed cover, on the sample, with `pricing` |
-| `parameters` | The solution, by the flat names of ADR 0005 §3: `{"levels[0]": …, …}` (step, piecewise linear), `{"amount": …}` (binary), `{"amount": …, "trigger": …}` or `{"attachment": …, "exhaustion": …, "limit": …}` (grid route); in joint cases `{<asset id>: {…}, …}` | null |
-| `unidentified` | The amounts whose basis column is zero at every draw of the sample (ADR 0005 §5.4): a step bin that holds no draw, `["levels[6]"]`; a piecewise-linear level whose hat no draw reaches ([Piecewise-linear designs](#piecewise-linear-designs)); `["amount"]` if no draw reaches a binary's trigger. In joint cases `{<asset id>: […], …}` | null |
-| `unique` | Whether the identified amounts of the optimum are unique (below) | null |
+| `objective_value` | The objective at `parameters`, on the sample; null in a `cluster-separate` case, whose objective values are its clusters' | null |
+| `premium` | The premium of the cover at `parameters`, on the sample, with `pricing` (the design premium); in a cluster case the premium of the total payout | The premium of the fixed cover, on the sample, with `pricing` |
+| `parameters` | The solution, by the flat names of ADR 0005 §3: `{"levels[0]": …, …}` (step, piecewise linear), `{"amount": …}` (binary), `{"amount": …, "trigger": …}` or `{"attachment": …, "exhaustion": …, "limit": …}` (grid route); in joint cases `{<asset id>: {…}, …}`; in cluster cases `{<cluster id>: {…}, …}` | null |
+| `unidentified` | The amounts whose basis column is zero at every draw of the sample (ADR 0005 §5.4): a step bin that holds no draw, `["levels[6]"]`; a piecewise-linear level whose hat no draw reaches ([Piecewise-linear designs](#piecewise-linear-designs)); `["amount"]` if no draw reaches a binary's trigger. In joint cases `{<asset id>: […], …}`; in cluster cases `{<cluster id>: […], …}` | null |
+| `unique` | Whether the identified amounts of the optimum are unique (below); in a `cluster-separate` case, whether every cluster's are | null |
 | `metrics` | Column → value, in sample (below) | Column → value |
 | `out_of_sample` | null, or in an out-of-sample case `{"fold": i, "premium_basis": "design", "metrics": {…}}` (below) | null |
 | `profile` | null, or in a grid-route case the objective at every grid candidate: `[{"objective_value": …, "parameters": {"trigger": 30.0}}, …]`, in grid order; with two free shape parameters `{"attachment": 64.0, "exhaustion": 175.0}`, in lexicographic order (below) | null |
+| `clusters` | Cluster cases only: one block per cluster, `{"objective_value": …, "premium": …, "unique": …, "compare_parameters": …, "metrics": {…}}` ([Cluster cases](#cluster-cases)) | — |
+| `allocation` | Cluster cases only: the core's rows of each asset under its two allocation rules, `{"value": {<asset id>: {…}, …}, "loss": {…}}` ([Cluster cases](#cluster-cases)) | — |
 
-`metrics` are in sample. They are the metrics of the cover at `parameters` (design) or of the fixed cover (evaluate), on the case's sample, for the quantity the objective sees: the asset's loss and payout, or in joint cases the sums over the assets. A value is null where ADR 0005 §6 says the metric is undefined. The columns are those of the case's `metric_options`.
+`metrics` are in sample. They are the metrics of the cover at `parameters` (design) or of the fixed cover (evaluate), on the case's sample, for the quantity the objective sees: the asset's loss and payout, or in joint and cluster cases the sums over the assets. A value is null where ADR 0005 §6 says the metric is undefined. The columns are those of the case's `metric_options`.
 
 **Unidentified levels** follow ADR 0005 §5.4's default fill rule, `fill="lowest"`: the previous identified level (the levels are monotone), or 0 if no level before it is identified (a binary's unidentified amount is 0). They change nothing on the sample, so the design stays exactly optimal; a module design with the default fill gives the same values. Out of sample a draw can fall into such a bin, and then the fill rule decides its payout.
 
@@ -183,13 +187,41 @@ The core has no piecewise-linear payout. Its `PayoutStructure` interface fits on
 
 The core's step payout has no lower tail. The module's lower-tail step on the index x, with breakpoints b_k in index units, is the upper-tail step on the severity s = −x with breakpoints −b_k (ADR 0005 §3). So the core designs the lower-tail step on −x (`step-lower-wcvar-…`), and the closed-form case `step-lower-fixed-…` checks its payouts against the core's step on −x. A draw at x = b_k has s = −b_k and gets level k: the more severe side.
 
+### Cluster cases
+
+The core's cluster scope (`Cluster` in `packages/core/src/parametric_insurance_design/scopes.py`) pays one cover per cluster of assets, on a cluster index, against the sum of the cluster's losses. Each of its two settings has cases of its own: `cluster-joint` (`joint` true, the thesis's setting) and `cluster-separate` (`joint` false). The module's outline is ADR 0005 Amendment 3's `Clustered(assignment, *, joint=True)` (R-21g). This section says what the core computes, which is what the cases fix. The ADR's note on R-21g lists the choices the core doesn't settle for the module.
+
+- **The assignment** is stated, not computed, because the module takes an assignment and the core's Ward clustering needs scipy. `clusters.assignment` maps every asset id to its cluster id. `clusters.cluster_ids` lists the clusters, `C1`, `C2`, … in label order, and `clusters.members` lists each cluster's assets in `sample.asset_ids` order. On both data sets `C1` holds `A1` and `A2`, and `C2` holds the third asset (`A3`, `A9`). The core's `ThesisWardClustering(beta_tail=0.9)` gives the same assignment with two clusters on each data set. The test checks that, but nothing in a case depends on it.
+- **The cluster index** is the value-weighted mean of the members' indices (the core's `ValueWeightedIndex`, the thesis cluster index): ξ_{d,c} = Σ_{i∈c} w_i x_{d,i}, with w_i = v_i / Σ_{k∈c} v_k.
+  - `clusters.values` holds each asset's value, in loss units: this script's 10, 6 and 3 million USD for `synthetic`, and the fixture's 50, 45 and 30 million USD for `thesis`.
+  - `clusters.weights` holds each cluster's weights, by asset id.
+  - `clusters.index` holds the core's index, (n, n_clusters) in `cluster_ids` order. It is written as computed, not rounded to 12 digits, so a reader that uses it gets the core's bins.
+  - A reader that computes its own index (`x[:, members] @ w`) gets the same bins. A one-asset cluster's index is its asset's index exactly (weight 1), and every value of a cluster of several assets lies more than 1e-9 (relative) from every breakpoint.
+- **A cluster's loss** is the sum of its members' losses, per draw.
+- **The covers.** `cover` is a list of templates, one per cluster in `cluster_ids` order. They are step payouts on the data set's breakpoints, with every level `Free` up to the cluster's cap: the cluster's largest loss in a draw, the core's cap of an entity. A cluster's cover pays on its column of the cluster index. Each template is written for no asset (`asset_id` null) and keeps the other cases' index definition: how the module names a cluster and its index in a cover document is R-21g's choice.
+- **The design problems.**
+  - `cluster-joint`: one design problem over every cluster. The objective, the premium and `Budget(ratio=0.8)` are on the total, L_d = Σ_c L_{d,c} and π_d = Σ_c π_{d,c}. It is a joint case with the clusters as its covers.
+  - `cluster-separate`: one design problem per cluster, on the cluster's loss and payout only, each with its own objective, premium and budget, 0.8 · E[L_c]. This is the individual scope's rule, applied per cluster.
+- **`expected`.**
+  - `parameters` and `unidentified` are keyed by cluster id.
+  - `cluster-joint`: `objective_value`, `unique` and `compare_parameters` are the design's, as in a joint case, and `premium` is its design premium, on the total.
+  - `cluster-separate`: each cluster's block holds its own design's `objective_value`, `premium` (its design premium), `unique` and `compare_parameters`. The top-level `objective_value` is null and `unique` is true when every cluster's is. `compare_parameters` is `"exact"` when every cluster's is, and otherwise the other clusters' mode: every cluster of a case is on the same route.
+  - `metrics` and `premium` are the total's. This is the core's portfolio row: every asset's loss against every cluster's payout, with the premium priced on the total payout. Under `cluster-joint` that is the design premium. Under `cluster-separate` it is the price of the clusters' covers bought as one, as the core reports it. Under the pure premium it is the sum of the clusters' premiums. The cost-of-capital load is sub-additive, so there it can be less: in `step-mse-coc-cluster-separate-synthetic` it is 409,227.31 USD, against 413,140.22 for the sum of the two clusters' premiums. In the other cost-of-capital cases the two agree to rounding. ADR 0005 Amendment 3 gives a set of separate covers the sum of their premiums on its `"total"` row. So a module test of the total row of a `cluster-separate` case states `premium=expected.premium`, as the tests of non-unique joint cases do (ADR 0005 Amendment 3, "The joint fixtures").
+  - `clusters.<id>.metrics` is the cluster's row: its loss against its cover's payout. Under `cluster-separate` the cluster is a design problem, so the row has its premium and its net-loss columns. Under `cluster-joint` it is one entity of a joint design. The core prices no entity, so `premium` and the net-loss columns (`var_net_loss_*`, `cvar_net_loss_*`, `net_loss_rp*`) are null, and so are the block's `objective_value`, `premium`, `unique` and `compare_parameters`. In a non-unique design the row is one member of the optimal set, as the core says of its entity rows.
+  - `allocation.<rule>.<asset id>` is the core's row of an asset under one of its allocation rules (`evaluate.kpis(..., allocation=...)`; `docs/methodology/payout-allocation.md`): the asset's loss against its share of its design problem's payout. `"value"`: π_{d,i} = π_d · v_i / Σ_k v_k. `"loss"`: π_{d,i} = π_d · L_{d,i} / Σ_k L_{d,k}, with the value shares in a draw where the design problem has no loss. The sums run over the design problem's assets: under `cluster-joint` every asset (the core's rule, not the thesis's, eq. (3.23), which shares within each cluster), and under `cluster-separate` the cluster's, where a one-asset cluster gives its asset the whole payout. The rows have no premium: `premium` and the net-loss columns are null.
+- **Comparing** works as for any design case ([How to compare](#how-to-compare)), per design problem: the objective value, the parameters by the problem's `compare_parameters` (each cluster's under `cluster-separate`) and the premium. Then the total row, each cluster's row and the allocated rows, compared as `metrics` are; in a non-unique case, those of the templates resolved with `expected.parameters`. Every value uses the case's scale, the largest summed loss over all assets, also for a cluster's own design under `cluster-separate`. The module's scale for such a design is the cluster's, which is smaller, so these floors are looser than the module's own.
+- **Uniqueness** is decided per design problem, as for any design ([How `compare_parameters` and `unique` were decided](#how-compare_parameters-and-unique-were-decided)), on the block basis of the clusters under `cluster-joint`.
+  - 19 of the 24 cases are `"exact"` and 5 `"within_ranges"`: the four E[U] cases with the pure premium, and `step-eu-coc-cluster-separate-synthetic`, whose `C1` is `"exact"` and `C2` `"within_ranges"`. In `step-eu-pure-cluster-separate-thesis`, `C1` is `"exact"`.
+  - None is `"none"`. On these data the MSE route's H is positive definite under `cluster-joint`, and a one-cluster design's H is diagonal.
+  - In the `thesis` data no draw's cluster index reaches 60 m/s in either cluster, so both clusters' `levels[6]` are unidentified and follow the fill rule.
+
 ## How to compare
 
 The scale of a case is the largest summed loss of a draw of `sample`: `max(sum(row) for row in sample["loss"])`. It is the core's scaling of the design problem and the module's (ADR 0005 §5.3). Out-of-sample metrics use the same scale for their floors.
 
 **Evaluate cases.** Evaluate the fixed cover on the sample with `pricing`, and compare `premium` and every column of `metrics`.
 
-**Design cases.** Design the template (`cover`) on the sample with `objective`, `pricing` and `budget` (individual cases: `design`; joint cases: Phase 2's `design_joint`). Then:
+**Design cases.** Design the template (`cover`) on the sample with `objective`, `pricing` and `budget` (individual cases: `design`; joint cases: Phase 2's `design_joint`; cluster cases: R-21g's design, [Cluster cases](#cluster-cases)). Then:
 
 1. Compare `objective_value`.
 2. Compare the parameters as `compare_parameters` says:
@@ -201,6 +233,8 @@ The scale of a case is the largest summed loss of a draw of `sample`: `max(sum(r
    - if `unique` is true, those of the module's designed cover;
    - otherwise, those of the template resolved with `expected.parameters` (`Cover.with_values`), evaluated on the sample. On a non-unique optimum only the objective value is the same for every optimal design. The premium and the metrics depend on which member of the optimal set a solver returns.
 4. The module's `unique` must not be true where the case's is false.
+
+**Cluster cases.** As design cases, per design problem: [Cluster cases](#cluster-cases).
 
 **Out-of-sample cases**, in addition: evaluate on `evaluation_sample`, with the design premium, the cover of step 3 (the module's designed cover if `unique` is true, otherwise the template resolved with `expected.parameters`; with the default fill rule for the unidentified amounts in both), and compare every column of `expected.out_of_sample.metrics`; the row's `fold` must be the case's and its `premium_basis` `"design"`. A test of the metrics alone (R-17) can evaluate the template resolved with `expected.parameters` on `evaluation_sample` with `premium=expected.premium`: it gives the same values, with `premium_basis` `"stated"`.
 
@@ -228,6 +262,7 @@ The floors matter near zero. A solver's levels are exact only to rounding: a lev
 - In both, the unidentified levels are then set by the fill rule (above).
 - **The grid route.** The amount at the chosen candidate is decided as above (LP or QP), and the chosen candidate is the strictly best (by more than 1e-4 relative), so the optimal design is unique when that amount is. `unique` and `compare_parameters` are those of the amount at the chosen candidate.
 - The binary, lower-tail step and piecewise-linear designs are decided as above: the core's one-bin step from the trigger, the core's step on the severity, and the core with the script's piecewise-linear structure.
+- **The cluster designs** are decided as above, for each design problem: under `cluster-joint` on the block basis of the clusters, as a joint design; under `cluster-separate` cluster by cluster ([Cluster cases](#cluster-cases)).
 - **The closed-form linear design.** Its limit's uniqueness follows the closed form's rule ([Binary and linear designs](#binary-and-linear-designs-and-the-grid-route)), exactly. At every candidate the core's §5.4 test on the linear structure gives the same answer. The chosen limit is unique, so `compare_parameters` is `"exact"`.
 
 ## The cases
@@ -248,8 +283,9 @@ The floors matter near zero. A solver's levels are exact only to rounding: a lev
 | Non-default metric options | the piecewise-linear cover, pure, on `handmade` (rainfall) and on `synthetic52`: 2 | evaluate, closed_form |
 | Linear design, the grid route | attachment on the grid 64, 80, 100 and exhaustion on 175, 210, 260 mm/day, weighted CVaR at β 0.9, pure, `handmade` rainfall: 1 | design, closed_form |
 | Piecewise-linear designs | knots 50, 80, 120, 175 mm/day, {MSE pure, weighted CVaR at β 0.9 with cost of capital}, `handmade` rainfall: 2 | design, core (with the script's payout structure) |
+| Cluster designs | {MSE, expected uncovered, weighted CVaR at β 0.9} × {pure, cost of capital} × {`joint` true, `joint` false} × {synthetic, thesis}, two clusters of the three assets: 24 | design, core |
 
-Every design case has `budget` 0.8 and weighted-CVaR weight α 0.9. The core cases' cost-of-capital pricing is rate 0.06 at q 0.99; the closed-form one is rate 0.1 at q 0.9. Individual cases use the data set's first asset.
+Every design case has `budget` 0.8 and weighted-CVaR weight α 0.9. The core cases' cost-of-capital pricing is rate 0.06 at q 0.99; the closed-form one is rate 0.1 at q 0.9. Individual cases use the data set's first asset. The cluster cases leave out weighted CVaR at β 0.99, which the joint cases have: it is the same LP at another level, and a cluster case takes 45 to 52 kB, a third of it the allocated rows.
 
 Out of sample, the k-fold cases of fold 0 (the MSE design and the weighted-CVaR one) hold out the years 0–10. They hold the draw of A1 at 60 m/s, the only one in the last bin, so the design block leaves `levels[5]` unidentified and the fill rule decides that held-out draw's payout. The fresh draws hold larger losses than the design sample (up to 4.1 million USD; the cap is 2.0 million). Every design added by MAR-264 and MAR-269 is unique (`exact`).
 
@@ -274,12 +310,13 @@ Out of sample, the k-fold cases of fold 0 (the MSE design and the weighted-CVaR 
 - The core's `StepPayout(..., below_attachment="zero")`: nothing below the first breakpoint.
 - The annual basis, with one draw per year.
 - At most one event row per year. The core sees no row for a year without an event and pools it into one zero-loss outcome; that gives the same values as a draw with index 0 and loss 0.
-- The core's `Budget(0.8)`, `WeightedCVaR(alpha=0.9, beta)`, `PurePremium()` and `CostOfCapitalLoad(rate=0.06, q=0.99)`, in the scopes `Individual()` and `Portfolio()`.
+- The core's `Budget(0.8)`, `WeightedCVaR(alpha=0.9, beta)`, `PurePremium()` and `CostOfCapitalLoad(rate=0.06, q=0.99)`, in the scopes `Individual()`, `Portfolio()` and `Cluster(strategy, n_clusters=2, joint=…)` with its default index, `ValueWeightedIndex()`.
 - Out-of-sample cases: the core's `splits.holdout(eventset, train_fraction=0.7)` or `splits.year_block_kfold(eventset, k=5)[i]`; `build_problems(..., sample=train)` designs, and `evaluate.kpis(..., sample=test)` evaluates. Fresh draws: `build_problems` designs on the whole design EventSet, and `evaluate.kpis` evaluates the design's result on the fresh draws' EventSet (the same asset). The core's `kpis` prices the premium again on the evaluation sample; the cases replace it with the design premium, so their `premium` and net-loss columns come from the core's risk measures (`riskmeasures.var_cvar`, `lower_quantile`) of loss − payout + the design premium.
 - Binary designs: the core's `StepPayout` with one bin from the trigger (and a second edge above it, which changes no payout). The core's optimum must agree with the closed form ([Binary and linear designs](#binary-and-linear-designs-and-the-grid-route)) within 1e-7 relative.
 - Linear designs: the closed form, in rational arithmetic, is written. The core designs each candidate with the script's `LinearStructure` (a `PayoutStructure` with one basis column, the clipped share; the limit ≥ 0 and capped), and must agree within 1e-7 relative.
 - Piecewise-linear designs: the core's `build_problems`, `solve.solve` and KPIs, with the script's `PiecewiseLinearStructure` (a `PayoutStructure` whose basis holds the hat functions of the knots; the levels ≥ 0, non-decreasing and capped, as in the core's step payout). The standalone check ([Piecewise-linear designs](#piecewise-linear-designs)) must agree within 1e-7 relative.
 - Lower-tail steps: the core works on the severity −x, with the breakpoints' severities.
+- Cluster designs: the core's `Cluster` scope with a strategy of this script, `StatedAssignment`, which returns the stated assignment (a `ClusteringStrategy`, so the core stays read-only). The script also computes each cluster's index and loss itself, from the draws, and requires them to equal the core's (`DesignProblem.index`, `entity_loss`) exactly. Each design problem is built alone (`build_problems(..., specs=(spec,))`) and solved as any design is. The metrics come from one evaluation of all the design problems: `evaluate.kpis` and `evaluate.exceedance_curves` with `allocation="value"` and with `allocation="loss"`. The total is their `portfolio` row, a cluster their `entity` row (`cluster-joint`) or its design problem's `problem` row (`cluster-separate`), an asset their `location_by_value` or `location_by_loss` row.
 - Solvers, through the core's `solve.solve` with these policies: HiGHS for the LP vertices and the ranging LPs; Clarabel with `tol_gap_abs`, `tol_gap_rel` and `tol_feas` at 1e-12 for the QPs and the non-unique LPs; OSQP at `eps` 1e-12 to check the QPs (agreement 1e-9). The core's default policy is run too, as a check (agreement 1e-5). Its OSQP, at `eps` 1e-8, meets a binding budget only to about 1e-6 relative, which moves the MSE objective by up to about 1.5e-6 relative: more than the cases' tolerance, so its solutions are not written.
 - Levels within 1e-9 of the scale of zero are written as 0 (ADR 0005 §5.3's rule). Computed values are rounded to 12 significant digits; inputs are written as stored.
 
@@ -293,12 +330,12 @@ The core cases carry the metrics the core computes, in sample and out of sample.
 |---|---|
 | `expected_loss`, `expected_payout`, `expected_uncovered`, `payout_to_loss_ratio`, `correlation` | `evaluate.kpis`, the KPIs of the same names |
 | `rmse` | `evaluate.kpis`, `rmse_residual` |
-| `premium` | `evaluate.kpis`, `premium` (`pricing.premium_value`); out of sample, the design premium |
+| `premium` | `evaluate.kpis`, `premium` (`pricing.premium_value`); out of sample, the design premium; null on rows the core doesn't price (a cluster of a `cluster-joint` design, an allocated row) |
 | `var_uncovered_b<β>`, `cvar_uncovered_b<β>` | `evaluate.kpis` at β |
 | `var_loss_b<β>`, `cvar_loss_b<β>` | `riskmeasures.var_cvar` of the loss |
-| `var_net_loss_b<β>`, `cvar_net_loss_b<β>` | `riskmeasures.var_cvar` of loss − payout + premium |
+| `var_net_loss_b<β>`, `cvar_net_loss_b<β>` | `riskmeasures.var_cvar` of loss − payout + premium; null where `premium` is |
 | `loss_rp<T>`, `payout_rp<T>`, `uncovered_rp<T>` | `evaluate.exceedance_curves`, the AEP curves |
-| `net_loss_rp<T>` | `riskmeasures.lower_quantile` of loss − payout + premium |
+| `net_loss_rp<T>` | `riskmeasures.lower_quantile` of loss − payout + premium; null where `premium` is |
 
 The closed-form cases carry every column of ADR 0005 §6 but `payout_frequency` and `unidentified_share`, which its Amendment 6 added after them. The new metrics (`coverage_ratio`, `tail_coverage_b<β>`, `cvar_uncovered_to_loss_b<β>`, `false_negative_rate_l<ℓ>`, `false_positive_rate_l<ℓ>`) are only there: one case has one source, and the core has none of them. On the realistic data they are in the four closed-form cases of the `synthetic` sample and the `-options` case of `synthetic52`. The script computes every value in exact rational arithmetic; the columns that are also core quantities must agree with the core's risk measures to 1e-12 (VaR and CVaR at every β, the return-period quantiles at every T), and a binary or step payout must equal the core's step payout (one bin from the trigger; on the severity for the lower tail).
 
@@ -314,3 +351,4 @@ The accepted ADR settles the format of the in-sample cases (erratum 4 records th
 6. **A closed-form design case.** §8's `source` allows `"closed_form"`, but its closed-form cases were evaluations. The linear grid case is a design computed in closed form (§5.1–§5.3 for one amount), checked by the core and not written from it.
 7. **Core designs with a script-side payout structure.** The piecewise-linear designs have `source: "core"`: the core's builder, solvers and KPIs computed `expected`; only the payout structure, §3's piecewise-linear basis, is the script's.
 8. **A design with some folds only.** The weighted-CVaR k-fold design has fold 0 only; `split.fold` and `expected.out_of_sample.fold` say which.
+9. **The cluster scope** (MAR-400). §8 has no cluster case, and Amendment 3 defers `Clustered(assignment, *, joint=True)` until these cases exist (R-21g). The scope `"cluster"`, the top-level `clusters` block and `expected.clusters` and `expected.allocation` are in the cluster cases only, so no other case changes. Their names come from Amendment 3 (`assignment`, `joint`, `allocation` and its rules `"value"` and `"loss"`) and from the core (`cluster`, `ValueWeightedIndex`'s values and weights). `cluster_ids` follows `asset_ids`, and `members` is the core's `Entity.location_ids`. The cover templates of a cluster are written for no asset ([Cluster cases](#cluster-cases)).
