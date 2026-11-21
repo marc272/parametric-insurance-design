@@ -54,7 +54,7 @@ CASES_DIR = PARITY_DIR / "crc" / "cases"
 README = PARITY_DIR / "crc" / "README.md"
 MAX_TOTAL_BYTES = 2_200_000
 """The cases' total size. MAR-400 raised it from 1,000,000 bytes: its 24
-cluster cases hold about 1.1 MB (45 to 52 kB each, a third of it the rows
+cluster cases hold about 1.1 MB (42 to 51 kB each, a third of it the rows
 allocated to assets under the core's two rules), and they are the cluster
 scope's parity contract (ADR 0005 Amendment 3, R-21g). A change that adds
 cases beyond it raises the limit again, with a reason."""

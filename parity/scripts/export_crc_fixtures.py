@@ -556,7 +556,7 @@ CLUSTER_WARD_BETA_TAIL: Final[float] = 0.9
 CLUSTER_OBJECTIVES: Final[tuple[str, ...]] = ("mse", "eu", "wcvar-b0_9")
 """Objective id tokens of the cluster cases: MSE, E[U] and weighted CVaR. The
 16 joint cases also have weighted CVaR at beta 0.99, the same LP at another
-level; the cluster cases leave it out to keep their size down (about 45 kB a
+level; the cluster cases leave it out to keep their size down (42 to 51 kB a
 case, a third of it the allocated rows)."""
 CLUSTER_INDEX_MARGIN: Final[float] = 1e-9
 """Every value of a cluster index over several assets lies at least this far

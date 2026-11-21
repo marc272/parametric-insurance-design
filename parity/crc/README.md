@@ -285,7 +285,7 @@ The floors matter near zero. A solver's levels are exact only to rounding: a lev
 | Piecewise-linear designs | knots 50, 80, 120, 175 mm/day, {MSE pure, weighted CVaR at β 0.9 with cost of capital}, `handmade` rainfall: 2 | design, core (with the script's payout structure) |
 | Cluster designs | {MSE, expected uncovered, weighted CVaR at β 0.9} × {pure, cost of capital} × {`joint` true, `joint` false} × {synthetic, thesis}, two clusters of the three assets: 24 | design, core |
 
-Every design case has `budget` 0.8 and weighted-CVaR weight α 0.9. The core cases' cost-of-capital pricing is rate 0.06 at q 0.99; the closed-form one is rate 0.1 at q 0.9. Individual cases use the data set's first asset. The cluster cases leave out weighted CVaR at β 0.99, which the joint cases have: it is the same LP at another level, and a cluster case takes 45 to 52 kB, a third of it the allocated rows.
+Every design case has `budget` 0.8 and weighted-CVaR weight α 0.9. The core cases' cost-of-capital pricing is rate 0.06 at q 0.99; the closed-form one is rate 0.1 at q 0.9. Individual cases use the data set's first asset. The cluster cases leave out weighted CVaR at β 0.99, which the joint cases have: it is the same LP at another level, and a cluster case takes 42 to 51 kB, a third of it the allocated rows.
 
 Out of sample, the k-fold cases of fold 0 (the MSE design and the weighted-CVaR one) hold out the years 0–10. They hold the draw of A1 at 60 m/s, the only one in the last bin, so the design block leaves `levels[5]` unidentified and the fill rule decides that held-out draw's payout. The fresh draws hold larger losses than the design sample (up to 4.1 million USD; the cap is 2.0 million). Every design added by MAR-264 and MAR-269 is unique (`exact`).
 
