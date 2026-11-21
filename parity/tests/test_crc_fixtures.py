@@ -471,11 +471,14 @@ def test_cluster_cases_follow_mar_406_where_it_departs_from_the_core(
     doc = cases["step-mse-coc-cluster-separate-synthetic.json"]
     ids, params = doc["clusters"]["cluster_ids"], doc["expected"]["parameters"]
     index = _cluster_index(doc)
-    pay = sum(
-        _payout(cover, index[:, j], params[c])
-        for j, (c, cover) in enumerate(zip(ids, doc["cover"], strict=True))
-    )
     p = np.asarray(doc["sample"]["probability"], dtype=float)
+    pay = sum(
+        (
+            _payout(cover, index[:, j], params[c])
+            for j, (c, cover) in enumerate(zip(ids, doc["cover"], strict=True))
+        ),
+        start=np.zeros(p.size),
+    )
     assert f"{_premium(doc['pricing'], pay, p):,.2f}" == "409,227.31"
     assert f"{doc['expected']['premium']:,.2f}" == "413,140.22"
 
