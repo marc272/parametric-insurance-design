@@ -1,6 +1,7 @@
 r"""Export golden fixtures from the core for the CRC module's tests.
 
-MAR-245 built the fixtures; MAR-255, MAR-264, MAR-269 and MAR-400 extended them.
+MAR-245 built the fixtures; MAR-255, MAR-264, MAR-269, MAR-400 and MAR-412
+extended them.
 
 The parametric insurance module ``crc_sdk.parametric`` is built in a fork of
 crc-sdk. It never imports this repository's core, ``parametric_insurance_design``,
@@ -90,7 +91,13 @@ How the expected values are computed
   (:func:`_solve_design`). The script computes the cluster index and loss
   itself and requires them to equal the core's. The metrics are the core's
   rows of the total, of each cluster and of each asset under the core's two
-  allocation rules (:func:`subject_metrics`).
+  allocation rules (:func:`subject_metrics`). Two values follow the owner's
+  decision on MAR-406 (ADR 0005 Amendment 3) where it differs from the core:
+  under ``joint=True`` the allocated rows share each cluster's payout over
+  its own assets (the core shares the total over every asset), and under
+  ``joint=False`` the total's premium is the sum of the clusters' premiums
+  (the core prices the total payout as one contract). :func:`cluster_case`
+  says how and why.
 * **Fixed covers with a step payout** (``kind = "evaluate"``,
   ``source = "core"``): the core's ``StepPayout.evaluate`` and
   ``evaluate.kpis`` on a hand-set cover.
@@ -1902,6 +1909,44 @@ def core_metrics(
     )
 
 
+def _kpi_value(
+    table: pd.DataFrame, level: KpiLevel, subject_id: str, name: str
+) -> float | None:
+    """Return one KPI of one subject from a core KPI table; None where undefined.
+
+    Raises
+    ------
+    AssertionError
+        If the table does not hold exactly one such row.
+    """
+    rows = table[
+        (table["level"] == level.value)
+        & (table["subject_id"] == subject_id)
+        & (table["kpi"] == name)
+    ]
+    if len(rows) != 1:
+        raise AssertionError(f"expected one {name} row, got {len(rows)}")
+    value = float(np.asarray(rows["value"], dtype=np.float64)[0])
+    return None if math.isnan(value) else value
+
+
+def core_premium(tables: _CoreTables, level: KpiLevel, subject_id: str) -> float:
+    """Return the core's premium of one priced subject of a run, unrounded.
+
+    The ``premium`` KPI of a design problem or of the portfolio (the core
+    prices nothing else), as :func:`subject_metrics` reads it.
+
+    Raises
+    ------
+    AssertionError
+        If the core reports no premium for the subject.
+    """
+    value = _kpi_value(tables.kpis[0], level, subject_id, "premium")
+    if value is None:
+        raise AssertionError(f"{subject_id}: the core prices no premium")
+    return value
+
+
 def subject_metrics(
     tables: _CoreTables,
     level: KpiLevel,
@@ -1953,15 +1998,7 @@ def subject_metrics(
     out_metrics: dict[str, Any] = {}
 
     def kpi_row(table: pd.DataFrame, name: str) -> float | None:
-        rows = table[
-            (table["level"] == level.value)
-            & (table["subject_id"] == subject_id)
-            & (table["kpi"] == name)
-        ]
-        if len(rows) != 1:
-            raise AssertionError(f"expected one {name} row, got {len(rows)}")
-        value = float(np.asarray(rows["value"], dtype=np.float64)[0])
-        return None if math.isnan(value) else value
+        return _kpi_value(table, level, subject_id, name)
 
     stated = premium
     for i, (beta, table) in enumerate(zip(BETAS, tables.kpis, strict=True)):
@@ -3686,6 +3723,27 @@ def cluster_case(
     objective and budget on the cluster's loss. Each design problem is
     solved and judged as a design case is (:func:`_solve_design`).
 
+    Two values follow the owner's decision on MAR-406 (ADR 0005 Amendment
+    3, its revision of 2026-11-21) and so depart from what the core's
+    evaluation of the scope reports:
+
+    - **The allocated rows under ``joint=True``** share each cluster's
+      payout over that cluster's assets (item 3, the thesis's eq. (3.23)),
+      because a cluster's cover pays on its own index. The core's ``kpis``
+      shares the joint design's total payout over every asset. So these
+      rows are the core's rows of the same covers evaluated as the
+      clusters' own design problems, ``Cluster(joint=False)``, whose
+      allocation shares each cluster's payout over its own assets: the
+      core's rule, applied per cluster. Under ``joint=False`` the two agree.
+    - **The total's premium under ``joint=False``** is the sum of the
+      clusters' premiums (item 2), because each cluster is its own contract
+      with its own budget. The core prices the total payout as one
+      contract, which a cost-of-capital load makes smaller. The total row's
+      net-loss columns use the sum. Under ``joint=True`` the premium is the
+      design premium, as the core's.
+
+    Every other value is the core's.
+
     Parameters
     ----------
     data : Dataset
@@ -3728,6 +3786,27 @@ def cluster_case(
     groups = [ids] if joint else [(c,) for c in ids]
     if len(specs) != len(groups):
         raise AssertionError("the core's design problems differ from the setting's")
+    # The clusters as their own design problems: the scope itself under
+    # joint=False, and under joint=True the scope the allocated rows are
+    # evaluated in, so that each cluster's payout is shared over its own
+    # assets (MAR-406 item 3; see the docstring).
+    by_cluster = (
+        pid.Cluster(
+            strategy=StatedAssignment(layout.labels), n_clusters=len(ids), joint=False
+        )
+        if joint
+        else scope
+    )
+    cluster_specs = by_cluster.partition(eventset)
+    if [s.problem_id for s in cluster_specs] != [cluster_problem_id(c) for c in ids]:
+        raise AssertionError(
+            "the clusters' own design problems differ from the clusters"
+        )
+    if any(
+        tuple(e.location_ids for e in s.entities) != (layout.members[c],)
+        for s, c in zip(cluster_specs, ids, strict=True)
+    ):
+        raise AssertionError("a cluster's own design problem holds other assets")
     for j, c in enumerate(ids):
         if len(layout.members[c]) == 1:
             own = data.severity[:, data.asset_ids.index(layout.members[c][0])]
@@ -3791,6 +3870,17 @@ def cluster_case(
             replace(s.chosen, theta=levels[i : i + 1]) for i, s in enumerate(solved)
         )
 
+    def cluster_results_at(levels: NDArray[np.float64]) -> tuple[SolveResult, ...]:
+        """Return the covers at ``levels`` as the clusters' own design problems."""
+        if not joint:
+            return results_at(levels)
+        # Only the payouts of these results are read (the allocated rows
+        # have no premium), so the joint solve's other fields can stay.
+        return tuple(
+            replace(solved[0].chosen, spec=spec, theta=levels[j : j + 1])
+            for j, spec in enumerate(cluster_specs)
+        )
+
     def evaluate(levels: NDArray[np.float64]) -> dict[str, Any]:
         """Return the objective, premiums and metrics of the covers at ``levels``."""
         results = results_at(levels)
@@ -3798,16 +3888,38 @@ def cluster_case(
             [values(view.severity[:, j], levels[j]) for j in range(len(ids))]
         )
         total_payout = pay.sum(axis=1)
+        # The allocated rows: each cluster's payout shared over its own assets
+        # under both settings (MAR-406 item 3), so from the clusters' own
+        # design problems. Under joint=False they are the scope's.
+        by_cluster_results = cluster_results_at(levels)
         tables = {
-            rule: _core_tables(eventset, scope, results, pricing.core, allocation=rule)
+            rule: _core_tables(
+                eventset, by_cluster, by_cluster_results, pricing.core, allocation=rule
+            )
             for _, rule in ALLOCATION_RULES
         }
-        first_tables = tables[ALLOCATION_RULES[0][1]]
+        first_tables = (
+            _core_tables(eventset, scope, results, pricing.core)
+            if joint
+            else tables[ALLOCATION_RULES[0][1]]
+        )
+        # The total's premium: the design premium under joint=True; under
+        # joint=False the sum of the clusters' premiums (MAR-406 item 2), not
+        # the core's price of the total payout as one contract.
+        total_premium = (
+            None
+            if joint
+            else math.fsum(
+                core_premium(first_tables, KpiLevel.PROBLEM, cluster_problem_id(c))
+                for c in ids
+            )
+        )
         total = subject_metrics(
             first_tables,
             KpiLevel.PORTFOLIO,
             PORTFOLIO_SUBJECT,
             _Draws(loss_total, total_payout),
+            premium=total_premium,
         )
         blocks: dict[str, Any] = {}
         for j, c in enumerate(ids):
@@ -3847,10 +3959,8 @@ def cluster_case(
         allocated: dict[str, Any] = {}
         for name, rule in ALLOCATION_RULES:
             by_asset: dict[str, Any] = {}
-            for group in groups:
-                cols = [ids.index(c) for c in group]
-                assets = [a for c in group for a in layout.members[c]]
-                problem_payout = pay[:, cols].sum(axis=1)
+            for j, c in enumerate(ids):
+                assets = layout.members[c]
                 shares = allocation_shares(data, assets, rule)
                 for i, asset in enumerate(assets):
                     by_asset[asset] = subject_metrics(
@@ -3859,11 +3969,11 @@ def cluster_case(
                         asset,
                         _Draws(
                             data.loss[:, data.asset_ids.index(asset)],
-                            problem_payout * shares[:, i],
+                            pay[:, j] * shares[:, i],
                         ),
                         priced=False,
                     )
-            allocated[name] = by_asset
+            allocated[name] = {a: by_asset[a] for a in data.asset_ids}
         value = (
             out(_objective_value(objective.core, loss_total, total_payout))
             if joint
