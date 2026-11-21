@@ -2385,7 +2385,7 @@ The rest of the ADR stands. §2, §4.4, §5.4, §6, §7, §9 and §10 keep their
 
 **Revised on 2026-11-21, after it merged** (MAR-396). On MAR-385 the owner decided option (c), as recommended (in chat, 2026-11-21; recorded on MAR-385): on rows built together, an `EmpiricalCopula` block re-deals each column's resampled draws by the reference, and a held `HazardNoise` block is re-ranked. Every other row keeps today's method and numbers, and R-50's flag (MAR-384) stays. This changes one rule of F3, "an `EmpiricalCopula` block is resampled by row", which is amended in place in "Intervals". "Resampling rows built together", at the end of "Pooled folds and intervals", has the rule, the evidence and the record, and MAR-397 (R-53) builds it. Nothing else in this amendment changes.
 
-**Revised again on 2026-11-22** (MAR-412), on two more of the owner's decisions of 2026-11-21, each accepted as recommended (in chat: "Accept as recommended"):
+**Revised again on 2026-11-22** (MAR-412), on two more of the owner's decisions of 2026-11-21, each accepted as recommended (in chat: "Accept as recommended"; recorded on MAR-405 and MAR-410):
 
 - **MAR-405, option (a): `DesignOptions()` ranges by default on the LP route** (`ranges=True`). §5.4 records it, and "A budget frontier" below now reads with it: with the default `design_options`, every LP row of a frontier ranges. MAR-413 (R-56a) builds it.
 - **MAR-410, option (c): a multi-hazard sample keeps each component's damage before the combine rule**, so intervals across hazards rebuild the combined loss under every built-in rule, and a caller's rule keeps today's method, as `kept_today` records it. "Across hazards", at the end of "Resampling rows built together", has the rule and the record. MAR-414 (R-58a) builds it.
