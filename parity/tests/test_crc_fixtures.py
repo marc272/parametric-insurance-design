@@ -1,7 +1,7 @@
 """Tests for the CRC module's golden fixtures, ``parity/crc/cases/``.
 
-The fixtures are MAR-245's, extended by MAR-255, MAR-264 and MAR-269. Three
-groups:
+The fixtures are MAR-245's, extended by MAR-255, MAR-264, MAR-269 and MAR-400
+(the cluster scope). Three groups:
 
 - **Regeneration.** ``parity/scripts/export_crc_fixtures.py`` rebuilds every
   case in memory from the core, and the committed files must pass
@@ -25,7 +25,11 @@ groups:
   the expected values within the case's tolerances. Binary and linear
   designs, the grid route's profile included, are also solved in closed
   form. This is what the module's tests in the fork do. The piecewise-linear
-  designs are checked against two standalone computations as well.
+  designs are checked against two standalone computations as well. A
+  cluster case is read the same way, from its assignment and asset values:
+  the cluster index, each cluster's payout, the objective, premium and
+  budget of each design problem, and the metrics of the total, of each
+  cluster and of each asset under both allocation rules.
 """
 
 from __future__ import annotations
@@ -48,10 +52,15 @@ PARITY_DIR = Path(__file__).resolve().parents[1]
 SCRIPT = PARITY_DIR / "scripts" / "export_crc_fixtures.py"
 CASES_DIR = PARITY_DIR / "crc" / "cases"
 README = PARITY_DIR / "crc" / "README.md"
-MAX_TOTAL_BYTES = 1_000_000
+MAX_TOTAL_BYTES = 2_200_000
+"""The cases' total size. MAR-400 raised it from 1,000,000 bytes: its 24
+cluster cases hold about 1.1 MB (42 to 51 kB each, a third of it the rows
+allocated to assets under the core's two rules), and they are the cluster
+scope's parity contract (ADR 0005 Amendment 3, R-21g). A change that adds
+cases beyond it raises the limit again, with a reason."""
 
-# The case matrix of MAR-245, MAR-255, MAR-264 and MAR-269, stated here
-# independently of the script.
+# The case matrix of MAR-245, MAR-255, MAR-264, MAR-269 and MAR-400, stated
+# here independently of the script.
 OBJECTIVES = ("mse", "eu", "wcvar-b0_9", "wcvar-b0_99")
 HOLDOUT_OBJECTIVES = ("mse", "wcvar-b0_9")
 PRICINGS = ("pure", "coc")
@@ -60,6 +69,16 @@ DATA = ("synthetic", "thesis")
 CLOSED_FORM_FAMILIES = ("linear", "binary", "piecewise-linear")
 KFOLD_K = 5
 SHORT = "synthetic52"
+CLUSTER_OBJECTIVES = ("mse", "eu", "wcvar-b0_9")
+CLUSTER_SETTINGS = ("joint", "separate")
+"""``Cluster(joint=True)`` and ``Cluster(joint=False)``, by case id token."""
+CLUSTER_ASSIGNMENTS = {
+    "synthetic": {"A1": "C1", "A2": "C1", "A3": "C2"},
+    "thesis": {"A1": "C1", "A2": "C1", "A9": "C2"},
+}
+"""The stated assignment of each data set's assets (README, "Cluster cases")."""
+SCOPE_TOKENS = ("individual", "joint", "cluster-joint", "cluster-separate")
+"""The scope part of a case id; the data set follows it."""
 EXPECTED_CASES = {
     *(
         f"step-{o}-{p}-{s}-{d}"
@@ -100,6 +119,14 @@ EXPECTED_CASES = {
     "linear-upper-grid-wcvar-b0_9-pure-individual-handmade",
     "piecewise-linear-upper-mse-pure-individual-handmade",
     "piecewise-linear-upper-wcvar-b0_9-coc-individual-handmade",
+    # MAR-400: the cluster scope, both settings of joint
+    *(
+        f"step-{o}-{p}-cluster-{s}-{d}"
+        for o in CLUSTER_OBJECTIVES
+        for p in PRICINGS
+        for s in CLUSTER_SETTINGS
+        for d in DATA
+    ),
 }
 SHAPE_PARAMETERS = {"trigger", "attachment", "exhaustion"}
 """The shape parameters a grid-route case frees (ADR 0005 §3's flat names)."""
@@ -199,6 +226,8 @@ def test_regeneration_check_holds_with_other_solver_points(
     # moved. (Unidentified levels no longer move: they follow the fill rule.)
     assert "step-wcvar-b0_9-pure-joint-synthetic.json" in moved
     assert "step-eu-pure-joint-thesis.json" in moved
+    assert "step-eu-pure-cluster-joint-synthetic.json" in moved
+    assert "step-eu-coc-cluster-separate-synthetic.json" in moved
     assert len(moved) >= 6
 
 
@@ -314,6 +343,95 @@ def test_compare_case_rejects_a_wrong_fold(
     assert any(p.startswith("expected/out_of_sample/fold") for p in found)
 
 
+def test_compare_case_rejects_a_broken_cluster_budget(
+    generated: dict[str, Any], cases: dict[str, dict[str, Any]]
+) -> None:
+    """Each cluster of a ``joint=False`` design has its own budget."""
+    name = "step-wcvar-b0_9-pure-cluster-separate-synthetic.json"
+    assert exporter.compare_case(cases[name], generated[name]) == []
+    doc = _design(cases, name)
+    # Raise C2's levels by 30 %, scale C1's down so that the total premium
+    # stays within the total budget: only C2's own budget is broken.
+    for key in doc["expected"]["parameters"]["C2"]:
+        doc["expected"]["parameters"]["C2"][key] *= 1.3
+    for key in doc["expected"]["parameters"]["C1"]:
+        doc["expected"]["parameters"]["C1"][key] *= 0.9
+    found = exporter.compare_case(doc, generated[name])
+    assert any("C2: premium" in p and "above the budget" in p for p in found)
+    assert not any("C1: premium" in p for p in found)
+
+
+def test_compare_case_rejects_cluster_values_that_are_not_the_cores(
+    generated: dict[str, Any], cases: dict[str, dict[str, Any]]
+) -> None:
+    """A cluster row, an allocated row and a cluster's optimum are compared."""
+    name = "step-eu-pure-cluster-joint-synthetic.json"
+    assert cases[name]["compare_parameters"] == "within_ranges"
+    assert exporter.compare_case(cases[name], generated[name]) == []
+    doc = _design(cases, name)
+    doc["expected"]["clusters"]["C1"]["metrics"]["expected_payout"] *= 1 + 1e-9
+    doc["expected"]["allocation"]["loss"]["A2"]["rmse"] *= 1 + 1e-9
+    found = exporter.compare_case(doc, generated[name])
+    assert any(
+        p.startswith("expected/clusters/C1/metrics/expected_payout") for p in found
+    )
+    assert any(p.startswith("expected/allocation/loss/A2/rmse") for p in found)
+    # Levels moved off the optimal set: outside the ranges, another optimum.
+    doc = _design(cases, name)
+    for levels in doc["expected"]["parameters"].values():
+        for key in levels:
+            levels[key] *= 0.9
+    found = exporter.compare_case(doc, generated[name])
+    assert any("outside the range" in p for p in found)
+    assert any("objective" in p for p in found)
+    name = "step-eu-coc-cluster-separate-thesis.json"
+    doc = _design(cases, name)
+    doc["expected"]["clusters"]["C2"]["objective_value"] *= 1 + 1e-4
+    found = exporter.compare_case(doc, generated[name])
+    assert any(p.startswith("expected/clusters/C2/objective_value") for p in found)
+
+
+def test_cluster_cases_state_the_cores_clusters(
+    cases: dict[str, dict[str, Any]],
+) -> None:
+    """The stated assignment is the core's Ward clustering, and the core's index.
+
+    The module takes an assignment, so a case states it. Here it is also
+    what the core's ``ThesisWardClustering(beta_tail=0.9)`` gives with two
+    clusters on each data set (needs scipy; the cases don't depend on it).
+    """
+    synthetic, thesis = exporter.datasets()
+    for data in (synthetic, thesis):
+        strategy = exporter.pid.ThesisWardClustering(
+            beta_tail=exporter.CLUSTER_WARD_BETA_TAIL
+        )
+        ward = strategy.assign(exporter.core_eventset(data), 2)
+        assert {a: f"C{k}" for a, k in ward.items()} == CLUSTER_ASSIGNMENTS[data.name]
+    found = 0
+    for name, doc in cases.items():
+        if doc["scope"] != "cluster":
+            continue
+        found += 1
+        data = name.removesuffix(".json").rsplit("-", 1)[1]
+        cl = doc["clusters"]
+        assert cl["assignment"] == CLUSTER_ASSIGNMENTS[data], name
+        assert cl["joint"] == ("-cluster-joint-" in name), name
+        # A one-asset cluster's index is its asset's; a cluster of several
+        # assets sits off every breakpoint by more than 1e-9 relative.
+        written = np.asarray(cl["index"], dtype=float)
+        x = np.asarray(doc["sample"]["index"], dtype=float)
+        for j, c in enumerate(cl["cluster_ids"]):
+            members = cl["members"][c]
+            if len(members) == 1:
+                own = x[:, doc["sample"]["asset_ids"].index(members[0])]
+                assert np.array_equal(written[:, j], own), (name, c)
+                continue
+            b = np.asarray(doc["cover"][j]["payout"]["breakpoints"], dtype=float)
+            gap = np.abs(written[:, j, None] - b[None, :])
+            assert np.all(gap > 1e-9 * np.maximum(1.0, b)), (name, c)
+    assert found == len(CLUSTER_OBJECTIVES) * len(PRICINGS) * 2 * len(DATA)
+
+
 def test_out_of_sample_cases_use_the_design_premium(
     cases: dict[str, dict[str, Any]],
 ) -> None:
@@ -381,7 +499,7 @@ def test_files_are_canonical_text() -> None:
         assert exporter.render(json.loads(text)) == text, name
 
 
-def test_total_size_is_under_1_mb() -> None:
+def test_total_size_is_under_the_limit() -> None:
     total = sum(len(t.encode("utf-8")) for t in _committed().values())
     assert 0 < total < MAX_TOTAL_BYTES
 
@@ -472,7 +590,8 @@ def test_licence_table_counts_every_case(cases: dict[str, dict[str, Any]]) -> No
         ]
         assert len({d for d, _ in hits}) == 1, (case_id, hits, hint)
         data_set = hits[0][0]
-        scope = re.search(r"-(?:individual|joint)-([^-]+)", case_id)
+        scopes = "|".join(map(re.escape, SCOPE_TOKENS))
+        scope = re.search(rf"-(?:{scopes})-([^-]+)", case_id)
         assert scope is not None, case_id
         assert data_set == scope.group(1), (case_id, data_set, hint)
         found[data_set].append(case_id)
@@ -528,8 +647,11 @@ def test_every_document_has_the_contract_fields(
         "profile",
     }
     for name, doc in cases.items():
-        assert set(doc) == top, name
-        assert set(doc["expected"]) == expected, name
+        cluster = doc["scope"] == "cluster"
+        assert set(doc) == top | ({"clusters"} if cluster else set()), name
+        assert set(doc["expected"]) == expected | (
+            {"clusters", "allocation"} if cluster else set()
+        ), name
         assert set(doc["tolerances"]) == {
             "objective_value",
             "premium",
@@ -539,7 +661,8 @@ def test_every_document_has_the_contract_fields(
         assert set(doc["generator"]) == {"script", "core_version", "commit"}
         assert doc["kind"] in ("design", "evaluate")
         assert doc["source"] in ("core", "closed_form")
-        assert doc["scope"] in ("individual", "joint")
+        assert doc["scope"] in ("individual", "joint", "cluster")
+        assert cluster == ("-cluster-" in name), name
         assert doc["compare_parameters"] in ("exact", "within_ranges", "none")
         if doc["kind"] == "evaluate":
             assert doc["compare_parameters"] == "none"
@@ -715,6 +838,13 @@ def test_metric_columns_follow_the_options(cases: dict[str, dict[str, Any]]) -> 
         oos = doc["expected"]["out_of_sample"]
         if oos is not None:
             assert set(oos["metrics"]) == want, name
+        if doc["scope"] == "cluster":
+            # Every cluster row and every allocated row has the same columns.
+            for block in doc["expected"]["clusters"].values():
+                assert set(block["metrics"]) == want, name
+            for rows in doc["expected"]["allocation"].values():
+                for row in rows.values():
+                    assert set(row) == want, name
     labels = {
         c for doc in cases.values() for c in doc["expected"]["metrics"] if "_" in c
     }
@@ -730,11 +860,14 @@ def test_unidentified_levels_follow_the_fill_rule(
         if doc["kind"] != "design":
             continue
         e = doc["expected"]
-        if doc["scope"] == "joint":
-            rows = [
-                (e["parameters"][a], e["unidentified"][a])
-                for a in doc["sample"]["asset_ids"]
-            ]
+        if doc["scope"] in ("joint", "cluster"):
+            keys = (
+                doc["sample"]["asset_ids"]
+                if doc["scope"] == "joint"
+                else doc["clusters"]["cluster_ids"]
+            )
+            assert set(e["parameters"]) == set(keys) == set(e["unidentified"]), name
+            rows = [(e["parameters"][k], e["unidentified"][k]) for k in keys]
         else:
             rows = [(e["parameters"], e["unidentified"])]
         for params, unidentified in rows:
@@ -900,12 +1033,16 @@ def _reader_metrics(
     L: np.ndarray,
     pi: np.ndarray,
     p: np.ndarray,
-    premium: float,
+    premium: float | None,
     options: dict[str, Any],
 ) -> dict[str, float | None]:
-    """ADR 0005 §6's metrics, for the levels, periods and thresholds of ``options``."""
+    """ADR 0005 §6's metrics, for the levels, periods and thresholds of ``options``.
+
+    ``premium`` None: a row without a premium (a cluster of a joint design,
+    an allocated row), whose premium and net-loss columns are null.
+    """
     U = np.maximum(L - pi, 0.0)
-    N = L - pi + premium
+    N = None if premium is None else L - pi + premium
     m: dict[str, float | None] = {
         "expected_loss": float(p @ L),
         "expected_payout": float(p @ pi),
@@ -918,14 +1055,14 @@ def _reader_metrics(
     for beta in options["betas"]:
         b = _label(beta)
         for name, x in (("uncovered", U), ("loss", L), ("net_loss", N)):
-            m[f"var_{name}_b{b}"] = _var(x, p, beta)
-            m[f"cvar_{name}_b{b}"] = _cvar(x, p, beta)
+            m[f"var_{name}_b{b}"] = None if x is None else _var(x, p, beta)
+            m[f"cvar_{name}_b{b}"] = None if x is None else _cvar(x, p, beta)
         m[f"cvar_uncovered_to_loss_b{b}"] = _ratio(_cvar(U, p, beta), _cvar(L, p, beta))
         w = _tail_weights(L, p, beta)
         m[f"tail_coverage_b{b}"] = _ratio(float(w @ np.minimum(pi, L)), float(w @ L))
     for t in options["return_periods"]:
         for name, x in (("loss", L), ("payout", pi), ("uncovered", U), ("net_loss", N)):
-            m[f"{name}_rp{_label(t)}"] = _var(x, p, 1 - 1 / t)
+            m[f"{name}_rp{_label(t)}"] = None if x is None else _var(x, p, 1 - 1 / t)
     paid = pi > options["payout_threshold"]
     for ell in options["loss_thresholds"]:
         big = L > ell
@@ -988,7 +1125,7 @@ def _check_metrics(
     L: np.ndarray,
     pi: np.ndarray,
     p: np.ndarray,
-    premium: float,
+    premium: float | None,
     rtol: float,
     scale: float,
     options: dict[str, Any],
@@ -1071,6 +1208,9 @@ def test_a_reader_without_our_code_reproduces_the_case(
     name: str, cases: dict[str, dict[str, Any]]
 ) -> None:
     doc = cases[name]
+    if doc["scope"] == "cluster":
+        _check_cluster_case(doc)
+        return
     s, e, tol = doc["sample"], doc["expected"], doc["tolerances"]
     covers = doc["cover"] if doc["scope"] == "joint" else [doc["cover"]]
     assert [c["asset_id"] for c in covers] == s["asset_ids"]
@@ -1129,6 +1269,185 @@ def test_a_reader_without_our_code_reproduces_the_case(
         options,
     )
     assert checked >= 40
+
+
+def _cluster_index(doc: dict[str, Any]) -> np.ndarray:
+    """The README's cluster index: each cluster's value-weighted mean index.
+
+    Cluster ``c`` with assets ``i`` gets ``sum_i w_i x_i``, ``w_i = v_i /
+    sum_k v_k`` over its assets, from ``clusters.values``. Shape ``(n,
+    n_clusters)``, in ``clusters.cluster_ids`` order.
+    """
+    s, cl = doc["sample"], doc["clusters"]
+    x = np.asarray(s["index"], dtype=float)
+    columns = []
+    for c in cl["cluster_ids"]:
+        members = cl["members"][c]
+        v = np.asarray([cl["values"][a] for a in members], dtype=float)
+        cols = [s["asset_ids"].index(a) for a in members]
+        columns.append(x[:, cols] @ (v / v.sum()))
+    return np.column_stack(columns)
+
+
+def _check_cluster_case(doc: dict[str, Any]) -> None:
+    """Read a cluster case with plain numpy and the README's rules only.
+
+    The clusters: the assignment lists every asset, each cluster its assets
+    in sample order, the weights are the value shares and the cluster index
+    is the value-weighted mean (README, "Cluster cases"). Each cluster's
+    template pays on its cluster's index, against the sum of its assets'
+    losses, capped at that sum's largest value. ``joint`` true: one design
+    problem, the objective, premium and budget on the total. ``joint``
+    false: one per cluster, each with its own objective, premium and budget
+    in its block. Then the metrics of the total (premium priced on the total
+    payout), of each cluster and of each asset under both allocation rules.
+    """
+    s, e, tol, cl = doc["sample"], doc["expected"], doc["tolerances"], doc["clusters"]
+    assets, ids = s["asset_ids"], cl["cluster_ids"]
+    p = np.asarray(s["probability"], dtype=float)
+    loss = np.asarray(s["loss"], dtype=float)
+    scale = max(1.0, float(loss.sum(axis=1).max()))
+    options = doc["metric_options"] or DEFAULT_OPTIONS
+    objective, pricing = doc["objective"], doc["pricing"]
+    floor = scale**2 if objective["kind"] == "mse" else scale
+
+    # The clusters.
+    assert sorted(cl["assignment"]) == sorted(assets)
+    assert ids == sorted(set(cl["assignment"].values()), key=lambda c: int(c[1:]))
+    assert set(cl["members"]) == set(ids) == set(cl["weights"])
+    for c in ids:
+        members = cl["members"][c]
+        assert members == [a for a in assets if cl["assignment"][a] == c], c
+        v = np.asarray([cl["values"][a] for a in members], dtype=float)
+        assert set(cl["weights"][c]) == set(members), c
+        w = np.asarray([cl["weights"][c][a] for a in members])
+        assert np.allclose(w, v / v.sum(), rtol=1e-15, atol=0.0), c
+    index = _cluster_index(doc)
+    written = np.asarray(cl["index"], dtype=float)
+    assert written.shape == (len(p), len(ids))
+    assert np.allclose(index, written, rtol=1e-12, atol=0.0)
+    covers = doc["cover"]
+    assert len(covers) == len(ids)
+    cluster_loss = np.column_stack(
+        [loss[:, [assets.index(a) for a in cl["members"][c]]].sum(axis=1) for c in ids]
+    )
+    params = e["parameters"]
+    assert set(params) == set(ids) == set(e["unidentified"]) == set(e["clusters"])
+    pay = np.column_stack(
+        [
+            _payout(cover, index[:, j], params[c])
+            for j, (c, cover) in enumerate(zip(ids, covers, strict=True))
+        ]
+    )
+    # The written index gives the same payouts: no value sits on a breakpoint.
+    pay_written = np.column_stack(
+        [
+            _payout(cover, written[:, j], params[c])
+            for j, (c, cover) in enumerate(zip(ids, covers, strict=True))
+        ]
+    )
+    assert np.array_equal(pay, pay_written)
+    for j, (c, cover) in enumerate(zip(ids, covers, strict=True)):
+        assert cover["asset_id"] is None, c
+        free = _amounts(cover)
+        levels = np.asarray([params[c][n] for n, _ in free])
+        assert set(params[c]) == {n for n, _ in free}, c
+        assert all(m["upper"] == cluster_loss[:, j].max() for _, m in free), c
+        assert np.all(levels >= 0.0)
+        assert np.all(levels <= cluster_loss[:, j].max() * (1 + 1e-9))
+        assert np.all(np.diff(levels) >= -1e-9 * scale), c
+
+    # The design problems: their objective, premium and budget.
+    joint = cl["joint"]
+    groups = [list(ids)] if joint else [[c] for c in ids]
+    for group in groups:
+        cols = [ids.index(c) for c in group]
+        L_P, pi_P = cluster_loss[:, cols].sum(axis=1), pay[:, cols].sum(axis=1)
+        premium = _premium(pricing, pi_P, p)
+        value = _objective(objective, L_P, pi_P, p)
+        assert premium <= doc["budget"]["ratio"] * float(p @ L_P) * (1 + tol["premium"])
+        if joint:
+            want_value, want_premium = e["objective_value"], e["premium"]
+        else:
+            block = e["clusters"][group[0]]
+            want_value, want_premium = block["objective_value"], block["premium"]
+            checked = _check_metrics(
+                block["metrics"],
+                L_P,
+                pi_P,
+                p,
+                premium,
+                tol["metrics"],
+                scale,
+                options,
+            )
+            assert checked >= 40
+            assert block["unique"] in (True, False)
+            assert block["compare_parameters"] in ("exact", "within_ranges", "none")
+        assert _close(value, want_value, tol["objective_value"], floor), group
+        assert _close(premium, want_premium, tol["premium"], scale), group
+    if joint:
+        for block in e["clusters"].values():
+            assert block["objective_value"] is None
+            assert block["premium"] is None
+            assert block["unique"] is None
+            assert block["compare_parameters"] is None
+    else:
+        assert e["objective_value"] is None
+        assert e["unique"] == all(b["unique"] for b in e["clusters"].values())
+
+    # The total: every asset's loss against every cluster's payout, the
+    # premium priced on the total payout.
+    L, pi = loss.sum(axis=1), pay.sum(axis=1)
+    premium = _premium(pricing, pi, p)
+    assert _close(premium, e["premium"], tol["premium"], scale)
+    checked = _check_metrics(
+        e["metrics"], L, pi, p, premium, tol["metrics"], scale, options
+    )
+    assert checked >= 40
+    if joint:
+        # A cluster of a joint design: its own loss and payout, no premium.
+        for j, c in enumerate(ids):
+            checked = _check_metrics(
+                e["clusters"][c]["metrics"],
+                cluster_loss[:, j],
+                pay[:, j],
+                p,
+                None,
+                tol["metrics"],
+                scale,
+                options,
+            )
+            assert checked >= 35
+
+    # The allocated rows: each design problem's payout split across its
+    # assets, pro rata to value or to loss (the value shares in a draw
+    # without loss); no premium.
+    assert set(e["allocation"]) == {"value", "loss"}
+    for rule, rows in e["allocation"].items():
+        assert set(rows) == set(assets), rule
+        for group in groups:
+            members = [a for c in group for a in cl["members"][c]]
+            cols = [assets.index(a) for a in members]
+            pi_P = pay[:, [ids.index(c) for c in group]].sum(axis=1)
+            v = np.asarray([cl["values"][a] for a in members], dtype=float)
+            shares = np.tile(v / v.sum(), (len(p), 1))
+            if rule == "loss":
+                row_loss = loss[:, cols].sum(axis=1)
+                has = row_loss > 0
+                shares[has] = loss[has][:, cols] / row_loss[has, None]
+            for i, a in enumerate(members):
+                checked = _check_metrics(
+                    rows[a],
+                    loss[:, cols[i]],
+                    pi_P * shares[:, i],
+                    p,
+                    None,
+                    tol["metrics"],
+                    scale,
+                    options,
+                )
+                assert checked >= 35, (rule, a)
 
 
 def _check_binary_design(

@@ -1,6 +1,6 @@
 r"""Export golden fixtures from the core for the CRC module's tests.
 
-MAR-245 built the fixtures; MAR-255, MAR-264 and MAR-269 extended them.
+MAR-245 built the fixtures; MAR-255, MAR-264, MAR-269 and MAR-400 extended them.
 
 The parametric insurance module ``crc_sdk.parametric`` is built in a fork of
 crc-sdk. It never imports this repository's core, ``parametric_insurance_design``,
@@ -81,6 +81,16 @@ How the expected values are computed
   so at each candidate (attachment, exhaustion) the design has a closed form,
   computed exactly (:func:`exact_one_amount_optimum`) and written; the core,
   given :class:`LinearStructure`, designs every candidate too and must agree.
+* **Cluster designs** (``scope = "cluster"``, :func:`cluster_case`): the
+  core's ``Cluster`` scope, given a stated assignment
+  (:class:`StatedAssignment`, :data:`CLUSTER_LABELS`), pays one step cover
+  per cluster on the value-weighted mean index of its assets. ``joint=True``
+  is one design problem on the total, ``joint=False`` one per cluster with
+  its own budget; each is solved and judged as above
+  (:func:`_solve_design`). The script computes the cluster index and loss
+  itself and requires them to equal the core's. The metrics are the core's
+  rows of the total, of each cluster and of each asset under the core's two
+  allocation rules (:func:`subject_metrics`).
 * **Fixed covers with a step payout** (``kind = "evaluate"``,
   ``source = "core"``): the core's ``StepPayout.evaluate`` and
   ``evaluate.kpis`` on a hand-set cover.
@@ -137,7 +147,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
-from typing import Any, ClassVar, Final, Literal
+from typing import Any, ClassVar, Final, Literal, cast
 
 import cvxpy as cp
 import numpy as np
@@ -148,6 +158,10 @@ from scipy.optimize import linprog
 import parametric_insurance_design as pid
 from parametric_insurance_design.basis import Basis
 from parametric_insurance_design.evaluate import (
+    ALLOCATION_LEVELS,
+    PORTFOLIO_SUBJECT,
+    Allocation,
+    Evaluation,
     evaluate_results,
     exceedance_curves,
     kpis,
@@ -164,6 +178,7 @@ from parametric_insurance_design.interfaces import (
     Objective,
     PayoutStructure,
     Pricing,
+    ProblemSpec,
     Sample,
     Scope,
     SolveResult,
@@ -177,6 +192,7 @@ from parametric_insurance_design.riskmeasures import (
     sorted_cdf,
     var_cvar,
 )
+from parametric_insurance_design.scopes import PORTFOLIO_PROBLEM_ID, cluster_problem_id
 from parametric_insurance_design.solve import (
     DEFAULT_POLICY,
     SolverPolicy,
@@ -241,6 +257,19 @@ class _Fields:
     payout_threshold: str = "payout_threshold"
     # the grid route (beyond §8; §5.3's ``DesignResult.profile``)
     profile: str = "profile"
+    # the cluster scope (beyond §8; the core's ``Cluster`` scope and
+    # ``ValueWeightedIndex``, Amendment 3's ``Clustered(assignment, *,
+    # joint)`` and its ``allocation`` rules ``"value"`` and ``"loss"``)
+    clusters: str = "clusters"
+    assignment: str = "assignment"
+    cluster_ids: str = "cluster_ids"
+    members: str = "members"
+    values: str = "values"
+    weights: str = "weights"
+    joint: str = "joint"
+    allocation: str = "allocation"
+    allocation_value: str = "value"
+    allocation_loss: str = "loss"
     # sample (§4.1)
     asset_ids: str = "asset_ids"
     period: str = "period"
@@ -303,6 +332,7 @@ class _Fields:
     source_closed_form: str = "closed_form"
     scope_individual: str = "individual"
     scope_joint: str = "joint"
+    scope_cluster: str = "cluster"
     compare_exact: str = "exact"
     compare_within_ranges: str = "within_ranges"
     compare_none: str = "none"
@@ -510,6 +540,29 @@ PIECEWISE_LINEAR_CASES: Final[tuple[tuple[str, str], ...]] = (
 )
 """(objective, pricing) id tokens of the piecewise-linear designs: a QP and an
 LP."""
+CLUSTER_LABELS: Final[Mapping[str, tuple[tuple[str, int], ...]]] = {
+    "synthetic": (("A1", 1), ("A2", 1), ("A3", 2)),
+    "thesis": (("A1", 1), ("A2", 1), ("A9", 2)),
+}
+"""The stated assignment of each data set's assets to clusters, ``(asset id,
+label)`` with labels ``1 .. k``; the core names cluster ``k`` ``"C<k>"``. The
+module takes an assignment (ADR 0005 Amendment 3), so the cases state it. It
+is the assignment the core's ``ThesisWardClustering(beta_tail=0.9)`` gives
+with two clusters on each data set (:data:`CLUSTER_WARD_BETA_TAIL`; the test
+checks it), but the cases don't depend on that."""
+CLUSTER_WARD_BETA_TAIL: Final[float] = 0.9
+"""The thesis tail level at which the core's Ward clustering gives
+:data:`CLUSTER_LABELS` (the thesis ``TAIL_QUANTILE_LEVEL``)."""
+CLUSTER_OBJECTIVES: Final[tuple[str, ...]] = ("mse", "eu", "wcvar-b0_9")
+"""Objective id tokens of the cluster cases: MSE, E[U] and weighted CVaR. The
+16 joint cases also have weighted CVaR at beta 0.99, the same LP at another
+level; the cluster cases leave it out to keep their size down (42 to 51 kB a
+case, a third of it the allocated rows)."""
+CLUSTER_INDEX_MARGIN: Final[float] = 1e-9
+"""Every value of a cluster index over several assets lies at least this far
+from every breakpoint, relative to the breakpoint, so a reader's weighted
+mean, summed in another order, gives the core's bins. A one-asset cluster's
+index is its asset's index exactly (weight 1)."""
 
 BETAS: Final[tuple[float, ...]] = (0.9, 0.95, 0.99)
 """Metric levels: ADR 0005 §6, ``MetricOptions`` defaults."""
@@ -1703,6 +1756,100 @@ def _check_atom(name: str, core: float, atoms: Sequence[float], scale: float) ->
         raise AssertionError(f"{name}: core {core!r} is none of {list(atoms)!r}")
 
 
+@dataclass(frozen=True, eq=False)
+class _CoreTables:
+    """The core's KPI tables of one run on one sample: what a metric is read from.
+
+    Attributes
+    ----------
+    kpis : tuple of pandas.DataFrame
+        ``evaluate.kpis`` at each level of :data:`BETAS`, in order.
+    evaluation : Evaluation
+        ``evaluate.evaluate_results``: the subjects and the measure.
+    curves : pandas.DataFrame
+        ``evaluate.exceedance_curves``, the AEP curves only.
+    years : int
+        The number of years of the sample (every year a draw).
+    """
+
+    kpis: tuple[pd.DataFrame, ...]
+    evaluation: Evaluation
+    curves: pd.DataFrame
+    years: int
+
+
+def _core_tables(
+    eventset: EventSet,
+    scope: Scope,
+    results: Sequence[SolveResult],
+    pricing: Pricing,
+    *,
+    sample: Sample | None = None,
+    allocation: Allocation = Allocation.NONE,
+) -> _CoreTables:
+    """Compute the core's KPI tables of a run (:data:`CORE_METRIC_SOURCES`).
+
+    Parameters
+    ----------
+    eventset : EventSet
+        The core's data.
+    scope : Scope
+        The scope of the results.
+    results : sequence of SolveResult
+        One result per design problem of the run.
+    pricing : Pricing
+        The pricing of the premium.
+    sample : Sample, optional
+        The core's evaluation sample (a holdout block); default all years.
+    allocation : Allocation, default ``Allocation.NONE``
+        The core's rule for per-location rows (``evaluate.kpis``).
+
+    Returns
+    -------
+    _CoreTables
+        The tables every subject's metrics are read from.
+    """
+    tables = tuple(
+        kpis(
+            eventset,
+            scope,
+            results,
+            basis=Basis.ANNUAL,
+            beta=beta,
+            run_id=RUN_ID,
+            sample=sample,
+            pricing=pricing,
+            allocation=allocation,
+        )
+        for beta in BETAS
+    )
+    ev = evaluate_results(
+        eventset,
+        scope,
+        results,
+        basis=Basis.ANNUAL,
+        sample=sample,
+        allocation=allocation,
+    )
+    curves = exceedance_curves(
+        eventset,
+        scope,
+        results,
+        basis=Basis.ANNUAL,
+        run_id=RUN_ID,
+        return_periods=RETURN_PERIODS,
+        sample=sample,
+        allocation=allocation,
+    )
+    years = eventset.metadata.n_years if sample is None else sample.years.size
+    return _CoreTables(
+        kpis=tables,
+        evaluation=ev,
+        curves=cast(pd.DataFrame, curves[curves["curve"] == "aep"]),
+        years=int(years),
+    )
+
+
 def core_metrics(
     eventset: EventSet,
     scope: Scope,
@@ -1749,7 +1896,56 @@ def core_metrics(
     """
     if len(results) != 1:
         raise ValueError("one design problem per case")
-    problem_id = results[0].problem_id
+    tables = _core_tables(eventset, scope, results, pricing, sample=sample)
+    return subject_metrics(
+        tables, KpiLevel.PROBLEM, results[0].problem_id, draws, premium=premium
+    )
+
+
+def subject_metrics(
+    tables: _CoreTables,
+    level: KpiLevel,
+    subject_id: str,
+    draws: _Draws,
+    *,
+    premium: float | None = None,
+    priced: bool = True,
+) -> dict[str, Any]:
+    """Read the metrics of one subject of a run from the core's tables.
+
+    The subject is a row of the core's tables (``level``, ``subject_id``): a
+    design problem, a payout entity (a cluster), the portfolio, or a
+    location under an allocation rule. Every value comes from the core
+    (:data:`CORE_METRIC_SOURCES`); this script recomputes the plain ones and
+    the quantile atoms from ``draws`` and requires agreement (as
+    :func:`core_metrics`).
+
+    Parameters
+    ----------
+    tables : _CoreTables
+        The core's tables of the run (:func:`_core_tables`).
+    level : KpiLevel
+        The subject's level.
+    subject_id : str
+        The subject's id in the core's tables.
+    draws : _Draws
+        Loss and payout of the subject per draw of the sample.
+    premium : float, optional
+        A stated premium, as in :func:`core_metrics`.
+    priced : bool, default True
+        Whether the core prices the subject: a design problem or the
+        portfolio. Otherwise (an entity of a joint design, a location under
+        an allocation rule) the core reports no premium, so the ``premium``
+        column and the net-loss columns are null.
+
+    Returns
+    -------
+    dict
+        Column name -> value; ``None`` for an undefined value;
+        ``{"either": [lower, upper]}`` for a quantile on a step.
+    """
+    if not priced and premium is not None:
+        raise ValueError("a premium is stated for a subject the core does not price")
     loss, payout = draws.loss, draws.payout
     scale = max(1.0, float(loss.max(initial=0.0)))
     uncovered = np.maximum(loss - payout, 0.0)
@@ -1758,8 +1954,8 @@ def core_metrics(
 
     def kpi_row(table: pd.DataFrame, name: str) -> float | None:
         rows = table[
-            (table["level"] == KpiLevel.PROBLEM.value)
-            & (table["subject_id"] == problem_id)
+            (table["level"] == level.value)
+            & (table["subject_id"] == subject_id)
             & (table["kpi"] == name)
         ]
         if len(rows) != 1:
@@ -1768,17 +1964,7 @@ def core_metrics(
         return None if math.isnan(value) else value
 
     stated = premium
-    for i, beta in enumerate(BETAS):
-        table = kpis(
-            eventset,
-            scope,
-            results,
-            basis=Basis.ANNUAL,
-            beta=beta,
-            run_id=RUN_ID,
-            sample=sample,
-            pricing=pricing,
-        )
+    for i, (beta, table) in enumerate(zip(BETAS, tables.kpis, strict=True)):
         if i == 0:
             plain = {
                 "expected_loss": float(np.mean(loss)),
@@ -1795,17 +1981,19 @@ def core_metrics(
                 ("rmse", "rmse_residual"),
                 ("correlation", "correlation"),
             ):
-                value = (
-                    stated
-                    if name == "premium" and stated is not None
-                    else kpi_row(table, kpi)
-                )
+                if name == "premium" and not priced:
+                    value = None
+                elif name == "premium" and stated is not None:
+                    value = stated
+                else:
+                    value = kpi_row(table, kpi)
                 if name in plain:
                     if value is None:
                         raise AssertionError(f"{name} is undefined")
                     _check_close(name, value, plain[name], scale)
                 out_metrics[metric(name)] = None if value is None else out(value)
-            premium = stated if stated is not None else kpi_row(table, "premium")
+            if priced:
+                premium = stated if stated is not None else kpi_row(table, "premium")
         var = kpi_row(table, "var_uncovered")
         cvar = kpi_row(table, "cvar_uncovered")
         if var is None or cvar is None:
@@ -1814,45 +2002,46 @@ def core_metrics(
         _check_atom(f"var_uncovered at {beta}", var, atoms, scale)
         out_metrics[metric("var_uncovered", beta=beta)] = _metric_value(atoms)
         out_metrics[metric("cvar_uncovered", beta=beta)] = out(cvar)
-    if premium is None:
+    if priced and premium is None:
         raise AssertionError("the premium is always defined")
 
-    ev = evaluate_results(eventset, scope, results, basis=Basis.ANNUAL, sample=sample)
-    subject = next(s for s in ev.subjects if s.level is KpiLevel.PROBLEM)
+    ev = tables.evaluation
+    subject = next(
+        s for s in ev.subjects if s.level is level and s.subject_id == subject_id
+    )
     measure = ev.measure
     loss_o = measure.aggregate(subject.loss)
     payout_o = measure.aggregate(subject.payout)
-    net_o = loss_o - payout_o + premium
-    net = loss - payout + premium
-    for base, outcome, per_draw in (
-        ("loss", loss_o, loss),
-        ("net_loss", net_o, net),
-    ):
+    by_base: list[tuple[str, NDArray[np.float64], NDArray[np.float64]]] = [
+        ("loss", loss_o, loss)
+    ]
+    net_o: NDArray[np.float64] | None = None
+    net: NDArray[np.float64] | None = None
+    if premium is not None:
+        net_o = loss_o - payout_o + premium
+        net = loss - payout + premium
+        by_base.append(("net_loss", net_o, net))
+    for base, outcome, per_draw in by_base:
         for beta in BETAS:
             var, cvar = var_cvar(outcome, measure.probability, beta)
             atoms = quantile_atoms(per_draw.tolist(), _fraction(beta))
             _check_atom(f"var_{base} at {beta}", var, atoms, scale)
             out_metrics[metric(f"var_{base}", beta=beta)] = _metric_value(atoms)
             out_metrics[metric(f"cvar_{base}", beta=beta)] = out(cvar)
+    if net is None:
+        for beta in BETAS:
+            out_metrics[metric("var_net_loss", beta=beta)] = None
+            out_metrics[metric("cvar_net_loss", beta=beta)] = None
 
-    curves = exceedance_curves(
-        eventset,
-        scope,
-        results,
-        basis=Basis.ANNUAL,
-        run_id=RUN_ID,
-        return_periods=RETURN_PERIODS,
-        sample=sample,
-    )
-    curves = curves[
-        (curves["level"] == KpiLevel.PROBLEM.value)
-        & (curves["subject_id"] == problem_id)
-        & (curves["curve"] == "aep")
+    curves = tables.curves[
+        (tables.curves["level"] == level.value)
+        & (tables.curves["subject_id"] == subject_id)
     ]
-    x_net, p_net = discrete_distribution(net_o, measure.probability)
-    sorted_net, _, cdf_net = sorted_cdf(x_net, p_net)
+    if net_o is not None:
+        x_net, p_net = discrete_distribution(net_o, measure.probability)
+        sorted_net, _, cdf_net = sorted_cdf(x_net, p_net)
     for period in RETURN_PERIODS:
-        level = Fraction(int(period) - 1, int(period))
+        quantile_level = Fraction(int(period) - 1, int(period))
         for base, quantity, per_draw in (
             ("loss", "loss", loss),
             ("payout", "payout", payout),
@@ -1864,15 +2053,17 @@ def core_metrics(
             if len(rows) != 1:
                 raise AssertionError(f"expected one {quantity} curve value at {period}")
             core_value = float(np.asarray(rows["value"], dtype=np.float64)[0])
-            atoms = quantile_atoms(per_draw.tolist(), level)
+            atoms = quantile_atoms(per_draw.tolist(), quantile_level)
             _check_atom(f"{base}_rp{period}", core_value, atoms, scale)
             out_metrics[metric(base, period=period)] = _metric_value(atoms)
+        if net_o is None or net is None:
+            out_metrics[metric("net_loss", period=period)] = None
+            continue
         core_net = lower_quantile(sorted_net, cdf_net, 1.0 - 1.0 / period)
-        atoms = quantile_atoms(net.tolist(), level)
+        atoms = quantile_atoms(net.tolist(), quantile_level)
         _check_atom(f"net_loss_rp{period}", core_net, atoms, scale)
         out_metrics[metric("net_loss", period=period)] = _metric_value(atoms)
-    years = eventset.metadata.n_years if sample is None else sample.years.size
-    if n != years:
+    if n != tables.years:
         raise AssertionError("every year must be a draw")
     return out_metrics
 
@@ -2771,6 +2962,129 @@ def _check_piecewise_linear_standalone(
         raise AssertionError(f"{where}: unique, but the standalone levels differ")
 
 
+@dataclass(frozen=True, eq=False)
+class _Solved:
+    """One design problem solved and judged (:func:`_solve_design`).
+
+    Attributes
+    ----------
+    chosen : SolveResult
+        The solution written: Clarabel's for a QP and a non-unique LP,
+        HiGHS's vertex for a unique LP.
+    theta : numpy.ndarray
+        Its amounts as written, ``(n_entities, n_amounts)``: snapped,
+        rounded and filled (:func:`_snap`, :func:`out`, :func:`_fill_lowest`).
+    unique : bool
+        Whether the identified amounts of the optimum are unique.
+    qp : bool
+        Whether the problem is a QP (MSE).
+    ranges : _Ranges or None
+        LPs: the ranges of the identified amounts, scaled units.
+    scale : float
+        The core's scale of the problem.
+    """
+
+    chosen: SolveResult
+    theta: NDArray[np.float64]
+    unique: bool
+    qp: bool
+    ranges: _Ranges | None
+    scale: float
+
+    @property
+    def compare(self) -> str:
+        """The case's ``compare_parameters`` for this design."""
+        if self.unique:
+            return F.compare_exact
+        return F.compare_none if self.qp else F.compare_within_ranges
+
+
+def _solve_design(
+    build: Callable[[], BuiltProblem],
+    first: BuiltProblem,
+    design_data: Dataset,
+    identified: NDArray[np.bool_],
+    basis: BasisFunction,
+    settings: SolverSettings,
+    where: str,
+) -> _Solved:
+    """Solve one design problem of the core and decide whether it is unique.
+
+    The module docstring says how: a QP with Clarabel (written) and OSQP (a
+    check), uniqueness by ADR 0005 §5.4's rule for the MSE route; an LP with
+    HiGHS (a vertex) and Clarabel (an interior point), uniqueness by ranging
+    every identified amount. The core's default policy is a check too.
+
+    Parameters
+    ----------
+    build : callable
+        Builds the problem afresh (each solve gets its own cvxpy problem).
+    first : BuiltProblem
+        One build, solved first (the LP's ranging starts from its vertex).
+    design_data : Dataset
+        The design sample, one column per payout entity, with the entity
+        index as its index.
+    identified : numpy.ndarray of bool
+        Which amounts are identified, ``(n_entities, n_amounts)``.
+    basis : BasisFunction
+        The module's basis of the payout family.
+    settings : SolverSettings
+        The solver policies.
+    where : str
+        The case, for messages.
+
+    Returns
+    -------
+    _Solved
+        The solution written and its judgement.
+
+    Raises
+    ------
+    AssertionError
+        If the solvers disagree, or an interior solution lies outside the
+        ranges.
+    """
+    ranges: _Ranges | None = None
+    qp = is_qp(first.problem)
+    if qp:
+        accurate = solve(first, settings.accurate)
+        check = solve(build(), settings.qp_check)
+        unique = _mse_unique(design_data, identified, basis)
+        chosen = accurate
+    else:
+        check = solve(first, settings.vertex)
+        ranges = _lp_ranges(first, identified, settings.ranging)
+        accurate = solve(build(), settings.accurate)
+        unique = ranges.unique(identified)
+        interior = accurate.theta[identified] / accurate.scale
+        inside = (interior >= ranges.low[identified] - UNIQUE_WIDTH) & (
+            interior <= ranges.high[identified] + UNIQUE_WIDTH
+        )
+        if not np.all(inside):
+            raise AssertionError(f"{where}: Clarabel's solution is outside the ranges")
+        chosen = check if unique else accurate
+    default = solve(build(), DEFAULT_POLICY)
+    for other, rtol in (
+        (check, SOLVER_AGREEMENT_RTOL),
+        (default, DEFAULT_AGREEMENT_RTOL),
+    ):
+        if not _rel_close(accurate.objective_value, other.objective_value, rtol):
+            raise AssertionError(
+                f"{where}: solvers disagree: {accurate.objective_value!r} "
+                f"({accurate.solver}) vs {other.objective_value!r} ({other.solver})"
+            )
+    scale = chosen.scale
+    if unique:
+        gap = np.abs(accurate.theta - check.theta)[identified]
+        if np.any(gap > UNIQUE_WIDTH * scale):
+            raise AssertionError(f"{where}: unique, but the solvers' amounts differ")
+    theta = np.vectorize(out)(_snap(chosen.theta, scale)).astype(np.float64)
+    theta = _fill_lowest(theta, identified)
+    return _Solved(
+        chosen=chosen, theta=theta, unique=unique, qp=qp, ranges=ranges, scale=scale
+    )
+
+
 def design_case(
     data: Dataset,
     scope_name: str,
@@ -2883,7 +3197,6 @@ def design_case(
         return built
 
     first = build()
-    qp = is_qp(first.problem)
     identified = _identified(design_data, basis)
     rows = (Sample.full(eventset) if train is None else train).select(eventset)
     for j in range(len(data.asset_ids)):
@@ -2895,41 +3208,11 @@ def design_case(
         f"{data.name}/{family}/{scope_name}/{objective.token}/{pricing.token}"
         f"{split_token}"
     )
-    ranges: _Ranges | None = None
-    if qp:
-        accurate = solve(first, settings.accurate)
-        check = solve(build(), settings.qp_check)
-        unique = _mse_unique(design_data, identified, basis)
-        chosen = accurate
-    else:
-        check = solve(first, settings.vertex)
-        ranges = _lp_ranges(first, identified, settings.ranging)
-        accurate = solve(build(), settings.accurate)
-        unique = ranges.unique(identified)
-        interior = accurate.theta[identified] / accurate.scale
-        inside = (interior >= ranges.low[identified] - UNIQUE_WIDTH) & (
-            interior <= ranges.high[identified] + UNIQUE_WIDTH
-        )
-        if not np.all(inside):
-            raise AssertionError(f"{where}: Clarabel's solution is outside the ranges")
-        chosen = check if unique else accurate
-    default = solve(build(), DEFAULT_POLICY)
-    for other, rtol in (
-        (check, SOLVER_AGREEMENT_RTOL),
-        (default, DEFAULT_AGREEMENT_RTOL),
-    ):
-        if not _rel_close(accurate.objective_value, other.objective_value, rtol):
-            raise AssertionError(
-                f"{where}: solvers disagree: {accurate.objective_value!r} "
-                f"({accurate.solver}) vs {other.objective_value!r} ({other.solver})"
-            )
-    scale = chosen.scale
-    if unique:
-        gap = np.abs(accurate.theta - check.theta)[identified]
-        if np.any(gap > UNIQUE_WIDTH * scale):
-            raise AssertionError(f"{where}: unique, but the solvers' amounts differ")
-    theta = np.vectorize(out)(_snap(chosen.theta, scale)).astype(np.float64)
-    theta = _fill_lowest(theta, identified)
+    solved = _solve_design(
+        build, first, design_data, identified, basis, settings, where
+    )
+    qp, unique, ranges, chosen = solved.qp, solved.unique, solved.ranges, solved.chosen
+    scale, theta = solved.scale, solved.theta
     loss_draws = design_data.loss.sum(axis=1)
     caps = design_data.loss.max(axis=0)
     budget = BUDGET_RATIO * float(np.mean(loss_draws))
@@ -3051,11 +3334,7 @@ def design_case(
         [name for k, name in enumerate(names) if not identified[j, k]]
         for j in range(len(data.asset_ids))
     ]
-    compare = (
-        F.compare_exact
-        if unique
-        else (F.compare_none if qp else F.compare_within_ranges)
-    )
+    compare = solved.compare
     if joint:
         cover_doc: Any = covers
         parameters_doc: Any = dict(zip(data.asset_ids, parameters, strict=True))
@@ -3189,6 +3468,547 @@ def grid_design_case(
         f"{pricing.token}-{F.scope_individual}-{data.name}"
     )
     return replace(chosen, document=document, shape_parameters={F.trigger: trigger})
+
+
+# --------------------------------------------------------------------------
+# Cluster cases: the core's Cluster scope on a stated assignment (MAR-400)
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class StatedAssignment:
+    """A core ``ClusteringStrategy`` that returns a stated assignment.
+
+    The module takes a stated assignment of assets to clusters, not the
+    core's Ward clustering, which needs scipy (ADR 0005 Amendment 3). The
+    cases give the core's ``Cluster`` scope the same assignment through this
+    strategy, so the core clusters nothing itself.
+
+    Attributes
+    ----------
+    labels : tuple of (str, int)
+        ``(asset id, cluster label)`` for every asset; the labels are ``1 ..
+        k``, each used.
+    """
+
+    name: ClassVar[str] = "stated"
+
+    labels: tuple[tuple[str, int], ...]
+
+    def assign(self, eventset: EventSet, n_clusters: int) -> dict[str, int]:
+        """Return the stated assignment (``ClusteringStrategy.assign``).
+
+        Raises
+        ------
+        ValueError
+            If the labels are not ``1 .. n_clusters``, each used.
+        """
+        labels = dict(self.labels)
+        if sorted(set(labels.values())) != list(range(1, n_clusters + 1)):
+            raise ValueError(f"labels {labels} are not 1..{n_clusters}, each used")
+        return labels
+
+
+@dataclass(frozen=True)
+class ClusterLayout:
+    """The clusters of a data set under a stated assignment.
+
+    What the core's ``Cluster`` scope builds from it: one payout entity per
+    cluster, ``"C<label>"`` in label order, each listing its assets in the
+    data set's order, with the value-weighted mean index of its assets
+    (``ValueWeightedIndex``).
+
+    Attributes
+    ----------
+    labels : tuple of (str, int)
+        The assignment, in the data set's asset order.
+    cluster_ids : tuple of str
+        ``"C1"``, ``"C2"``, ... in label order.
+    members : dict
+        Cluster id -> its asset ids, in the data set's order.
+    weights : dict
+        Cluster id -> the weights of its assets, in ``members`` order:
+        ``v_i / sum_k v_k`` over the cluster's assets, as the core computes
+        them.
+    """
+
+    labels: tuple[tuple[str, int], ...]
+    cluster_ids: tuple[str, ...]
+    members: Mapping[str, tuple[str, ...]]
+    weights: Mapping[str, NDArray[np.float64]]
+
+
+def cluster_id(label: int) -> str:
+    """Return the core's entity id of a cluster label: ``"C<label>"``."""
+    return f"C{label}"
+
+
+def cluster_layout(data: Dataset, labels: Sequence[tuple[str, int]]) -> ClusterLayout:
+    """Return the clusters of a data set under a stated assignment.
+
+    Parameters
+    ----------
+    data : Dataset
+        The draws, one column per asset.
+    labels : sequence of (str, int)
+        ``(asset id, label)`` for every asset of ``data``.
+
+    Returns
+    -------
+    ClusterLayout
+        The clusters in label order.
+
+    Raises
+    ------
+    ValueError
+        If the assignment misses or adds an asset.
+    """
+    by_asset = dict(labels)
+    if sorted(by_asset) != sorted(data.asset_ids) or len(by_asset) != len(labels):
+        raise ValueError(f"the assignment {labels} does not match {data.asset_ids}")
+    ordered = tuple((a, by_asset[a]) for a in data.asset_ids)
+    ids = tuple(cluster_id(c) for c in sorted(set(by_asset.values())))
+    members = {
+        c: tuple(a for a, label in ordered if cluster_id(label) == c) for c in ids
+    }
+    values = np.asarray(data.values, dtype=np.float64)
+    weights: dict[str, NDArray[np.float64]] = {}
+    for c in ids:
+        vals = values[[data.asset_ids.index(a) for a in members[c]]]
+        weights[c] = vals / float(vals.sum())
+    return ClusterLayout(
+        labels=ordered, cluster_ids=ids, members=members, weights=weights
+    )
+
+
+def cluster_view(data: Dataset, layout: ClusterLayout) -> Dataset:
+    """Return the data set as the cluster scope sees it: one column per cluster.
+
+    A cluster's index is the value-weighted mean of its assets' indices and
+    its loss the sum of their losses, each computed as the core computes it
+    (``ValueWeightedIndex`` and the scope's entity loss), on every draw.
+
+    Parameters
+    ----------
+    data : Dataset
+        The draws, one column per asset.
+    layout : ClusterLayout
+        The clusters.
+
+    Returns
+    -------
+    Dataset
+        ``asset_ids`` are the cluster ids, ``values`` the clusters' summed
+        values; everything else is ``data``'s.
+    """
+    index = np.empty((data.n, len(layout.cluster_ids)), dtype=np.float64)
+    loss = np.empty_like(index)
+    values = []
+    for j, c in enumerate(layout.cluster_ids):
+        cols = [data.asset_ids.index(a) for a in layout.members[c]]
+        index[:, j] = np.ascontiguousarray(data.severity[:, cols]) @ layout.weights[c]
+        loss[:, j] = np.ascontiguousarray(data.loss[:, cols]).sum(axis=1)
+        values.append(float(sum(data.values[i] for i in cols)))
+    return replace(
+        data,
+        asset_ids=layout.cluster_ids,
+        index=data.sign * index + 0.0,
+        loss=loss,
+        values=tuple(values),
+    )
+
+
+def allocation_shares(
+    data: Dataset, assets: Sequence[str], rule: Allocation
+) -> NDArray[np.float64]:
+    """Return each asset's share of a design problem's payout, per draw.
+
+    The core's rules (``docs/methodology/payout-allocation.md``), over the
+    assets of the design problem: ``"value"``, ``v_i / sum_k v_k``;
+    ``"loss"``, ``L_{d,i} / sum_k L_{d,k}``, and the value shares in a draw
+    without loss. One asset gets the whole payout.
+
+    Parameters
+    ----------
+    data : Dataset
+        The draws, one column per asset.
+    assets : sequence of str
+        The design problem's assets.
+    rule : Allocation
+        ``Allocation.VALUE`` or ``Allocation.LOSS``.
+
+    Returns
+    -------
+    numpy.ndarray
+        Shape ``(n, len(assets))``; every row sums to 1.
+    """
+    cols = [data.asset_ids.index(a) for a in assets]
+    if len(cols) == 1:
+        return np.ones((data.n, 1), dtype=np.float64)
+    values = np.asarray(data.values, dtype=np.float64)[cols]
+    by_value = values / float(values.sum())
+    if rule is Allocation.VALUE:
+        return np.tile(by_value, (data.n, 1))
+    if rule is not Allocation.LOSS:
+        raise ValueError(f"no shares for the rule {rule!r}")
+    loss = data.loss[:, cols]
+    row_loss = loss.sum(axis=1)
+    has_loss = row_loss > 0.0
+    shares = np.tile(by_value, (data.n, 1))
+    shares[has_loss] = loss[has_loss] / row_loss[has_loss, None]
+    return shares
+
+
+ALLOCATION_RULES: Final[tuple[tuple[str, Allocation], ...]] = (
+    (F.allocation_value, Allocation.VALUE),
+    (F.allocation_loss, Allocation.LOSS),
+)
+"""The core's allocation rules, by their names in a case's ``allocation``."""
+
+
+def cluster_case(
+    data: Dataset,
+    labels: Sequence[tuple[str, int]],
+    joint: bool,
+    objective: ObjectiveSpec,
+    pricing: PricingSpec,
+    commit: str,
+    settings: SolverSettings,
+) -> GeneratedCase:
+    """Build one cluster case: the core's ``Cluster`` scope designs on ``data``.
+
+    The core's ``Cluster(StatedAssignment(labels), n_clusters, joint=joint)``
+    with its default index, ``ValueWeightedIndex``: one step cover per
+    cluster, on the value-weighted mean index of the cluster's assets, paying
+    against the sum of their losses. ``joint=True`` is one design problem
+    with the objective and the budget on the total over every asset;
+    ``joint=False`` is one design problem per cluster, each with its own
+    objective and budget on the cluster's loss. Each design problem is
+    solved and judged as a design case is (:func:`_solve_design`).
+
+    Parameters
+    ----------
+    data : Dataset
+        The draws of every asset of a data set (upper tail).
+    labels : sequence of (str, int)
+        The stated assignment, ``(asset id, label)``.
+    joint : bool
+        The ``Cluster`` scope's setting.
+    objective, pricing : ObjectiveSpec, PricingSpec
+        The case's objective and pricing.
+    commit : str
+        The generator block's commit.
+    settings : SolverSettings
+        The solver policies.
+
+    Returns
+    -------
+    GeneratedCase
+        The case document, with what the regeneration check needs. Its
+        levels are ``(n_clusters, n_levels)``, in cluster order.
+    """
+    if data.tail != "upper":
+        raise ValueError("the cluster cases are on upper-tail data sets")
+    layout = cluster_layout(data, labels)
+    view = cluster_view(data, layout)
+    ids = layout.cluster_ids
+    eventset = core_eventset(data)
+    scope = pid.Cluster(
+        strategy=StatedAssignment(layout.labels), n_clusters=len(ids), joint=joint
+    )
+    payout, values, n_amounts = design_family(view, F.payout_step, ())
+    basis = module_basis(values, n_amounts)
+    constraints = (pid.Budget(BUDGET_RATIO),)
+    specs = scope.partition(eventset)
+    entities = [e for spec in specs for e in spec.entities]
+    if [e.entity_id for e in entities] != list(ids) or any(
+        tuple(e.location_ids) != layout.members[e.entity_id] for e in entities
+    ):
+        raise AssertionError("the core's clusters differ from the stated ones")
+    groups = [ids] if joint else [(c,) for c in ids]
+    if len(specs) != len(groups):
+        raise AssertionError("the core's design problems differ from the setting's")
+    for j, c in enumerate(ids):
+        if len(layout.members[c]) == 1:
+            own = data.severity[:, data.asset_ids.index(layout.members[c][0])]
+            if not np.array_equal(view.severity[:, j], own):
+                raise AssertionError(f"{c}: a one-asset cluster's index is its asset's")
+            continue
+        edges = np.asarray(data.edges[:-1], dtype=np.float64)
+        gap = np.abs(view.severity[:, j, None] - edges[None, :])
+        if np.any(gap <= CLUSTER_INDEX_MARGIN * np.maximum(1.0, np.abs(edges))):
+            raise AssertionError(f"{c}: a cluster index value is on a breakpoint")
+    token = F.joint if joint else "separate"
+    rows = np.flatnonzero(data.event_row)
+    solved: list[_Solved] = []
+    identified_rows: list[NDArray[np.bool_]] = []
+    for spec, group in zip(specs, groups, strict=True):
+        part = view.select(group)
+
+        def build(spec: ProblemSpec = spec) -> BuiltProblem:
+            (built,) = build_problems(
+                eventset,
+                scope,
+                payout,
+                objective.core,
+                pricing.core,
+                constraints,
+                basis=Basis.ANNUAL,
+                specs=(spec,),
+            )
+            return built
+
+        first = build()
+        problem = first.context.problem
+        if not np.array_equal(problem.index, part.severity[rows]):
+            raise AssertionError(f"{spec.problem_id}: the core's cluster index differs")
+        if not np.array_equal(problem.entity_loss, part.loss[rows]):
+            raise AssertionError(f"{spec.problem_id}: the core's cluster loss differs")
+        identified = _identified(part, basis)
+        for j in range(len(group)):
+            core_columns = payout.basis_matrix(problem.index[:, j]).sum(axis=0) > 0
+            if not np.array_equal(core_columns, identified[j]):
+                raise AssertionError("the core's basis and the module's formula differ")
+        where = (
+            f"{data.name}/cluster-{token}/{spec.problem_id}/{objective.token}/"
+            f"{pricing.token}"
+        )
+        solved.append(
+            _solve_design(build, first, part, identified, basis, settings, where)
+        )
+        identified_rows.append(identified)
+    identified = np.vstack(identified_rows)
+    theta = np.vstack([s.theta for s in solved])
+    loss_total = data.loss.sum(axis=1)
+    caps = view.loss.max(axis=0)
+    names = amount_names(F.payout_step, n_amounts)
+    zero_tol = ZERO_AMOUNT * case_scale({F.sample: _sample_document(data)})
+
+    def results_at(levels: NDArray[np.float64]) -> tuple[SolveResult, ...]:
+        if joint:
+            return (replace(solved[0].chosen, theta=levels),)
+        return tuple(
+            replace(s.chosen, theta=levels[i : i + 1]) for i, s in enumerate(solved)
+        )
+
+    def evaluate(levels: NDArray[np.float64]) -> dict[str, Any]:
+        """Return the objective, premiums and metrics of the covers at ``levels``."""
+        results = results_at(levels)
+        pay = np.column_stack(
+            [values(view.severity[:, j], levels[j]) for j in range(len(ids))]
+        )
+        total_payout = pay.sum(axis=1)
+        tables = {
+            rule: _core_tables(eventset, scope, results, pricing.core, allocation=rule)
+            for _, rule in ALLOCATION_RULES
+        }
+        first_tables = tables[ALLOCATION_RULES[0][1]]
+        total = subject_metrics(
+            first_tables,
+            KpiLevel.PORTFOLIO,
+            PORTFOLIO_SUBJECT,
+            _Draws(loss_total, total_payout),
+        )
+        blocks: dict[str, Any] = {}
+        for j, c in enumerate(ids):
+            draws = _Draws(view.loss[:, j], pay[:, j])
+            if joint:
+                blocks[c] = {
+                    F.compare_parameters: None,
+                    F.metrics: subject_metrics(
+                        first_tables, KpiLevel.ENTITY, c, draws, priced=False
+                    ),
+                    F.objective_value: None,
+                    F.premium: None,
+                    F.unique: None,
+                }
+                continue
+            cluster_metrics = subject_metrics(
+                first_tables, KpiLevel.PROBLEM, cluster_problem_id(c), draws
+            )
+            blocks[c] = {
+                F.compare_parameters: solved[j].compare,
+                F.metrics: cluster_metrics,
+                F.objective_value: out(
+                    _objective_value(objective.core, view.loss[:, j], pay[:, j])
+                ),
+                F.premium: cluster_metrics[metric("premium")],
+                F.unique: solved[j].unique,
+            }
+        if joint:
+            design = subject_metrics(
+                first_tables,
+                KpiLevel.PROBLEM,
+                PORTFOLIO_PROBLEM_ID,
+                _Draws(loss_total, total_payout),
+            )
+            if design[metric("premium")] != total[metric("premium")]:
+                raise AssertionError("the design premium is not the total's")
+        allocated: dict[str, Any] = {}
+        for name, rule in ALLOCATION_RULES:
+            by_asset: dict[str, Any] = {}
+            for group in groups:
+                cols = [ids.index(c) for c in group]
+                assets = [a for c in group for a in layout.members[c]]
+                problem_payout = pay[:, cols].sum(axis=1)
+                shares = allocation_shares(data, assets, rule)
+                for i, asset in enumerate(assets):
+                    by_asset[asset] = subject_metrics(
+                        tables[rule],
+                        ALLOCATION_LEVELS[rule],
+                        asset,
+                        _Draws(
+                            data.loss[:, data.asset_ids.index(asset)],
+                            problem_payout * shares[:, i],
+                        ),
+                        priced=False,
+                    )
+            allocated[name] = by_asset
+        value = (
+            out(_objective_value(objective.core, loss_total, total_payout))
+            if joint
+            else None
+        )
+        return {
+            F.objective_value: value,
+            F.premium: total[metric("premium")],
+            F.metrics: total,
+            F.out_of_sample: None,
+            F.clusters: blocks,
+            F.allocation: allocated,
+        }
+
+    def violations(levels: NDArray[np.float64]) -> list[str]:
+        """Return the design constraints that ``levels`` break (ADR 0005 §5.2)."""
+        tol = zero_tol
+        found = []
+        if levels.min() < -tol:
+            found.append(f"a level is negative: {levels.min()!r}")
+        if levels.shape[1] > 1 and np.diff(levels, axis=1).min() < -tol:
+            found.append("the levels are not monotone")
+        if np.any(levels > caps[:, None] + tol):
+            found.append("a level is above its cluster's cap")
+        evaluated = evaluate(levels)
+        if joint:
+            budgets = [(F.joint, evaluated[F.premium], loss_total)]
+        else:
+            budgets = [
+                (c, evaluated[F.clusters][c][F.premium], view.loss[:, j])
+                for j, c in enumerate(ids)
+            ]
+        for name, premium, loss in budgets:
+            budget = BUDGET_RATIO * float(np.mean(loss))
+            if premium > budget * (1.0 + WRITTEN_RTOL):
+                found.append(f"{name}: premium {premium!r} above the budget {budget!r}")
+        return found
+
+    evaluation = evaluate(theta)
+    optima = (
+        [(F.joint, evaluation[F.objective_value], solved[0].chosen)]
+        if joint
+        else [
+            (c, evaluation[F.clusters][c][F.objective_value], solved[j].chosen)
+            for j, c in enumerate(ids)
+        ]
+    )
+    for name, value, chosen in optima:
+        if not _rel_close(value, chosen.objective_value, WRITTEN_RTOL):
+            raise AssertionError(
+                f"{data.name}/cluster-{token}/{name}: objective at the written "
+                f"amounts {value!r}, solver {chosen.objective_value!r}"
+            )
+    broken = violations(theta)
+    if broken:
+        raise AssertionError(
+            f"{data.name}/cluster-{token}: the written amounts break {broken}"
+        )
+    modes = {s.compare for s in solved}
+    if len(modes - {F.compare_exact}) > 1:
+        raise AssertionError(f"the clusters' modes {modes} share no route")
+    compare = (
+        F.compare_exact
+        if modes == {F.compare_exact}
+        else (modes - {F.compare_exact}).pop()
+    )
+    covers = []
+    for j in range(len(ids)):
+        cover = _step_cover(view, j, [_free(caps[j])] * n_amounts)
+        cover[F.asset_id] = None
+        covers.append(cover)
+    full_index = np.zeros((data.n, len(ids)), dtype=np.float64)
+    full_index[rows] = view.severity[rows]
+    document = {
+        F.case_id: (
+            f"{payout_token(F.payout_step, data.tail)}-{objective.token}-"
+            f"{pricing.token}-{F.scope_cluster}-{token}-{data.name}"
+        ),
+        F.kind: F.kind_design,
+        F.source: F.source_core,
+        F.sample: _sample_document(data),
+        F.split: None,
+        F.evaluation_sample: None,
+        F.cover: covers,
+        F.objective: dict(objective.document),
+        F.pricing: dict(pricing.document),
+        F.budget: {F.ratio: BUDGET_RATIO},
+        F.limit: None,
+        F.scope: F.scope_cluster,
+        F.clusters: {
+            F.assignment: {a: cluster_id(label) for a, label in layout.labels},
+            F.cluster_ids: list(ids),
+            F.index: [[float(x) + 0.0 for x in row] for row in full_index],
+            F.joint: joint,
+            F.members: {c: list(layout.members[c]) for c in ids},
+            F.values: {
+                a: float(v) for a, v in zip(data.asset_ids, data.values, strict=True)
+            },
+            F.weights: {
+                c: {
+                    a: float(w)
+                    for a, w in zip(layout.members[c], layout.weights[c], strict=True)
+                }
+                for c in ids
+            },
+        },
+        F.expected: {
+            F.objective_value: evaluation[F.objective_value],
+            F.premium: evaluation[F.premium],
+            F.parameters: {
+                c: {name: out(theta[j, k]) for k, name in enumerate(names)}
+                for j, c in enumerate(ids)
+            },
+            F.unidentified: {
+                c: [name for k, name in enumerate(names) if not identified[j, k]]
+                for j, c in enumerate(ids)
+            },
+            F.unique: all(s.unique for s in solved),
+            F.metrics: evaluation[F.metrics],
+            F.out_of_sample: None,
+            F.profile: None,
+            F.clusters: evaluation[F.clusters],
+            F.allocation: evaluation[F.allocation],
+        },
+        F.metric_options: None,
+        F.compare_parameters: compare,
+        F.tolerances: _tolerances(),
+        F.generator: _generator(commit),
+    }
+    wide = None
+    if not solved[0].qp:
+        wide = (
+            np.vstack([s.ranges.low * s.scale for s in solved if s.ranges is not None]),
+            np.vstack(
+                [s.ranges.high * s.scale for s in solved if s.ranges is not None]
+            ),
+        )
+    return GeneratedCase(
+        document=document,
+        evaluate=evaluate,
+        violations=violations,
+        ranges=wide,
+        identified=identified,
+        amount_names=names,
+    )
 
 
 # --------------------------------------------------------------------------
@@ -4414,6 +5234,23 @@ def build_cases(
                 shape=PIECEWISE_LINEAR_KNOTS,
             )
         )
+    cluster_specs = _specs_by_token(
+        (o, p.token) for o in CLUSTER_OBJECTIVES for p in pricings()
+    )
+    for data in (synthetic, thesis):
+        for joint in (True, False):
+            for objective, pricing in cluster_specs:
+                cases.append(
+                    cluster_case(
+                        data,
+                        CLUSTER_LABELS[data.name],
+                        joint,
+                        objective,
+                        pricing,
+                        commit,
+                        settings,
+                    )
+                )
     out_cases: dict[str, GeneratedCase] = {}
     for case in cases:
         name = f"{case.document[F.case_id]}.json"
@@ -4579,6 +5416,21 @@ def _floor(path: tuple[str, ...], case: Mapping[str, Any]) -> float:
         and metric_is_unitless(path[3])
     ):
         return 1.0
+    # A cluster case's blocks: expected/clusters/<id>/objective_value and
+    # expected/clusters/<id>/metrics/<column>; expected/allocation/<rule>/
+    # <asset>/<column>.
+    if path[1] == F.clusters and len(path) > 3 and path[3] == F.objective_value:
+        objective = case.get(F.objective) or {}
+        return scale**2 if objective.get(F.kind_key) == F.objective_mse else scale
+    if (
+        path[1] == F.clusters
+        and len(path) > 4
+        and path[3] == F.metrics
+        and metric_is_unitless(path[4])
+    ):
+        return 1.0
+    if path[1] == F.allocation and len(path) > 4 and metric_is_unitless(path[4]):
+        return 1.0
     return scale
 
 
@@ -4689,6 +5541,39 @@ SOLVER_POINT_FIELDS: Final[tuple[tuple[str, ...], ...]] = (
 design is not unique: they are judged by :func:`compare_case`, not compared."""
 
 
+def solver_point_paths(document: Mapping[str, Any]) -> list[tuple[str, ...]]:
+    """Return the fields of a non-unique design that are one solver's point.
+
+    :data:`SOLVER_POINT_FIELDS`, and in a cluster case also the allocated
+    rows and each cluster's premium and metrics. A cluster's objective value,
+    ``unique`` and ``compare_parameters`` are the same for every optimal
+    design, so they stay compared.
+    """
+    paths = list(SOLVER_POINT_FIELDS)
+    if document[F.scope] == F.scope_cluster:
+        paths.append((F.expected, F.allocation))
+        for c in document[F.clusters][F.cluster_ids]:
+            paths += [
+                (F.expected, F.clusters, c, F.premium),
+                (F.expected, F.clusters, c, F.metrics),
+            ]
+    return paths
+
+
+def _keyed_rows(document: Mapping[str, Any]) -> list[str] | None:
+    """Return the keys of a design case's rows of amounts: assets, clusters or None.
+
+    A joint case keys ``expected.parameters`` and ``expected.unidentified`` by
+    asset id, a cluster case by cluster id; an individual case doesn't key
+    them.
+    """
+    if document[F.scope] == F.scope_joint:
+        return list(document[F.sample][F.asset_ids])
+    if document[F.scope] == F.scope_cluster:
+        return list(document[F.clusters][F.cluster_ids])
+    return None
+
+
 def levels_of(
     document: Mapping[str, Any],
     shape: tuple[int, int],
@@ -4712,10 +5597,8 @@ def levels_of(
     """
     names = [level_name(k) for k in range(shape[1])] if names is None else names
     parameters = document[F.expected][F.parameters]
-    if document[F.scope] == F.scope_joint:
-        rows = [parameters[a] for a in document[F.sample][F.asset_ids]]
-    else:
-        rows = [parameters]
+    keys = _keyed_rows(document)
+    rows = [parameters] if keys is None else [parameters[key] for key in keys]
     levels = np.array(
         [[float(row[name]) for name in names] for row in rows],
         dtype=np.float64,
@@ -4733,7 +5616,7 @@ def _unidentified_paths(document: Mapping[str, Any]) -> list[tuple[str, ...]]:
     """
     unidentified = document[F.expected][F.unidentified]
     base = (F.expected, F.parameters)
-    if document[F.scope] == F.scope_joint:
+    if _keyed_rows(document) is not None:
         return [(*base, a, name) for a, names in unidentified.items() for name in names]
     return [(*base, name) for name in unidentified]
 
@@ -4785,7 +5668,11 @@ def compare_case(committed: Mapping[str, Any], generated: GeneratedCase) -> list
     problems = compare_documents(
         committed,
         regenerated,
-        skip=_unidentified_paths(regenerated) if unique else SOLVER_POINT_FIELDS,
+        skip=(
+            _unidentified_paths(regenerated)
+            if unique
+            else solver_point_paths(regenerated)
+        ),
     )
     try:
         levels = levels_of(
@@ -4802,7 +5689,7 @@ def compare_case(committed: Mapping[str, Any], generated: GeneratedCase) -> list
                 f"regenerated {value!r}"
             )
     evaluated = generated.evaluate(levels)
-    keys = (F.objective_value, F.premium, F.metrics, F.out_of_sample)
+    keys = tuple(evaluated)
     problems += compare_documents(
         {**committed, F.expected: {k: committed[F.expected].get(k) for k in keys}},
         {**regenerated, F.expected: evaluated},
@@ -4814,18 +5701,28 @@ def compare_case(committed: Mapping[str, Any], generated: GeneratedCase) -> list
     objective = regenerated[F.objective] or {}
     scale = case_scale(regenerated)
     floor = scale**2 if objective.get(F.kind_key) == F.objective_mse else scale
-    at_levels = float(evaluated[F.objective_value])
-    optimum = float(regenerated[F.expected][F.objective_value])
-    if not math.isclose(
-        at_levels,
-        optimum,
-        rel_tol=REGEN_RTOL_SOLVED,
-        abs_tol=REGEN_RTOL_SOLVED * floor,
-    ):
-        problems.append(
-            f"{F.expected}/{F.parameters}: objective {at_levels!r} at the committed "
-            f"levels, regenerated optimum {optimum!r}"
-        )
+    # The objective of each design problem: the case's, or in a cluster case
+    # with one design problem per cluster, each cluster's.
+    optima: list[tuple[str, Any, Any]] = [
+        ("", evaluated[F.objective_value], regenerated[F.expected][F.objective_value])
+    ]
+    for c, block in (regenerated[F.expected].get(F.clusters) or {}).items():
+        at = evaluated[F.clusters][c][F.objective_value]
+        optima.append((f" of {c}", at, block[F.objective_value]))
+    for name, at, regenerated_optimum in optima:
+        if regenerated_optimum is None:
+            continue
+        at_levels, optimum = float(at), float(regenerated_optimum)
+        if not math.isclose(
+            at_levels,
+            optimum,
+            rel_tol=REGEN_RTOL_SOLVED,
+            abs_tol=REGEN_RTOL_SOLVED * floor,
+        ):
+            problems.append(
+                f"{F.expected}/{F.parameters}: objective{name} {at_levels!r} at the "
+                f"committed levels, regenerated optimum {optimum!r}"
+            )
     if generated.ranges is not None:
         low, high = generated.ranges
         pad = UNIQUE_WIDTH * scale
