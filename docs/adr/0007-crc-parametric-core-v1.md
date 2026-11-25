@@ -2,12 +2,12 @@
 
 - Status: **Proposed.** Nothing is built until the owner, Marc Prinzing, approves it, as he approved ADR 0005.
 - Date: 2026-11-25
-- Decision issue: MAR-437 (R-27a). It starts MAR-345: "the stages (both the core parametric framework and the additions) are ready to be published as PRs based on the updated crc release". It records Marc's answers on MAR-435 (Q1 to Q7) and the review of MAR-433.
+- Decision issue: MAR-437 (R-27a). It starts MAR-345: "the stages (both the core parametric framework and the additions) are ready to be published as PRs based on the updated crc release". It records Marc's answers on MAR-435 (Q1 to Q7) and the review of MAR-433. An independent review of this record (MAR-438) was addressed before Marc's approval.
 - Prepared by a worker agent from `main` at `985127d`. Read-only, at these commits; nothing was built or run against CRC data:
   - crc-sdk 1.0.1: `4b84782` (tag `v1.0.1`). Every crc-sdk citation below is `path:line` at this commit;
   - crc-framework 1.0.0: `33420fb` ("Release 1.0.0", 2026-11-24). Its citations are prefixed `fw:`;
-  - RiskThinking's unmerged insurance drafts: crc-sdk `upstream/insurance-loss` at `6821eae` (`LossRun`), crc-framework `origin/insurance-loss` at `5466b84`;
-  - the 0.11 module: the fork's `parametric` at `c830db5` (the branch is at `bda0cf5`; only `intervals.py` and the docs differ).
+  - RiskThinking's unmerged insurance drafts: crc-sdk `upstream/insurance-loss` at `6821eae` (`LossRun`, cited as `loss:`), crc-framework `origin/insurance-loss` at `5466b84`;
+  - the 0.11 module: the fork's `parametric` at `c830db5`. The branch is at `bda0cf5` now; `intervals.py`, `metadata.py`, two test files and the docs differ.
 - Supersedes nothing. ADR 0005 stays the record of the 0.11 module (§11).
 
 ## Decisions at a glance
@@ -17,12 +17,12 @@
 | 1 | The core is a recipe inside crc-sdk, in the form of `LossRun`, contributed by PRs into RiskThinking's crc-sdk as PR #41 was (Q1 (a)). A package of our own is the fallback only | §2 |
 | 2 | It is built on a new integration branch of the fork, `parametric-v1`, cut from `v1.0.1`; `parametric` (0.11) is frozen | §2 |
 | 3 | 15 public names, flat, in 1.0's conventions | §3 |
-| 4 | One asset, one hazard, a fitted curve per series; rows per scenario and period as the evaluation gives them | §4, §5 |
-| 5 | Four payout families with free terms; MSE, E[U] and weighted CVaR under a budget and a limit; a held-out test from fresh draws | §5 |
-| 6 | The core reuses crc-framework for draws, impacts and VaR/CVaR; payouts, basis risk, the other metrics and the design stay in the recipe; HiGHS (`highspy`) is an optional extra | §6 |
-| 7 | 60 one-asset golden fixtures (MAR-245) carry over; tests check behaviour | §7 |
-| 8 | About 3,500 source lines in three PRs into crc-sdk; no crc-framework PR in the core | §8 |
-| 9 | Five addition stages in Q3's order, 5,300 lines in all; a short list dropped for good, as a proposal | §9 |
+| 4 | One asset, one hazard; the hazard curve per series is built from the evaluation's own quantile rows, as `LossRun` builds its damage curves; rows per scenario and period | §4, §5 |
+| 5 | Four payout families with free terms, priced pure or with a cost-of-capital load; MSE, E[U] and weighted CVaR under a budget and a limit; a held-out test from fresh draws | §5 |
+| 6 | The core reuses crc-framework for curves, draws, impacts and VaR/CVaR; payouts, basis risk, the other metrics and the design stay in the recipe, a stated departure from 1.0's rule; HiGHS (`highspy`) is an optional extra | §6 |
+| 7 | 58 one-asset golden fixtures (MAR-245) carry over; tests check behaviour | §7 |
+| 8 | Re-estimated at about 4,850 source lines in five PRs into crc-sdk, against Q2's 3,500: Marc's call (M5) | §8 |
+| 9 | Five addition stages in Q3's order, about 6,450 lines; parked and drop lists, the latter a proposal | §9 |
 | 10 | Every module issue states its story and line budget (Q7) | §10 |
 | 11 | ADR 0005 is frozen as the record of the 0.11 module | §11 |
 
@@ -49,77 +49,85 @@
 
 ## 2. The home: a recipe inside crc-sdk (Q1 (a))
 
-**The form is `LossRun`'s** (crc-sdk `upstream/insurance-loss`, `crc_sdk/_loss.py:71-216`): private modules `crc_sdk/_parametric*.py`, flat names exported from `crc_sdk`, one recipe that takes an `Evaluation` and keyword-only typed declarations, the terminals `explain`, `validate`, `read`, `write` and `execute`, a result, a reopenable artifact, and 1.0's errors and failure rows. A public submodule is ruled out: `"root_imports_only": true` (`public-api.json:4986`) and the runtime check rejects any undeclared public attribute (`tools/api_contracts/check.py:754`).
+**The form is `LossRun`'s** (`loss:crc_sdk/_loss.py:71-216`): private modules `crc_sdk/_parametric*.py`, flat names exported from `crc_sdk`, one recipe that takes an `Evaluation` and keyword-only typed declarations, the terminals `explain`, `validate`, `read`, `write` and `execute`, a result, a reopenable artifact, and 1.0's errors and failure rows. A public submodule is ruled out: `"root_imports_only": true` (`public-api.json:4986`) and the runtime check rejects any undeclared public attribute (`tools/api_contracts/check.py:754`).
 
 **In-tree, it uses the private pieces `LossRun` uses**, which a contribution may:
 
-| Piece | Where | Use |
-|---|---|---|
-| `_Plan.source` | `crc_sdk/_evaluation.py:115` | the evaluation's dataset, whose rows hold the curves (`LossRun` reads `evaluation._plan`, `_loss.py:51,261`) |
-| `ExecutionScope` | `crc_sdk/_graph.py:286` | one execution resolves each source once (`AGENTS.md:52-53`) |
-| `_publication_path` | `crc_sdk/_terminals.py:585` | atomic publication, no overwrite by default (`AGENTS.md:54-55`) |
+| Piece | Where | `LossRun`'s use | Ours |
+|---|---|---|---|
+| `_Plan.assets`, `.query`, `._selected_responses()` | `crc_sdk/_evaluation.py:114-120` | build-time checks of the query and the damage response (`loss:crc_sdk/_loss_inputs.py:147-190`) | the same checks |
+| `_EvaluationNode` | `crc_sdk/_evaluation.py:459` | streams the evaluation's own rows (`loss:_loss_inputs.py:311-360, 428-453`) | the same |
+| `ExecutionScope` | `crc_sdk/_graph.py:286` | one execution per run (`loss:_loss.py:226`) | the same (`AGENTS.md:52-53`) |
+| `_publication_path` | `crc_sdk/_terminals.py:585` | atomic publication (`loss:_loss.py:38`) | the same (`AGENTS.md:54-55`) |
 
-**Where it is built.** In the fork `marc272/crc-sdk`, on a new integration branch `parametric-v1` cut from `v1.0.1`; issue branches are cut from it, as from `parametric` today. `parametric` stays at 0.11 as the parked source (Q3). Marc opens the PRs into RiskThinking's crc-sdk (MAR-249).
+**Where it is built.** In the fork `marc272/crc-sdk`, on a new integration branch `parametric-v1` cut from `v1.0.1` (name: M3); issue branches are cut from it, as from `parametric` today. `parametric` stays at 0.11 as the parked source (Q3). Marc opens the PRs into RiskThinking's crc-sdk (MAR-249).
 
-**The fallback (b)**, if RiskThinking decline: the same files become a package of our own on crc-sdk and crc-framework, with the same names. Three changes, about 100 lines: the recipe takes the curves' `Dataset` as a keyword, since `_Plan` is private; it writes through its own temporary file and `os.replace`; and its execution holds the evaluation's own `execute()` scope. Its `Explanation`, `Operation`, `ExecutionReport` and `ExecutionDiagnostic` would rest on constructors the contract doesn't declare (`public-api.json:2202-2232`, `:3281`).
+**The fallback (b)**, if RiskThinking decline: the same files become a package of our own on crc-sdk and crc-framework, with the same names. About 100 lines change: the build-time checks read `evaluation.inspect().metadata` (query and responses, `docs/evaluation.md:145-149`), the rows come from `evaluation.read()`, the recipe writes through its own temporary file and `os.replace`, and its execution holds the evaluation's `execute()` scope. Its `Explanation`, `Operation`, `ExecutionReport` and `ExecutionDiagnostic` would rest on constructors the contract doesn't declare (`public-api.json:2202-2232`, `:3281`).
 
 **The files** (budgets in §8):
 
 | File | Holds | Imports crc-sdk |
 |---|---|---|
-| `_parametric_cover.py` | the declarations of §3 but the recipe and its outputs | no |
+| `_parametric_cover.py` | the declarations of §3 but the recipe and its outputs | yes, for `SeriesReference` only |
 | `_parametric_payouts.py` | the four families: payouts, the basis matrix, the amount constraints | no |
-| `_parametric_sample.py` | draws from a curve, the loss, the basis-risk model | no (crc-framework only) |
-| `_parametric_metrics.py` | the metrics of §5 on arrays | no (crc-framework only) |
+| `_parametric_sample.py` | the draws, the loss, the basis-risk model | no (crc-framework only) |
+| `_parametric_metrics.py` | the premium and the metrics of §5 on arrays | no (crc-framework only) |
 | `_parametric_design.py`, `_parametric_solver.py` | the grid, the LP and QP, the checks; HiGHS behind the extra | no |
-| `_parametric_run.py` | `ParametricRun`, `ParametricExecution`: the join, the series, the rows | yes |
+| `_parametric_run.py` | `ParametricRun`, `ParametricExecution`: the checks, the rows, the series | yes |
 | `_parametric_result.py` | `ParametricResult`, `ParametricMetadata`, `ParametricDesignRecord`, `ParametricArtifact` | yes |
 
-The numerics are plain functions on numpy arrays, and only the last two files touch crc-sdk. So the numerics can move to crc-framework (§6) or into a package of our own without change.
+The numerics are plain functions on numpy arrays, apart from the cover file's one import. So they can move to crc-framework (§6) or into a package of our own without change.
 
 ## 3. The public surface: 15 names
 
-Signatures are outlines; types from crc-framework are written `cf.`. Story 1 is "create a cover", 2 "analyse it", 3 "compare covers".
+Signatures are outlines of the final surface; types from crc-framework are written `cf.`. Story 1 is "create a cover", 2 "analyse it", 3 "compare covers". "PR" is the PR that adds the name (§8).
 
 | # | Name | Signature | Story | PR |
 |---|---|---|---|---|
 | 1 | `PayoutKind` | enum: `LINEAR`, `STEP`, `PIECEWISE_LINEAR`, `BINARY` | 1 | 1 |
 | 2 | `ParametricCover` | `(kind: PayoutKind, *, thresholds: Sequence[float \| FreeTerm], amounts: Sequence[float \| FreeTerm], tail: cf.Tail, monotone: bool = True, label: str \| None = None)`; `id`, `payout(index) -> NDArray[float64]`, `resolve(terms: Mapping[str, float]) -> ParametricCover`, `to_json()`, `from_json(text)` | 1 | 1 |
 | 3 | `BasisRisk` | `BasisRisk.none()`, `BasisRisk.impact_noise(*, sigma: float, upper: float \| None = None)` | 2 | 1 |
-| 4 | `ParametricSampling` | `(*, draws: int, seed: int, basis_risk: BasisRisk, test_draws: int \| None = None)` | 2 | 1 |
-| 5 | `ParametricRun` | `(evaluation: Evaluation, *, damage_response: str, value: str \| float, loss_unit: str, covers: Sequence[ParametricCover], sampling: ParametricSampling, design: ParametricDesign \| None = None, levels: Sequence[float] = (0.9, 0.95, 0.99), return_periods: Sequence[float] = (2, 5, 10, 25, 50, 100, 250))`; `explain(*, runtime=None) -> Explanation`, `validate(*, runtime=None) -> ExecutionReport`, `read(*, runtime=None) -> ParametricResult`, `write(path, *, overwrite=False, runtime=None) -> ParametricArtifact`, `execute(*, runtime=None) -> ParametricExecution` | 1, 2, 3 | 1 |
-| 6 | `ParametricResult` | `table: pa.Table`, `covers: tuple[ParametricCover, ...]`, `metadata: ParametricMetadata`, `report: ExecutionReport` | 2, 3 | 1 |
-| 7 | `ParametricMetadata` | `schema_version`, `evaluation: EvaluationMetadata`, `covers`, `sampling`, `design`, `designs: tuple[ParametricDesignRecord, ...]`, `levels`, `return_periods`; `to_json()`, `from_json(text)` | 2, 3 | 1 |
-| 8 | `FreeTerm` | `(*, lower: float = 0.0, upper: float \| None = None, grid: int \| Sequence[float] \| None = None)` | 1 | 2 |
-| 9 | `Objective` | `Objective.mse()`, `Objective.expected_uncovered()`, `Objective.weighted_cvar(*, alpha: float, beta: float)` | 1 | 2 |
-| 10 | `Pricing` | `Pricing.pure()`, `Pricing.cost_of_capital(*, rate: float, level: float)` | 1, 2 | 2 |
-| 11 | `Budget` | `Budget.ratio(value: float)`, `Budget.amount(value: float)` | 1 | 2 |
-| 12 | `ParametricDesign` | `(objective: Objective, *, budget: Budget \| None = None, limit: float \| None = None, pricing: Pricing \| None = None, series: SeriesReference \| None = None, max_grid_points: int = 10_000)` | 1 | 2 |
-| 13 | `ParametricDesignRecord` | `cover_id`, `design_id`, `route`, `status`, `objective_value`, `premium`, `unidentified`, `unique`, `ties`, `degenerate_tail`, `solver` | 1 | 2 |
-| 14 | `ParametricExecution` | context manager: `read()`, `validate()`, `write(path, *, overwrite=False)`, `report` | 2, 3 | 3 |
-| 15 | `ParametricArtifact` | `open(path)`, `read()`, `validate()`, `path`, `metadata` | 2, 3 | 3 |
+| 4 | `Pricing` | `Pricing.pure()`, `Pricing.cost_of_capital(*, rate: float, level: float)` | 1, 2 | 1 |
+| 5 | `ParametricSampling` | `(*, draws: int, seed: int, basis_risk: BasisRisk, tail_completion: cf.TailCompletion \| None = None, test_draws: int \| None = None)` | 2 | 2 |
+| 6 | `ParametricRun` | `(evaluation: Evaluation, *, damage_response: str, value: str \| float, loss_unit: str, covers: Sequence[ParametricCover], sampling: ParametricSampling, pricing: Pricing \| None = None, design: ParametricDesign \| None = None, levels: Sequence[float] \| None = None, return_periods: Sequence[float] \| None = None)`; `explain(*, runtime=None) -> Explanation`, `validate(*, runtime=None) -> ExecutionReport`, `read(*, runtime=None) -> ParametricResult`, `write(path, *, overwrite=False, runtime=None) -> ParametricArtifact`, `execute(*, runtime=None) -> ParametricExecution` | 1, 2, 3 | 2 |
+| 7 | `ParametricResult` | `table: pa.Table`, `covers: tuple[ParametricCover, ...]`, `metadata: ParametricMetadata`, `report: ExecutionReport` | 2, 3 | 2 |
+| 8 | `ParametricMetadata` | `schema_version`, `evaluation: EvaluationMetadata`, `covers`, `sampling`, `pricing`, `design`, `designs: tuple[ParametricDesignRecord, ...]`, `levels`, `return_periods`; `to_json()`, `from_json(text)` | 2, 3 | 2 |
+| 9 | `FreeTerm` | `(*, lower: float = 0.0, upper: float \| None = None, grid: int \| Sequence[float] \| None = None)` | 1 | 3 |
+| 10 | `Objective` | `Objective.mse()`, `Objective.expected_uncovered()`, `Objective.weighted_cvar(*, alpha: float, beta: float)` | 1 | 3 |
+| 11 | `Budget` | `Budget.ratio(value: float)`, `Budget.amount(value: float)` | 1 | 3 |
+| 12 | `ParametricDesign` | `(objective: Objective, *, budget: Budget \| None = None, limit: float \| None = None, series: SeriesReference \| None = None, max_grid_points: int = 10_000)` | 1 | 3 |
+| 13 | `ParametricDesignRecord` | `cover_id`, `design_id`, `route`, `status`, `objective_value`, `premium`, `unidentified`, `unique`, `ties`, `degenerate_tail`, `solver` | 1 | 3 |
+| 14 | `ParametricExecution` | context manager: `read()`, `validate()`, `write(path, *, overwrite=False)`, `report` | 2, 3 | 5 |
+| 15 | `ParametricArtifact` | `open(path)`, `read()`, `validate()`, `path`, `metadata` | 2, 3 | 5 |
 
-- **Terms.** A cover's terms are its index-unit `thresholds` and its payout-unit `amounts`, read per family as ADR 0005 §3's table: `LINEAR` (attachment, exhaustion; limit), `STEP` (breakpoints; levels), `PIECEWISE_LINEAR` (knots; levels), `BINARY` (trigger; amount). Term names are `thresholds[i]` and `amounts[i]`. One class with a kind replaces ADR 0005's four classes, its protocol and its registry.
-- **Closed choices are enums or named constructors**, as `Probability.annual(tail=...)` is (`crc_sdk/_declarations.py:353`). `BasisRisk`, `Objective`, `Pricing` and `Budget` have no public `__init__`.
+- **Terms.** A cover's terms are its index-unit `thresholds` and its payout-unit `amounts`, read per family as ADR 0005 §3's table: `LINEAR` (attachment, exhaustion; limit), `STEP` (breakpoints; levels), `PIECEWISE_LINEAR` (knots; levels), `BINARY` (trigger; amount). Term names are `thresholds[i]` and `amounts[i]`. One class with a kind replaces ADR 0005's four classes, its protocols and its registry.
+- **Closed choices are enums or named constructors**, as `Probability.annual(tail=...)` is (`crc_sdk/_declarations.py:353`). `BasisRisk`, `Pricing`, `Objective` and `Budget` have no public `__init__`. The record's `route`, `status` and `degenerate_tail` are nested enums, which add no names; the table's `split` is a data column, like 1.0's `failure.kind`.
+- **Pricing belongs to the run**: it prices stated covers on their sample and the design's budget alike, as 0.11's `evaluate` and `compare` took a pricing.
 - **The design series** is a 1.0 `SeriesReference` (`crc_sdk/_inspection.py:85`), as `inspect().series` lists them. It may be omitted only when the evaluation reads one series.
 - **The value** is an asset column carried by `Assets(columns=[...])` (`crc_sdk/_assets.py:336`) into the evaluation's `asset` field, or one number. `loss_unit` is an exact identifier, recorded.
-- **The table is long**, like 1.0's evaluation rows: `asset_id`, `variable_id`, `scenario_id`, `period_id`, `support_id`, `cover_id`, `cover_label`, `design_id`, `split` (`"design"` or `"test"`), `metric`, `level` (β or T, or null), `value`, `failure` (`code`, `message`, as in `crc_sdk/_evaluation_schema.py:867-874`). The column set is fixed whatever the levels, so no metric name depends on β or T.
-- **Errors.** No new exception class. Constructor misuse raises `TypeError` or `ValueError`. A refused setup (several assets or variables, no response named `damage_response`, a design series that isn't read) is an `ExecutionDiagnostic` (`crc_sdk/_dataset_schema.py:274`): `validate()` returns it, and the other terminals raise `ValidationError(report=)` (`crc_sdk/_errors.py:13`; `docs/execution.md:184-187`). A per-series problem is a failure row and a warning diagnostic, and the run goes on: `no_covering_support` (passed through), `curve_unavailable`, `curve_not_fitted`, `probability_not_annual`, `tail_mismatch`, `damage_unavailable`, `value_unavailable`, `design_infeasible`, `design_unbounded`, `solver_limit`. A missing extra raises an `ImportError` naming it (`docs/development.md:56-57`), and `explain()` lists it as a `Requirement`, as `LossRun` lists missing columns (`_loss.py:49-60`).
-- **Stages.** `explain()` adds `Operation`s to the evaluation's own explanation with 1.0's stages: `Stage.DECODING` (curves), `Stage.JOINING` (curves to rows), `Stage.EVALUATION` (draws, design, metrics), `Stage.WRITING` (`crc_sdk/_dataset_schema.py:261`). 1.0 has no design stage; `LossRun` uses `EVALUATION` too (`_loss.py:186-193`).
+- **Defaults.** `levels=None` means (0.9, 0.95, 0.99) and `return_periods=None` means (2, 5, 10, 25, 50, 100, 250), both recorded: 1.0's checker accepts only an empty tuple as a tuple default (`tools/api_contracts/check.py:193-197`). `LossRun`'s branch relaxes that rule (`git diff v1.0.1 upstream/insurance-loss -- tools/api_contracts/check.py`: +17/−3); the core doesn't need it.
+- **Signatures grow by PR.** The checker resolves every annotation to a declared name (`check.py:97-111`), so each PR declares the signatures its names allow: PR 2's `ParametricRun` has no `design` and `ParametricCover` takes floats only until PR 3; `write` and `execute` arrive with PR 5. 1.0 replaces unshipped definitions in place (`AGENTS.md:59-60`).
+- **The table is long**, like 1.0's evaluation rows, with columns passed through from the evaluation, `asset_id`, `member_id` (null in the core), `variable_id`, `scenario_id`, `period_id`, `support_id`, `distance_metres`, then `cover_id`, `cover_label`, `design_id`, `split` (`"design"` or `"test"`), `metric`, `level` (β or T, or null), `value`, and `failure` with 1.0's four fields `code`, `message`, `record`, `kind` (`crc_sdk/_evaluation_schema.py:867-874`). The column set is fixed whatever the levels, so no metric name depends on β or T.
+- **Errors.** No new exception class.
+  - At construction, as `LossRun`: `TypeError` or `ValueError` for misuse; a `damage_response` absent from the evaluation's selection is a `ValueError` (`loss:_loss_inputs.py:150-154`); `CapabilityError` (`crc_sdk/_errors.py:8`) when the response's output isn't `Ratio(unit=RatioUnit.FRACTION)` or the query isn't `.probabilities([...])` (`loss:_loss_inputs.py:155-172`), and `ValueError` when the knots don't run from 0 to 1 and no `tail_completion` is given (`:187-192`).
+  - At execution: a refused setup (several assets or variables, a design series that isn't read) is an `ExecutionDiagnostic` (`crc_sdk/_dataset_schema.py:274`); `validate()` returns it and the other terminals raise `ValidationError(report=)` (`crc_sdk/_errors.py:13`; `docs/execution.md:184-187`).
+  - Per series, a failure row and a warning diagnostic, and the run goes on: the evaluation's own codes passed through (`no_covering_support`, `overlapping_supports`, `outside_max_distance`, `query_outside_support`, `crc_sdk/_evaluation_schema.py:68-70`; `source_unavailable` as `failure.kind`), and the core's `incomplete_grid`, `probability_not_annual`, `tail_mismatch`, `value_unavailable`, `design_infeasible`, `design_unbounded`, `solver_limit`.
+  - A missing extra raises an `ImportError` naming it (`docs/development.md:56-57`), and `explain()` lists it as a `Requirement`, as `LossRun` lists missing columns (`loss:_loss.py:49-60`).
+- **Stages.** `explain()` adds `Operation`s to the evaluation's explanation with 1.0's stages: `Stage.VALIDATION` (checks), `Stage.EVALUATION` (draws, design, metrics), `Stage.WRITING` (`crc_sdk/_dataset_schema.py:261`). 1.0 has no design stage; `LossRun` uses the same two (`loss:_loss.py:186-193`).
+- **`ParametricMetadata` takes `LossRunMetadata`'s form**, typed metadata under one footer key. It is not 0.11's metadata document.
 
-**How the names enter `public-api.json`, and what that means for a contribution.** Each name gets one entry with its constructor, methods, parameter kinds, annotations, defaults and properties; the list stays sorted (`check.py:268`); every annotation must resolve to a declared name (`check.py:97`), which is why the design record is a name; the framework types the signatures use (`cf.Tail`) go in `external_symbols` (`public-api.json:4918`), and no framework type is re-exported (`check.py:410`). `__all__` must equal the exports and no other public attribute or member may exist (`check.py:745, 754, 851`). So a PR into crc-sdk carries, beside the code: the contract entries; the `__init__.py` imports; a row in `docs/api-reference.md` and `docs/README.md`; a docs page whose Python examples run offline under `tools/check_examples.py`; and, with the artifact (PR 3), a format `parametric` in `release.json` with its JSON Schema and generator. The checker hard-codes the set of formats (`check.py:246-258`), so it changes too, as `LossRun`'s did (+20 lines, C §5). The base wheel must import and pass `check.py --runtime` without `highspy` (`.github/workflows/ci.yml:145-161`).
+**How the names enter `public-api.json`, and what that means for a contribution.** Each name gets one entry with its constructor, methods, parameter kinds, annotations, defaults and properties; the list stays sorted (`check.py:268`); the framework types the signatures use (`cf.Tail`, `cf.TailCompletion`) go in `external_symbols` (`public-api.json:4918`), and no framework type is re-exported (`check.py:410`). `__all__` must equal the exports, and no other public attribute or member may exist (`check.py:745, 754, 851`). So a PR into crc-sdk carries, beside the code: the contract entries; the `__init__.py` imports; a row in `docs/api-reference.md` and `docs/README.md`; the docs page, whose Python examples run offline under `tools/check_examples.py`; and, with the artifact (PR 5), a format `parametric` in `release.json` with its JSON Schema and generator. The checker hard-codes the set of formats (`check.py:246-258`), so it changes too, as `LossRun`'s did. The base wheel must import and pass `check.py --runtime` without `highspy` (`.github/workflows/ci.yml:145-161`).
 
 ## 4. What the core reads from crc-sdk 1.0
 
 | What | Symbol | At `v1.0.1` |
 |---|---|---|
 | The evaluation | `Evaluation`, `.probabilities`, `.impact`, `.explain`, `.execute`, `.write` | `crc_sdk/_evaluation.py:992, 1064, 1079, 1099, 1260, 1265` |
-| Its dataset (in-tree) | `_Plan.source`, `_Plan.assets` | `crc_sdk/_evaluation.py:114-116` |
-| Its rows | `evaluation_arrow_schema`: `asset_id`, `variable_id`, `scenario_id`, `period_id`, `support_id`, `response_id`, `resolution_id`, `query_value`, `value`, `failure` | `crc_sdk/_evaluation_schema.py:863-911` |
-| Row failure codes | `no_covering_support`, `overlapping_supports`, `query_outside_support` | `crc_sdk/_evaluation_schema.py:68-70` |
+| Its plan (in-tree) | `_Plan.assets`, `.query`, `.responses`; `_EvaluationNode` | `crc_sdk/_evaluation.py:114-120, 459` |
+| The query | `QueryKind.PROBABILITY`, `EvaluationQuery` | `crc_sdk/_evaluation_schema.py:74` |
+| Its rows | `evaluation_arrow_schema`: `asset_id`, `member_id`, `resource_id`, `variable_id`, `scenario_id`, `period_id`, `support_id`, `distance_metres`, `response_id`, `resolution_id`, `query_value`, `value`, `failure`; `exposure` on named-only selections; `asset` when columns are bound | `crc_sdk/_evaluation_schema.py:863-927` |
+| Row failure codes | `no_covering_support`, `overlapping_supports`, `outside_max_distance`, `query_outside_support` | `crc_sdk/_evaluation_schema.py:68-70` |
 | The asset, the series | `Dataset.evaluate`, `Assets(..., columns=)`, `SpatialMatch` | `crc_sdk/_recipes.py:2019`; `crc_sdk/_assets.py:315, 336`; `crc_sdk/_evaluation_spatial.py:58` |
-| The curves | dataset rows keyed by `(variable_id, scenario_id, period_id, support_id, cell_id)`; `decode_curves(rows)` → `cf.Distribution \| cf.QuantileCurve \| None` | `docs/datasets.md:22`; `crc_sdk/_curves.py:11-22` |
-| A fitted curve | `Dataset.fit(spec)` | `crc_sdk/_recipes.py:2055` |
 | The impact | `EvaluationMetadata.resolutions` → `EvaluationResolution(response_id, impact: cf.Impact, asset_ids, context)` | `crc_sdk/_evaluation_schema.py:212, 470, 476` |
 | Scenario and period | `Scenario`, `Period`, `SeriesReference` | `crc_sdk/_declarations.py:213, 269`; `crc_sdk/_inspection.py:85` |
 | Units and semantics | `Variable(measurement=)`, `Probability.annual(tail=)`, `ProbabilityKind` | `crc_sdk/_declarations.py:179, 353, 47` |
@@ -127,11 +135,14 @@ Signatures are outlines; types from crc-framework are written `cf.`. Story 1 is 
 | Reports and errors | `ExecutionReport`, `ExecutionDiagnostic`, `Stage`, `ValidationError`, `CapabilityError` | `crc_sdk/_dataset_schema.py:387, 274, 261`; `crc_sdk/_errors.py:13, 8` |
 | Explanation | `Explanation`, `Operation`, `Requirement` | `crc_sdk/_inspection.py:216, 74, 61` |
 
-**The join.** No terminal returns the fitted curve per asset (C, row 1). The recipe reads the evaluation's rows for the asset's `support_id` per series, reads `_Plan.source`'s rows for those series and supports, joins on the dataset key and calls `decode_curves`. Whether that join is intended is RiskThinking's question 4 (§13).
+**The curve route: `LossRun`'s.** The user queries the evaluation with `.probabilities([...])` in non-exceedance ranks and names a damage response. Per asset and series, the recipe takes the exposure values at the knots, builds `cf.QuantileCurve(probabilities, values)`, and completes it with the sampling's `tail_completion` unless the knots run from 0 to 1. This is how `LossRun` builds its damage curves (`loss:_loss_inputs.py:167-190, 363-420`). Two routes were weighed:
 
-**The loss.** The user names a response added with `.impact(name, model, variable=, context=)`. The recipe takes that asset's resolved `cf.Impact` from the evaluation's metadata and applies it to the drawn hazard values. So 1.0 checks the measurement and the context and records them, and the core holds no impact logic. Only four built-in models bind in `.impact(...)` (`docs/migration-v1.md:389-393`); user `Impact.linear`, `tabulated`, `binned` and `sigmoid` models bind too.
+- (i) the evaluation's own quantile rows (chosen). It uses only the evaluation, as `LossRun` does, and works whatever the dataset holds. CRC Open's readers build `QuantileCurve`s (`crc_sdk/_climate_io.py:192`; `crc_sdk/_climate_sources.py:941`), which have no values outside their knots (fw: `docs/python.md:64-65`), so a tail completion or a full grid is needed on any route. The cost: between knots the hazard is interpolated linearly in probability, so the grid is a stated modelling choice, recorded in the metadata.
+- (ii) joining the evaluation's `support_id` to the dataset's rows (`_Plan.source`, `crc_sdk/_evaluation.py:115`) and calling `decode_curves` (`crc_sdk/_curves.py:11-22`). It gives a fitted `Distribution` exactly, but rests on a private join with no precedent; RiskThinking's question 4 asks whether it is intended.
 
-**Checks the core makes on 1.0's facts:** the series declares `ProbabilityKind.ANNUAL` (replacing ADR 0005 §4.2's semantics rules); the cover's `tail` equals the series' probability tail (ADR 0005 §3); the decoded curve is a `cf.Distribution`. A `cf.QuantileCurve` is `curve_not_fitted`, because it has no values outside its knot interval (fw: `docs/python.md:64`). Its remedy is `Dataset.fit`, or `complete(TailCompletion)` before the dataset is built, which states the tails (fw: `python/crc_framework/_distribution.py:937`).
+**The loss.** The recipe takes the asset's resolved `cf.Impact` from the evaluation's resolutions and applies it to the drawn hazard values, rather than interpolating the response's knots as `LossRun` does. So the basis-risk model acts on the impact at each draw, and 1.0 still checks and records the measurement and the context. Only four built-in models bind in `.impact(...)` (`docs/migration-v1.md:389-393`); user `Impact.linear`, `tabulated`, `binned` and `sigmoid` models bind too.
+
+**Checks on 1.0's facts:** the series declares `ProbabilityKind.ANNUAL` (replacing ADR 0005 §4.2's semantics rules); the cover's `tail` equals the series' probability tail (ADR 0005 §3); every knot has an exposure value, else `incomplete_grid`, as `LossRun`'s `loss_incomplete_grid` (`loss:_loss_inputs.py:375`).
 
 ## 5. The numerics
 
@@ -140,48 +151,50 @@ Plain functions on numpy arrays, in the files of §2.
 | Part | The core | ADR 0005 carried over unchanged |
 |---|---|---|
 | Payout families | four families, half-open bins on the severe side, nothing below the first threshold, amounts ≥ 0, `monotone` | §3: "Severity", the families' table, "Nothing below the attachment", "Boundaries", "Constraints of the family"; the `Free` rules as `FreeTerm` |
-| The sample | n design draws and m test draws per series. Uniforms u from `numpy.random.default_rng(seed)` (design) and an independent child stream (test); hazard = `curve.quantile(u)`; loss = `impact.evaluate(hazard)` × value; then the basis-risk model. Every series of the run reads the same uniforms, so scenarios and periods are compared on shared draws | §4.4's draw order (hazard uniforms first, then the basis-risk model) and `NoBasisRisk`; `ImpactNoise` |
-| Metrics | `expected_loss`, `expected_payout`, `premium`, `expected_uncovered`, `coverage_ratio`, `payout_to_loss_ratio`, `tail_coverage`, `cvar_uncovered_to_loss`, `false_negative_rate`, `false_positive_rate` (ℓ = ε = 0, recorded), `rmse`, `correlation`, VaR and CVaR of uncovered loss, net loss and loss, and the four return levels | §6: notation, "The premium used", "VaR and CVaR", "Tail weights", the metrics' definitions and null rules; "In and out of sample" |
+| The sample | n design draws and m test draws per series. Uniforms u from `numpy.random.default_rng(seed)` (design) and an independent child stream (test); hazard = the completed curve's `quantile(u)`; loss = `impact.evaluate(hazard)` × value; then the basis-risk model. Every series of the run reads the same uniforms, so scenarios and periods are compared on shared draws | §4.4's draw order (hazard uniforms first, then the basis-risk model) and `NoBasisRisk`; `ImpactNoise` |
+| Premium | `PurePremium` and `CostOfCapitalLoad` | §5.2's first two bullets; §6's "The premium used" |
+| Metrics | `expected_loss`, `expected_payout`, `premium`, `expected_uncovered`, `coverage_ratio`, `payout_to_loss_ratio`, `tail_coverage`, `cvar_uncovered_to_loss`, `false_negative_rate`, `false_positive_rate` (ℓ = ε = 0, recorded), `rmse`, `correlation`, VaR and CVaR of uncovered loss, net loss and loss, and the four return levels | §6: notation, "VaR and CVaR", "Tail weights", the metrics' definitions and null rules; "In and out of sample" |
 | Design | a grid over free thresholds; at each point the amounts by an LP (E[U], weighted CVaR) or a QP (MSE); MSE under a cost-of-capital budget by cutting planes; scaling; numpy verification of every constraint; `unidentified` with the fill rule; MSE uniqueness by eigenvalue; grid ties; degenerate tails | §5.1 (but `UserObjective`), §5.2 (but `ExpectedPayoutMultiple`), §5.3's table rows 1 to 4, "The grid", "Why a grid", "Scaling", "No silent failures"; §5.4's "Unidentified amounts", "MSE route", "Grid route", "Degenerate tails"; §5.5's QP route for at most 100 columns and its LP rule |
-| Solver | HiGHS (`highspy`) for LPs and for the dense active-set QP's LPs, imported lazily, in the extra `crc-sdk[parametric] = ["highspy>=1.13,<2"]` (the floor of 0.11, `pyproject.toml:58-60` at `c830db5`) | §5.5's policy and choice of highspy |
+| Solver | HiGHS (`highspy`) for LPs and for the dense active-set QP's LPs, imported lazily, in the extra `crc-sdk[parametric] = ["highspy>=1.13,<2"]` (0.11's floor, `pyproject.toml:58-60` at `c830db5`) | §5.5's policy and choice of highspy |
 
 **What the core changes against ADR 0005:**
 
-- **A held-out test from fresh draws.** On a fitted curve the draws are i.i.d., so the test sample is m fresh draws on the second stream (ADR 0005 §4.4, "Splits"). Year-block holdout and k-fold return with the per-year route (stage 3). Rows say `split`; external numbers come from `"test"` rows (publication rule).
-- **The premium used** on test rows is the design premium; a stated cover is priced on its own sample.
+- **A held-out test from fresh draws.** The draws are i.i.d., so the test sample is m fresh draws on the second stream (ADR 0005 §4.4, "Splits"). Year-block splits return with stage 3. Rows say `split`; external numbers come from `"test"` rows (publication rule).
+- **The premium used** on test rows is the design premium; a stated cover is priced on its own sample with the run's pricing.
 - **No QP above 100 columns.** A template with more than 100 free amounts is refused at construction, so HiGHS's QP solver, its limits and the fallback of §5.5 aren't ported.
 - **The LP route doesn't range.** `unique` is null on LP designs, as with `ranges=False` in 0.11. Ranges, which the owner made the default on MAR-405, return with stage 5.
-- **Not in the core:** the numpy grid over every free parameter (only `UserObjective` needed it), the local refinement (§5.3), `ExpectedPayoutMultiple`, `HazardNoise`, `payout_frequency`, `unidentified_share`, the short-block flags, metric thresholds other than 0, and the leakage, pairing and lineage checks. Draws from one seed per run can't leak between design and test.
 - **Determinism** comes from an integer `seed` recorded in the metadata, as crc-framework's `Distribution.sample(size, *, seed)` takes one (fw: `_distribution.py:437-449`). No global seed.
+- **Elsewhere:** §9 gives every 0.11 capability the core leaves out a stage, the parked list or the drop list.
 
 ## 6. Integration with crc-framework
 
-**What it is** (fw: `AGENTS.md`, `README.md`). The numerical core of CRC: one Rust crate, `crates/core`, with PyO3 bindings (`src/`, `crc_framework._core`), a typed Python API (`python/crc_framework`, 88 exports in its `public-api.json`), and WASM/JS. It holds about 581,000 lines of Rust, of which 559,250 are reference data under `crates/core/src/reference/`, and 5,212 lines of Python (`git ls-files` and `wc -l` at `33420fb`). Its Python package depends on `numpy` and `jsonschema` only (fw: `pyproject.toml`), and `Cargo.lock` has no LP or QP solver; its one optimiser is the likelihood search of its curve fits (fw: `crates/core/src/distribution.rs:1336`).
+**What it is** (fw: `AGENTS.md`, `README.md`). The numerical core of CRC: one Rust crate, `crates/core`, with PyO3 bindings (`src/`, `crc_framework._core`), a typed Python API (`python/crc_framework`, 88 exports in its `public-api.json`), and WASM/JS. It holds about 581,000 lines of Rust, of which 559,250 are under `crates/core/src/reference/`, mostly reference data but also `curve_fitting.rs` (3,604 lines of code), and 5,212 lines of Python (`git ls-files` and `wc -l` at `33420fb`). Its Python package depends on `numpy` and `jsonschema` only (fw: `pyproject.toml`), and `Cargo.lock` has no LP or QP solver; its one optimiser is the likelihood search of its curve fits (fw: `crates/core/src/distribution.rs:1336`).
 
 **What it already does that the core needs:**
 
 | Need | crc-framework 1.0.0 | Fit for the core |
 |---|---|---|
-| Draw hazard values from a curve | `Distribution.quantile(probabilities)` takes arrays and keeps their shape (fw: `_distribution.py:374`; `docs/python.md:22-24`). `Distribution.sample(size, *, seed)` is `quantile(numpy.random.default_rng(seed).random(size))` (fw: `_distribution.py:437-449`) | Reused. The recipe draws its own uniforms with the same generator, so that series share draws and the basis-risk draws follow, then calls `quantile` |
-| Supplied quantiles | `QuantileCurve`: no sampling; a query outside `probability_interval` raises `ValueError`; `complete(TailCompletion)` and `condition(q_min, q_max)` make a complete law (fw: `_distribution.py:819-960`; `docs/python.md:64-77`) | Refused as `curve_not_fitted` (§4); completion is the user's stated choice |
-| An impact on arrays | `Impact.evaluate(values)` on arrays (fw: `_impacts.py:351`); `ImpactReference.resolve(context)` (fw: `_impacts.py:1036`) | Reused, through the evaluation's resolutions (§4) |
-| Exact laws of a response | `Impact.expectation`, `Impact.pushforward` (fw: `_impacts.py:544, 564`) | Not in the core: the design needs the joint draws of index and loss. A later route for E[π] of a stated cover |
-| VaR and CVaR of weighted draws | `Distribution.discrete(values, probabilities)` (fw: `_distribution.py:307`); its `quantile` is the lowest value whose rounded cumulative probability reaches q (fw: `crates/core/src/numerical.rs:926-932`); `statistics(metrics=[Statistic.CVAR], level=, tail=)` integrates the tail exactly, a partial atom included (fw: `_distribution.py:451`; `numerical.rs:617-654`) | Reused for VaR, CVaR and the return levels. The CVaR equals ADR 0005 §6's. The VaR lacks §6's 1e-10 slack; the fixtures write a quantile on a step as `{"either": [...]}` (ADR 0005 §8), so both pass. The tail weights, coverage and rates stay in numpy |
-| Payout-like functions | `Impact.linear(..., minimum=, maximum=)` (fw: `_impacts.py:254`); `Impact.binned` with bins `[e_i, e_{i+1})` (fw: `crates/core/src/impact/kernel.rs:68-70`) and `Impact.tabulated`, both refusing values outside their finite domain (fw: `_impacts.py:295-337`; `kernel.rs:26-49`) | Not reused: `LINEAR` is `Impact.linear` clamped to [0, ℓ], but step, binary and piecewise-linear payouts must pay 0 below and stay flat above any value, and the design needs the basis matrix in the amounts. Question F2 (§13) |
+| A complete hazard law from knots | `QuantileCurve(probabilities, values)`; a query outside `probability_interval` raises `ValueError`; `complete(TailCompletion(lower=, upper=))` adds linear tails to 0 and 1 and returns a `Distribution` (fw: `_distribution.py:819-960`; `docs/python.md:64-77`) | Reused, as `LossRun` does |
+| Draws | `Distribution.quantile(probabilities)` takes arrays and keeps their shape (fw: `_distribution.py:374`; `docs/python.md:22-24`); `Distribution.sample(size, *, seed)` is `quantile(numpy.random.default_rng(seed).random(size))` (fw: `_distribution.py:437-449`) | Reused. The recipe draws its own uniforms with the same generator, so that series share draws and the basis-risk draws follow, then calls `quantile` |
+| An impact on arrays | `Impact.evaluate(values)` (fw: `_impacts.py:351`); `ImpactReference.resolve(context)` (fw: `_impacts.py:1036`) | Reused, through the evaluation's resolutions (§4) |
+| Exact laws of a response | `Impact.expectation`, `Impact.pushforward` (fw: `_impacts.py:544, 564`) | Not in the core: the design needs the joint draws of index and loss |
+| VaR and CVaR of draws | `Distribution.empirical(samples)` keeps exact `K/N` ranks (fw: `_distribution.py:292-304`), better for equal-weight draws than `discrete`, which groups atoms in a Python loop (`:306-325`); `quantile` takes the lowest value whose rounded rank reaches q (fw: `crates/core/src/numerical.rs:926-932`); `statistics(metrics=[Statistic.CVAR], level=, tail=)` integrates the tail exactly, a partial atom included (fw: `_distribution.py:451`; `numerical.rs:617-654`) | Reused for VaR, CVaR and the return levels. The CVaR equals ADR 0005 §6's. The VaR lacks §6's 1e-10 slack; the fixtures write a quantile on a step as `{"either": [...]}` (ADR 0005 §8), so both pass. The tail weights, coverage and rates stay in numpy |
+| Payout-like functions | `Impact.linear(..., minimum=, maximum=)` (fw: `_impacts.py:254`); `Impact.binned`, bins `[e_i, e_{i+1})` (fw: `crates/core/src/impact/kernel.rs:68-70`), and `Impact.tabulated`. The kernel either refuses or clamps values outside the domain (fw: `kernel.rs:26-49`), and the impact document defaults to `"clamp"` (fw: `crates/core/src/impact/definition.rs:1033-1043`), but the Python constructors fix `"error"` (fw: `_impacts.py:307, 333`) | Not reused: the design needs each family's basis matrix in its amounts, and step, binary and piecewise payouts must pay nothing below the first threshold whatever the index. With clamp exposed in Python, the payouts of stated covers could be framework `Impact`s (question F2) |
 | Units of money | an open `Measurement(quantity=, unit=)` needs no registration (fw: `_measurement.py:556-579`) | A later typed `loss_unit`; the core records a string |
-| Random numbers | Python: numpy `default_rng(seed)` (PCG64) (fw: `_distribution.py:448`). Rust: `rand` 0.9 behind the default feature `sampling` (fw: `crates/core/Cargo.toml:11-22`). The unmerged insurance branch: ChaCha12 streams keyed by SHA-256 of a versioned algorithm name, primary and secondary (fw: `origin/insurance-loss:crates/core/src/insurance/sampling.rs:1-60`) | The core follows the Python convention and records `numpy.random.PCG64`. Pairing with `LossRun`'s trials would need its primary ranks (RiskThinking's question 3) |
+| Random numbers | Python: numpy `default_rng(seed)` (PCG64) (fw: `_distribution.py:448`). Rust: `rand` 0.9 behind the default feature `sampling` (fw: `crates/core/Cargo.toml:11-22`). The unmerged insurance branch: ChaCha12 streams keyed by SHA-256 of a versioned algorithm name (fw: `origin/insurance-loss:crates/core/src/insurance/sampling.rs:1-60`) | The core follows the Python convention and records `numpy.random.PCG64`. Pairing with `LossRun`'s trials would need its primary ranks (RiskThinking's question 3) |
 
-**Does 1.0 change the golden fixtures?** No. Every case of MAR-245 carries its index and loss arrays, design and evaluation blocks alike (ADR 0005 §8); none holds a curve, so 1.0's curve changes (fw: `docs/migration-v1.md:36-50`) don't touch them. They change the 0.11 module's tests on curves, which aren't ported.
+**Does 1.0 change the golden fixtures?** No. Every case of MAR-245 carries its index and loss arrays, design and evaluation blocks alike (ADR 0005 §8); none holds a curve, so 1.0's curve changes (fw: `docs/migration-v1.md:36-50`) don't touch them.
 
-**Which numerics belong where.** 1.0's rule puts numerical algorithms in crc-framework (`docs/development.md:60-61`; `AGENTS.md:44-45`). Recommendations:
+**Which numerics belong where.** 1.0's rule puts numerical algorithms in crc-framework (`docs/development.md:60-61`; fw: `AGENTS.md`, "`crates/core` | All algorithms"), and RiskThinking's own insurance branch put its sampling and its annual-loss metrics there (`crates/core/src/insurance/sampling.rs`, `metrics.rs` with `summarize_annual_losses`). **The core departs from that rule**: about 2,650 lines of numerics (§8: payouts, sample, metrics, design, solver) go into crc-sdk. This is a stated risk, which Marc may put to RiskThinking (question 10):
 
 | Numeric | Recommendation | Reason |
 |---|---|---|
-| Draws, impacts, VaR, CVaR | crc-framework, as it is | Reuse; no new code there |
-| Payout families | the recipe now; crc-framework later, as an `Impact` kind or a payout type, if RiskThinking want it | Each family is 10 to 30 lines of numpy plus its basis matrix. In crc-framework one would be Rust in `crates/core`, a PyO3 binding with `py.detach`, a typed wrapper, a `_core.pyi` stub, a contract entry, a numerical-document schema for JS, and Rust and Python tests: several times the lines, and a framework release before the SDK PR |
-| Basis risk (`ImpactNoise`) | the recipe | Three lines of numpy on the recipe's generator. The nearest framework concept, the insurance branch's secondary damage draws, isn't on `main` |
-| Tail coverage, coverage ratio, rates, correlation, RMSE | the recipe | Short numpy expressions over the design's draws; no framework counterpart |
-| Design LP/QP | the recipe, with `highspy` as an optional extra (Q5) | crc-framework has no solver. A Rust HiGHS binding builds HiGHS's C++ and would not serve the WASM target; whether a solver may enter the Rust core is RiskThinking's question 5 |
+| Curves, draws, impacts, VaR, CVaR | crc-framework, as it is | Reuse; no new code there |
+| Payout families | the recipe; crc-framework later, as `Impact`s with clamp (F2) | Each family is 10 to 30 lines of numpy plus its basis matrix. In crc-framework it is Rust, a binding, a typed wrapper, a stub, a contract entry, a schema for JS, and Rust and Python tests, and a framework release before the SDK PR |
+| Basis risk (`ImpactNoise`) | the recipe | Three lines of numpy on the recipe's generator; no framework counterpart on `main` |
+| Cost-of-capital premium | the recipe | Inside the design it is the LP rows of the payout's CVaR, so it lives where the LP is built; for a stated cover it is one framework CVaR call |
+| Tail weights, coverage, rates, correlation, RMSE | the recipe | Short numpy expressions over the design's draws. The insurance branch's `summarize_annual_losses` shows RiskThinking may want such metrics in Rust |
+| Grid, LP/QP, cutting planes | the recipe, with `highspy` as an optional extra (Q5) | The grid and the cutting planes orchestrate solver calls, so they go where the solver is. crc-framework has no solver; a Rust HiGHS binding builds HiGHS's C++ and would not serve the WASM target |
 
 **How crc-framework takes contributions** (fw: `AGENTS.md`; `docs/development.md`; `docs/releases.md`):
 
@@ -192,72 +205,81 @@ Plain functions on numpy arrays, in the files of §2.
 | Tests | `cargo fmt`, `cargo clippy -D warnings`, `cargo test`; `pytest` and `mypy` after `maturin develop`; shared accepted and rejected fixtures; explicit numerical tolerances |
 | Release | one version in the root `Cargo.toml`, matching `release.json`; the framework is released before an SDK that needs it (crc-sdk `docs/development.md:89-91`) |
 | Licence | AGPL-3.0-or-later, as crc-sdk |
-| Precedent | RiskThinking's own insurance numerics on `origin/insurance-loss`: 1,988 lines of Rust in `crates/core/src/insurance/`, a 300-line binding, a 682-line Python wrapper, +449 contract lines and 774 lines of Python tests (`git diff --numstat` against `main`) |
+| Precedent | RiskThinking's insurance numerics on `origin/insurance-loss`: 1,988 lines of Rust in `crates/core/src/insurance/`, a 300-line binding, a 682-line Python wrapper, +449 contract lines and 774 lines of Python tests (`git diff --numstat` against `main`) |
 
-**What that does to the budget and the PRs.** With the recommendations, the core needs no crc-framework PR, and reusing its VaR and CVaR saves about 50 lines (§8). If RiskThinking want the payouts or metrics in crc-framework, that is a PR series into crc-framework first: on the precedent above, about 1,500 to 2,000 lines of Rust, bindings, contract and tests for the four families. It needs a fork of crc-framework among the program's repositories, which is Marc's call (question M1, §13). The crc-sdk PRs then shrink by their numpy files and wait for a framework release.
+**What that does to the budget and the PRs.** As recommended, the core needs no crc-framework PR. If RiskThinking want the payouts or metrics in crc-framework, a PR series into crc-framework comes first: on the precedent, about 1,500 to 2,000 lines of Rust, bindings, contract and tests for the four families. It needs a fork of crc-framework among the program's repositories (M1). The crc-sdk PRs then shrink by those files and wait for a framework release.
 
 ## 7. Tests and parity
 
 - **Offline and synthetic**, in crc-sdk's `tests/`, under `pytest`, `mypy` (strict) and `ruff`. Test lines at most the source's, per PR.
 - **Behaviour, not message texts** (Q7): a test asserts the type of an error, a failure code or a value, never the words of a message.
-- **The golden fixtures** (MAR-245, `parity/crc/`): the core keeps the 60 one-asset cases of the 100. By `scope`, `kind`, `split` and `pricing` (counted from the case files): 23 core designs on the whole sample, 1 closed-form design, 4 core and 16 closed-form evaluations of fixed covers, and 16 designs with an evaluation block (8 holdout, 6 k-fold, 2 fresh draws); 37 under pure pricing and 23 under a cost-of-capital load; `compare_parameters` is `"exact"` in 40 and `"none"` in 20, so none needs ranges. Every case gives its evaluation block, so the k-fold and holdout cases test the design and the metrics without the splits. The 40 joint and cluster cases return with stage 1.
-- **Their size.** The 60 cases are 21,052 lines and 635,592 bytes as written, 473,161 bytes minified (measured). They are copied minified, one case per line, into one JSON Lines file with a README that keeps each case's licence (CC0-1.0, and CC-BY-4.0 with the attribution for the 14 `thesis` cases; `parity/crc/README.md`). The data counts toward no line budget. RiskThinking may want less data (question 7): the 46 CC0 cases alone are 425,030 bytes as written.
-- **The recipe's tests** build an evaluation in memory with `Dataset.from_quantiles` and `Dataset.fit`, as 1.0's guides do (`docs/evaluation.md`), and check rows, failure codes, shared draws across series, the design and test splits, explain without I/O, and the artifact's round trip.
+- **The golden fixtures** (MAR-245, `parity/crc/`), counted from the case files:
+  - PR 1 takes 18 of the 20 one-asset evaluation cases, 6 of them under a cost-of-capital load. The 2 `-options` cases state ℓ and ε above 0 (`loss_thresholds` [150, 262.5] with `payout_threshold` 50; [0, 1e5, 1e6] with 1e4), so they go to stage 5.
+  - PRs 3 and 4 take the 40 one-asset design cases: the 17 MSE cases in PR 4, the rest in PR 3. 16 of them carry an evaluation block (8 holdout, 6 k-fold, 2 fresh draws), so the splits are tested without being built. `compare_parameters` is `"exact"` or `"none"` in all 40. The 23 LP designs that assert `unique: true` go unchecked on that field, since the core leaves it null; stage 5 checks it.
+  - Stage 1 takes the 40 joint and cluster cases. 14 of them compare `within_ranges` (9 joint, 5 cluster): stage 1 checks their objective and metrics, and stage 5 their ranges (`parity/crc/README.md:245`).
+- **Their size.** The 60 one-asset cases are 21,052 lines and 635,592 bytes as written, 473,161 bytes minified (measured). They are copied minified, one case per line, into one JSON Lines file with a README that keeps each case's licence (CC0-1.0, and CC-BY-4.0 with the attribution for the 14 `thesis` cases; `parity/crc/README.md`). The data counts toward no line budget. RiskThinking may want less data (question 7): the 46 CC0 cases alone are 425,030 bytes as written.
+- **The recipe's tests** build an evaluation in memory with `Dataset.from_quantiles` and `.probabilities([...])` (`docs/evaluation.md`), and check rows, failure codes, shared draws across series, the design and test splits, `explain` without I/O, and the artifact's round trip.
 
 ## 8. The budget and the PR split
 
-**Source budget: about 3,500 lines**, docstrings included (1.0's style is short: `AGENTS.md` asks for no narration, and its docs keep compact examples):
+**Re-estimated: about 4,850 source lines**, against Q2's 3,500, docstrings included at 1.0's density:
 
-| File | Lines | Against 0.11 |
+| File | Lines | Measured against |
 |---|--:|---|
-| `_parametric_cover.py` | 550 | `cover.py`, `parameters.py`, `objectives.py`, `pricing.py`, `constraints.py`, `basis_risk.py` CORE-tagged: 1,321 (A) |
+| `_parametric_cover.py` | 600 | 0.11's `cover.py`, `parameters.py`, `objectives.py`, `pricing.py`, `constraints.py`, `basis_risk.py`, CORE-tagged: 1,321 (A) |
 | `_parametric_payouts.py` | 350 | `payouts.py` CORE: 888 |
 | `_parametric_sample.py` | 250 | sampling on curves and the basis-risk models, concern d: 1,235 |
 | `_parametric_metrics.py` | 250 | `metrics.py` and `_risk.py` CORE: 693 |
-| `_parametric_design.py` | 650 | `design.py` CORE: 1,934 |
-| `_parametric_solver.py` | 450 | `_solver.py` CORE: 1,079 |
-| `_parametric_run.py` | 600 | the plan's core builders and execution, concern m: 7,268 for both routes |
-| `_parametric_result.py` | 400 | `evaluate.py` CORE: 1,353 |
-| **Total** | **3,500** | |
+| `_parametric_design.py` | 1,100 | `design.py` and `_solver.py` CORE: 3,013, of which `solve_qp` (about 40) is dropped (A, §3; `a_classified.json`) |
+| `_parametric_solver.py` | 700 | |
+| `_parametric_run.py` | 800 | `LossRun`'s `_loss.py` and `_loss_inputs.py`: 1,051 (C, §5) |
+| `_parametric_result.py` | 800 | `LossRun`'s `_loss_artifact.py`: 998 |
+| **Total** | **4,850** | |
 
-The design and the solver are the tightest, at 1,100 lines against 3,013 CORE-tagged lines in 0.11. They fit because the core drops the HiGHS QP path and its fallback, the ranges, the refinement and the numpy grid (§5). If a PR overruns its file's budget by more than 10 %, the issue stops and reports to Marc with the number (§10).
+- **Design and solver, 1,800 against about 2,900.** The refinement, the ranges and the local searches are already outside the 3,013 (supporting lines). The cut rests on three simplifications, estimated, not measured: one cover class, so no dispatch over the `PayoutFunction`, `LinearInAmounts` and `LinearConstraints` protocols; frozen dataclasses with plain checks instead of pydantic models and their messages; and docstrings at 1.0's density (0.11's are 18.3 % of its lines, A). If the first PR shows it doesn't fit, the issue stops (§10).
+- **Run and result, 1,600 against `LossRun`'s 2,049**, whose numerics are all in Rust. Ours read rows and write an artifact as `LossRun`'s do, with a smaller metadata.
+- **One docs page**, `docs/parametric.md`, at most 300 lines, grown PR by PR; its examples run under `tools/check_examples.py`.
 
-**One docs page**, `docs/parametric.md`, at most 300 lines, whose examples run under `tools/check_examples.py`.
-
-**Three PRs into crc-sdk**, each at most about 1,500 lines of source, with its tests (at most its source) and its share of the contract and docs on top:
+**Five PRs into crc-sdk**, each at most about 1,500 source lines, with its tests (at most its source) and its share of contract and docs on top:
 
 | PR | Content | Names | Source | Story it completes |
 |---|---|---|--:|---|
-| 1 | Stated covers on a fitted curve: `PayoutKind`, `ParametricCover`, `BasisRisk`, `ParametricSampling`; payouts, the sample, the metrics; `ParametricRun` with `explain`, `validate` and `read`; `ParametricResult`, `ParametricMetadata`; the 20 evaluation fixtures | 7 | 1,500 | 2 and 3 for stated covers: metrics per cover, scenario and period, covers side by side |
-| 2 | Design: `FreeTerm`, `Objective`, `Pricing`, `Budget`, `ParametricDesign`, `ParametricDesignRecord`; the grid, LP, QP, cutting planes and checks; the extra; test draws and the `split` column; the 40 design fixtures | 6 | 1,350 | 1: a cover designed for a goal under a budget and a limit, with held-out numbers |
-| 3 | Persistence and the guide: `ParametricExecution`, `ParametricArtifact`; `write` and `open`; the format `parametric` 1.0 with its schema and generator; the docs page | 2 | 650 | 1 to 3 as a 1.0 user runs them, saved and reopened |
+| 1 | Stated covers on arrays: `PayoutKind`, `ParametricCover` (fixed terms), `BasisRisk`, `Pricing`; payouts, the sample, the premium and the metrics; 18 evaluation fixtures | 4 | 1,100 | none alone: the numerics of stories 2 and 3 |
+| 2 | The recipe for stated covers: `ParametricSampling`, `ParametricRun` (`explain`, `validate`, `read`), `ParametricResult`, `ParametricMetadata`; the checks, the curve route, rows and failures | 4 | 1,050 | 2 and 3 for stated covers: metrics per cover, scenario and period, covers side by side |
+| 3 | Design on the LP route: `FreeTerm`, `Objective`, `Budget`, `ParametricDesign`, `ParametricDesignRecord`; the grid, the LPs, the checks, the extra; test draws; 23 design fixtures | 5 | 1,400 | 1 for E[U] and weighted CVaR, with held-out numbers |
+| 4 | MSE: the dense active-set QP, the cutting planes, uniqueness by eigenvalue; 17 MSE fixtures | 0 | 700 | 1 for MSE |
+| 5 | Persistence and the guide: `ParametricExecution`, `ParametricArtifact`; `write`, `open`; the format `parametric` 1.0 with its schema and generator | 2 | 600 | 1 to 3 as a 1.0 user runs them, saved and reopened |
 
-- **"About 1,500 lines" is read as source lines.** With tests up to the source and the contract entries, a PR's diff is up to about 3,200 lines; PR 3 adds a generated schema (`LossRun`'s was 808 lines, C §5). If Marc meant the whole diff, the core needs five or six PRs, or tests at about half the source. The budget is Marc's to change.
+- **This exceeds Q2** in lines (4,850 against 3,500) and PRs (five against three). The alternative that keeps close to Q2: move persistence (PR 5) and MSE under a cost-of-capital load to stage 5, about 3,800 lines in four PRs, with results that can't be saved. Marc decides (M5).
+- **"About 1,500 lines" is read as source lines.** With tests up to the source and the contract entries, a PR's diff is up to about 3,200 lines; PR 5 adds a generated schema (`LossRun`'s was 808 lines, C §5). If Marc meant the whole diff, the PRs halve again (M2).
 - **The names fill the cap of 15.** A sixteenth needs Marc.
 
 ## 9. The addition stages, in Q3's order
 
-Each stage is an issue series, each issue with its story and budget (§10), and ends as PRs on crc-sdk 1.0 of at most about 1,500 source lines each. The 0.11 lines are the review's subject totals (A, "Lines by subject").
+Each stage is an issue series, each issue with its story and budget (§10), and ends as PRs on crc-sdk 1.0 of at most about 1,500 source lines each. The 0.11 lines are the review's subject totals (A, "Lines by subject"). A stage's budget changes when what it holds changes, and the issue says so.
 
-| Stage | User story | Adds to the surface | Budget | 0.11 |
+| Stage | User story | Adds | Budget | 0.11 |
 |---|---|---|--:|--:|
-| 1. Portfolio approach | One risk owner with several sites designs covers on the owner's total loss and payout; joint calibration as a method (publication rule) | several assets in one run; `CalibrationScope` (`individual()`, `joint()`, `clustered(clusters)`); `Dependence` (`independent()`, `comonotonic()`, `gaussian(correlation)`) for draws across assets; `PayoutAllocation` (`VALUE`, `LOSS`); rows at the total and per asset; the 40 joint and cluster fixtures | 1,500 | 5,968 (dependence and scopes) |
-| 2. Several hazards | A cover that pays on two hazards at one site | an evaluation of a `DatasetCollection` (`crc_sdk/_collection.py:847`); `PayoutCombination` (`SUM`, `MAX`); `LossCombination` (a capped sum of damages); dependence across hazards from stage 1 | 1,200 | 5,516 |
-| 3. Per-year route | A cover on observed or modelled years (`Samples`: ERA5, CMIP6, GHCNh) | `ParametricRun.from_samples(samples, assets, *, ...)`; the asset matched to its support by the recipe, since `Samples` can't be evaluated (`crc_sdk/_terminals.py:203-225`); `YearSplit` (holdout, k-fold by year blocks); a second series as the index | 1,000 | 3,504 |
+| 1. Portfolio approach | One risk owner with several sites designs covers on the owner's total loss and payout; joint calibration as a method (publication rule) | several assets in one run; `CalibrationScope` (`individual()`, `joint()`, `clustered(clusters)`); `Dependence` (`independent()`, `comonotonic()`, `gaussian(correlation)`) across assets; `PayoutAllocation` (`VALUE`, `LOSS`); rows at the total and per asset; the 40 joint and cluster fixtures | 1,500 | 5,968 |
+| 2. Several hazards | A cover that pays on two hazards at one site, alone or as a package of separate contracts | an evaluation of a `DatasetCollection` (`crc_sdk/_collection.py:847`); `PayoutCombination` (`SUM`, `MAX`); `LossCombination` (`CAPPED_SUM`, `COMPOUND`, 0.11's `CompoundDamage`); `ParametricPackage`, separate contracts under one budget with its split (0.11's `CoverPackage`, `split_budget`) and a payout breakdown per contract (`payout_breakdown`); dependence across hazards from stage 1 | 1,700 | 5,516 |
+| 3. Per-year route | A cover on observed or modelled years, or on the user's own table of years | `ParametricRun.from_samples(samples, assets, *, ...)` for 1.0 `Samples` (ERA5, CMIP6, GHCNh), matched to the asset's support by the recipe, since `Samples` can't be evaluated (`crc_sdk/_terminals.py:203-225`); `ParametricRun.from_table(table, *, ...)` for the user's own index and loss per year (0.11's `OutcomeSample.from_table`); `YearSplit` (holdout, k-fold by year blocks) with pooled k-fold rows (`compare_pooled`); several hazards' years (`sample_annual_hazards`); a second series as the index; the short-block flags (ADR 0005 §6, erratum 30) | 1,650 | 3,504 |
 | 4. A simple interval by year | A metric reported with an interval from resampled years or draws | `ParametricInterval(*, level, resamples, seed)`; `lower` and `upper` on the rows. Whole years are resampled, all assets and hazards of a year together; no re-dealing of rank blocks | 400 | 1,829 |
-| 5. Design extras | Finer control of a designed cover | `unique` and ranges on the LP route (ADR 0005 §5.4); the local refinement (§5.3); `Pricing.expected_payout_multiple`; `BasisRisk.hazard_noise` (Amendment 6, F2); a budget frontier; metric thresholds ℓ and ε; `payout_frequency`, `unidentified_share` | 1,200 | 2,913 |
-| **Total** | | 7 names | **5,300** | |
+| 5. Design extras | Finer control of a designed cover | `unique` and ranges on the LP route (ADR 0005 §5.4), with the 14 `within_ranges` and 23 `unique` checks; the local refinement (§5.3); `Pricing.expected_payout_multiple`; `BasisRisk.hazard_noise` (Amendment 6, F2); a budget frontier; metric thresholds ℓ and ε, with the 2 `-options` fixtures; `payout_frequency`, `unidentified_share` | 1,200 | 2,913 |
+| **Total** | | 8 names | **6,450** | |
 
-With the core: about 8,800 source lines and 22 names, against 43,101 lines and 114 names in 0.11.
+With the core: about 11,300 source lines and 23 names, against 43,101 lines and 114 names in 0.11.
 
-**Parked, not staged.** Scenario sets with their refusals and windows of horizons as mixtures (ADR 0005 Amendment 4), trend treatments (Amendment 2), pools of model runs, `StepGrid`, re-dealt rank blocks in intervals, and the leakage checks. Each returns only through its own issue (Q3).
+**Parked, not staged.** Each returns only through its own issue (Q3): scenario sets with their refusals, `allocate_scenarios`, `payout_breakdown_scenarios`, and windows of horizons as mixtures (ADR 0005 Amendment 4); trend treatments (Amendment 2); pools of model runs; `StepGrid`; `EmpiricalCopula`, which rests on reference years; re-dealt rank blocks in intervals; the leakage checks between samples.
 
-**Proposed to drop for good** (Marc decides):
+**Proposed to drop for good** (M4):
 
-- `ParametricPlan`, `setup_text` and the metadata document (Q4 decided it);
+- `ParametricPlan`, `setup_text` and the metadata document (Q4 decided it), with `SampleProvenance`, which `ParametricMetadata` replaces, and the cover's terms in words (`terms_text`);
 - `register_payout`, a process-global registry, which 1.0 says it doesn't have (`docs/scientific-data.md:79`);
-- `UserObjective` and the numpy grid route, which take an arbitrary callable, as 1.0 removed for impacts (`docs/migration-v1.md:326`);
-- the 15 error classes and the warning of 0.11, against 1.0's two exceptions and failure rows (`docs/migration-v1.md:629`);
+- the user protocols `PayoutFunction`, `LinearInAmounts`, `LinearConstraints`, `HazardBasisRisk`, `DependenceModel` and `CombineRule`, which `PayoutKind` and the named constructors replace; and `UserObjective` with the numpy grid route, which take an arbitrary callable, as 1.0 removed for impacts (`docs/migration-v1.md:326`);
+- HiGHS's QP solver above 100 columns and its fallback (§5);
+- the pairing and lineage checks: one seed per run can't leak between design and test;
+- `OutcomeSample.to_table` and the written-sample round trip, which the artifact replaces;
+- the 14 exception classes and the warning of 0.11, against 1.0's two exceptions and failure rows (`docs/migration-v1.md:629`);
 - `write_comparison` and `to_long`: the table is long, and writing is the `write` terminal;
 - 0.11's patches to 0.x (`asset_curves()`), gone with 0.x.
 
@@ -275,9 +297,10 @@ ADR 0005 is the frozen record of the 0.11 module on `parametric`. It is at 511,9
 
 ## 12. Consequences
 
-- The core is small enough to review: about 3,500 lines and 15 names, against 43,101 and 114.
+- The core is small enough to review: about 4,850 lines and 15 names, against 43,101 and 114.
 - The loss side, the curves, units, scenarios, periods, failures and execution are 1.0's, so the core holds no impact, unit or provenance logic.
-- The core loses, until a stage returns them: per-year samples, several assets or hazards, intervals, LP ranges and the refinement.
+- Between the evaluation's knots the hazard is interpolated, so results depend on the stated probability grid and tail completion, both recorded.
+- The core loses, until a stage returns them: per-year samples and user tables, several assets or hazards, intervals, LP ranges and the refinement.
 - Hashes and `design_id`s differ from 0.11's; the golden fixtures hold none (ADR 0005 §5.4).
 
 ## 13. Open questions
@@ -287,21 +310,22 @@ ADR 0005 is the frozen record of the 0.11 module on `parametric`. It is at 511,9
 | # | Question | What the answer changes here |
 |---|---|---|
 | 1 | The home | Decided (a) on our side. A no moves the core to the fallback of §2 |
-| 2 | Does `LossRun` go into 1.0, and should a parametric recipe take the same inputs? | §3: `ParametricRun` would take `LossRun`'s inputs, or a `LossResult`, beside its own |
+| 2 | Does `LossRun` go into 1.0, and should a parametric recipe take the same inputs? | §3, §4: `ParametricRun` already takes `LossRun`'s inputs; it could also read a `LossResult` |
 | 3 | Per-trial hazard values or ranks for pairing | §6: a cover could be read on `LossRun`'s trials; today the core draws its own |
-| 4 | A public seeded way to draw years from a curve per asset; is joining evaluation rows to dataset rows on `support_id`, then `decode_curves`, intended? | §4: the join (about 100 lines) would become one call |
+| 4 | A public seeded way to draw years from a curve per asset; is joining evaluation rows to dataset rows on `support_id`, then `decode_curves`, intended? | §4: route (ii) could replace route (i) for fitted curves, without the interpolation between knots |
 | 5 | The solver dependency: crc-sdk extra or crc-framework | §5, §6: the extra moves, or the design moves to crc-framework (M1) |
 | 6 | Does crc-framework take outside contributions, and in which language? | §6: whether the payouts or metrics can move |
 | 7 | The PR size they can review; are `docs/api-reference.md` and `docs/development.md` the API guideline of 2026-11-09? | §7, §8: the split and the fixtures' size |
 | 8 | Should open PR #41 be closed and replaced? | §2: the first PR's framing |
 | 9 | When do rainfall, wind and heat bind in `.impact()`? | §4: until then a cover on those hazards needs a user model |
+| 10 | (proposed, for Marc to add) Where do they want a parametric recipe's numerics: payouts, metrics, the design? | §6, §8: the departure from 1.0's rule stands, or a crc-framework series comes first |
 
 **For crc-framework** (to RiskThinking, with question 6):
 
 | # | Question | What it changes |
 |---|---|---|
 | F1 | Should `Distribution` offer a public inverse survival for draws near q = 1, as crc-sdk uses privately (`crc_sdk/_evaluation.py:893`; fw: `_distribution.py:624`)? | §5: draws in the far upper tail |
-| F2 | Would they take a payout as an `Impact` kind with a flat value outside its domain? | §6: payouts and exact expected payouts move to crc-framework |
+| F2 | Would they expose `"clamp"` outside the domain in `Impact.binned` and `Impact.tabulated`, which the kernel and the document already support? | §6: stated covers' payouts as framework `Impact`s, with exact expected payouts |
 | F3 | Would they declare constructors for `Explanation`, `Operation`, `ExecutionReport` and `ExecutionDiagnostic`? | §2: the fallback rests on them |
 
 **For Marc:**
@@ -309,13 +333,15 @@ ADR 0005 is the frozen record of the 0.11 module on `parametric`. It is at 511,9
 | # | Question | What it changes |
 |---|---|---|
 | M1 | A fork of `crc-framework-rs` among the program's repositories, if any numerics move there | §6, §8: a PR series into crc-framework before crc-sdk's |
-| M2 | "About 1,500 lines" per PR: source only, or the whole diff? | §8: three PRs, or five or six |
+| M2 | "About 1,500 lines" per PR: source only, or the whole diff? | §8: five PRs, or about ten |
 | M3 | The integration branch's name, `parametric-v1` | §2 |
 | M4 | The drop list of §9 | §9 |
+| M5 | The core's budget: about 4,850 lines in five PRs, or about 3,800 in four with persistence and MSE under a cost-of-capital load moved to stage 5 | §8, §9 |
+| M6 | Whether to ask RiskThinking question 10 now, or build against the stated departure from 1.0's rule and ask with the first PR | §6 |
 
 ## Not verified
 
-- Nothing here was built or run. The budgets are estimates against the review's counts; the sizes measured for this record are the fixtures' (§7), crc-sdk's source lines and exports (§1), crc-framework's line counts and the insurance branch's (§6), and ADR 0005's bytes (§11).
-- Whether `Distribution.quantile` on 10,000 or more draws is fast enough per series, and whether `Distribution.discrete(...).statistics` on such draws is fast enough per metric, was not timed.
-- Whether CRC Open's curves decode to `cf.Distribution` or to `cf.QuantileCurve` was not checked; if the latter, the core needs `Dataset.fit` before every run.
+- Nothing here was built or run. The budgets are estimates against the review's counts and `LossRun`'s; the sizes measured for this record are the fixtures' (§7), crc-sdk's source lines and exports (§1), crc-framework's line counts and the insurance branch's (§6), and ADR 0005's bytes (§11).
+- The speed of `Distribution.quantile` and of `Distribution.empirical(...).statistics` on 10,000 or more draws per series was not timed.
+- How fine a probability grid route (i) needs, against a fitted curve's exact quantiles, was not measured.
 - The fallback's reliance on undeclared constructors (§2) was read in the contract, not tried.
